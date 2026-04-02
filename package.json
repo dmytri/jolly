@@ -14,7 +14,10 @@
     "jolly": "bun src/cli/index.ts",
     "dev": "bun --watch src/cli/index.ts",
     "test": "bun test",
-    "typecheck": "bun tsc --noEmit"
+    "typecheck": "bun tsc --noEmit",
+    "release": "npm version patch && npm publish",
+    "release:minor": "npm version minor && npm publish",
+    "release:major": "npm version major && npm publish"
   },
   "dependencies": {
     "dotenv": "^17.4.0",
