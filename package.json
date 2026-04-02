@@ -15,9 +15,9 @@
     "dev": "bun --watch src/cli/index.ts",
     "test": "bun test",
     "typecheck": "bun tsc --noEmit",
-    "release": "npm version patch && npm publish",
-    "release:minor": "npm version minor && npm publish",
-    "release:major": "npm version major && npm publish"
+    "release": "npm version patch --no-git-tag-version && npm publish",
+    "release:minor": "npm version minor --no-git-tag-version && npm publish",
+    "release:major": "npm version major --no-git-tag-version && npm publish"
   },
   "dependencies": {
     "dotenv": "^17.4.0",
