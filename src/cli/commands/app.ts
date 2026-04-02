@@ -1,8 +1,15 @@
 import type { CommandModule } from 'yargs';
 import { createApp } from '../../commands/app.js';
+import { promptAndSaveToken } from '../../api/auth.js';
 
 type AppType = 'dashboard-extension' | 'payment' | 'webhook';
 type PaymentProvider = 'dummy' | 'stripe';
+
+async function ensureToken() {
+  if (!process.env.SALEOR_CLOUD_TOKEN) {
+    await promptAndSaveToken();
+  }
+}
 
 export const appCommands: CommandModule = {
   command: 'app <action>',
@@ -40,6 +47,9 @@ export const appCommands: CommandModule = {
               description: 'Environment ID to register app with',
             }),
         handler: async (argv) => {
+          if (argv.environment) {
+            await ensureToken();
+          }
           await createApp(
             argv.name,
             argv.type as AppType,

@@ -1,5 +1,12 @@
 import type { CommandModule } from 'yargs';
 import { createStore, listStores, createEnvironment } from '../../commands/store.js';
+import { promptAndSaveToken, getToken } from '../../api/auth.js';
+
+async function ensureToken() {
+  if (!process.env.SALEOR_CLOUD_TOKEN) {
+    await promptAndSaveToken();
+  }
+}
 
 export const storeCommands: CommandModule = {
   command: 'store <action>',
@@ -24,6 +31,7 @@ export const storeCommands: CommandModule = {
               default: 'us-east-1',
             }),
         handler: async (argv) => {
+          await ensureToken();
           await createStore(argv.name, argv.region);
         },
       })
@@ -32,6 +40,7 @@ export const storeCommands: CommandModule = {
         describe: 'List your Saleor Cloud stores',
         builder: (yargs) => yargs,
         handler: async () => {
+          await ensureToken();
           await listStores();
         },
       })
@@ -58,6 +67,7 @@ export const storeCommands: CommandModule = {
                     demandOption: true,
                   }),
               handler: async (argv) => {
+                await ensureToken();
                 await createEnvironment(argv.store as string, argv.name as string);
               },
             }),
