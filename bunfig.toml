@@ -1,5 +1,5 @@
 [build]
-target = "bun"
+target = "node"
 
 [install]
 peer = true

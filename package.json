@@ -9,7 +9,7 @@
     "init-saleor-jolly": "./dist/agent.js"
   },
   "scripts": {
-    "build": "bun build src/cli/index.ts --outdir=dist --target=bun && bun build src/cli/bootstrap.ts --outdir=dist --target=bun && bun build src/cli/agent.ts --outdir=dist --target=bun",
+    "build": "bun build src/cli/index.ts --outdir=dist --target=node --external yargs --external dotenv && bun build src/cli/bootstrap.ts --outdir=dist --target=node --external yargs --external dotenv && bun build src/cli/agent.ts --outdir=dist --target=node --external yargs --external dotenv",
     "dev": "bun --watch src/cli/index.ts",
     "test": "bun test",
     "typecheck": "bun tsc --noEmit"
