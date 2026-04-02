@@ -9,7 +9,7 @@
     "init-jolly": "./dist/agent.js"
   },
   "scripts": {
-    "build": "bun build src/cli/index.ts --outdir=dist --target=node --external yargs --external dotenv && bun build src/cli/bootstrap.ts --outdir=dist --target=node --external yargs --external dotenv && bun build src/cli/agent.ts --outdir=dist --target=node --external yargs --external dotenv",
+    "build": "bun build src/cli/index.ts --outdir=dist --target=node --external yargs --external @dotenvx/dotenvx && bun build src/cli/bootstrap.ts --outdir=dist --target=node --external yargs --external @dotenvx/dotenvx && bun build src/cli/agent.ts --outdir=dist --target=node --external yargs --external @dotenvx/dotenvx",
     "prepublishOnly": "bun run build",
     "jolly": "bun src/cli/index.ts",
     "dev": "bun --watch src/cli/index.ts",
@@ -20,7 +20,7 @@
     "release:major": "npm version major --no-git-tag-version && npm publish"
   },
   "dependencies": {
-    "dotenv": "^17.4.0",
+    "@dotenvx/dotenvx": "^1.59.1",
     "yargs": "^17.7.2"
   },
   "devDependencies": {

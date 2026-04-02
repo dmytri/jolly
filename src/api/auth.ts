@@ -1,4 +1,4 @@
-import { config } from 'dotenv';
+import { config } from '@dotenvx/dotenvx';
 import { writeFileSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
