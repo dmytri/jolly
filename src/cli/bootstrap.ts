@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 import { createStore } from '../commands/store.js';
 
 async function main() {

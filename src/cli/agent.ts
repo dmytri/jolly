@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 import { setupAgent, installSkillsCommand } from '../agents/setup.js';
 
 async function main() {
