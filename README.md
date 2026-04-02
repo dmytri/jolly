@@ -74,9 +74,20 @@ npm init @saleor/jolly
 
 ## Environment Variables
 
+You can set environment variables via a `.env` file:
+
 ```bash
-# Required for store and app commands
+# Copy the example file
+cp .env.example .env
+
+# Edit with your token
 SALEOR_CLOUD_TOKEN=your-token-here
+```
+
+Or export directly:
+
+```bash
+export SALEOR_CLOUD_TOKEN=your-token-here
 ```
 
 Get your token at: https://cloud.saleor.io/settings/api-tokens

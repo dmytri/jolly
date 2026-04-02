@@ -1,3 +1,7 @@
+import { config } from 'dotenv';
+
+config();
+
 export function getToken(): string {
   const token = process.env.SALEOR_CLOUD_TOKEN;
   if (!token) {
