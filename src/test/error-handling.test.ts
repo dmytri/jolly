@@ -76,7 +76,7 @@ describe('Error Handling', () => {
           const { SaleorCloudClient } = await import('../api/client');
           const client = new SaleorCloudClient(fixtures.token);
 
-          await expect(client.getStores()).rejects.toThrow('401');
+          await expect(client.getOrganizations()).rejects.toThrow('401');
         });
       });
 
@@ -87,7 +87,7 @@ describe('Error Handling', () => {
           const { SaleorCloudClient } = await import('../api/client');
           const client = new SaleorCloudClient(fixtures.token);
 
-          await expect(client.createStore('test', 'us-east-1')).rejects.toThrow('403');
+          await expect(client.createProject('test-org', 'test', 'us-east-1')).rejects.toThrow('403');
         });
       });
 
@@ -98,7 +98,7 @@ describe('Error Handling', () => {
           const { SaleorCloudClient } = await import('../api/client');
           const client = new SaleorCloudClient(fixtures.token);
 
-          await expect(client.getEnvironments('store-1')).rejects.toThrow('500');
+          await expect(client.getEnvironments('test-org', 'test-project')).rejects.toThrow('500');
         });
       });
 
@@ -109,7 +109,7 @@ describe('Error Handling', () => {
           const { SaleorCloudClient } = await import('../api/client');
           const client = new SaleorCloudClient(fixtures.token);
 
-          await expect(client.createEnvironment('bad-id', 'staging')).rejects.toThrow('404');
+          await expect(client.createEnvironment('bad-org', 'bad-project', 'staging', 'us-east-1')).rejects.toThrow('404');
         });
       });
     });
@@ -118,17 +118,17 @@ describe('Error Handling', () => {
   describe('API Request Headers', () => {
     Given('a SaleorCloudClient with a token', () => {
       When('making any request', () => {
-        Then('it should include Authorization Bearer header', async () => {
+        Then('it should include Authorization Token header', async () => {
           const fetchMock = mockFetch({
-            '/stores': { stores: [] },
+            '/organizations': { organizations: [] },
           });
 
           const { SaleorCloudClient } = await import('../api/client');
           const client = new SaleorCloudClient(fixtures.token);
-          await client.getStores();
+          await client.getOrganizations();
 
           const [, opts] = fetchMock.mock.calls[0];
-          expect(opts.headers.Authorization).toBe(`Bearer ${fixtures.token}`);
+          expect(opts.headers.Authorization).toBe(`Token ${fixtures.token}`);
           expect(opts.headers['Content-Type']).toBe('application/json');
         });
       });

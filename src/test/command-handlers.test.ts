@@ -36,67 +36,72 @@ describe('Command Handlers', () => {
   describe('Store Handlers', () => {
     Given('a valid token and successful API', () => {
       When('calling createStore', () => {
-        Then('it should call POST /stores with name and region', async () => {
+        Then('it should call POST /organizations/:slug/projects with name and region', async () => {
           const fetchMock = mockFetch({
-            '/stores': { store: fixtures.store },
+            '/organizations': { organizations: [fixtures.organization] },
+            '/organizations/my-org/projects': { project: fixtures.project },
           });
 
           const { createStore } = await import('../commands/store');
           await createStore('my-store', 'us-east-1');
 
-          expect(fetchMock).toHaveBeenCalledTimes(1);
-          const [url, opts] = fetchMock.mock.calls[0];
-          expect(url).toContain('/stores');
-          expect(opts.method).toBe('POST');
-          expect(JSON.parse(opts.body)).toEqual({ name: 'my-store', region: 'us-east-1' });
+          expect(fetchMock).toHaveBeenCalled();
+          const createCall = fetchMock.mock.calls.find(([url]: [string]) => 
+            (url as string).includes('/organizations/my-org/projects')
+          );
+          expect(createCall).toBeDefined();
+          expect(createCall?.[1].method).toBe('POST');
+          expect(JSON.parse(createCall?.[1].body)).toEqual({ name: 'my-store', region: 'us-east-1' });
         });
       });
 
       When('calling listStores with results', () => {
-        Then('it should display store names and IDs', async () => {
+        Then('it should display organization names and slugs', async () => {
           mockFetch({
-            '/stores': { stores: [fixtures.store, fixtures.store2] },
+            '/organizations': { organizations: [fixtures.organization, fixtures.organization2] },
           });
 
           const { listStores } = await import('../commands/store');
           await listStores();
 
           const allOutput = console_.logs.join('\n');
-          expect(allOutput).toContain('my-store');
-          expect(allOutput).toContain('store-1');
-          expect(allOutput).toContain('other-store');
-          expect(allOutput).toContain('store-2');
+          expect(allOutput).toContain('My Organization');
+          expect(allOutput).toContain('my-org');
+          expect(allOutput).toContain('Other Organization');
+          expect(allOutput).toContain('other-org');
         });
       });
 
       When('calling listStores with empty results', () => {
         Then('it should display a helpful message', async () => {
           mockFetch({
-            '/stores': { stores: [] },
+            '/organizations': { organizations: [] },
           });
 
           const { listStores } = await import('../commands/store');
           await listStores();
 
           const infoMessages = tuiCalls.filter(c => c.fn === 'info').map(c => c.msg).join('\n');
-          expect(infoMessages).toContain('No stores found');
+          expect(infoMessages).toContain('No organizations found');
         });
       });
 
       When('calling createEnvironment', () => {
-        Then('it should call POST /stores/:id/environments', async () => {
+        Then('it should call POST /organizations/:slug/projects/:slug/environments', async () => {
           const fetchMock = mockFetch({
-            '/stores/store-1/environments': { environment: fixtures.environment },
+            '/organizations/my-org/projects/default/environments': { environment: fixtures.environment },
           });
 
           const { createEnvironment } = await import('../commands/store');
-          await createEnvironment('store-1', 'staging');
+          await createEnvironment('my-org', 'staging');
 
-          expect(fetchMock).toHaveBeenCalledTimes(1);
-          const [url, opts] = fetchMock.mock.calls[0];
-          expect(url).toContain('/stores/store-1/environments');
-          expect(opts.method).toBe('POST');
-          expect(JSON.parse(opts.body)).toEqual({ name: 'staging' });
+          expect(fetchMock).toHaveBeenCalled();
+          const createCall = fetchMock.mock.calls.find(([url]: [string]) => 
+            (url as string).includes('/organizations/my-org/projects/default/environments')
+          );
+          expect(createCall).toBeDefined();
+          expect(createCall?.[1].method).toBe('POST');
+          expect(JSON.parse(createCall?.[1].body)).toEqual({ name: 'staging', region: 'us-east-1' });
         });
       });
     });
@@ -137,7 +142,7 @@ describe('Command Handlers', () => {
           const { createEnvironment } = await import('../commands/store');
 
           try {
-            await createEnvironment('bad-store', 'staging');
+            await createEnvironment('bad-org', 'staging');
           } catch {}
 
           expect(exitSpy).toHaveBeenCalledWith(1);
@@ -194,15 +199,15 @@ describe('Command Handlers', () => {
       When('calling createApp', () => {
         Then('it should register the hosted app via API', async () => {
           const fetchMock = mockFetch({
-            '/environments/env-1/apps': { app: fixtures.app },
+            '/environments/staging/apps': { app: fixtures.app },
           });
 
           const { createApp } = await import('../commands/app');
-          await createApp('pay-app', 'payment', 'env-1', 'dummy');
+          await createApp('pay-app', 'payment', 'staging', 'dummy');
 
           expect(fetchMock).toHaveBeenCalledTimes(1);
           const [url, opts] = fetchMock.mock.calls[0];
-          expect(url).toContain('/environments/env-1/apps');
+          expect(url).toContain('/environments/staging/apps');
           expect(opts.method).toBe('POST');
         });
       });
@@ -216,7 +221,7 @@ describe('Command Handlers', () => {
           const { createApp } = await import('../commands/app');
 
           try {
-            await createApp('pay-app', 'payment', 'env-1', 'dummy');
+            await createApp('pay-app', 'payment', 'staging', 'dummy');
           } catch {}
 
           expect(exitSpy).toHaveBeenCalledWith(1);

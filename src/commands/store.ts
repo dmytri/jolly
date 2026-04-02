@@ -11,8 +11,8 @@ export async function createStore(name: string, region: string): Promise<void> {
   try {
     const result = await client.createStore(name, region);
     console.log(success(`Store created successfully!`));
-    console.log(info(`Store ID: ${result.store.id}`));
-    console.log(info(`Dashboard: https://cloud.saleor.io/stores/${result.store.id}`));
+    console.log(info(`Project slug: ${result.project.slug}`));
+    console.log(info(`Dashboard: https://cloud.saleor.io/organizations/default/projects/${result.project.slug}`));
   } catch (err) {
     console.log(error(`Failed to create store: ${err}`));
     process.exit(1);
@@ -23,21 +23,21 @@ export async function listStores(): Promise<void> {
   const token = requireToken();
   const client = new SaleorCloudClient(token);
 
-  console.log(info('Fetching stores...'));
+  console.log(info('Fetching organizations...'));
 
   try {
-    const result = await client.getStores();
+    const { organizations } = await client.getOrganizations();
 
-    if (result.stores.length === 0) {
-      console.log(info('No stores found. Create one with: jolly store create --name <name>'));
+    if (organizations.length === 0) {
+      console.log(info('No organizations found. Create one at https://cloud.saleor.io'));
       return;
     }
 
-    console.log(success(`Found ${result.stores.length} store(s):\n`));
-    for (const store of result.stores) {
-      console.log(`  ${store.name} (${store.id})`);
-      console.log(`    Region: ${store.region}`);
-      console.log(`    Created: ${new Date(store.created_at).toLocaleDateString()}`);
+    console.log(success(`Found ${organizations.length} organization(s):\n`));
+    for (const org of organizations) {
+      console.log(`  ${org.name} (${org.slug})`);
+      console.log(`    Email: ${org.owner_email}`);
+      console.log(`    Created: ${new Date(org.created).toLocaleDateString()}`);
       console.log();
     }
   } catch (err) {
@@ -46,17 +46,17 @@ export async function listStores(): Promise<void> {
   }
 }
 
-export async function createEnvironment(storeId: string, name: string): Promise<void> {
+export async function createEnvironment(organizationSlug: string, name: string): Promise<void> {
   const token = requireToken();
   const client = new SaleorCloudClient(token);
 
-  console.log(info(`Creating environment: ${name} for store ${storeId}...`));
+  console.log(info(`Creating environment: ${name} for organization ${organizationSlug}...`));
 
   try {
-    const result = await client.createEnvironment(storeId, name);
+    const { environment } = await client.createEnvironment(organizationSlug, 'default', name, 'us-east-1');
     console.log(success(`Environment created successfully!`));
-    console.log(info(`Environment ID: ${result.environment.id}`));
-    console.log(info(`API URL will be available at: https://${result.environment.id}.saleor.cloud`));
+    console.log(info(`Environment key: ${environment.key}`));
+    console.log(info(`Domain: ${environment.domain}`));
   } catch (err) {
     console.log(error(`Failed to create environment: ${err}`));
     process.exit(1);

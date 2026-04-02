@@ -50,7 +50,10 @@ describe('Entry Points', () => {
       When('bootstrap calls createStore', () => {
         Then('it should pass project name and default region', async () => {
           withToken();
-          mockFetch({ '/stores': { store: fixtures.store } });
+          mockFetch({
+            '/organizations': { organizations: [fixtures.organization] },
+            '/organizations/my-org/projects': { project: fixtures.project },
+          });
 
           const { createStore } = await import('../commands/store');
           await createStore('my-project', 'us-east-1');
