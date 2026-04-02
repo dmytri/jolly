@@ -31,27 +31,27 @@ export async function createApp(
   environmentId?: string,
   provider?: PaymentProvider
 ): Promise<void> {
-  info(`Creating ${type} app: ${name}`);
+  console.log(info(`Creating ${type} app: ${name}`));
 
   if (type === 'payment') {
     const paymentProvider = provider || 'dummy';
-    info(`Payment provider: ${paymentProvider}`);
-    info(`Using hosted payment app: ${PAYMENT_APP_URLS[paymentProvider]}`);
+    console.log(info(`Payment provider: ${paymentProvider}`));
+    console.log(info(`Using hosted payment app: ${PAYMENT_APP_URLS[paymentProvider]}`));
 
     if (environmentId) {
       await registerHostedApp(environmentId, name, paymentProvider);
     } else {
-      success(`\nPayment app "${name}" configured to use ${PAYMENT_APP_URLS[paymentProvider]}`);
-      info(`\nTo complete setup:`);
-      info(`1. Go to your dashboard at https://cloud.saleor.io`);
-      info(`2. Navigate to Apps > Third party apps`);
-      info(`3. Add the ${paymentProvider} payment app from ${PAYMENT_APP_URLS[paymentProvider]}`);
+      console.log(success(`\nPayment app "${name}" configured to use ${PAYMENT_APP_URLS[paymentProvider]}`));
+      console.log(info(`\nTo complete setup:`));
+      console.log(info(`1. Go to your dashboard at https://cloud.saleor.io`));
+      console.log(info(`2. Navigate to Apps > Third party apps`));
+      console.log(info(`3. Add the ${paymentProvider} payment app from ${PAYMENT_APP_URLS[paymentProvider]}`));
     }
     return;
   }
 
   const template = APP_TEMPLATES[type];
-  info(`Cloning template from: ${template.repo}`);
+  console.log(info(`Cloning template from: ${template.repo}`));
 
   try {
     const { spawn } = await import('child_process');
@@ -61,23 +61,23 @@ export async function createApp(
 
     child.on('close', (code) => {
       if (code === 0) {
-        success(`\n${type} app "${name}" created successfully!`);
-        info(`\nTo get started:`);
-        info(`cd ${name}`);
-        info(`npm install`);
-        info(`npm run dev`);
+        console.log(success(`\n${type} app "${name}" created successfully!`));
+        console.log(info(`\nTo get started:`));
+        console.log(info(`cd ${name}`));
+        console.log(info(`npm install`));
+        console.log(info(`npm run dev`));
 
         if (environmentId) {
-          info(`\nRegistering app with environment ${environmentId}...`);
+          console.log(info(`\nRegistering app with environment ${environmentId}...`));
           registerLocalApp(environmentId, name, type);
         }
       } else {
-        error(`Failed to clone template (exit code: ${code})`);
+        console.log(error(`Failed to clone template (exit code: ${code})`));
         process.exit(1);
       }
     });
   } catch (err) {
-    error(`Failed to create app: ${err}`);
+    console.log(error(`Failed to create app: ${err}`));
     process.exit(1);
   }
 }
@@ -90,15 +90,15 @@ async function registerHostedApp(
   const token = requireToken();
   const client = new SaleorCloudClient(token);
 
-  info(`Registering hosted ${provider} payment app with environment...`);
+  console.log(info(`Registering hosted ${provider} payment app with environment...`));
 
   try {
     const result = await client.registerApp(environmentId, 'payment', name);
-    success(`Payment app registered successfully!`);
-    info(`App ID: ${result.app.id}`);
-    info(`Payment URL: ${PAYMENT_APP_URLS[provider]}`);
+    console.log(success(`Payment app registered successfully!`));
+    console.log(info(`App ID: ${result.app.id}`));
+    console.log(info(`Payment URL: ${PAYMENT_APP_URLS[provider]}`));
   } catch (err) {
-    error(`Failed to register app: ${err}`);
+    console.log(error(`Failed to register app: ${err}`));
     process.exit(1);
   }
 }
@@ -113,11 +113,11 @@ async function registerLocalApp(
 
   try {
     const result = await client.registerApp(environmentId, type, name);
-    success(`App registered with environment!`);
-    info(`App ID: ${result.app.id}`);
+    console.log(success(`App registered with environment!`));
+    console.log(info(`App ID: ${result.app.id}`));
   } catch (err) {
-    warning(`Could not register app automatically: ${err}`);
-    info(`You can register manually in the dashboard.`);
+    console.log(warning(`Could not register app automatically: ${err}`));
+    console.log(info(`You can register manually in the dashboard.`));
   }
 }
 
