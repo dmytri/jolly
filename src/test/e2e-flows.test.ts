@@ -186,7 +186,7 @@ describe('End-to-End Flows', () => {
 
           expect(fetchMock).toHaveBeenCalledTimes(1);
           const [url, opts] = fetchMock.mock.calls[0];
-          expect(url).toBe('https://cloud.saleor.io/api/organizations');
+          expect(url).toBe('https://cloud.saleor.io/api/v1/organizations');
           expect(opts.method).toBe('GET');
           expect(opts.headers.Authorization).toBe(`Token ${fixtures.token}`);
         });
@@ -204,7 +204,7 @@ describe('End-to-End Flows', () => {
 
           expect(fetchMock).toHaveBeenCalledTimes(1);
           const [url, opts] = fetchMock.mock.calls[0];
-          expect(url).toBe('https://cloud.saleor.io/api/organizations/default/projects');
+          expect(url).toBe('https://cloud.saleor.io/api/v1/organizations/default/projects');
           expect(opts.method).toBe('POST');
           expect(opts.headers.Authorization).toBe(`Token ${fixtures.token}`);
           expect(JSON.parse(opts.body)).toEqual({ name: 'test-store', region: 'eu-west-1' });
@@ -222,7 +222,7 @@ describe('End-to-End Flows', () => {
           await client.registerApp('staging', 'payment', 'my-app');
 
           const [url, opts] = fetchMock.mock.calls[0];
-          expect(url).toBe('https://cloud.saleor.io/api/environments/staging/apps');
+          expect(url).toBe('https://cloud.saleor.io/api/v1/environments/staging/apps');
           expect(JSON.parse(opts.body)).toEqual({ type: 'payment', name: 'my-app' });
         });
       });

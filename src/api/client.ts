@@ -1,5 +1,5 @@
 export class SaleorCloudClient {
-  private baseUrl = 'https://cloud.saleor.io/api';
+  private baseUrl = 'https://cloud.saleor.io/api/v1';
   private token: string;
 
   constructor(token?: string) {
@@ -24,7 +24,8 @@ export class SaleorCloudClient {
 
     if (!response.ok) {
       const body = await response.text();
-      throw new Error(`API error: ${response.status} ${response.statusText} - ${body}`);
+      const truncatedBody = body.length > 200 ? body.substring(0, 200) + '...' : body;
+      throw new Error(`API error: ${response.status} ${response.statusText} - ${truncatedBody}`);
     }
 
     return response.json() as T;
