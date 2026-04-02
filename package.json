@@ -1,6 +1,6 @@
 {
   "name": "@dk/jolly",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Saleor project bootstrapper and agent configurator",
   "type": "module",
   "bin": {
