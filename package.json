@@ -1,5 +1,5 @@
 {
-  "name": "@saleor/jolly",
+  "name": "@dk/jolly",
   "version": "0.1.0",
   "description": "Saleor project bootstrapper and agent configurator",
   "type": "module",
@@ -22,5 +22,8 @@
     "@types/yargs": "^17.0.32",
     "bun-types": "^1.3.11",
     "typescript": "^5.4.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
