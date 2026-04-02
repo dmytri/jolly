@@ -1,0 +1,13 @@
+{
+  "active_plan": "/var/home/hands/Work/jolly/.sisyphus/plans/saleor-agent-cli.md",
+  "started_at": "2026-04-02T12:03:12.876Z",
+  "session_ids": [
+    "ses_2b27f2227ffekotd1vwCAlGQKE",
+    "ses_2b0878847ffe4HYHHUEZz4sU2v",
+    "ses_2b079461affeWdGy097VEA4gGr",
+    "ses_2b06fe52cffesH6qKzJwV0pSn1"
+  ],
+  "plan_name": "saleor-agent-cli",
+  "agent": "atlas",
+  "task_sessions": {}
+}

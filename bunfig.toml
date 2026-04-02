@@ -1,0 +1,8 @@
+[build]
+target = "bun"
+
+[install]
+peer = true
+
+[test]
+root = "src/test"

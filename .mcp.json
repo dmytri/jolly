@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "saleor": {
+      "url": "https://mcp.saleor.app"
+    }
+  }
+}

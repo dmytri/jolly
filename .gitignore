@@ -1,0 +1,9 @@
+node_modules/
+dist/
+ext/
+my-app/
+my-dashboard-app/
+.agents
+.env
+*.log
+.DS_Store
