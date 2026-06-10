@@ -37,6 +37,7 @@ Feature: Jolly auth commands
 
   Rule: Auth command principles
     - V1 should include `jolly login`, `jolly logout`, and `jolly auth status`.
+    - Auth commands are helpers that empower the customer's agent; they do not make Jolly a separate control plane.
     - `jolly login` should support browser OAuth and headless token flows.
     - Jolly should not depend on the deprecated Saleor CLI for authentication.
     - Auth output must not expose secret values.

@@ -24,8 +24,8 @@ Feature: Npx-first Jolly CLI command surface
   Scenario: Agent starts the guided setup flow
     Given the customer wants the end-to-end guided Saleor storefront setup
     When the agent invokes the primary guided command
-    Then `jolly start` should remain the first top-level guided flow
-    And the npx invocation should support that guided flow
+    Then `jolly start` should be available as optional convenience orchestration for the full end-to-end flow
+    And the agent may instead invoke individual composable subcommands for each stage
     And the output should follow Jolly's hybrid human-readable plus machine-readable format
 
   Rule: CLI distribution principles
@@ -42,6 +42,7 @@ Feature: Npx-first Jolly CLI command surface
 
   Rule: Open questions
     - Production npx invocation should use `npx @saleor/jolly ...`; testing invocation should use `npx @dk/jolly ...`.
+    - `jolly start` is optional convenience orchestration; agents may prefer composing individual subcommands.
     - `jolly init` should initialize local agent setup by installing/checking skills and writing agent guidance, without remote Saleor/Vercel actions or secrets.
     - `jolly create` should be a grouped command with subcommands for specific resources, while `jolly start` orchestrates the full end-to-end flow.
     - Skill management should use `jolly skills install` and `jolly skills update`; default install includes `saleor-storefront`, `saleor-configurator`, `storefront-builder`, `saleor-core`, `saleor-app`, and Paper's embedded skill when available.

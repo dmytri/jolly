@@ -31,6 +31,9 @@ Feature: Jolly homepage and agent setup guide
     Given the customer pasted the copied prompt into an agent
     When the agent opens or reads the setup guide
     Then it should see generic agent instructions
+    And it should see that Jolly exists to empower the agent, not replace it
+    And it should see the Saleor MCP server URL (mcp.saleor.io) for Saleor Cloud resource management
+    And it should understand that Jolly handles local project scaffolding, deployment orchestration, skill management, and diagnostics while the MCP server handles Cloud resources
     And it should see supported agent targets: Zed, Claude Code, Cursor, OpenCode, and Pi.dev
     And it should see production invocation examples using `npx @saleor/jolly`
     And it should see testing invocation examples using `npx @dk/jolly`
@@ -65,6 +68,8 @@ Feature: Jolly homepage and agent setup guide
     - Supported agents: generic agents, Zed, Claude Code, Cursor, OpenCode, Pi.dev.
     - CLI quick start: `npx @saleor/jolly init`, `npx @saleor/jolly skills install`, `npx @saleor/jolly start`.
     - Testing quick start: `npx @dk/jolly ...` equivalents.
+    - Jolly's role: empowers the agent as a capability layer; the customer's agent is the workflow orchestrator.
+    - MCP server: the Saleor MCP server (mcp.saleor.io) handles Saleor Cloud resource management; Jolly handles local project automation.
     - V1 scope: Saleor Cloud, Paper, Configurator recipe, Stripe test mode, Vercel.
     - Boundaries: not a Saleor backend, not Dashboard replacement, not old Saleor CLI, no telemetry.
 
@@ -75,6 +80,7 @@ Feature: Jolly homepage and agent setup guide
     - The prompt should tell the agent to use Jolly CLI for skill installation/update management.
     - The prompt should tell the agent to ask whether the customer already has a Saleor store or wants to register one.
     - The prompt should tell the agent not to write application code until Jolly setup requires it or the customer approves.
+    - The prompt should be minimal; full context, MCP server details, and workflow guidance belong in the setup guide at the linked URL.
 
   Rule: Open questions
     - Canonical homepage/setup-guide URL is deferred; specs should use a placeholder until decided.

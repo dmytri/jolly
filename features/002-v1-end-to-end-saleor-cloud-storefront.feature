@@ -16,6 +16,9 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And Saleor's old CLI should be treated as deprecated but useful as undocumented registration/setup examples
     And `saleor/configurator` should be used directly by Jolly CLI and/or skills where appropriate
     And `saleor/agent-skills` and the agent instructions embedded in `saleor/storefront` should be used or drawn upon
+    And the Saleor MCP server at mcp.saleor.io provides native tool access to Saleor Cloud resources
+    And Jolly focuses on local project scaffolding, deployment orchestration, skill management, diagnostics, and env/config automation
+    And the customer's agent remains the primary orchestrator; Jolly provides capabilities and targeted automation
 
   Scenario: Agent starts the Saleor Cloud setup journey
     Given the customer has copied the Jolly onboarding prompt into their agent

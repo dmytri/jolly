@@ -71,6 +71,10 @@ Feature: Agent-first Jolly onboarding and CLI
 
   Rule: Product principles
     - Agent-first, human-usable.
+    - Jolly exists to empower the customer's own agent, not replace it.
+    - The customer's agent is the primary orchestrator, explainer, and approval manager; Jolly provides the capability layer.
+    - `jolly start` is optional convenience orchestration; every stage must also be available as composable commands the agent can call independently.
+    - Jolly should inform the agent about the Saleor MCP server (mcp.saleor.io) during `jolly init` and in the setup guide.
     - Setup should be copy/paste friendly.
     - CLI output should favor deterministic, structured, actionable responses.
     - Default CLI output should combine concise human-readable text with machine-readable JSON blocks or artifacts.
@@ -93,7 +97,7 @@ Feature: Agent-first Jolly onboarding and CLI
     - Jolly should leverage Saleor's official `saleor/storefront` Paper template as a baseline where appropriate instead of inventing a separate storefront foundation.
 
   Rule: Open questions
-    - `jolly start` is the first top-level guided command for the end-to-end setup flow.
+    - `jolly start` is available as optional convenience orchestration for the end-to-end flow; agents may instead compose individual subcommands.
     - Jolly should expose an npx-first command surface with subcommands such as `init`, `create`, and `start`; production invocation should use `npx @saleor/jolly ...` and testing invocation should use `npx @dk/jolly ...`.
     - Should Jolly create project-local durable artifacts such as `.jolly/` reports or state? This is deferred until CLI design.
     - Homepage v1 should be a single-page landing plus agent setup guide: hero, copy box, quick explanation, supported agents, and CLI install/start instructions.

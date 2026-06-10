@@ -22,6 +22,8 @@
 - **CLI:** Designed for agents first, not direct human use first. Executable via `npx` without a prior global install.
 - **Inspiration:** swamp.club.
 - **Data model:** Jolly-owned data model is open; Saleor commerce data lives in Saleor Cloud.
+- **Core principle:** Jolly exists to empower the customer's own agent, not replace it. The customer's agent remains the primary orchestrator, explainer, and approval manager. Jolly provides capabilities, setup automation, wrappers, diagnostics, and local/project automation that make the agent more effective.
+- **Architectural complement:** Jolly is complementary to the Saleor MCP server (mcp.saleor.io). The MCP server provides native tool-based access to Saleor Cloud resource management; Jolly handles local project scaffolding, deployment orchestration, skill management, and diagnostics. Jolly should inform the agent about the MCP server during setup.
 
 ## V1 Scope and Boundaries
 
@@ -35,6 +37,7 @@
 - No Jolly-owned auth, licensing, telemetry, quotas, paid feature gating, or usage controls in v1.
 - No telemetry in v1.
 - Post-setup storefront customization belongs to the customer's own agent and workflow.
+- `jolly start` is optional convenience orchestration; every stage must also be available as composable commands the agent can call independently.
 - Canonical homepage/setup-guide URL is deferred; use a placeholder until decided.
 - Project-local `.jolly/` artifacts and persistent report files are deferred until CLI design.
 
