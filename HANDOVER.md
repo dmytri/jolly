@@ -12,7 +12,8 @@ The harness is installed and verified:
 ```bash
 npm install        # dev deps: @cucumber/cucumber, happy-dom, typescript, @types/node
 npm test           # logic-tier unit tests (node --test) — currently 6/6 green
-npx cucumber-js    # BDD suite — currently 69 scenarios, all UNDEFINED (your worklist)
+npx cucumber-js    # BDD suite — 63 product scenarios, all UNDEFINED (your worklist)
+                   # (feature 023 is the harness charter, tagged @meta and excluded)
 npx tsc --noEmit   # typecheck — green
 ```
 
@@ -21,7 +22,7 @@ npx tsc --noEmit   # typecheck — green
   (skips `@sandbox` when creds absent; runs teardown), `sandbox.ts` (credential gating,
   isolation, non-prod safety guard). Covered by `tests/sandbox.test.ts`.
 - `features/step_definitions/` — empty; this is where your step definitions go.
-- `tests/` — logic-tier unit tests (`node --test` / `bun test`).
+- `tests/` — logic-tier unit tests (`npm test` / `node --test`).
 
 ## The strategy: sandbox over mocks (feature 023)
 

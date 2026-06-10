@@ -1,3 +1,6 @@
+@meta
+# Descriptive harness charter. The harness in features/support/ and tests/ already
+# satisfies this; it is tagged @meta and excluded from the BDD worklist (cucumber.js).
 Feature: Test architecture and sandbox-first strategy
   As the Quartermaster building executable coverage
   I want a clear, sandbox-first test architecture
@@ -10,7 +13,7 @@ Feature: Test architecture and sandbox-first strategy
   Scenario: Logic tests run without any accounts
     Given a behavior is pure local logic such as output-envelope shaping, flag parsing, URL normalization, or risk-context construction
     When the test runs
-    Then it should run with `bun test` without requiring any sandbox account or credentials
+    Then it should run with `npm test` without requiring any sandbox account or credentials
     And it should always run, including locally and in CI
 
   Scenario: Sandbox tests use real test accounts
@@ -48,7 +51,7 @@ Feature: Test architecture and sandbox-first strategy
     And mocks should not replace sandbox coverage of the normal path
 
   Rule: Test tiers
-    - Logic tier: pure local behavior, no accounts, always runs via `bun test`; tagged `@logic`.
+    - Logic tier: pure local behavior, no accounts, always runs via `npm test`; tagged `@logic`.
     - Sandbox tier: real test/sandbox accounts for Saleor Cloud, Configurator, Vercel, and Stripe test mode; tagged `@sandbox`.
     - Prefer the sandbox tier over mocks; use mocks only for conditions a sandbox cannot reasonably produce.
 
@@ -67,7 +70,7 @@ Feature: Test architecture and sandbox-first strategy
     - Feature files live in `features/`.
     - Step definitions live in `features/step_definitions/<feature-slug>.steps.ts`.
     - Shared hooks, world, sandbox setup/teardown, and credential gating live in `features/support/`.
-    - Logic-tier unit tests live in `tests/` and run via `node --test` / `bun test`, separate from the Cucumber suite.
+    - Logic-tier unit tests live in `tests/` and run via `npm test` (node --test), separate from the Cucumber suite.
     - Each `.feature` maps to a step-definition file of the same slug; every required step has executable coverage.
     - The QM owns creating and maintaining this harness, including the Cucumber configuration and test scripts.
 

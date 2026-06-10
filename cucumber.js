@@ -6,9 +6,11 @@ const common = {
   paths: ["features/**/*.feature"],
 };
 
-// Default: run everything. @sandbox scenarios self-skip when JOLLY_TEST_*
-// credentials are absent (see features/support/hooks.ts).
-export default common;
+// Default: the product worklist. Excludes @meta (the test-architecture spec,
+// feature 023, which describes the harness rather than product behavior).
+// @sandbox scenarios self-skip when JOLLY_TEST_* credentials are absent
+// (see features/support/hooks.ts).
+export default { ...common, tags: "not @meta" };
 
 // Targeted profiles: `cucumber-js -p logic` / `-p sandbox`.
 export const logic = { ...common, tags: "@logic" };

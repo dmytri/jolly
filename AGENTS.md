@@ -141,7 +141,8 @@ The QM launches Crew Mates programmatically using the `crew-mate` subagent (`.cl
 
 ## Testing Strategy
 
-- Test runner: `bun test`. BDD layer: Cucumber.js for Gherkin/spec-driven behavior. See feature `023-test-architecture`.
+- Logic-tier runner: `npm test` (Node's built-in `node --test`; also runnable under Bun). BDD layer: Cucumber.js via `npm run test:bdd`. See feature `023-test-architecture`.
+- Feature `023-test-architecture` is the harness charter — already satisfied by `features/support/` and `tests/sandbox.test.ts`. It is tagged `@meta` and excluded from the BDD worklist; do not write Cucumber step definitions for it.
 - **Sandbox over mocks:** tests exercise real dedicated test/sandbox accounts (Saleor Cloud, Configurator, Vercel, Stripe test mode) rather than mocks. Avoid mocks unless a condition cannot reasonably be produced in a sandbox (for example injected failures or unavailable-capability branches).
 - Two test tiers:
   - Logic tier — pure local behavior (output-envelope shaping, flag parsing, URL normalization, risk-context construction). No accounts; always runs. Tagged `@logic`.
@@ -171,10 +172,11 @@ The QM launches Crew Mates programmatically using the `crew-mate` subagent (`.cl
 
 ## Existing Scaffold
 
-The initial minimal Bun scaffold has been left in place:
+Project config: `package.json`, `tsconfig.json`, `.gitignore`.
 
-- `package.json`
-- `tsconfig.json`
-- `.gitignore`
+The test harness is in place (see Testing Strategy): `cucumber.js`, `features/support/`
+(world, hooks, sandbox gating), `features/step_definitions/` (empty — the QM fills it),
+and `tests/` (logic-tier units). Role commands live under `.claude/`.
 
-`src/index.ts` has not been created yet.
+`src/index.ts` (the CLI entry point) has not been created yet — that is Crew Mate work,
+driven by failing tests.
