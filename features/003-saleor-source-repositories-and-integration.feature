@@ -3,13 +3,6 @@ Feature: Saleor source repositories and integration boundaries
   I want Jolly to use current Saleor repositories and avoid deprecated tooling
   So that my storefront setup is reliable and not coupled to legacy workflows
 
-  Background:
-    Given Jolly is an agent-first product for setting up Saleor Cloud storefronts
-    And Jolly must not implement Saleor backend capabilities
-    And Jolly must not replace Saleor Dashboard
-    And Jolly must not depend on the deprecated Saleor CLI
-    And implementation agents should re-check upstream repositories at implementation time because they may change
-
   Scenario: Use Saleor Paper as the storefront baseline
     Given Jolly needs to create a storefront project
     When the customer's agent reaches the storefront creation step
@@ -108,13 +101,6 @@ Feature: Saleor source repositories and integration boundaries
     - Legacy Vercel login used a Saleor CLI Vercel integration OAuth flow; Jolly should validate modern Vercel setup separately.
 
   Rule: Jolly integration principles
-    - Prefer official current repositories over deprecated tooling.
     - Default to cloning `saleor/storefront` from `main` unless the customer explicitly chooses another ref.
     - Use the deprecated CLI only as research evidence for flows that are not otherwise documented.
-    - For the new-store registration branch, Jolly should use Saleor Cloud APIs programmatically where possible while consulting deprecated CLI source only as an example of the relevant API flow.
-    - For the existing-store branch, Jolly should automate URL normalization, GraphQL validation, Saleor Cloud organization/environment inference, app token acquisition, and trusted-origin updates where possible, using deprecated CLI source only as example material.
-    - Jolly should support both browser OAuth authentication and a headless token flow for Saleor Cloud access.
-    - Make human-required browser/account steps explicit instead of pretending they can be fully automated.
-    - Let the customer's agent decide approval granularity for actions that create, modify, deploy, or delete remote resources, while explaining risk and respecting customer/environment policies.
-    - Prefer structured artifacts and parseable command output for agent reliability.
     - Preserve upstream agent instructions and skills rather than duplicating all Saleor knowledge inside Jolly.

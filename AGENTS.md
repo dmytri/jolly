@@ -21,7 +21,6 @@
 - **Homepage:** Includes a prominent copy box ("copy this to your agent to get started") linking to the Jolly agent setup guide.
 - **CLI:** Designed for agents first, not direct human use first. Executable via `npx` without a prior global install.
 - **Inspiration:** swamp.club.
-- **Data model:** Jolly-owned data model is open; Saleor commerce data lives in Saleor Cloud.
 - **Core principle:** Jolly exists to empower the customer's own agent, not replace it. The customer's agent remains the primary orchestrator, explainer, and approval manager. Jolly provides capabilities, setup automation, wrappers, diagnostics, and local/project automation that make the agent more effective.
 - **Zero unnecessary friction:** The path from copying the Jolly homepage prompt to a working deployed storefront requires only the human actions that cannot be automated — new account creation, browser OAuth consent, and providing secret values. Everything else Jolly and the agent handle automatically using safe defaults.
 - **Architectural complement:** Jolly is complementary to the Saleor MCP server (mcp.saleor.app). The MCP server is read-only and provides live store data access — products, orders, and customers — for an already-configured store. Jolly handles setup automation, local project scaffolding, deployment orchestration, skill management, and diagnostics. As part of `jolly init`, Jolly should configure mcp-graphql and inform the agent about the MCP server so it has live store access from day one.
@@ -36,11 +35,29 @@
 - Jolly does not replace Saleor Dashboard.
 - Jolly does not depend on the deprecated Saleor CLI; may study it as reference material only.
 - No Jolly-owned auth, licensing, telemetry, quotas, paid feature gating, or usage controls in v1.
-- No telemetry in v1.
 - Post-setup storefront customization belongs to the customer's own agent and workflow. Jolly supports the iteration phase via `jolly doctor`, `jolly upgrade`, and mcp-graphql config for live store access.
 - `jolly start` is optional convenience orchestration; every stage must also be available as composable commands the agent can call independently.
 - Canonical homepage/setup-guide URL is deferred; use a placeholder until decided.
 - Project-local `.jolly/` artifacts and persistent report files are deferred until CLI design.
+
+## CLI Output Contract
+
+- Every command shares one structured output envelope so agents parse all commands identically. See feature `020-cli-output-contract`.
+- Envelope fields: `command`, `status` (`success` | `warning` | `error`), `summary`, `data`, `checks`, `nextSteps`, `errors`.
+- `checks[].status` reuses the doctor vocabulary: pass, warning, fail, skipped, unknown.
+- With `--json`, stdout contains only the envelope; default mode adds concise human text; `--quiet` trims nonessential human text only.
+- Stable `errors[].code` and check-id strings let agents branch programmatically; secrets are never printed and are referenced by name only.
+
+## Agent Risk Context
+
+- Before any create/modify/deploy/delete/expose action, Jolly emits a structured `riskContext` so the customer's agent decides approval; Jolly never hardcodes the decision. See feature `021-agent-risk-context`.
+- `riskContext` fields: `action`, `target`, `riskLevel` (low | medium | high), `categories` (from feature 010's high-risk list), `reversible`, `sideEffects`, `dryRunAvailable`.
+- `riskContext` is carried inside the feature 020 envelope and is identical for `--dry-run` preview and real execution.
+
+## Idempotency and Resumability
+
+- Re-running any `jolly create` subcommand or `jolly start` is safe and creates no duplicates; commands detect completed work and report it rather than erroring on "already exists". See feature `022-command-idempotency-and-resumability`.
+- `jolly start` is resumable: it skips satisfied stages and continues from the first incomplete one; work done by individual subcommands and by `jolly start` is mutually recognized.
 
 ## Current Workflow
 
@@ -55,15 +72,15 @@ This project is currently in planning mode.
 
 New agent sessions must be able to continue from repository documents alone. Do not assume access to prior chat history. The durable handoff between roles is the committed project documentation, especially `.feature` files, tests, and this `AGENTS.md`.
 
+Only the Captain converses with humans. The Quartermaster and Crew Mates do not converse with anyone, because conversations are not durable artifacts and instructions buried in past sessions are lost. When they hit something they cannot resolve from the committed specs, they stop, report that they cannot continue, and quit. They must not be given ad hoc instructions to work around the problem. The only way forward is to update the feature files and instructions so that the next run either succeeds or fails the same way — and is then refined again. This keeps every instruction explicit and preserved in source control.
+
 ### Captain
 
 The Captain is the product/technical discovery agent that talks with the customer and decision maker.
 
 - The Captain and customer collaboratively "vibe code" feature files and agent instructions only.
-- The Captain must not write tests, application code, dependencies, or runtime/configuration changes unless the customer explicitly changes the project out of planning mode.
 - The Captain's durable artifact is the written specification-as-code: `.feature` files and agent instructions containing everything the Quartermaster and Crew Mates need without chat context.
 - The Captain should actively ask focused questions, synthesize answers, and document decisions in `.feature` files.
-- The Captain should ask discovery questions one at a time, while preserving the broader question backlog and returning to it until all important discovery areas are covered.
 - The Captain should identify assumptions, risks, contradictions, and open questions instead of silently guessing.
 - The Captain should keep plans implementation-ready while avoiding implementation until explicitly approved.
 - The Captain should update this `AGENTS.md` file when durable workflow, stack, or project-level decisions are made.
@@ -78,7 +95,8 @@ The Quartermaster converts the Captain's written specs into executable test cove
 - The QM must track required feature scenarios and steps, ensure all required steps have corresponding executable coverage, and identify missing coverage.
 - When feature steps are changed or deleted, the QM must update or remove obsolete tests, step definitions, fixtures, and related test-only code so stale requirements do not remain.
 - The QM should preserve traceability between `.feature` scenarios/steps and executable tests.
-- If a requirement is ambiguous, contradictory, missing, or impossible to test from the written specs, the QM must stop and ask the Captain/customer for clarification rather than inventing product behavior.
+- The QM does not converse with the Captain, customer, or any human; its only inputs are the committed feature files, tests, and instructions.
+- If a requirement is ambiguous, contradictory, missing, or impossible to test from the written specs, the QM must stop, report that it cannot continue, and quit rather than invent product behavior. It must not be steered with ad hoc instructions; the feature files and instructions are updated first, then the QM is re-run.
 
 ### Crew Mates
 
@@ -87,14 +105,14 @@ Crew Mates are implementation agents. They do nothing except make specified test
 - Crew Mates must read the relevant feature files, tests, and agent instructions before changing implementation code.
 - Crew Mates run tests, choose a failing scenario or step, and implement the minimal production/application code needed to make that step pass.
 - Crew Mates must follow the specs exactly and must never choose another approach when the specs prescribe one.
-- If a Crew Mate encounters any obstacle, ambiguity, missing detail, contradictory requirement, failing external dependency, impossible test, or uncertainty of any kind, it must stop and ask for help/guidance instead of improvising.
+- Crew Mates do not converse with anyone; their only inputs are the committed feature files, tests, and instructions, and their only output is code that makes specified tests pass.
+- If a Crew Mate encounters any obstacle, ambiguity, missing detail, contradictory requirement, failing external dependency, impossible test, or uncertainty of any kind, it must stop, report that it cannot continue, and quit. It must not be given ad hoc instructions to work around the problem; the feature files and instructions are updated first, then the Crew Mate is re-run so the next attempt either succeeds or fails the same way.
 - Crew Mates must not change feature files, test intent, or acceptance criteria unless explicitly instructed by the Captain/customer through updated specs.
 - Crew Mates must not broaden scope, add unrequested behavior, or refactor unrelated code.
 - Crew Mate progress is measured by tests passing, not by a separate hand-written checklist.
 
 ## Spec-Driven Development Philosophy
 
-- The project follows a vibe-spec-to-spec-driven-development pattern.
 - During discovery, agents should collaboratively "vibe code" feature/spec files only.
 - Feature files and tests are the project's core durable assets.
 - Application code is considered disposable and may be regenerated by implementation agents from the specs.

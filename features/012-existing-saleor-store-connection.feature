@@ -3,11 +3,6 @@ Feature: Existing Saleor store connection
   I want Jolly to connect to it with as little manual input as possible
   So that my agent can configure and deploy a Paper storefront without re-registering Saleor Cloud resources
 
-  Background:
-    Given Jolly may study the deprecated `saleor/cli` for undocumented flow examples
-    But Jolly must not depend on, invoke, shell out to, or require the deprecated Saleor CLI
-    And Jolly uses environment variables only for secrets in v1
-
   Scenario: Agent accepts a pasted Saleor URL
     Given the customer says they already have a Saleor store
     When the agent asks for the store connection
@@ -43,8 +38,6 @@ Feature: Existing Saleor store connection
     And it should use the token to run Configurator introspection
 
   Rule: Existing-store automation principles
-    - Make the existing-store branch as automatic as possible.
-    - Ask only for values Jolly cannot infer or safely validate.
     - Validate the GraphQL endpoint before using it.
     - Infer Saleor Cloud organization/environment from authenticated Cloud context where possible.
     - Require an app token or equivalent credential for full existing-store setup.
@@ -52,9 +45,7 @@ Feature: Existing Saleor store connection
     - The deprecated CLI shows useful example flows for Saleor Cloud OAuth/headless token acquisition, local app selection/creation, permission updates, and app token creation through Saleor GraphQL.
     - Use `saleor/configurator introspect` with the app token to discover channels, catalog structure, menus, and configuration.
     - After deployment, automatically update Saleor allowed/trusted origins for the deployed storefront URL where APIs allow.
-    - Treat deprecated Saleor CLI code as reference material only.
 
   Rule: Open questions
     - Which pasted URL forms should Jolly normalize in v1?
-    - Jolly should request all available permissions for the local app/app token used by Configurator and setup automation in v1.
     - What exact Saleor API or Dashboard automation path can create an app token at implementation time?

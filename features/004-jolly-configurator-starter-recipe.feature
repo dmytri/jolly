@@ -3,12 +3,6 @@ Feature: Jolly Configurator starter recipe
   I want a Jolly-specific Configurator recipe
   So that the Saleor store is configured to work with the Paper storefront immediately
 
-  Background:
-    Given Jolly uses Saleor Cloud as the commerce backend
-    And Jolly uses `saleor/configurator` directly for store configuration
-    And Jolly uses `saleor/storefront` Paper as the first storefront baseline
-    And Vercel is the first deployment target
-
   Scenario: Agent prepares the starter recipe
     Given the customer has created or selected a Saleor Cloud environment
     When Jolly prepares the initial store configuration
@@ -37,9 +31,7 @@ Feature: Jolly Configurator starter recipe
     - Use US / USD / English as the v1 single market.
     - Defer additional markets/channels beyond v1.
     - Provide the channel, product model, navigation, sample catalog, shipping, Stripe-ready checkout assumptions, and other configuration required for a working end-to-end storefront.
-    - Avoid implementing Saleor backend logic inside Jolly.
     - Keep the recipe version-controlled and reviewable in the cloned storefront repository.
-    - Prefer deterministic, agent-readable outputs.
 
   Rule: Open questions
     - Exact pirate-themed catalog details are intentionally left to the implementation agent, as long as the result is useful for testing an operational Paper storefront.

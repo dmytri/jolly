@@ -3,11 +3,6 @@ Feature: Jolly auth commands
   I want explicit Jolly auth commands
   So that Saleor Cloud authentication can be managed independently from the full setup flow
 
-  Background:
-    Given Jolly v1 supports Saleor Cloud only
-    And Jolly may use browser OAuth or headless token flows for Saleor Cloud access
-    And Jolly may learn from deprecated Saleor CLI auth flows without depending on it
-
   Scenario: Agent logs in to Saleor Cloud
     Given the agent needs Saleor Cloud authentication
     When it invokes `jolly login`
@@ -42,8 +37,6 @@ Feature: Jolly auth commands
     - Jolly should not depend on the deprecated Saleor CLI for authentication.
     - Auth output must not expose secret values.
     - Jolly auth secrets should be written to `.env` as environment variables in v1.
-    - Jolly must ensure `.env` is ignored by Git before writing secrets.
-    - After writing or updating `.env`, Jolly should load the updated values for the current command flow where possible and provide shell sourcing guidance when parent-shell updates are required.
 
   Rule: Open questions
     - Where should Jolly store non-secret auth state, if any?

@@ -3,10 +3,6 @@ Feature: Jolly doctor diagnostics
   I want `jolly doctor` to diagnose setup and deployment problems
   So that I can recover from failed or partial Jolly workflows with actionable next steps
 
-  Background:
-    Given Jolly is agent-first and should produce structured, actionable output
-    And Jolly uses Saleor Cloud, Saleor Configurator, Saleor Paper, Stripe, Vercel, and agent skills
-
   Scenario: Agent runs doctor during setup
     Given the agent is setting up a Jolly storefront
     When it invokes `jolly doctor`
@@ -29,8 +25,6 @@ Feature: Jolly doctor diagnostics
     When `jolly doctor` checks the storefront
     Then it should verify required Paper environment variables
     And it should verify the local Node.js version against Paper's current requirements
-    And it should provide guidance but not install or switch Node.js versions automatically
-    And it should verify the expected package manager and commands where possible
     And it should identify whether the Jolly starter recipe exists in the cloned storefront repository
     And it should report whether product browsing, cart, and checkout readiness checks can be performed
     And it should distinguish lightweight validation from optional `--full-validation` checks such as generate, typecheck, build, or tests
@@ -43,7 +37,6 @@ Feature: Jolly doctor diagnostics
     And it should check whether required Vercel environment variables are configured
     And it should check whether Saleor trusted origins include the deployed storefront URL where possible
     And it should check Stripe test-mode setup status where possible
-    And it should identify remaining manual steps clearly
 
   Scenario: Jolly start runs doctor automatically
     Given `jolly start` has completed setup steps
@@ -62,18 +55,13 @@ Feature: Jolly doctor diagnostics
     - `jolly doctor` should run all checks by default.
     - `jolly doctor` should support named check groups for targeted diagnostics.
     - V1 should not add a separate `jolly status` command; status-style summaries should be handled by `jolly doctor`.
-    - Doctor output should be concise for humans and structured for agents.
     - `jolly doctor --json` should produce machine-readable output.
     - `jolly doctor --quiet` should reduce nonessential output.
-    - Doctor should avoid exposing secret values.
     - Doctor should distinguish between pass, warning, fail, skipped, and unknown checks.
     - Doctor should suggest concrete next commands or manual steps.
     - Doctor should be diagnostics-only in v1.
     - Doctor should not make local or remote changes in v1.
-    - Doctor should provide enough structured guidance for the customer's agent to perform fixes through explicit Jolly commands or manual steps.
 
   Rule: Open questions
     - `jolly doctor` should support named check groups: skills, saleor, storefront, deployment, and stripe.
-    - `--json` should be supported by every Jolly CLI command, including doctor.
-    - `--quiet` should be supported by every Jolly CLI command, including doctor.
     - A future repair/fix mode is deferred; v1 doctor remains diagnostics-only.

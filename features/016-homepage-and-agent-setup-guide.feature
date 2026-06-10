@@ -3,11 +3,6 @@ Feature: Jolly homepage and agent setup guide
   I want the Jolly homepage to give me a copyable agent prompt and clear setup guidance
   So that my own AI agent can start the Jolly flow without me reading a long manual first
 
-  Background:
-    Given Jolly is an agent-first Saleor Cloud storefront setup product
-    And v1 includes a single-page landing plus agent setup guide
-    And Jolly is executable via `npx @saleor/jolly` in production and `npx @dk/jolly` in testing
-
   Scenario: Customer sees the homepage hero
     Given the customer visits the Jolly homepage
     When the homepage loads
@@ -58,11 +53,8 @@ Feature: Jolly homepage and agent setup guide
     Given the customer is evaluating Jolly
     When they read the homepage
     Then it should state that v1 supports Saleor Cloud only
-    And it should state that Jolly does not add backend features to Saleor
     And it should state that Jolly does not replace Saleor Dashboard
-    And it should state that Jolly does not depend on the deprecated Saleor CLI
     And it should state that Jolly uses the customer's own agent and workflow for post-setup iteration
-    And it should state that v1 has no telemetry
 
   Rule: Homepage content sections
     - Hero: short Jolly promise and primary copy box.
@@ -80,13 +72,8 @@ Feature: Jolly homepage and agent setup guide
   Rule: Copy-box prompt requirements
     - The prompt should be concise enough to paste into an agent.
     - The prompt should include the setup-guide URL.
-    - The prompt should tell the agent to read the setup guide before acting.
-    - The prompt should tell the agent to use Jolly CLI for skill installation/update management.
-    - The prompt should tell the agent to ask whether the customer already has a Saleor store or wants to register one.
-    - The prompt should tell the agent not to write application code until Jolly setup requires it or the customer approves.
     - The prompt should be minimal; full context, MCP server details, and workflow guidance belong in the setup guide at the linked URL.
 
   Rule: Open questions
     - Canonical homepage/setup-guide URL is deferred; specs should use a placeholder until decided.
-    - Exact homepage hero copy is left to the implementation agent as long as it satisfies the required positioning and setup intent.
     - Homepage implementation shape is left to the implementation agent: static page, small app, or generated docs page are acceptable if they satisfy the required single-page landing and setup-guide behavior.

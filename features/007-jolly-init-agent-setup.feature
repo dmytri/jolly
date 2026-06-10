@@ -3,11 +3,6 @@ Feature: Jolly init for local agent setup
   I want `jolly init` to prepare local agent guidance and skills
   So that the agent can reliably perform Jolly workflows before creating or modifying remote resources
 
-  Background:
-    Given Jolly is agent-first
-    And skill installation and updates are mediated through the Jolly CLI
-    And secrets are handled through environment variables only in v1
-
   Scenario: Agent initializes Jolly guidance locally
     Given the agent can run Jolly via `npx`
     When the agent invokes `jolly init`

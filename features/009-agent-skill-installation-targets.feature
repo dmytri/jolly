@@ -3,10 +3,6 @@ Feature: Agent skill installation targets
   I want Jolly to install skills in standard locations while adding environment-specific guidance
   So that skills are discoverable by supported agents without fragmenting version management
 
-  Background:
-    Given Jolly supports generic agents, Zed, Claude Code, Cursor, OpenCode, and Pi.dev first
-    And Jolly manages skill installation and updates through `jolly skills install` and `jolly skills update`
-
   Scenario: Jolly installs skills in standard project-local locations where possible
     Given the agent invokes `jolly skills install`
     When Jolly installs the default Saleor skill set

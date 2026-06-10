@@ -16,13 +16,6 @@ Feature: Jolly iteration phase support
     And the agent should be able to query products, orders, channels, and store configuration through mcp-graphql
     And the agent should be able to make mutations through mcp-graphql where the app token permissions allow
 
-  Scenario: Agent customizes the storefront codebase
-    Given the storefront is running
-    When the customer wants to change storefront appearance, content, or behaviour
-    Then the agent should use the Paper skill installed by jolly init to understand the codebase
-    And Jolly should not be required for routine storefront code changes
-    And the agent should propose, review, and apply changes independently using its own tools
-
   Scenario: Agent runs ongoing health checks
     Given the storefront has been deployed
     When the customer or agent wants to verify everything is working correctly
@@ -38,13 +31,6 @@ Feature: Jolly iteration phase support
     And Jolly should report what changed and what the agent should review
     And Jolly should not automatically apply Paper storefront migrations in v1
     And it should generate an upgrade plan for Paper changes and present it to the agent
-
-  Scenario: Agent adds or reconfigures integrations
-    Given the customer wants to add a new integration or change configuration
-    When the agent needs to update Saleor configuration
-    Then it should be able to run jolly create recipe or invoke Configurator directly
-    And it should use jolly doctor to verify the integration is working after changes
-    And it should use jolly auth if credentials need to be refreshed
 
   Rule: Iteration phase principles
     - The customer's agent owns all post-setup customization; Jolly is a support layer, not a gatekeeper.

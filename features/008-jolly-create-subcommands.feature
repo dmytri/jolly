@@ -26,6 +26,8 @@ Feature: Jolly create subcommands
     - `jolly start` is optional convenience orchestration for the full end-to-end path; agents may prefer composing individual subcommands.
     - Create subcommands should be safe, explicit, and scriptable.
     - Remote resource creation approval should be decided by the customer's agent based on risk, context, and customer/environment policies.
+    - Each create subcommand should expose structured risk context per feature 021 so the agent can make that decision.
+    - Create subcommands and `jolly start` should be idempotent and resumable per feature 022.
 
   Rule: V1 create subcommands
     - `jolly create store` for Saleor Cloud store/project/environment setup.
