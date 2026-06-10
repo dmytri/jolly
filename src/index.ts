@@ -8,8 +8,10 @@
 // stdout carries only the envelope; default mode adds concise human text;
 // --quiet trims nonessential human text. Secrets are never printed and are
 // referenced by environment-variable name only.
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+
+const JOLLY_VERSION = "0.1.0";
 
 // --- Output envelope (feature 020) ------------------------------------------
 
@@ -196,63 +198,299 @@ Options:
   --help, -h   Show help
 `;
 
+// --- Environment helpers (values are never printed; names only) ---------------
+
+/** Parse a dotenv-style file into a name → value record (empty when absent). */
+function parseEnvFile(path: string): Record<string, string> {
+  if (!existsSync(path)) return {};
+  const values: Record<string, string> = {};
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/.exec(line);
+    if (match) values[match[1]] = match[2];
+  }
+  return values;
+}
+
+/** True when the named variable is set in the process env or the project .env. */
+function envPresent(name: string, dotenv: Record<string, string>): boolean {
+  return Boolean(process.env[name] ?? dotenv[name]);
+}
+
 // --- Commands -------------------------------------------------------------------
 
-function runDoctor(flags: Flags): void {
-  const cwd = process.cwd();
+// Doctor check groups (feature 014). Check ids are namespaced by group:
+// `cli.*` for the doctor's own CLI checks plus the five targetable v1 groups.
+const DOCTOR_GROUPS = ["skills", "saleor", "storefront", "deployment", "stripe"] as const;
+type DoctorGroup = (typeof DOCTOR_GROUPS)[number];
+
+function cliChecks(): Check[] {
   const runtime = (process.versions as Record<string, string | undefined>).bun
     ? `Bun ${(process.versions as Record<string, string | undefined>).bun}`
     : `Node.js ${process.versions.node}`;
-
-  const storefrontPresent = existsSync(join(cwd, "storefront"));
-  const envFilePresent = existsSync(join(cwd, ".env"));
-
-  const checks: Check[] = [
+  return [
     {
-      id: "runtime.version",
+      id: "cli.version",
       status: "pass",
-      detail: `JavaScript runtime detected: ${runtime}`,
-    },
-    {
-      id: "project.storefront",
-      status: storefrontPresent ? "pass" : "skipped",
-      detail: storefrontPresent
-        ? "Storefront directory found in this project"
-        : "No storefront directory found in this project; storefront checks were skipped",
-      ...(storefrontPresent
-        ? {}
-        : { remediation: "Run `jolly create storefront` to scaffold the Saleor Paper storefront" }),
-    },
-    {
-      id: "env.file",
-      status: envFilePresent ? "pass" : "skipped",
-      detail: envFilePresent
-        ? ".env file found (values are never printed; secrets are referenced by name only)"
-        : "No .env file found; environment checks were skipped",
-      ...(envFilePresent
-        ? {}
-        : { remediation: "Run `jolly init` to set up the project, including its .env file" }),
+      detail: `Jolly CLI version ${JOLLY_VERSION} is available (runtime: ${runtime})`,
     },
   ];
+}
 
-  const passed = checks.filter((c) => c.status === "pass").length;
-  const skipped = checks.filter((c) => c.status === "skipped").length;
-  const failed = checks.filter((c) => c.status === "fail").length;
+function skillsChecks(cwd: string): Check[] {
+  const skillsInstalled = [".claude/skills", "skills"].some((dir) => existsSync(join(cwd, dir)));
+  const guidancePresent = ["AGENTS.md", "CLAUDE.md"].some((file) => existsSync(join(cwd, file)));
+  return [
+    {
+      id: "skills.installed",
+      status: skillsInstalled ? "pass" : "warning",
+      detail: skillsInstalled
+        ? "Jolly agent skills are installed in this project"
+        : "No Jolly agent skills are installed in this project",
+      ...(skillsInstalled ? {} : { remediation: "Run `jolly init` to install the Jolly agent skills" }),
+    },
+    {
+      id: "skills.agentGuidance",
+      status: guidancePresent ? "pass" : "warning",
+      detail: guidancePresent
+        ? "Supported agent guidance file found (AGENTS.md or CLAUDE.md)"
+        : "No supported agent guidance file (AGENTS.md or CLAUDE.md) found in this project",
+      ...(guidancePresent ? {} : { remediation: "Run `jolly init` to set up agent guidance for this project" }),
+    },
+  ];
+}
 
+function saleorChecks(dotenv: Record<string, string>): Check[] {
+  const endpointConfigured = envPresent("NEXT_PUBLIC_SALEOR_API_URL", dotenv);
+  const appTokenPresent = envPresent("JOLLY_SALEOR_APP_TOKEN", dotenv);
+  return [
+    {
+      id: "saleor.connectivity",
+      status: endpointConfigured ? "unknown" : "skipped",
+      detail: endpointConfigured
+        ? "A Saleor GraphQL endpoint is configured (NEXT_PUBLIC_SALEOR_API_URL); live connectivity validation is not implemented yet"
+        : "No Saleor GraphQL endpoint is configured (NEXT_PUBLIC_SALEOR_API_URL); connectivity was not checked",
+      ...(endpointConfigured ? {} : { remediation: "Run `jolly init` or set NEXT_PUBLIC_SALEOR_API_URL to enable Saleor connectivity checks" }),
+    },
+    {
+      id: "saleor.env",
+      status: endpointConfigured ? "pass" : "warning",
+      detail: endpointConfigured
+        ? "Required Saleor environment variables are present (values are never printed)"
+        : "Required Saleor environment variable NEXT_PUBLIC_SALEOR_API_URL is missing",
+      ...(endpointConfigured ? {} : { remediation: "Run `jolly init` to configure the Saleor environment variables in .env" }),
+    },
+    {
+      id: "saleor.appToken",
+      status: appTokenPresent ? "pass" : "warning",
+      detail: appTokenPresent
+        ? "App token JOLLY_SALEOR_APP_TOKEN is set (value not printed)"
+        : "App token JOLLY_SALEOR_APP_TOKEN is not set",
+      ...(appTokenPresent ? {} : { remediation: "Run `jolly login` to acquire Saleor Cloud credentials" }),
+    },
+    {
+      id: "saleor.introspection",
+      status: "skipped",
+      detail: "Configurator introspection was not run; it compares the live store configuration with the local recipe",
+      remediation: "Run Configurator introspection against the connected Saleor environment to verify store configuration",
+    },
+  ];
+}
+
+function storefrontChecks(cwd: string, dotenv: Record<string, string>): Check[] {
+  const dir = join(cwd, "storefront");
+  const present = existsSync(dir);
+  const paperEnvConfigured = envPresent("NEXT_PUBLIC_SALEOR_API_URL", dotenv);
+  const recipePresent = present && [".jolly", "recipe.yml", "jolly-recipe.yml"].some((entry) => existsSync(join(dir, entry)));
+  const nodeMajor = Number.parseInt(process.versions.node.split(".")[0] ?? "0", 10);
+  const engines = paperNodeRequirement(dir);
+  return [
+    {
+      id: "storefront.present",
+      status: present ? "pass" : "warning",
+      detail: present
+        ? "Storefront directory found in this project"
+        : "No storefront directory found in this project",
+      ...(present ? {} : { remediation: "Run `jolly create storefront` to scaffold the Saleor Paper storefront" }),
+    },
+    {
+      id: "storefront.env",
+      status: !present ? "skipped" : paperEnvConfigured ? "pass" : "fail",
+      detail: !present
+        ? "No storefront present; Paper environment variables were not checked"
+        : paperEnvConfigured
+          ? "Required Paper environment variables are present (values are never printed)"
+          : "Required Paper environment variable NEXT_PUBLIC_SALEOR_API_URL is missing",
+      ...(present && !paperEnvConfigured
+        ? { remediation: "Run `jolly init` to configure the Paper storefront environment variables in .env" }
+        : {}),
+    },
+    {
+      id: "storefront.nodeVersion",
+      status: !present ? "skipped" : engines === undefined ? "unknown" : nodeSatisfies(nodeMajor, engines) ? "pass" : "warning",
+      detail: !present
+        ? "No storefront present; the Node.js version requirement was not checked"
+        : engines === undefined
+          ? `Local Node.js major version is ${nodeMajor}; the storefront does not declare a Node.js requirement`
+          : `Local Node.js major version is ${nodeMajor}; the storefront requires ${engines}`,
+      ...(present && engines !== undefined && !nodeSatisfies(nodeMajor, engines)
+        ? { remediation: `Install a Node.js version satisfying ${engines} for the Paper storefront` }
+        : {}),
+    },
+    {
+      id: "storefront.recipe",
+      status: !present ? "skipped" : recipePresent ? "pass" : "warning",
+      detail: !present
+        ? "No storefront present; the Jolly starter recipe check was skipped"
+        : recipePresent
+          ? "The Jolly starter recipe exists in the cloned storefront repository"
+          : "The Jolly starter recipe was not found in the cloned storefront repository",
+      ...(present && !recipePresent ? { remediation: "Run `jolly create recipe` to prepare the Jolly Configurator starter recipe" } : {}),
+    },
+    {
+      id: "storefront.readiness",
+      status: "skipped",
+      detail: "Product browsing, cart, and checkout readiness checks require a configured Saleor endpoint and were not performed",
+      remediation: "Configure the Saleor endpoint, then re-run `jolly doctor storefront` to check browsing, cart, and checkout readiness",
+    },
+  ];
+}
+
+function paperNodeRequirement(storefrontDir: string): string | undefined {
+  try {
+    const pkg = JSON.parse(readFileSync(join(storefrontDir, "package.json"), "utf8"));
+    const node = pkg?.engines?.node;
+    return typeof node === "string" ? node : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function nodeSatisfies(localMajor: number, requirement: string): boolean {
+  const match = /(\d+)/.exec(requirement);
+  if (!match) return true;
+  const requiredMajor = Number.parseInt(match[1], 10);
+  return requirement.includes(">=") ? localMajor >= requiredMajor : localMajor === requiredMajor;
+}
+
+function deploymentChecks(dotenv: Record<string, string>): Check[] {
+  const vercelToken = envPresent("JOLLY_VERCEL_TOKEN", dotenv);
+  return [
+    {
+      id: "deployment.vercel",
+      status: vercelToken ? "unknown" : "skipped",
+      detail: vercelToken
+        ? "Vercel credentials are available (JOLLY_VERCEL_TOKEN); live deployment configuration validation is not implemented yet"
+        : "Vercel credentials are not available (JOLLY_VERCEL_TOKEN); deployment configuration was not checked",
+      ...(vercelToken ? {} : { remediation: "Set JOLLY_VERCEL_TOKEN to enable Vercel deployment checks" }),
+    },
+    {
+      id: "deployment.env",
+      status: vercelToken ? "unknown" : "skipped",
+      detail: vercelToken
+        ? "Required Vercel environment variable configuration validation is not implemented yet"
+        : "Vercel credentials are not available; required Vercel environment variables were not checked",
+    },
+    {
+      id: "deployment.trustedOrigins",
+      status: "skipped",
+      detail: "Saleor trusted origins were not checked against the deployed storefront URL (no deployment context available)",
+      remediation: "Deploy the storefront, then re-run `jolly doctor deployment` to verify Saleor trusted origins",
+    },
+  ];
+}
+
+function stripeChecks(dotenv: Record<string, string>): Check[] {
+  const secretKey = process.env.JOLLY_STRIPE_SECRET_KEY ?? dotenv.JOLLY_STRIPE_SECRET_KEY;
+  const status: CheckStatus = !secretKey ? "warning" : secretKey.startsWith("sk_test_") ? "pass" : "warning";
+  return [
+    {
+      id: "stripe.testMode",
+      status,
+      detail: !secretKey
+        ? "Stripe credentials are not set (JOLLY_STRIPE_SECRET_KEY); Stripe test-mode setup was not verified"
+        : secretKey.startsWith("sk_test_")
+          ? "JOLLY_STRIPE_SECRET_KEY is a test-mode key (value not printed)"
+          : "JOLLY_STRIPE_SECRET_KEY does not look like a test-mode key; v1 first-run validation expects Stripe test mode",
+      remediation: !secretKey
+        ? "Set JOLLY_STRIPE_SECRET_KEY to a Stripe test-mode key to enable payment checks"
+        : secretKey.startsWith("sk_test_")
+          ? undefined
+          : "Use a Stripe test-mode key (sk_test_...) for first-run validation",
+    },
+  ];
+}
+
+function runDoctor(group: string | undefined, flags: Flags): void {
+  if (group !== undefined && !DOCTOR_GROUPS.includes(group as DoctorGroup)) {
+    emit(
+      {
+        command: "doctor",
+        status: "error",
+        summary: `Unknown doctor check group "${group}". Supported groups: ${DOCTOR_GROUPS.join(", ")}.`,
+        data: { supportedGroups: [...DOCTOR_GROUPS] },
+        checks: [],
+        nextSteps: [{ description: "Run all diagnostics", command: "jolly doctor" }],
+        errors: [
+          {
+            code: "doctor.unknownGroup",
+            message: `Unknown doctor check group "${group}".`,
+            remediation: `Use one of the supported check groups: ${DOCTOR_GROUPS.join(", ")} — or run \`jolly doctor\` for all checks.`,
+          },
+        ],
+      },
+      flags,
+    );
+    return;
+  }
+
+  const cwd = process.cwd();
+  const dotenv = parseEnvFile(join(cwd, ".env"));
+  const byGroup: Record<DoctorGroup, () => Check[]> = {
+    skills: () => skillsChecks(cwd),
+    saleor: () => saleorChecks(dotenv),
+    storefront: () => storefrontChecks(cwd, dotenv),
+    deployment: () => deploymentChecks(dotenv),
+    stripe: () => stripeChecks(dotenv),
+  };
+
+  // A named group runs only that group's checks; bare doctor runs everything.
+  const checks: Check[] = group
+    ? byGroup[group as DoctorGroup]()
+    : [...cliChecks(), ...DOCTOR_GROUPS.flatMap((g) => byGroup[g]())];
+
+  const count = (status: CheckStatus) => checks.filter((c) => c.status === status).length;
+  const passed = count("pass");
+  const warned = count("warning");
+  const failed = count("fail");
+  const skipped = count("skipped");
+  const unknown = count("unknown");
+
+  // Doctor is diagnostics-only: every non-passing check suggests a concrete
+  // next command or manual step (deduplicated into nextSteps).
   const nextSteps: NextStep[] = [];
-  if (!storefrontPresent) {
-    nextSteps.push({
-      description: "Scaffold the Saleor Paper storefront",
-      command: "jolly create storefront",
-    });
+  for (const check of checks) {
+    if ((check.status === "fail" || check.status === "warning") && check.remediation) {
+      if (!nextSteps.some((step) => step.description === check.remediation)) {
+        nextSteps.push({ description: check.remediation });
+      }
+    }
   }
 
   emit(
     {
-      command: "doctor",
-      status: failed > 0 ? "warning" : "success",
-      summary: `jolly doctor ran ${checks.length} checks: ${passed} passed, ${skipped} skipped, ${failed} failed.`,
-      data: { checksTotal: checks.length, checksPassed: passed, checksSkipped: skipped, checksFailed: failed },
+      command: group ? `doctor ${group}` : "doctor",
+      status: failed > 0 || warned > 0 ? "warning" : "success",
+      summary: `jolly doctor${group ? ` ${group}` : ""} ran ${checks.length} checks: ${passed} passed, ${warned} warnings, ${failed} failed, ${skipped} skipped, ${unknown} unknown.`,
+      data: {
+        cliVersion: JOLLY_VERSION,
+        group: group ?? "all",
+        checksTotal: checks.length,
+        checksPassed: passed,
+        checksWarning: warned,
+        checksFailed: failed,
+        checksSkipped: skipped,
+        checksUnknown: unknown,
+      },
       checks,
       nextSteps,
       errors: [],
@@ -261,26 +499,71 @@ function runDoctor(flags: Flags): void {
   );
 }
 
+// Jolly-managed Saleor Cloud auth variable names (feature 018). Logout edits
+// exactly these in .env; unrelated and third-party variables are untouched.
+const SALEOR_AUTH_ENV_NAMES = ["JOLLY_SALEOR_CLOUD_TOKEN", "JOLLY_SALEOR_APP_TOKEN"];
+
 function runAuthStatus(flags: Flags): void {
-  const credentialNames = ["JOLLY_SALEOR_APP_TOKEN", "JOLLY_STRIPE_SECRET_KEY", "JOLLY_VERCEL_TOKEN"];
-  const credentials = credentialNames.map((name) => ({
-    name,
-    present: Boolean(process.env[name]),
-  }));
-  const loggedIn = Boolean(process.env.JOLLY_SALEOR_APP_TOKEN);
+  const dotenv = parseEnvFile(join(process.cwd(), ".env"));
+  const credentialNames = [...SALEOR_AUTH_ENV_NAMES, "JOLLY_STRIPE_SECRET_KEY", "JOLLY_VERCEL_TOKEN"];
+  const credentials = credentialNames.map((name) => ({ name, present: envPresent(name, dotenv) }));
+  const configured = SALEOR_AUTH_ENV_NAMES.some((name) => envPresent(name, dotenv));
+  const configuredNames = SALEOR_AUTH_ENV_NAMES.filter((name) => envPresent(name, dotenv));
 
   emit(
     {
       command: "auth status",
       status: "success",
-      summary: loggedIn
-        ? "Saleor Cloud: authenticated (credential JOLLY_SALEOR_APP_TOKEN is set). Secret values are never printed; credentials are referenced by name only."
-        : "Saleor Cloud: not authenticated. Secret values are never printed; credentials are referenced by name only.",
-      data: { loggedIn, credentials },
+      summary: configured
+        ? `Saleor Cloud authentication is configured (${configuredNames.join(", ")} set; secret values are never printed).`
+        : "Saleor Cloud authentication is not configured: no Jolly-managed Saleor Cloud token is set.",
+      data: {
+        configured,
+        // Account/organization context is reported where safe; resolving it
+        // requires a live Saleor Cloud lookup, so it is unknown (null) here.
+        account: null,
+        organization: null,
+        credentials,
+      },
       checks: [],
-      nextSteps: loggedIn
+      nextSteps: configured
         ? []
         : [{ description: "Authenticate with Saleor Cloud", command: "jolly login" }],
+      errors: [],
+    },
+    flags,
+  );
+}
+
+function runLogout(flags: Flags): void {
+  const envPath = join(process.cwd(), ".env");
+  const lines = existsSync(envPath) ? readFileSync(envPath, "utf8").split("\n") : [];
+  const removed: string[] = [];
+
+  const kept = lines.filter((line) => {
+    const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line);
+    if (match && SALEOR_AUTH_ENV_NAMES.includes(match[1])) {
+      removed.push(match[1]);
+      return false;
+    }
+    return true;
+  });
+
+  if (removed.length > 0) {
+    writeFileSync(envPath, kept.join("\n"));
+  }
+
+  emit(
+    {
+      command: "logout",
+      status: "success",
+      summary:
+        removed.length > 0
+          ? `Logged out of Saleor Cloud: removed ${removed.join(", ")} from .env (values are never printed). Unrelated variables were left untouched.`
+          : "Already logged out: no Jolly-managed Saleor Cloud auth values were found in .env.",
+      data: { removed, envFile: ".env", configured: false },
+      checks: [],
+      nextSteps: [{ description: "Authenticate with Saleor Cloud again when needed", command: "jolly login" }],
       errors: [],
     },
     flags,
@@ -402,7 +685,10 @@ function main(argv: string[]): void {
 
   switch (command) {
     case "doctor":
-      runDoctor(flags);
+      runDoctor(subcommand, flags);
+      return;
+    case "logout":
+      runLogout(flags);
       return;
     case "auth":
       if (subcommand === "status") {
