@@ -26,7 +26,7 @@ Feature: Agent-first Jolly onboarding and CLI
     Given the agent has welcomed the customer
     When the agent asks about Saleor store status
     Then the customer should be able to choose "I already have a Saleor store"
-    Or the customer should be able to choose "I want to register a Saleor store"
+    And the customer should be able to choose "I want to register a Saleor store"
     And the agent should not proceed to storefront creation until this branch is known
 
   Scenario: Jolly start completes successfully

@@ -67,6 +67,7 @@ Feature: Test architecture and sandbox-first strategy
     - Feature files live in `features/`.
     - Step definitions live in `features/step_definitions/<feature-slug>.steps.ts`.
     - Shared hooks, world, sandbox setup/teardown, and credential gating live in `features/support/`.
+    - Logic-tier unit tests live in `tests/` and run via `node --test` / `bun test`, separate from the Cucumber suite.
     - Each `.feature` maps to a step-definition file of the same slug; every required step has executable coverage.
     - The QM owns creating and maintaining this harness, including the Cucumber configuration and test scripts.
 

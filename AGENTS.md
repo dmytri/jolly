@@ -133,7 +133,7 @@ Crew Mates are implementation agents. They do nothing except make specified test
   - Sandbox tier — behavior that touches Saleor Cloud, Configurator, Vercel, or Stripe. Real test accounts; tagged `@sandbox`.
 - Test/sandbox credentials use `JOLLY_TEST_*` environment variable names, distinct from runtime `JOLLY_*` names. When they are absent, `@sandbox` tests are skipped (not failed) with a clear reason so the suite still runs locally; CI provides the credentials for full coverage.
 - Sandbox tests isolate and clean up: namespace created resources with a unique per-run id, tear them down idempotently, stay safe to re-run (leaning on feature 022), and refuse to target any non-sandbox/customer/production account.
-- Layout: step definitions in `features/step_definitions/<feature-slug>.steps.ts`; shared hooks/world/sandbox setup/teardown/credential-gating in `features/support/`. Each `.feature` maps to a step-definition file of the same slug. The QM creates and maintains the Cucumber configuration and `test` scripts as part of the harness.
+- Layout: step definitions in `features/step_definitions/<feature-slug>.steps.ts`; shared hooks/world/sandbox setup/teardown/credential-gating in `features/support/`; logic-tier unit tests in `tests/`. Each `.feature` maps to a step-definition file of the same slug. The QM creates and maintains the Cucumber configuration and `test` scripts as part of the harness.
 - DOM-level checks (homepage, storefront rendering) use happy-dom; prefer happy-dom for DOM behavior and do not duplicate it in lower-level tests.
 - Security, authentication, and usage-control behavior must always have enforcement-level tests so enforcement does not depend on frontend behavior.
 
