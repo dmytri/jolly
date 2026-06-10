@@ -47,6 +47,7 @@
 - `checks[].status` reuses the doctor vocabulary: pass, warning, fail, skipped, unknown.
 - With `--json`, stdout contains only the envelope; default mode adds concise human text; `--quiet` trims nonessential human text only.
 - Stable `errors[].code` and check-id strings let agents branch programmatically; secrets are never printed and are referenced by name only.
+- Field names use camelCase (for example `nextSteps`, `riskLevel`, `dryRunAvailable`), across the envelope and the feature 021 risk context.
 
 ## Agent Risk Context
 
@@ -97,6 +98,10 @@ The Quartermaster converts the Captain's written specs into executable test cove
 - The QM should preserve traceability between `.feature` scenarios/steps and executable tests.
 - The QM does not converse with the Captain, customer, or any human; its only inputs are the committed feature files, tests, and instructions.
 - If a requirement is ambiguous, contradictory, missing, or impossible to test from the written specs, the QM must stop, report that it cannot continue, and quit rather than invent product behavior. It must not be steered with ad hoc instructions; the feature files and instructions are updated first, then the QM is re-run.
+- The QM tests behavior the specs concretely define. It treats "Open questions" blocks and anything marked "deferred to CLI design" as non-normative and out of scope, not as blockers.
+- Missing product implementation is expected, not a blocker: the QM writes failing (red) tests against the specified contract for Crew Mates to satisfy.
+- For steps qualified by "where possible", "where APIs allow", or "appropriate", the QM tests the path the sandbox supports and marks environment-dependent branches as conditionally skipped rather than stopping.
+- A genuine blocker is a missing or contradictory normative requirement, or a missing harness convention — only then does the QM stop, report, and quit.
 
 ### Crew Mates
 
@@ -121,12 +126,16 @@ Crew Mates are implementation agents. They do nothing except make specified test
 
 ## Testing Strategy
 
-- Test runner: `bun test`.
-- BDD layer: Cucumber.js should be used for Gherkin/spec-driven behavior where appropriate.
-- DOM/integration environment: happy-dom.
-- Prefer happy-dom integration tests whenever possible.
-- Do not duplicate behavior in server tests when it is already covered by happy-dom integration tests.
-- Security, authentication, and usage-control behavior must always have server-side tests to ensure enforcement does not depend on frontend behavior.
+- Test runner: `bun test`. BDD layer: Cucumber.js for Gherkin/spec-driven behavior. See feature `023-test-architecture`.
+- **Sandbox over mocks:** tests exercise real dedicated test/sandbox accounts (Saleor Cloud, Configurator, Vercel, Stripe test mode) rather than mocks. Avoid mocks unless a condition cannot reasonably be produced in a sandbox (for example injected failures or unavailable-capability branches).
+- Two test tiers:
+  - Logic tier — pure local behavior (output-envelope shaping, flag parsing, URL normalization, risk-context construction). No accounts; always runs. Tagged `@logic`.
+  - Sandbox tier — behavior that touches Saleor Cloud, Configurator, Vercel, or Stripe. Real test accounts; tagged `@sandbox`.
+- Test/sandbox credentials use `JOLLY_TEST_*` environment variable names, distinct from runtime `JOLLY_*` names. When they are absent, `@sandbox` tests are skipped (not failed) with a clear reason so the suite still runs locally; CI provides the credentials for full coverage.
+- Sandbox tests isolate and clean up: namespace created resources with a unique per-run id, tear them down idempotently, stay safe to re-run (leaning on feature 022), and refuse to target any non-sandbox/customer/production account.
+- Layout: step definitions in `features/step_definitions/<feature-slug>.steps.ts`; shared hooks/world/sandbox setup/teardown/credential-gating in `features/support/`. Each `.feature` maps to a step-definition file of the same slug. The QM creates and maintains the Cucumber configuration and `test` scripts as part of the harness.
+- DOM-level checks (homepage, storefront rendering) use happy-dom; prefer happy-dom for DOM behavior and do not duplicate it in lower-level tests.
+- Security, authentication, and usage-control behavior must always have enforcement-level tests so enforcement does not depend on frontend behavior.
 
 ## Secret and Environment Handling
 

@@ -57,8 +57,8 @@ Feature: Jolly CLI output contract
     - Default mode should combine concise human text with the same envelope; `--quiet` trims nonessential human text only.
     - Output must never print secret values; reference secrets by name only.
     - Structured side-effect context (see feature 021) should be carried inside `data` and/or `checks`, not in a separate ad hoc format.
+    - Field names use camelCase (for example `nextSteps`, `errors[].code`); this applies to the envelope and to the feature 021 risk context.
 
   Rule: Open questions
-    - Exact field naming convention (camelCase vs snake_case) is deferred to CLI design.
     - Envelope schema versioning, if any, is deferred to CLI design.
     - The canonical registry of stable `code` and check-id strings is deferred to CLI design but must be documented when commands are implemented.
