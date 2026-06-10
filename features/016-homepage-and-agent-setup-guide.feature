@@ -15,6 +15,7 @@ Feature: Jolly homepage and agent setup guide
     And it should position Jolly as Saleor's Hydrogen for the agentic age
     And it should make clear that Jolly depends on Saleor Cloud rather than replacing Saleor
     And it should make clear that the primary path starts by copying instructions into the customer's agent
+    And it should set the expectation that setup takes minutes with minimal manual steps
 
   Scenario: Customer copies the agent setup prompt
     Given the customer is on the homepage
@@ -32,8 +33,8 @@ Feature: Jolly homepage and agent setup guide
     When the agent opens or reads the setup guide
     Then it should see generic agent instructions
     And it should see that Jolly exists to empower the agent, not replace it
-    And it should see the Saleor MCP server URL (mcp.saleor.io) for Saleor Cloud resource management
-    And it should understand that Jolly handles local project scaffolding, deployment orchestration, skill management, and diagnostics while the MCP server handles Cloud resources
+    And it should see the Saleor MCP server URL (mcp.saleor.app) for read-only live store data access after setup
+    And it should understand that Jolly handles setup automation while the MCP server enables the agent to query live store data post-setup
     And it should see supported agent targets: Zed, Claude Code, Cursor, OpenCode, and Pi.dev
     And it should see production invocation examples using `npx @saleor/jolly`
     And it should see testing invocation examples using `npx @dk/jolly`
@@ -51,6 +52,7 @@ Feature: Jolly homepage and agent setup guide
     And the flow should include Vercel deployment
     And the flow should include automatic trusted-origin updates where possible
     And the flow should include final verification of deployed product browsing, cart, and checkout to Stripe test payment step
+    And the flow should explain that after setup, the agent and Jolly help the customer iterate and customize their commerce experience
 
   Scenario: Homepage explains boundaries
     Given the customer is evaluating Jolly
@@ -69,7 +71,9 @@ Feature: Jolly homepage and agent setup guide
     - CLI quick start: `npx @saleor/jolly init`, `npx @saleor/jolly skills install`, `npx @saleor/jolly start`.
     - Testing quick start: `npx @dk/jolly ...` equivalents.
     - Jolly's role: empowers the agent as a capability layer; the customer's agent is the workflow orchestrator.
-    - MCP server: the Saleor MCP server (mcp.saleor.io) handles Saleor Cloud resource management; Jolly handles local project automation.
+    - Speed promise: minimal human steps — only account creation, OAuth consent, and pasting secret keys.
+    - Iteration phase: after setup, the agent and Jolly help the customer customize and maintain their store.
+    - MCP server: the Saleor MCP server (mcp.saleor.app) provides read-only live store data access after setup; Jolly handles setup automation and diagnostics.
     - V1 scope: Saleor Cloud, Paper, Configurator recipe, Stripe test mode, Vercel.
     - Boundaries: not a Saleor backend, not Dashboard replacement, not old Saleor CLI, no telemetry.
 

@@ -17,13 +17,14 @@
 - **Tagline:** Saleor's Hydrogen for the agentic age.
 - **Purpose:** Jolly, via the customer's own agent, helps people set up a fully operational end-to-end commerce experience on Saleor Cloud.
 - **Primary users:** AI agents and agent skills are the primary consumers; human developer DX should remain decent but secondary.
-- **Product shape:** Homepage + CLI + agent skills/setup instructions.
+- **Product shape:** Homepage + CLI + agent skills/setup instructions. Two phases: setup (fast automated path to a working storefront) and iteration (agent + Jolly diagnostics + skills for ongoing customization).
 - **Homepage:** Includes a prominent copy box ("copy this to your agent to get started") linking to the Jolly agent setup guide.
 - **CLI:** Designed for agents first, not direct human use first. Executable via `npx` without a prior global install.
 - **Inspiration:** swamp.club.
 - **Data model:** Jolly-owned data model is open; Saleor commerce data lives in Saleor Cloud.
 - **Core principle:** Jolly exists to empower the customer's own agent, not replace it. The customer's agent remains the primary orchestrator, explainer, and approval manager. Jolly provides capabilities, setup automation, wrappers, diagnostics, and local/project automation that make the agent more effective.
-- **Architectural complement:** Jolly is complementary to the Saleor MCP server (mcp.saleor.io). The MCP server provides native tool-based access to Saleor Cloud resource management; Jolly handles local project scaffolding, deployment orchestration, skill management, and diagnostics. Jolly should inform the agent about the MCP server during setup.
+- **Zero unnecessary friction:** The path from copying the Jolly homepage prompt to a working deployed storefront requires only the human actions that cannot be automated — new account creation, browser OAuth consent, and providing secret values. Everything else Jolly and the agent handle automatically using safe defaults.
+- **Architectural complement:** Jolly is complementary to the Saleor MCP server (mcp.saleor.app). The MCP server is read-only and provides live store data access — products, orders, and customers — for an already-configured store. Jolly handles setup automation, local project scaffolding, deployment orchestration, skill management, and diagnostics. As part of `jolly init`, Jolly should configure mcp-graphql and inform the agent about the MCP server so it has live store access from day one.
 
 ## V1 Scope and Boundaries
 
@@ -36,7 +37,7 @@
 - Jolly does not depend on the deprecated Saleor CLI; may study it as reference material only.
 - No Jolly-owned auth, licensing, telemetry, quotas, paid feature gating, or usage controls in v1.
 - No telemetry in v1.
-- Post-setup storefront customization belongs to the customer's own agent and workflow.
+- Post-setup storefront customization belongs to the customer's own agent and workflow. Jolly supports the iteration phase via `jolly doctor`, `jolly upgrade`, and mcp-graphql config for live store access.
 - `jolly start` is optional convenience orchestration; every stage must also be available as composable commands the agent can call independently.
 - Canonical homepage/setup-guide URL is deferred; use a placeholder until decided.
 - Project-local `.jolly/` artifacts and persistent report files are deferred until CLI design.

@@ -74,8 +74,11 @@ Feature: Agent-first Jolly onboarding and CLI
     - Jolly exists to empower the customer's own agent, not replace it.
     - The customer's agent is the primary orchestrator, explainer, and approval manager; Jolly provides the capability layer.
     - `jolly start` is optional convenience orchestration; every stage must also be available as composable commands the agent can call independently.
-    - Jolly should inform the agent about the Saleor MCP server (mcp.saleor.io) during `jolly init` and in the setup guide.
+    - Jolly should inform the agent about the Saleor MCP server (mcp.saleor.app) during `jolly init` and in the setup guide. The MCP server is read-only and useful for querying live store data after setup is complete.
+    - `jolly init` should write an mcp-graphql config for the agent's environment so the agent has live store access from day one after setup.
     - Setup should be copy/paste friendly.
+    - The path from homepage copy to working deployed storefront must minimize human intervention. Only browser OAuth consent, new account creation, and secret values require human action; everything else should be automated with safe defaults.
+    - Jolly should never ask for information it can infer, detect, or safely default. Confirmation steps are only warranted for irreversible or destructive actions.
     - CLI output should favor deterministic, structured, actionable responses.
     - Default CLI output should combine concise human-readable text with machine-readable JSON blocks or artifacts.
     - All CLI commands should support `--json` for machine-readable output.

@@ -16,9 +16,11 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And Saleor's old CLI should be treated as deprecated but useful as undocumented registration/setup examples
     And `saleor/configurator` should be used directly by Jolly CLI and/or skills where appropriate
     And `saleor/agent-skills` and the agent instructions embedded in `saleor/storefront` should be used or drawn upon
-    And the Saleor MCP server at mcp.saleor.io provides native tool access to Saleor Cloud resources
+    And the Saleor MCP server at mcp.saleor.app provides read-only access to live store data such as products, orders, and customers after setup is complete
     And Jolly focuses on local project scaffolding, deployment orchestration, skill management, diagnostics, and env/config automation
     And the customer's agent remains the primary orchestrator; Jolly provides capabilities and targeted automation
+    And the setup path must minimize human intervention to new account creation, browser OAuth consent, and providing secret values
+    And Jolly should proceed automatically with safe defaults wherever human input is not strictly required
 
   Scenario: Agent starts the Saleor Cloud setup journey
     Given the customer has copied the Jolly onboarding prompt into their agent
@@ -44,6 +46,9 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And the customer's agent should decide when human approval is needed before creating remote Saleor Cloud resources
     And the agent should explain the risk and rationale for any approval decision it makes
     And the agent should clearly pause for any browser, email, payment, or account-verification step that cannot be completed programmatically
+    And for new Saleor Cloud account creation, Jolly should direct the customer to saleor.io/cloud for the browser signup flow
+    And Jolly should resume automatically once the customer provides the new store URL
+    And Jolly should not attempt to automate the browser account signup itself
 
   Scenario: Agent connects an existing Saleor store as automatically as possible
     Given the customer says they already have a Saleor store
@@ -66,7 +71,8 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     When the agent prepares the storefront project
     Then it should propose `storefront` as the default storefront target directory
     And it should handle directory name collisions safely
-    And it should ask the customer or agent to confirm the directory or choose a different one before cloning
+    And it should proceed with the default directory automatically
+    And it should only pause if the default directory already exists and ask how to resolve the collision
     And it should clone or directly use Saleor's official `saleor/storefront` Paper template as the baseline
     And it should remove the cloned upstream `.git` history
     And it should initialize a fresh Git repository when needed for the customer's storefront workflow
@@ -119,3 +125,13 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     - Project-local Jolly artifacts such as `.jolly/` reports or state are deferred until CLI design; if added later, they must not contain secrets.
     - Local secrets should be stored as environment variables in `.env`, and `.env` must be ignored by Git.
     - Jolly workflow credentials should use `JOLLY_*` names; Paper/storefront runtime variables should use Paper-compatible names.
+
+  Rule: Fast path principles
+    - The end-to-end setup should require only the minimum human actions that cannot be automated.
+    - Unavoidable human steps: new account creation (Saleor Cloud, Vercel, Stripe if needed), browser OAuth consent, and providing secret values such as Stripe API keys.
+    - All other steps should be automated: cloning, env configuration, Configurator recipe application, Vercel project setup, and trusted-origin updates.
+    - Jolly should use safe defaults and skip confirmation steps that do not protect against irreversible actions.
+    - Jolly should never ask for information it can infer, detect, or safely default.
+    - When a human step is required, Jolly should tell the agent exactly what to ask the customer for, then resume automatically once the value is provided.
+    - For new Saleor Cloud accounts: direct the customer to saleor.io/cloud, wait for the resulting store URL, then automate everything from that point.
+    - For Stripe test mode: the agent should ask for the Stripe publishable key and secret key from the Stripe Dashboard, write them to .env, and proceed without further manual steps.
