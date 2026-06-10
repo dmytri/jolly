@@ -102,6 +102,9 @@ The Quartermaster converts the Captain's written specs into executable test cove
 - Missing product implementation is expected, not a blocker: the QM writes failing (red) tests against the specified contract for Crew Mates to satisfy.
 - For steps qualified by "where possible", "where APIs allow", or "appropriate", the QM tests the path the sandbox supports and marks environment-dependent branches as conditionally skipped rather than stopping.
 - A genuine blocker is a missing or contradictory normative requirement, or a missing harness convention — only then does the QM stop, report, and quit.
+- The QM does not implement production code itself. After writing the failing tests for a scenario, it launches Crew Mate subagents (`.claude/agents/crew-mate.md`) to make those tests pass, then re-runs the suite to confirm green.
+- A Crew Mate's durable inputs are the committed tests and specs, not the QM's dispatch prompt; the QM points a Crew Mate at a specific failing scenario/test rather than handing it novel product instructions.
+- When a Crew Mate reports it is blocked, the QM does not improvise around it. It stops that work and surfaces the blocker; resolution is updated feature files and instructions, then a re-run.
 
 ### Crew Mates
 
@@ -115,6 +118,17 @@ Crew Mates are implementation agents. They do nothing except make specified test
 - Crew Mates must not change feature files, test intent, or acceptance criteria unless explicitly instructed by the Captain/customer through updated specs.
 - Crew Mates must not broaden scope, add unrequested behavior, or refactor unrelated code.
 - Crew Mate progress is measured by tests passing, not by a separate hand-written checklist.
+- Crew Mates are launched by the QM as subagents (or via the `/crew` command) to make a specific failing scenario pass; they read the committed tests and specs, never the dispatch prompt, for product behavior.
+
+## Role session kickoff
+
+Each role can be started in a fresh Claude Code session via a project slash command. Durable role behavior lives in the committed charter above, not in chat.
+
+- `/captain` — discovery: update feature files and instructions; resolve blockers raised by the QM or Crew.
+- `/qm` — Quartermaster: build/extend the test harness, write failing tests, and launch Crew Mates to implement them.
+- `/crew` — run a single Crew Mate against a named scenario.
+
+The QM launches Crew Mates programmatically using the `crew-mate` subagent (`.claude/agents/crew-mate.md`); `/crew` is the manual entry point for the same role.
 
 ## Spec-Driven Development Philosophy
 
