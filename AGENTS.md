@@ -102,6 +102,7 @@ The Quartermaster converts the Captain's written specs into executable test cove
 - Missing product implementation is expected, not a blocker: the QM writes failing (red) tests against the specified contract for Crew Mates to satisfy.
 - For steps qualified by "where possible", "where APIs allow", or "appropriate", the QM tests the path the sandbox supports and marks environment-dependent branches as conditionally skipped rather than stopping.
 - A genuine blocker is a missing or contradictory normative requirement, or a missing harness convention — only then does the QM stop, report, and quit.
+- The QM derives its worklist from test status, not from human direction: undefined scenarios (`cucumber-js --dry-run`) need step definitions, failing scenarios need a Crew Mate, green scenarios are done. It should not need to be told which features or scenarios to work on.
 - The QM does not implement production code itself. After writing the failing tests for a scenario, it launches Crew Mate subagents (`.claude/agents/crew-mate.md`) to make those tests pass, then re-runs the suite to confirm green.
 - A Crew Mate's durable inputs are the committed tests and specs, not the QM's dispatch prompt; the QM points a Crew Mate at a specific failing scenario/test rather than handing it novel product instructions.
 - When a Crew Mate reports it is blocked, the QM does not improvise around it. It stops that work and surfaces the blocker; resolution is updated feature files and instructions, then a re-run.
