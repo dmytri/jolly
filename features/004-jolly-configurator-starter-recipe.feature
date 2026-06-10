@@ -3,6 +3,7 @@ Feature: Jolly Configurator starter recipe
   I want a Jolly-specific Configurator recipe
   So that the Saleor store is configured to work with the Paper storefront immediately
 
+  @sandbox
   Scenario: Agent prepares the starter recipe
     Given the customer has created or selected a Saleor Cloud environment
     When Jolly prepares the initial store configuration
@@ -13,6 +14,7 @@ Feature: Jolly Configurator starter recipe
     And the recipe should be deployed through the safe Configurator workflow
     And the Saleor app token used for deployment should have all available permissions in v1
 
+  @sandbox
   Scenario: Agent applies the starter recipe safely
     Given the Jolly starter recipe is ready
     When the agent applies it to Saleor Cloud

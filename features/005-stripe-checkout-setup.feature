@@ -9,6 +9,7 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     And Stripe is the v1 payment provider target
     And v1 uses Stripe test mode only
 
+  @logic
   Scenario: Agent collects Stripe test mode credentials
     Given the setup flow reaches payment configuration
     When the agent handles Stripe setup
@@ -19,6 +20,7 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     And Jolly should load the updated .env values for the current command flow where possible
     And Jolly should not print the secret key value
 
+  @sandbox
   Scenario: Jolly configures Saleor for Stripe
     Given Stripe credentials are available in .env
     When Jolly proceeds with Stripe configuration
@@ -27,6 +29,7 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     And the customer's agent should decide whether approval is needed before modifying remote payment configuration
     And Jolly remote/action commands involved in payment setup should support --dry-run
 
+  @sandbox
   Scenario: Agent verifies checkout readiness
     Given Stripe setup has been completed
     When the storefront is deployed

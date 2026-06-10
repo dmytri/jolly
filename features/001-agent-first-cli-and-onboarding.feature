@@ -3,6 +3,7 @@ Feature: Agent-first Jolly onboarding and CLI
   I want Jolly to give my agent clear setup instructions and agent-oriented CLI tools
   So that my agent can scaffold, inspect, and operate a Saleor storefront project effectively
 
+  @logic
   Scenario: Customer starts from the Jolly homepage
     Given a customer visits the Jolly homepage
     When they want to start using Jolly with their agent
@@ -12,6 +13,7 @@ Feature: Agent-first Jolly onboarding and CLI
     And the URL should lead the agent to setup instructions
     And the copied content should tell the agent to read the setup guide, run Jolly via `npx`, use the Jolly CLI to install/manage required skills, and then run `jolly start`
 
+  @logic
   Scenario: Agent receives the copied setup instructions
     Given the customer pasted the copied setup prompt into their agent
     When the agent follows the instructions
@@ -22,6 +24,7 @@ Feature: Agent-first Jolly onboarding and CLI
     And the agent should use the Jolly CLI to install and manage Saleor/Jolly skills so Jolly can handle version updates over time
     And the agent should understand that it is the primary interface for Jolly workflows
 
+  @logic
   Scenario: Agent branches based on Saleor store status
     Given the agent has welcomed the customer
     When the agent asks about Saleor store status
@@ -29,6 +32,7 @@ Feature: Agent-first Jolly onboarding and CLI
     And the customer should be able to choose "I want to register a Saleor store"
     And the agent should not proceed to storefront creation until this branch is known
 
+  @sandbox
   Scenario: Jolly start completes successfully
     Given `jolly start` has completed the end-to-end setup flow
     When Jolly prints the final success output

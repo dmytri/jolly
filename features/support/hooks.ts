@@ -1,8 +1,12 @@
 // Lifecycle hooks: gate @sandbox scenarios on credentials and clean up after
 // every scenario. See features/023-test-architecture.feature.
-import { Before, After } from "@cucumber/cucumber";
+import { Before, After, setDefaultTimeout } from "@cucumber/cucumber";
 import { sandboxCredsAvailable, sandboxSkipReason } from "./sandbox.ts";
 import type { JollyWorld } from "./world.ts";
+
+// CLI-spawning steps (and sandbox flows) routinely exceed cucumber's 5s
+// default. Individual heavy steps may still override with {timeout}.
+setDefaultTimeout(120_000);
 
 // Skip (not fail) sandbox scenarios when JOLLY_TEST_* credentials are absent.
 Before({ tags: "@sandbox" }, function () {

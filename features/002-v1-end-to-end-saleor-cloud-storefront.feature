@@ -11,12 +11,14 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And the Saleor MCP server at mcp.saleor.app provides read-only access to live store data such as products, orders, and customers after setup is complete
     And the setup path must minimize human intervention to new account creation, browser OAuth consent, and providing secret values
 
+  @logic
   Scenario: Agent starts the Saleor Cloud setup journey
     Given the customer has copied the Jolly onboarding prompt into their agent
     When the agent begins the V1 setup journey
     And it should ask whether the customer already has a Saleor store or wants to register one
     And it should identify which steps require human action outside the agent
 
+  @sandbox
   Scenario: Agent helps register a new Saleor Cloud store
     Given the customer says they want to register a Saleor store
     When the agent proceeds with the registration branch
@@ -32,6 +34,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And Jolly should resume automatically once the customer provides the new store URL
     And Jolly should not attempt to automate the browser account signup itself
 
+  @sandbox
   Scenario: Agent connects an existing Saleor store as automatically as possible
     Given the customer says they already have a Saleor store
     When the agent needs to connect the storefront to Saleor
@@ -44,6 +47,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And Jolly should guide the customer to obtain required credentials from Saleor Dashboard only when automation is not available
     And it should verify connectivity before proceeding to storefront setup
 
+  @sandbox
   Scenario: Agent creates a deployable storefront from Saleor Paper
     Given Saleor connectivity has been verified
     When the agent prepares the storefront project
@@ -64,6 +68,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And it should optionally install `pnpm` where possible when the agent/customer allows it
     And it should preserve Paper's intended architecture and default presentation rather than rewriting or re-theming it unnecessarily
 
+  @sandbox
   Scenario: Agent deploys to Vercel
     Given the storefront is ready for deployment
     When the agent guides Vercel deployment

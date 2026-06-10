@@ -3,6 +3,7 @@ Feature: Existing Saleor store connection
   I want Jolly to connect to it with as little manual input as possible
   So that my agent can configure and deploy a Paper storefront without re-registering Saleor Cloud resources
 
+  @logic
   Scenario: Agent accepts a pasted Saleor URL
     Given the customer says they already have a Saleor store
     When the agent asks for the store connection
@@ -10,6 +11,7 @@ Feature: Existing Saleor store connection
     And Jolly should normalize the input to a Saleor GraphQL endpoint where possible
     And Jolly should ask a clarifying question only when the URL cannot be normalized safely
 
+  @sandbox
   Scenario: Jolly validates the GraphQL endpoint
     Given Jolly has a candidate Saleor GraphQL endpoint
     When it validates the endpoint
@@ -17,6 +19,7 @@ Feature: Existing Saleor store connection
     And it should fail with an actionable message if the endpoint is not reachable or not a GraphQL endpoint
     And it should not proceed to storefront configuration until connectivity is verified
 
+  @sandbox
   Scenario: Jolly infers Saleor Cloud organization and environment
     Given the customer has authenticated Jolly with Saleor Cloud
     And Jolly has a verified Saleor GraphQL endpoint
@@ -26,6 +29,7 @@ Feature: Existing Saleor store connection
     And it should avoid asking the customer to manually select organization or environment when the match is unambiguous
     And it should ask the customer to choose only when multiple matches or no safe match exists
 
+  @sandbox
   Scenario: Jolly acquires the required app token
     Given the endpoint has been verified
     When Jolly needs credentials for Configurator or privileged Saleor operations

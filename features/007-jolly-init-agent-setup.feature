@@ -3,6 +3,7 @@ Feature: Jolly init for local agent setup
   I want `jolly init` to prepare local agent guidance and skills
   So that the agent can reliably perform Jolly workflows before creating or modifying remote resources
 
+  @logic
   Scenario: Agent initializes Jolly guidance locally
     Given the agent can run Jolly via `npx`
     When the agent invokes `jolly init`
@@ -15,6 +16,7 @@ Feature: Jolly init for local agent setup
     And Jolly should not create remote Saleor Cloud or Vercel resources
     And Jolly should not store secrets
 
+  @logic
   Scenario: Agent init is safe to rerun
     Given `jolly init` has already been run
     When the agent invokes `jolly init` again

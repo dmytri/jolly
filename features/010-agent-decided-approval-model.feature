@@ -3,6 +3,7 @@ Feature: Agent-decided approval model
   I want my agent to decide when approvals are needed
   So that Jolly can adapt to different agent environments, customer preferences, and risk levels without hardcoding one approval policy
 
+  @logic
   Scenario: Agent decides whether approval is needed
     Given a Jolly workflow is about to perform a potentially impactful action
     When the action could create, modify, deploy, delete, or expose remote resources

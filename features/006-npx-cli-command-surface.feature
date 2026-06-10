@@ -3,6 +3,7 @@ Feature: Npx-first Jolly CLI command surface
   I want Jolly to be executable through `npx` with clear subcommands
   So that I can run setup workflows without requiring a prior global install
 
+  @logic
   Scenario: Agent starts the guided setup flow
     Given the customer wants the end-to-end guided Saleor storefront setup
     When the agent invokes the primary guided command

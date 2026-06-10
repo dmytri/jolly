@@ -3,6 +3,7 @@ Feature: Jolly homepage and agent setup guide
   I want the Jolly homepage to give me a copyable agent prompt and clear setup guidance
   So that my own AI agent can start the Jolly flow without me reading a long manual first
 
+  @logic
   Scenario: Customer sees the homepage hero
     Given the customer visits the Jolly homepage
     When the homepage loads
@@ -12,6 +13,7 @@ Feature: Jolly homepage and agent setup guide
     And it should make clear that the primary path starts by copying instructions into the customer's agent
     And it should set the expectation that setup takes minutes with minimal manual steps
 
+  @logic
   Scenario: Customer copies the agent setup prompt
     Given the customer is on the homepage
     When they view the primary copy box
@@ -23,6 +25,7 @@ Feature: Jolly homepage and agent setup guide
     And the prompt should instruct the agent to use Jolly CLI skill management
     And the prompt should instruct the agent to run `jolly start`
 
+  @logic
   Scenario: Agent follows the setup guide
     Given the customer pasted the copied prompt into an agent
     When the agent opens or reads the setup guide
@@ -35,6 +38,7 @@ Feature: Jolly homepage and agent setup guide
     And it should see testing invocation examples using `npx @dk/jolly`
     And it should see the recommended command sequence starting with `jolly init`, `jolly skills install`, and `jolly start`
 
+  @logic
   Scenario: Homepage explains the v1 journey
     Given the customer wants to understand what Jolly will do
     When they read the homepage
@@ -49,6 +53,7 @@ Feature: Jolly homepage and agent setup guide
     And the flow should include final verification of deployed product browsing, cart, and checkout to Stripe test payment step
     And the flow should explain that after setup, the agent and Jolly help the customer iterate and customize their commerce experience
 
+  @logic
   Scenario: Homepage explains boundaries
     Given the customer is evaluating Jolly
     When they read the homepage

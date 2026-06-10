@@ -7,6 +7,7 @@ Feature: Jolly create subcommands
     Given Jolly is executable via `npx`
     And `jolly start` is available as optional convenience orchestration for the full end-to-end flow
 
+  @logic
   Scenario: Agent discovers create subcommands
     Given the agent needs to create a specific resource
     When it inspects `jolly create --help`
@@ -14,6 +15,7 @@ Feature: Jolly create subcommands
     And each subcommand should have a clear resource boundary
     And the help output should be understandable to both agents and humans
 
+  @logic
   Scenario: Agent composes create subcommands or uses start as convenience
     Given the customer wants the full end-to-end setup
     When the agent decides how to proceed

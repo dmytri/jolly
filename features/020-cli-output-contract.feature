@@ -7,6 +7,7 @@ Feature: Jolly CLI output contract
     Given Jolly is executable via `npx`
     And every command supports `--json`, `--quiet`, and (for side-effecting commands) `--dry-run`
 
+  @logic
   Scenario: Agent parses any command through one envelope
     Given the agent invokes any Jolly command with `--json`
     When the command completes
@@ -19,6 +20,7 @@ Feature: Jolly CLI output contract
     And the envelope should include an `errors` array that is empty on success
     And the agent should be able to parse the same shape regardless of which command produced it
 
+  @logic
   Scenario: Default output combines human text and the envelope
     Given the agent invokes a Jolly command without `--json`
     When the command completes
@@ -26,6 +28,7 @@ Feature: Jolly CLI output contract
     And it should still include the machine-readable envelope for the agent
     And `--quiet` should reduce nonessential human text without removing the envelope
 
+  @logic
   Scenario: Commands that run checks reuse the doctor vocabulary
     Given a command performs verification such as `jolly start` or `jolly doctor`
     When it reports check results in the envelope
@@ -34,12 +37,14 @@ Feature: Jolly CLI output contract
     And each check `status` should be one of pass, warning, fail, skipped, or unknown
     And each check should be able to carry a concrete next command or manual step
 
+  @logic
   Scenario: Agent branches on stable codes
     Given a command fails or partially succeeds
     When the agent inspects the envelope
     Then each entry in `errors` should include a stable `code`, a `message`, and optional `remediation`
     And the documented `code` and check id strings should remain stable so the agent can branch on them programmatically
 
+  @logic
   Scenario: Output never exposes secrets
     Given a command handles secret values such as tokens or API keys
     When it produces output in any mode

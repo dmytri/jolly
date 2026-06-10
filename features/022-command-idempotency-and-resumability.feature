@@ -7,6 +7,7 @@ Feature: Command idempotency and resumability
     Given `jolly start` is optional convenience orchestration for the full end-to-end flow
     And the agent may instead invoke individual `jolly create` subcommands at its own discretion
 
+  @sandbox
   Scenario: Re-running a create subcommand detects existing work
     Given a `jolly create` subcommand has already completed its resource
     When the agent invokes the same subcommand again
@@ -15,6 +16,7 @@ Feature: Command idempotency and resumability
     And it should report the detected existing state through the standard output envelope
     And it should not fail merely because the resource already exists
 
+  @sandbox
   Scenario: Jolly start resumes from the first incomplete stage
     Given a previous `jolly start` run completed some stages but not others
     When the agent runs `jolly start` again
@@ -23,12 +25,14 @@ Feature: Command idempotency and resumability
     And it should continue from the first incomplete stage
     And it should report which stages were skipped versus performed in the output envelope
 
+  @sandbox
   Scenario: Composed subcommands and start agree on state
     Given the agent has already run individual `jolly create` subcommands
     When the agent later runs `jolly start`
     Then `jolly start` should treat the work done by those subcommands as already satisfied
     And it should not redo or duplicate that work
 
+  @logic
   Scenario: Collisions pause instead of overwriting
     Given a step would otherwise overwrite existing local or remote state it did not create
     When the conflict is detected

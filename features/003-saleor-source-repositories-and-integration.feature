@@ -3,6 +3,7 @@ Feature: Saleor source repositories and integration boundaries
   I want Jolly to use current Saleor repositories and avoid deprecated tooling
   So that my storefront setup is reliable and not coupled to legacy workflows
 
+  @sandbox
   Scenario: Use Saleor Paper as the storefront baseline
     Given Jolly needs to create a storefront project
     When the customer's agent reaches the storefront creation step
@@ -27,6 +28,7 @@ Feature: Saleor source repositories and integration boundaries
     - Paper includes checkout, cart, product pages, product listings, navigation, SEO, caching, customer profile, authentication, and API resilience features.
     - Paper's Saleor Cloud Paper app can provide cache invalidation webhooks and Dashboard preview affordances; Jolly should not assume this is installed without checking.
 
+  @sandbox
   Scenario: Use Saleor Configurator directly for store configuration
     Given Jolly needs to inspect, plan, or apply Saleor store configuration
     When the agent has a Saleor Cloud GraphQL URL and app token
@@ -52,6 +54,7 @@ Feature: Saleor source repositories and integration boundaries
     - Reports may be saved under `.configurator/reports/<command>/`.
     - Configurator ships portable skills: `configurator-cli`, `configurator-schema`, `saleor-domain`, `product-modeling`, `configurator-recipes`, `data-importer`, `agent-output-parsing`, `configurator-workflow`, and `configurator-troubleshoot`.
 
+  @logic
   Scenario: Install or reference universal Saleor agent skills
     Given the customer's agent environment supports agent skills
     When Jolly onboarding prepares the agent
@@ -69,6 +72,7 @@ Feature: Saleor source repositories and integration boundaries
     - `saleor-core` covers backend internals such as discounts and stock availability; useful for advanced doctor/troubleshooting behavior.
     - `saleor-app` is relevant only if Jolly creates or configures Saleor apps, webhooks, or Dashboard iframe apps; it is not core to the first storefront-only path unless Paper's Saleor Cloud app setup becomes in scope.
 
+  @logic
   Scenario: Study the deprecated Saleor CLI without depending on it
     Given some Saleor Cloud registration and setup behavior is poorly documented elsewhere
     When Jolly needs examples of legacy flows

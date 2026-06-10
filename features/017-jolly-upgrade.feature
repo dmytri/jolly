@@ -8,6 +8,7 @@ Feature: Jolly upgrade
     And Jolly uses Saleor Paper as the storefront baseline
     And Paper includes its own migrations and `paper-version.json`
 
+  @logic
   Scenario: Agent upgrades Jolly-managed skills and guidance
     Given a project has previously run `jolly init` or `jolly skills install`
     When the agent invokes `jolly upgrade`
@@ -16,12 +17,14 @@ Feature: Jolly upgrade
     And it should summarize available changes before applying them when appropriate
     And it should avoid overwriting unrelated user-authored instructions without approval or an explicit strategy
 
+  @logic
   Scenario: Upgrade includes skill update behavior
     Given Jolly has a dedicated `jolly skills update` command
     When the agent invokes `jolly upgrade`
     Then `jolly upgrade` may call or orchestrate `jolly skills update`
     And it should report which skills were updated, unchanged, skipped, or failed
 
+  @logic
   Scenario: Upgrade considers Paper baseline updates
     Given a cloned Paper storefront exists
     When the agent invokes `jolly upgrade`

@@ -3,6 +3,7 @@ Feature: Agent skill installation targets
   I want Jolly to install skills in standard locations while adding environment-specific guidance
   So that skills are discoverable by supported agents without fragmenting version management
 
+  @logic
   Scenario: Jolly installs skills in standard project-local locations where possible
     Given the agent invokes `jolly skills install`
     When Jolly installs the default Saleor skill set
@@ -10,6 +11,7 @@ Feature: Agent skill installation targets
     And it should avoid inventing a separate Jolly-only skill store unless required
     And it should record or report installed versions using standard skills lock/metadata files where possible
 
+  @logic
   Scenario: Jolly adds agent-specific glue
     Given the skills have been installed or checked
     When the current or target agent environment needs additional setup

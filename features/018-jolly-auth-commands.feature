@@ -3,6 +3,7 @@ Feature: Jolly auth commands
   I want explicit Jolly auth commands
   So that Saleor Cloud authentication can be managed independently from the full setup flow
 
+  @sandbox
   Scenario: Agent logs in to Saleor Cloud
     Given the agent needs Saleor Cloud authentication
     When it invokes `jolly login`
@@ -14,6 +15,7 @@ Feature: Jolly auth commands
     And Jolly should load the updated `.env` values for the current command flow where possible
     And it should avoid printing secret token values
 
+  @logic
   Scenario: Agent logs out
     Given Jolly has Saleor Cloud authentication state available
     When the agent invokes `jolly logout`
@@ -22,6 +24,7 @@ Feature: Jolly auth commands
     And it should load the updated `.env` values for the current command flow where possible
     And it should report the result clearly
 
+  @logic
   Scenario: Agent checks auth status
     Given the agent needs to know whether Saleor Cloud auth is available
     When it invokes `jolly auth status`

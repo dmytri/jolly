@@ -8,6 +8,7 @@ Feature: Jolly iteration phase support
     And the customer's agent is the primary interface for all ongoing commerce work
     And Jolly's role in the iteration phase is diagnostics, tooling config, and update management
 
+  @sandbox
   Scenario: Agent has live store access from day one
     Given jolly init has completed
     When the agent needs to query or modify the live Saleor store
@@ -16,6 +17,7 @@ Feature: Jolly iteration phase support
     And the agent should be able to query products, orders, channels, and store configuration through mcp-graphql
     And the agent should be able to make mutations through mcp-graphql where the app token permissions allow
 
+  @logic
   Scenario: Agent runs ongoing health checks
     Given the storefront has been deployed
     When the customer or agent wants to verify everything is working correctly
@@ -24,6 +26,7 @@ Feature: Jolly iteration phase support
     And it should report actionable next steps for any issues found
     And it should support --json for structured output the agent can parse
 
+  @logic
   Scenario: Agent upgrades Jolly-managed assets
     Given skills or agent guidance may become outdated over time
     When the agent wants to keep the project current
