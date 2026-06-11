@@ -10,7 +10,7 @@ Feature: Agent-first Jolly onboarding and CLI
     Then they should see a prominent copy box
     And the copy box should say "copy this to your agent to get started"
     And the copy box should contain a single line of copyable text
-    And the single line should be "Read https://jolly.dev/setup and follow the instructions to set up Jolly"
+    And the single line should be "Read https://jolly.cool/setup and follow the instructions to set up Jolly"
     And the URL should lead the agent to the full setup guide
 
   @logic

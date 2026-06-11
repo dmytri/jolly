@@ -20,7 +20,7 @@ Feature: Jolly homepage and agent setup guide
     When they view the primary copy box
     Then the copy box should say "copy this to your agent to get started"
     And the copy box should contain a single line of copyable text for the agent
-    And the single line should be "Read https://jolly.dev/setup and follow the instructions to set up Jolly"
+    And the single line should be "Read https://jolly.cool/setup and follow the instructions to set up Jolly"
     And the setup guide at the linked URL should carry the full workflow and MCP server context
 
   @logic
@@ -55,7 +55,7 @@ Feature: Jolly homepage and agent setup guide
     - Overall style: dark theme with neon/hacker aesthetic (cyberpunk-inspired like swamp.club) fused with heavy pirate/swashbuckling personality. The page should feel like a pirate radio station run by hackers.
     - Brand elements: Jolly Roger skull-and-crossbones as the primary logo/icon or mark; "XO" as a shorthand brand mark; pirate emoji (🏴‍☠️, ⚓, 🦜, 💀, 🔱) used as decorative/enumeration elements; gold/amber accent color alongside the neon green; CRT scan lines, treasure-map textures, and grid overlays welcome.
     - Hero: tagline ("Ahoy, agent. Go build a store.") in a bold, distinctive display font (e.g. Orbitron or similar) with a glow or glitch effect, and the prominent one-line copy box below it.
-    - One-line agent prompt: "Read https://jolly.dev/setup and follow the instructions to set up Jolly" — inside a bordered code-style box with a copy button. Use a monospace/terminal font.
+    - One-line agent prompt: "Read https://jolly.cool/setup and follow the instructions to set up Jolly" — inside a bordered code-style box with a copy button. Use a monospace/terminal font.
     - Below the hero: a concise, visually-driven summary of the v1 flow — exactly 4 short items with pirate emoji bullets and one line each. No wall of text.
       - ⚓ Agent connects or creates your Saleor store
       - 🔱 Agent deploys a Paper storefront to Vercel
@@ -76,7 +76,7 @@ Feature: Jolly homepage and agent setup guide
 
   Rule: Copy-box prompt requirements
     - The copy box must contain exactly one line of copyable text to paste into an agent.
-    - The one line must be: "Read https://jolly.dev/setup and follow the instructions to set up Jolly".
+    - The one line must be: "Read https://jolly.cool/setup and follow the instructions to set up Jolly".
     - The canonical URL is a placeholder; a removeable `canonical-url` or similar marker should let the team swap it before production launch.
     - Full workflow context, MCP server details, and agent guidance belong in the setup guide at the linked URL, not in the copy box.
     - A clickable copy button (📋 or similar icon) must appear next to the one-line prompt. Clicking it copies the prompt text to the clipboard. Must work in all evergreen browsers (Chrome, Firefox, Safari, Edge) without requiring Flash or a polyfill — use the standard `navigator.clipboard.writeText()` API.
