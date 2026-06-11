@@ -14,7 +14,7 @@
 ## Product Vision
 
 - **Name:** Jolly
-- **Tagline:** Saleor's Hydrogen for the agentic age.
+- **Tagline:** Ahoy, agent. Go build a store.
 - **Purpose:** Jolly, via the customer's own agent, helps people set up a fully operational end-to-end commerce experience on Saleor Cloud.
 - **Primary users:** AI agents and agent skills are the primary consumers; human developer DX should remain decent but secondary.
 - **Product shape:** Homepage + CLI + agent skills/setup instructions. Two phases: setup (fast automated path to a working storefront) and iteration (agent + Jolly diagnostics + skills for ongoing customization).

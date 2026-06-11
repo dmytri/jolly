@@ -9,9 +9,9 @@ Feature: Agent-first Jolly onboarding and CLI
     When they want to start using Jolly with their agent
     Then they should see a prominent copy box
     And the copy box should say "copy this to your agent to get started"
-    And the copied content should include a URL to Jolly's homepage
-    And the URL should lead the agent to setup instructions
-    And the copied content should tell the agent to read the setup guide, run Jolly via `npx`, use the Jolly CLI to install/manage required skills, and then run `jolly start`
+    And the copy box should contain a single line of copyable text
+    And the single line should be "Read https://jolly.dev/setup and follow the instructions to set up Jolly"
+    And the URL should lead the agent to the full setup guide
 
   @logic
   Scenario: Agent receives the copied setup instructions
@@ -20,8 +20,8 @@ Feature: Agent-first Jolly onboarding and CLI
     Then the agent should give a brief welcome
     And the agent should explain Jolly in one or two concise sentences
     And the agent should ask whether the customer already has a Saleor store or wants to register one
-    And the agent should know how to invoke the Jolly CLI via `npx` without requiring a prior global install
-    And the agent should use the Jolly CLI to install and manage Saleor/Jolly skills so Jolly can handle version updates over time
+    And the agent should invoke `npx @saleor/jolly start` to begin the end-to-end setup
+    And the Jolly CLI should automatically install all Saleor agent skills as part of the setup flow (no separate optional install step)
     And the agent should understand that it is the primary interface for Jolly workflows
 
   @logic
@@ -44,8 +44,8 @@ Feature: Agent-first Jolly onboarding and CLI
     And it should avoid printing secret values
 
   Rule: Product principles
-    - Jolly should inform the agent about the Saleor MCP server (mcp.saleor.app) during `jolly init` and in the setup guide. The MCP server is read-only and useful for querying live store data after setup is complete.
-    - `jolly init` should write an mcp-graphql config for the agent's environment so the agent has live store access from day one after setup.
+    - Jolly should inform the agent about the Saleor MCP server (mcp.saleor.app) in the setup guide and during setup. The MCP server is read-only and useful for querying live store data after setup is complete.
+    - After setup, Jolly should write an mcp-graphql config for the agent's environment so the agent has live store access from day one.
     - The path from homepage copy to working deployed storefront must minimize human intervention. Only browser OAuth consent, new account creation, and secret values require human action; everything else should be automated with safe defaults.
     - Jolly should never ask for information it can infer, detect, or safely default. Confirmation steps are only warranted for irreversible or destructive actions.
     - CLI output should favor deterministic, structured, actionable responses.
@@ -58,10 +58,9 @@ Feature: Agent-first Jolly onboarding and CLI
     - `jolly start` should be hybrid: agent-friendly by default, with a human-friendly interactive mode available.
     - Jolly should make full use of subcommands, including `init`, `create`, and `start` concepts.
     - Agent instructions and skills are part of the product experience, not afterthought documentation.
-    - Skill installation and updates should be mediated through the Jolly CLI rather than only manual `npx skills add` instructions.
-    - Skill commands should include `jolly skills install` and `jolly skills update`; `jolly start` may call or check them automatically.
-    - Skill installation should be hybrid: use standard project-local skills where possible, plus agent-specific glue/instructions for supported environments.
-    - `jolly init` should initialize local agent setup by installing/checking skills and writing agent guidance, without remote Saleor/Vercel actions or secrets.
+    - Skill management is fully automated by the Jolly CLI — `jolly start` installs ALL Saleor agent skills automatically. There is no separate optional skill-install step for the agent.
+    - `jolly start` installs all skills as part of the setup flow. The standalone `jolly skills install` and `jolly skills update` commands remain available for post-setup maintenance.
+    - Skill installation should use standard project-local locations where possible, plus agent-specific glue/instructions for supported environments.
     - Setup instructions should support generic agents plus Zed, Claude Code, Cursor, OpenCode, and Pi.dev first.
 
   Rule: Open questions

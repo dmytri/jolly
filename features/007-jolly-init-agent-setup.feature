@@ -1,7 +1,12 @@
 Feature: Jolly init for local agent setup
   As a customer's AI agent
   I want `jolly init` to prepare local agent guidance and skills
-  So that the agent can reliably perform Jolly workflows before creating or modifying remote resources
+  So that `jolly start` (or a future re-initialization) can rely on skills being present
+
+  Background:
+    Given skill installation is fully automated — `jolly start` installs all Saleor agent skills automatically
+    And the agent never runs `jolly init` or `jolly skills install` as an explicit separate step
+    And `jolly init` remains available as a standalone command for repo re-initialization and maintenance
 
   @logic
   Scenario: Agent initializes Jolly guidance locally
@@ -26,7 +31,8 @@ Feature: Jolly init for local agent setup
     And it should produce a concise summary of changes
 
   Rule: Init boundaries
-    - `jolly init` is for local agent setup only.
+    - `jolly init` is automatically invoked by `jolly start` as part of the setup flow. The agent never runs it as an explicit step.
+    - `jolly init` is available standalone for repo re-initialization and maintenance.
     - `jolly init` may call or share logic with `jolly skills install`.
     - `jolly init` should not perform Saleor Cloud authentication, registration, configuration deployment, storefront creation, or Vercel deployment.
     - `jolly init` should not store secrets.

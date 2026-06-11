@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Jolly — "Saleor's Hydrogen for the agentic age." A homepage + `npx` CLI + agent skills that
+Jolly — "Ahoy, agent. Go build a store." A homepage + `npx` CLI + agent skills that
 help a customer's own AI agent set up and iterate on an end-to-end commerce storefront on
 Saleor Cloud. Agents are the primary consumers; human DX is secondary. The CLI empowers the
 customer's agent rather than replacing it.
