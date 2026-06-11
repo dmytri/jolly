@@ -320,8 +320,9 @@ Then(
       if (match) {
         const redirectUri = decodeURIComponent(match[1]);
         assert.ok(
-          redirectUri.startsWith("http://localhost"),
-          `redirect_uri should be localhost, got ${redirectUri}`,
+          redirectUri.startsWith("http://localhost") ||
+            redirectUri.startsWith("http://127.0.0.1"),
+          `redirect_uri should be localhost or 127.0.0.1, got ${redirectUri}`,
         );
       }
     }

@@ -26,6 +26,7 @@ Feature: Structured agent risk context
     Given a command supports `--dry-run`
     When the agent previews the action with `--dry-run`
     Then the `riskContext` shown in preview should match the `riskContext` for real execution
+    And the real execution output must include a `riskContext` identical to the dry-run preview
     And no remote side effects should occur during the dry run
 
   @logic
@@ -47,7 +48,8 @@ Feature: Structured agent risk context
     - `riskContext` fields are `action`, `target`, `riskLevel`, `categories`, `reversible`, `sideEffects`, and `dryRunAvailable`.
     - `riskLevel` is one of low, medium, or high.
     - `categories` are drawn from the feature 010 high-risk list: destructive operations, billing, payment setup, credential handling, live deployment, and production configuration changes.
-    - The same `riskContext` should be produced for `--dry-run` preview and for real execution.
+    - Every command that supports `--dry-run` MUST emit a `riskContext` in its real execution output, identical to the one produced during `--dry-run` preview.
+    - The `riskContext` for real execution should be carried inside the output envelope `data` or `checks`, not hidden or omitted. The agent uses it to verify the action matches what was previewed.
     - `riskContext` should be carried inside the feature 020 output envelope, not a separate format.
     - Risk context must never include secret values; reference credentials by name only.
 

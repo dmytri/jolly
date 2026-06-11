@@ -87,9 +87,11 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   "Jolly start runs doctor automatically": FULL_END_TO_END,
   // 018-jolly-auth-commands
   "Agent logs in to Saleor Cloud": ["saleorCloud"],
-  "Agent completes the full browser OAuth login flow": ["saleorCloud"],
+  "Agent completes the full browser OAuth login flow": ["saleorCloud", "saleorAppToken"],  // needs JOLLY_SALEOR_APP_TOKEN for the real token check after browser flow
   // 024-jolly-app-token-acquisition
   "Jolly create app-token acquires a real token from Saleor": ["saleorEndpoint", "saleorCloud"],
+  // 012-existing-saleor-store-connection
+  "Jolly creates a Saleor Cloud environment from scratch": ["saleorCloud"],
   // 019-iteration-phase
   "Agent has live store access from day one": ["saleorEndpoint", "saleorAppToken"],
   // 021-agent-risk-context

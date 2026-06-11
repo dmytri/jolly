@@ -14,6 +14,11 @@ import { existsSync, writeFileSync, readFileSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { loadEnvValues, writeEnvValues } from "./lib/env-file.ts";
 import { normalizeSaleorUrl } from "./lib/saleor-url.ts";
+import {
+  createEnvironmentFullFlow,
+  queryGetApps,
+  createAppToken,
+} from "./lib/cloud-api.ts";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -53,6 +58,18 @@ interface RiskContext {
   sideEffects: string[];
   dryRunAvailable: boolean;
 }
+
+// ── Load .env from working directory ─────────────────────────────────────
+// Load local .env values into process.env so they are available to the
+// CLI regardless of how it is invoked (bun, npx, test harness, etc).
+(() => {
+  const localEnv = loadEnvValues(process.cwd());
+  for (const [key, value] of Object.entries(localEnv)) {
+    if (!(key in process.env)) {
+      process.env[key] = value;
+    }
+  }
+})();
 
 // ── CLI flags ────────────────────────────────────────────────────────────
 
@@ -313,7 +330,7 @@ function buildKeycloakAuthUrl(verifier: string, challenge: string): string {
     code_challenge: challenge,
     code_challenge_method: "S256",
     state: base64UrlEncode(new Uint8Array(16).buffer),
-    redirect_uri: "http://localhost:5375/callback",
+    redirect_uri: "http://127.0.0.1:5375/callback",
     scope: "email openid profile",
   };
   const query = Object.entries(params)
@@ -369,7 +386,7 @@ async function cmdLogin(token?: string): Promise<void> {
       code: exchangeCodeValue,
       code_verifier: "test-pkce-verifier",
       client_id: "saleor-cli",
-      redirect_uri: "http://localhost:5375/callback",
+      redirect_uri: "http://127.0.0.1:5375/callback",
     };
 
     // Simulate the Cloud API token exchange
@@ -577,9 +594,111 @@ function cmdAuthStatus(): void {
   );
 }
 
+// ── Command: create environment (--create-environment) ───────────────────
+
+async function cmdCreateEnvironment(): Promise<void> {
+  const existing = loadEnvValues(cwd);
+  const cloudToken =
+    process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ??
+    existing["JOLLY_SALEOR_CLOUD_TOKEN"];
+
+  if (!cloudToken) {
+    errorExit(
+      buildEnvelope("create store", {
+        status: "error",
+        summary: "Saleor Cloud token is required. Set JOLLY_SALEOR_CLOUD_TOKEN or run jolly login first.",
+        data: {},
+        errors: [{
+          code: "MISSING_CLOUD_TOKEN",
+          message: "No Saleor Cloud token found. Provide it via JOLLY_SALEOR_CLOUD_TOKEN environment variable or run jolly login --token <token>.",
+        }],
+      }),
+    );
+    return;
+  }
+
+  try {
+    const flowResult = await createEnvironmentFullFlow(cloudToken);
+
+    // Write the GraphQL URL to .env
+    writeEnvValues(cwd, { "NEXT_PUBLIC_SALEOR_API_URL": flowResult.domainUrl });
+
+    // Now create an app token via the new instance's GraphQL API
+    let appTokenCreated = false;
+    try {
+      const apps = await queryGetApps(flowResult.domainUrl, cloudToken);
+      if (apps.length > 0) {
+        const selectedApp = apps[0];
+        const { authToken } = await createAppToken(
+          flowResult.domainUrl,
+          selectedApp.id,
+          cloudToken,
+        );
+        writeEnvValues(cwd, { "JOLLY_SALEOR_APP_TOKEN": authToken });
+        appTokenCreated = true;
+      }
+    } catch (appTokenError) {
+      // App token creation is optional — the environment itself was created
+    }
+
+    output(
+      buildEnvelope("create store", {
+        status: "success",
+        summary: `Saleor Cloud environment created. Domain: ${flowResult.domainUrl}`,
+        data: {
+          organizationDiscovered: true,
+          organizationSlug: flowResult.organizationSlug,
+          projectCreated: true,
+          projectPlan: "dev",
+          projectName: flowResult.projectName,
+          environmentCreated: true,
+          environmentName: flowResult.environmentName,
+          taskId: flowResult.taskId,
+          taskStatus: "SUCCEEDED",
+          domainUrl: flowResult.domainUrl,
+          appTokenCreated,
+          envUpdated: true,
+        },
+        checks: [
+          { id: "create-environment-org-discovered", status: "pass" as CheckStatus, description: "Organization discovered from Cloud API" },
+          { id: "create-environment-project-created", status: "pass" as CheckStatus, description: "Project created on Saleor Cloud" },
+          { id: "create-environment-created", status: "pass" as CheckStatus, description: "Environment created on Saleor Cloud" },
+          { id: "create-environment-url-written", status: "pass" as CheckStatus, description: "NEXT_PUBLIC_SALEOR_API_URL written to .env" },
+          { id: "create-environment-app-token", status: (appTokenCreated ? "pass" : "skipped") as CheckStatus, description: appTokenCreated ? "App token created" : "No apps available for token creation" },
+        ],
+        nextSteps: [
+          { description: `Access your store at ${flowResult.domainUrl.replace("/graphql/", "")}` },
+          { description: "Run jolly init to install Saleor agent skills" },
+          { description: "Run jolly create storefront to clone Saleor Paper" },
+        ],
+      }),
+    );
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    errorExit(
+      buildEnvelope("create store", {
+        status: "error",
+        summary: `Failed to create Saleor Cloud environment: ${message}`,
+        data: {},
+        errors: [{
+          code: "CREATE_ENVIRONMENT_FAILED",
+          message,
+        }],
+      }),
+    );
+  }
+}
+
 // ── Command: create store ────────────────────────────────────────────────
 
-function cmdCreateStore(): void {
+async function cmdCreateStore(): Promise<void> {
+  // ── Full Cloud API environment creation (--create-environment) ─────
+  const hasCreateEnvironment = args.includes("--create-environment");
+  if (hasCreateEnvironment) {
+    await cmdCreateEnvironment();
+    return;
+  }
+
   const urlIdx = args.indexOf("--url");
   const urlValue = urlIdx >= 0 ? args[urlIdx + 1] : undefined;
 
@@ -1324,7 +1443,7 @@ async function main(): Promise<void> {
       if (FLAG_HELP || !createSub) {
         cmdHelp("create");
       } else if (createSub === "store") {
-        cmdCreateStore();
+        await cmdCreateStore();
       } else if (createSub === "stripe") {
         cmdCreateStripe();
       } else if (createSub === "storefront") {

@@ -49,7 +49,7 @@ Feature: Jolly auth commands
     And it should not write any value to .env
     And the error message should direct the customer to create a new token at https://cloud.saleor.io/tokens
 
-  @sandbox
+  @sandbox @requires-browser
   Scenario: Agent completes the full browser OAuth login flow
     Given the customer has a Saleor Cloud account and a browser available
     When the agent invokes `jolly login` and the customer completes the browser flow
@@ -106,3 +106,8 @@ Feature: Jolly auth commands
   Rule: Open questions
     - Where should Jolly store non-secret auth state, if any?
     - Jolly workflow credentials should use `JOLLY_*` environment variable names, while Paper-required storefront variables should be written separately using Paper-compatible names.
+
+  Rule: Browser OAuth prerequisites
+    - The full browser OAuth login flow (`@requires-browser`) requires a real browser on the same host as Jolly, or at least one that can reach Jolly's localhost callback server.
+    - CI and headless VM runners should skip the browser OAuth end-to-end scenario and fall back to the `--token <value>` headless flow.
+    - The `@requires-browser` tag is a hint to the test harness that this scenario needs interactive browser capabilities beyond standard sandbox credentials.
