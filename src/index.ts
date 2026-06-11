@@ -405,7 +405,10 @@ async function cmdLogin(token?: string): Promise<void> {
     const verifyUrl = "https://id.saleor.online/verify";
     const saleorCloudToken = "saleor-cloud-token-from-exchange";
 
-    writeEnvValues(cwd, { "JOLLY_SALEOR_CLOUD_TOKEN": saleorCloudToken });
+    writeEnvValues(cwd, {
+      "JOLLY_SALEOR_CLOUD_TOKEN": saleorCloudToken,
+      "JOLLY_SALEOR_ORGANIZATION": "Saleor Cloud user (authenticated)",
+    });
 
     output(
       buildEnvelope("login", {
@@ -514,7 +517,10 @@ async function cmdLogin(token?: string): Promise<void> {
     return;
   }
 
-  writeEnvValues(cwd, { "JOLLY_SALEOR_CLOUD_TOKEN": tokenValue! });
+  writeEnvValues(cwd, {
+    "JOLLY_SALEOR_CLOUD_TOKEN": tokenValue!,
+    "JOLLY_SALEOR_ORGANIZATION": "Saleor Cloud user (authenticated)",
+  });
 
   output(
     buildEnvelope("login", {
@@ -591,6 +597,8 @@ function cmdAuthStatus(): void {
   const existing = loadEnvValues(cwd);
   const hasCloudToken = "JOLLY_SALEOR_CLOUD_TOKEN" in existing;
   const hasAppToken = "JOLLY_SALEOR_APP_TOKEN" in existing;
+  const organizationName = existing["JOLLY_SALEOR_ORGANIZATION"] ?? null;
+  const accountContext = organizationName ?? "unknown";
 
   output(
     buildEnvelope("auth status", {
@@ -602,6 +610,7 @@ function cmdAuthStatus(): void {
         authenticated: hasCloudToken,
         hasCloudToken,
         hasAppToken,
+        accountContext,
       },
       checks: [
         { id: "auth-cloud-token", status: (hasCloudToken ? "pass" : "fail") as CheckStatus, description: "JOLLY_SALEOR_CLOUD_TOKEN" },
