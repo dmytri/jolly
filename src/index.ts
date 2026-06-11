@@ -716,6 +716,141 @@ function runAgentSetup(commandName: string, flags: Flags): void {
   );
 }
 
+// --- jolly upgrade (feature 017) ----------------------------------------------
+
+/** Read-only Paper baseline detection for `jolly upgrade` (feature 017). */
+interface PaperBaselineReport {
+  detected: boolean;
+  baseline: string;
+  detail: string;
+  installedVersion?: string;
+  migrationGuidance: string[];
+  /** Plan-only in v1: migrations are never applied automatically. */
+  upgradePlan: {
+    autoApplied: false;
+    note: string;
+    steps: { migration: string; action: string }[];
+  } | null;
+}
+
+function detectPaperBaseline(cwd: string): PaperBaselineReport {
+  const storefrontDir = join(cwd, "storefront");
+  const versionFile = join(storefrontDir, "paper-version.json");
+  if (!existsSync(versionFile)) {
+    return {
+      detected: false,
+      baseline: "saleor/storefront (Paper)",
+      detail: existsSync(storefrontDir)
+        ? "A storefront directory exists but carries no paper-version.json; the Paper baseline could not be detected"
+        : "No cloned Paper storefront was found; storefront baseline checks were skipped",
+      migrationGuidance: [],
+      upgradePlan: null,
+    };
+  }
+
+  let installedVersion: string | undefined;
+  try {
+    const parsed = JSON.parse(readFileSync(versionFile, "utf8"));
+    if (typeof parsed?.version === "string") installedVersion = parsed.version;
+  } catch {
+    // Unreadable version metadata: the baseline is still detected.
+  }
+
+  const migrationsDir = join(storefrontDir, "migrations");
+  const migrationGuidance = existsSync(migrationsDir)
+    ? readdirSync(migrationsDir)
+        .sort()
+        .map((entry) => `storefront/migrations/${entry}`)
+    : [];
+
+  return {
+    detected: true,
+    baseline: "saleor/storefront (Paper)",
+    detail: `Detected the Paper storefront baseline (paper-version.json${installedVersion ? `, version ${installedVersion}` : ""}); ${migrationGuidance.length} embedded migration guidance file(s) found`,
+    ...(installedVersion ? { installedVersion } : {}),
+    migrationGuidance,
+    upgradePlan: {
+      autoApplied: false,
+      note: "Plan only: Jolly does not apply Paper storefront migrations automatically in v1. The customer's agent reviews this plan and applies changes deliberately, respecting customizations.",
+      steps:
+        migrationGuidance.length > 0
+          ? migrationGuidance.map((migration) => ({
+              migration,
+              action: `Review ${migration} and apply it to the customized storefront manually (agent-driven; not automatic)`,
+            }))
+          : [
+              {
+                migration: "none",
+                action: "No embedded Paper migration guidance found; no storefront changes are planned",
+              },
+            ],
+    },
+  };
+}
+
+/**
+ * `jolly upgrade` (feature 017): update Jolly-managed assets safely.
+ * Orchestrates the `jolly skills update` behavior (syncAgentAssets) to
+ * auto-apply Jolly-managed skill and guidance updates when safe — user-authored
+ * instructions without the managed marker are skipped, never overwritten.
+ * Paper/storefront changes are plan-only: the baseline and its embedded
+ * migration guidance are detected read-only and surfaced as an upgrade plan;
+ * no storefront file is modified and no migration is applied in v1.
+ */
+function runUpgrade(flags: Flags): void {
+  const cwd = process.cwd();
+  const sync: AgentAssetSync = syncAgentAssets(cwd, { write: !flags.dryRun });
+  const paper = detectPaperBaseline(cwd);
+
+  const countByStatus = (items: { status: AssetStatus }[]): string => {
+    const order: AssetStatus[] = ["installed", "updated", "unchanged", "skipped"];
+    return (
+      order
+        .map((status) => [status, items.filter((item) => item.status === status).length] as const)
+        .filter(([, count]) => count > 0)
+        .map(([status, count]) => `${count} ${status}`)
+        .join(", ") || "none"
+    );
+  };
+
+  const paperSummary = paper.detected
+    ? `Paper baseline detected (plan-only: ${paper.upgradePlan?.steps.length ?? 0} migration plan step(s), none applied automatically)`
+    : "no Paper baseline detected";
+  const summaryCore = `skills: ${countByStatus(sync.skills)}; agent guidance: ${countByStatus(sync.guidance)}; storefront: ${paperSummary}.`;
+
+  const nextSteps: NextStep[] = [
+    { description: "Review the per-asset dispositions in data.skills and data.guidance for what changed" },
+    { description: "Verify skill installation and agent guidance status", command: "jolly doctor skills" },
+  ];
+  if (sync.guidance.some((item) => item.status === "skipped")) {
+    nextSteps.push({
+      description:
+        "Review skipped guidance files: they contain user-authored instructions Jolly will not overwrite without approval or an explicit strategy",
+    });
+  }
+  if (paper.detected) {
+    nextSteps.push({
+      description:
+        "Review the Paper upgrade plan in data.paper.upgradePlan and decide whether to apply storefront migrations (never applied automatically in v1)",
+    });
+  }
+
+  emit(
+    {
+      command: "upgrade",
+      status: "success",
+      summary: flags.dryRun
+        ? `Dry run: jolly upgrade checked Jolly-managed assets for updates — ${summaryCore} No files were written.`
+        : `jolly upgrade checked Jolly-managed assets for updates — ${summaryCore}`,
+      data: { dryRun: flags.dryRun, ...sync, paper },
+      checks: [],
+      nextSteps,
+      errors: [],
+    },
+    flags,
+  );
+}
+
 function runNotImplemented(commandName: string, flags: Flags): void {
   emit(
     {
@@ -761,10 +896,19 @@ function main(argv: string[]): void {
         runAgentSetup("skills install", flags);
         return;
       }
+      if (subcommand === "update") {
+        // Updating installed Jolly-managed skills is the same idempotent sync:
+        // current versions are written, up-to-date assets report unchanged.
+        runAgentSetup("skills update", flags);
+        return;
+      }
       runNotImplemented(positionals.join(" "), flags);
       return;
     case "doctor":
       runDoctor(subcommand, flags);
+      return;
+    case "upgrade":
+      runUpgrade(flags);
       return;
     case "logout":
       runLogout(flags);
