@@ -1,0 +1,152 @@
+// Cucumber world: per-scenario state, the CLI invocation seam, temp project
+// directories, secret tracking, and the per-run namespace + cleanup registry
+// (feature 023).
+import { World, setWorldConstructor, type IWorldOptions } from "@cucumber/cucumber";
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  findEnvelope,
+  assertEnvelopeShape,
+  type Envelope,
+} from "./envelope.ts";
+import { CleanupRegistry, makeNamespace, runId } from "./sandbox.ts";
+
+export const REPO_ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
+const CLI_ENTRY = join(REPO_ROOT, "src", "index.ts");
+
+let worldCounter = 0;
+
+export interface CliResult {
+  args: string[];
+  cwd: string;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  envelope?: Envelope;
+}
+
+export interface RunCliOptions {
+  cwd?: string;
+  env?: Record<string, string | undefined>;
+  timeoutMs?: number;
+}
+
+export class JollyWorld extends World {
+  /** Unique per-run identifier shared by all scenarios in this process. */
+  readonly runId = runId();
+  /** Namespace for every resource this scenario creates (collision-free). */
+  readonly namespace: string;
+  readonly cleanup = new CleanupRegistry();
+  /** Secret values observed by this scenario; output must never echo them. */
+  readonly secrets = new Set<string>();
+  /** Free-form scratch state shared between steps of one scenario. */
+  readonly notes: Record<string, unknown> = {};
+
+  lastRun?: CliResult;
+  previousRun?: CliResult;
+
+  private projectDirPath?: string;
+
+  constructor(options: IWorldOptions) {
+    super(options);
+    this.namespace = `${makeNamespace(this.runId)}-${++worldCounter}`;
+    for (const name of Object.keys(process.env)) {
+      if (/^JOLLY_.*(TOKEN|SECRET|KEY|PASSWORD)/.test(name)) {
+        const value = process.env[name];
+        if (value && value.trim() !== "") this.secrets.add(value);
+      }
+    }
+  }
+
+  /** Scenario-scoped temp project directory (created lazily, removed in teardown). */
+  get projectDir(): string {
+    if (this.projectDirPath === undefined) {
+      this.projectDirPath = this.newTempDir("project");
+    }
+    return this.projectDirPath;
+  }
+
+  newTempDir(label: string): string {
+    const dir = mkdtempSync(join(tmpdir(), `${this.namespace}-${label}-`));
+    this.cleanup.register(`temp directory ${dir}`, () => {
+      rmSync(dir, { recursive: true, force: true });
+    });
+    return dir;
+  }
+
+  /**
+   * Invoke the Jolly CLI. Default runtime is Bun; HARNESS_CLI_RUNTIME selects
+   * the documented Node >= 23 fallback. Runs in the scenario's temp project
+   * directory unless overridden, with the test process environment passed
+   * through (the same runtime JOLLY_* configuration Jolly itself uses).
+   */
+  runCli(args: string[], options: RunCliOptions = {}): CliResult {
+    const runtime = process.env.HARNESS_CLI_RUNTIME ?? "bun";
+    const cwd = options.cwd ?? this.projectDir;
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries({ ...process.env, ...options.env })) {
+      if (value !== undefined) env[key] = value;
+    }
+    const spawned = spawnSync(runtime, [CLI_ENTRY, ...args], {
+      cwd,
+      env,
+      encoding: "utf8",
+      timeout: options.timeoutMs ?? 120_000,
+    });
+    if (spawned.error) {
+      throw new Error(
+        `Failed to invoke Jolly CLI via "${runtime}": ${spawned.error.message}`,
+      );
+    }
+    const stdout = spawned.stdout ?? "";
+    const result: CliResult = {
+      args,
+      cwd,
+      exitCode: spawned.status ?? -1,
+      stdout,
+      stderr: spawned.stderr ?? "",
+      envelope: findEnvelope(stdout),
+    };
+    this.previousRun = this.lastRun;
+    this.lastRun = result;
+    return result;
+  }
+
+  /** The last run's envelope, validated against the feature 020 shape. */
+  get envelope(): Envelope {
+    assert.ok(this.lastRun, "no Jolly command has been run in this scenario");
+    assert.ok(
+      this.lastRun.envelope,
+      `no output envelope found in stdout of \`jolly ${this.lastRun.args.join(" ")}\` ` +
+        `(exit ${this.lastRun.exitCode}).\nstdout:\n${this.lastRun.stdout}\nstderr:\n${this.lastRun.stderr}`,
+    );
+    assertEnvelopeShape(this.lastRun.envelope);
+    return this.lastRun.envelope;
+  }
+
+  findCheck(idPrefix: string): Record<string, unknown> | undefined {
+    return this.envelope.checks.find((check) =>
+      String(check.id).startsWith(idPrefix),
+    );
+  }
+
+  trackSecret(value: string): void {
+    if (value && value.trim() !== "") this.secrets.add(value);
+  }
+
+  /** Assert no tracked secret value appears anywhere in the given text. */
+  assertNoSecretsIn(text: string, context: string): void {
+    for (const secret of this.secrets) {
+      assert.ok(
+        !text.includes(secret),
+        `${context} leaks a secret value (referenced by name only is allowed)`,
+      );
+    }
+  }
+}
+
+setWorldConstructor(JollyWorld);
