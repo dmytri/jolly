@@ -91,7 +91,7 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   // 024-jolly-app-token-acquisition
   "Jolly create app-token acquires a real token from Saleor": ["saleorEndpoint", "saleorCloud"],
   // 012-existing-saleor-store-connection
-  "Jolly creates a Saleor Cloud environment from scratch": ["saleorCloud"],
+  "Jolly creates a Saleor Cloud environment": ["saleorCloud"],
   // 019-iteration-phase
   "Agent has live store access from day one": ["saleorEndpoint", "saleorAppToken"],
   // 021-agent-risk-context

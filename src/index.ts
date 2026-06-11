@@ -15,9 +15,19 @@ import { join, resolve } from "node:path";
 import { loadEnvValues, writeEnvValues } from "./lib/env-file.ts";
 import { normalizeSaleorUrl } from "./lib/saleor-url.ts";
 import {
-  createEnvironmentFullFlow,
-  queryGetApps,
-  createAppToken,
+  CloudApiError,
+  acquireAppToken,
+  createEnvironment,
+  createProject,
+  extractDomainUrl,
+  getEnvironment,
+  listEnvironments,
+  listOrganizations,
+  listProjects,
+  listProjectServices,
+  pickService,
+  pollTaskStatus,
+  taskStatusUrl,
 } from "./lib/cloud-api.ts";
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -627,57 +637,115 @@ async function cmdCreateEnvironment(): Promise<void> {
     return;
   }
 
+  // Built up progressively so partial results (organizationSlug,
+  // environmentKey, ...) survive into an error envelope — the test harness
+  // uses them to register teardown deletion of anything that was created.
+  const data: Record<string, unknown> = {};
+  const checks: Check[] = [];
+  const region = "us-east-1";
+
   try {
-    const flowResult = await createEnvironmentFullFlow(cloudToken);
-
-    // Write the GraphQL URL to .env
-    writeEnvValues(cwd, { "NEXT_PUBLIC_SALEOR_API_URL": flowResult.domainUrl });
-
-    // Now create an app token via the new instance's GraphQL API
-    let appTokenCreated = false;
-    try {
-      const apps = await queryGetApps(flowResult.domainUrl, cloudToken);
-      if (apps.length > 0) {
-        const selectedApp = apps[0];
-        const { authToken } = await createAppToken(
-          flowResult.domainUrl,
-          selectedApp.id,
-          cloudToken,
-        );
-        writeEnvValues(cwd, { "JOLLY_SALEOR_APP_TOKEN": authToken });
-        appTokenCreated = true;
-      }
-    } catch (appTokenError) {
-      // App token creation is optional — the environment itself was created
+    // 1. Discover the organization from the Cloud API.
+    const organizations = await listOrganizations(cloudToken);
+    if (organizations.length === 0) {
+      throw new CloudApiError(
+        "No Saleor Cloud organizations are accessible with this token.",
+        "NO_ORGANIZATION",
+      );
     }
+    const organizationSlug = String(organizations[0].slug);
+    data.organizationSlug = organizationSlug;
+    checks.push({ id: "create-environment-org-discovered", status: "pass" as CheckStatus, description: `Organization discovered from Cloud API: ${organizationSlug}` });
+
+    // 2. Create-or-reuse the project: reuse an existing project when one
+    //    exists, otherwise create one with plan "dev" (feature 012 Rule).
+    const projects = await listProjects(cloudToken, organizationSlug);
+    let projectSlug: string;
+    let projectName: string;
+    if (projects.length > 0) {
+      const project = projects[0];
+      projectSlug = String(project.slug ?? project.name);
+      projectName = String(project.name ?? projectSlug);
+      data.projectCreated = false;
+      data.projectReused = true;
+      checks.push({ id: "create-environment-project", status: "pass" as CheckStatus, description: `Reused existing project "${projectName}"` });
+    } else {
+      projectName = `jolly-project-${Date.now().toString(36)}`;
+      const created = await createProject(cloudToken, organizationSlug, {
+        name: projectName,
+        plan: "dev",
+        region,
+      });
+      projectSlug = String(created.slug ?? projectName);
+      data.projectCreated = true;
+      data.projectReused = false;
+      data.projectPlan = "dev";
+      checks.push({ id: "create-environment-project", status: "pass" as CheckStatus, description: `Created project "${projectName}" (plan dev)` });
+    }
+    data.projectName = projectName;
+
+    // 3. Resolve the concrete service identifier for the environment body.
+    const services = await listProjectServices(cloudToken, organizationSlug, projectSlug);
+    const service = pickService(services, region);
+
+    // 4. Create the environment.
+    const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    const environmentName = `jolly-env-${suffix}`;
+    const domainLabel = `jolly-${suffix}`;
+    const environment = await createEnvironment(cloudToken, organizationSlug, {
+      name: environmentName,
+      project: projectSlug,
+      domain_label: domainLabel,
+      database_population: "sample",
+      service,
+      region,
+    });
+    data.environmentName = environmentName;
+    if (environment.key) data.environmentKey = String(environment.key);
+    const taskId = String(environment.task_id ?? "");
+    data.taskId = taskId;
+    data.taskPollUrl = taskStatusUrl(taskId);
+    checks.push({ id: "create-environment-created", status: "pass" as CheckStatus, description: `Environment "${environmentName}" creation requested` });
+
+    // 5. Poll the provisioning task until SUCCEEDED.
+    const task = await pollTaskStatus(taskId);
+    data.taskStatus = "SUCCEEDED";
+    checks.push({ id: "create-environment-task", status: "pass" as CheckStatus, description: "Provisioning task SUCCEEDED" });
+
+    // Resolve the environment key if creation did not return one — the
+    // agent (and the test teardown) needs it to manage the environment.
+    if (!data.environmentKey) {
+      const environments = await listEnvironments(cloudToken, organizationSlug);
+      const match = environments.find(
+        (e) => e.domain_label === domainLabel || e.name === environmentName,
+      );
+      if (match?.key) data.environmentKey = String(match.key);
+    }
+
+    // 6. Extract the resulting domain from the task result and write the
+    //    GraphQL URL to .env.
+    const detail = data.environmentKey
+      ? await getEnvironment(cloudToken, organizationSlug, String(data.environmentKey))
+      : undefined;
+    const domainUrl = extractDomainUrl(task, detail ?? environment, domainLabel);
+    data.domainUrl = domainUrl;
+    writeEnvValues(cwd, { "NEXT_PUBLIC_SALEOR_API_URL": domainUrl });
+    data.envUpdated = true;
+    checks.push({ id: "create-environment-url-written", status: "pass" as CheckStatus, description: "NEXT_PUBLIC_SALEOR_API_URL written to .env" });
+
+    // 7. Create an app token via the Saleor GraphQL API and write it to .env.
+    const appToken = await acquireAppToken(domainUrl, cloudToken, "jolly-setup");
+    writeEnvValues(cwd, { "JOLLY_SALEOR_APP_TOKEN": appToken });
+    data.appTokenCreated = true;
+    checks.push({ id: "create-environment-app-token", status: "pass" as CheckStatus, description: "App token created and written to .env as JOLLY_SALEOR_APP_TOKEN" });
 
     output(
       buildEnvelope("create store", {
         status: "success",
-        summary: `Saleor Cloud environment created. Domain: ${flowResult.domainUrl}`,
-        data: {
-          organizationDiscovered: true,
-          organizationSlug: flowResult.organizationSlug,
-          projectCreated: true,
-          projectPlan: "dev",
-          projectName: flowResult.projectName,
-          environmentCreated: true,
-          environmentName: flowResult.environmentName,
-          taskId: flowResult.taskId,
-          taskStatus: "SUCCEEDED",
-          domainUrl: flowResult.domainUrl,
-          appTokenCreated,
-          envUpdated: true,
-        },
-        checks: [
-          { id: "create-environment-org-discovered", status: "pass" as CheckStatus, description: "Organization discovered from Cloud API" },
-          { id: "create-environment-project-created", status: "pass" as CheckStatus, description: "Project created on Saleor Cloud" },
-          { id: "create-environment-created", status: "pass" as CheckStatus, description: "Environment created on Saleor Cloud" },
-          { id: "create-environment-url-written", status: "pass" as CheckStatus, description: "NEXT_PUBLIC_SALEOR_API_URL written to .env" },
-          { id: "create-environment-app-token", status: (appTokenCreated ? "pass" : "skipped") as CheckStatus, description: appTokenCreated ? "App token created" : "No apps available for token creation" },
-        ],
+        summary: "Saleor Cloud environment created and connected.",
+        data,
+        checks,
         nextSteps: [
-          { description: `Access your store at ${flowResult.domainUrl.replace("/graphql/", "")}` },
           { description: "Run jolly init to install Saleor agent skills" },
           { description: "Run jolly create storefront to clone Saleor Paper" },
         ],
@@ -685,15 +753,34 @@ async function cmdCreateEnvironment(): Promise<void> {
     );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
+    const code = error instanceof CloudApiError ? error.code : "CREATE_ENVIRONMENT_FAILED";
+
+    if (code === "ENVIRONMENT_LIMIT_REACHED") {
+      errorExit(
+        buildEnvelope("create store", {
+          status: "error",
+          summary: "Environment creation rejected: the organization's sandbox environment limit is reached.",
+          data,
+          checks,
+          errors: [{
+            code: "ENVIRONMENT_LIMIT_REACHED",
+            message,
+            remediation: "Delete an unused environment or upgrade the organization's plan, then re-run jolly create store --create-environment.",
+          }],
+          nextSteps: [
+            { description: "Delete an unused environment in the Saleor Cloud console, or upgrade the plan, then re-run jolly create store --create-environment" },
+          ],
+        }),
+      );
+    }
+
     errorExit(
       buildEnvelope("create store", {
         status: "error",
         summary: `Failed to create Saleor Cloud environment: ${message}`,
-        data: {},
-        errors: [{
-          code: "CREATE_ENVIRONMENT_FAILED",
-          message,
-        }],
+        data,
+        checks,
+        errors: [{ code, message }],
       }),
     );
   }

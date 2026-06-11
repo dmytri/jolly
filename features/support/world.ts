@@ -33,6 +33,13 @@ export interface RunCliOptions {
   cwd?: string;
   env?: Record<string, string | undefined>;
   timeoutMs?: number;
+  /**
+   * Text piped to the CLI's stdin — e.g. the harness feeding the feature 018
+   * Tier 2 Playwright login prompt from HARNESS_SALEOR_EMAIL /
+   * HARNESS_SALEOR_PASSWORD. Credentials passed this way are one-time
+   * inputs; they must never appear in .env or output.
+   */
+  input?: string;
 }
 
 export class JollyWorld extends World {
@@ -96,6 +103,7 @@ export class JollyWorld extends World {
       env,
       encoding: "utf8",
       timeout: options.timeoutMs ?? 120_000,
+      input: options.input,
     });
     if (spawned.error) {
       throw new Error(
