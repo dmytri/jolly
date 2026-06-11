@@ -52,15 +52,19 @@ Two tiers, sandbox over mocks:
   output-envelope shaping, flag parsing, URL normalization, risk-context construction. No
   accounts; always runs.
 - **Sandbox tier** (`@sandbox`): behavior touching Saleor Cloud, Configurator, Vercel, or
-  Stripe (test mode), against **real dedicated test accounts** via `JOLLY_TEST_*` env vars
-  (distinct from runtime `JOLLY_*` names). When creds are absent the scenario is **skipped,
-  not failed** (`features/support/hooks.ts`), so the suite always runs locally; CI supplies
-  creds. Use mocks only for conditions a sandbox cannot produce.
+  Stripe, against real accounts via the **same runtime `JOLLY_*` env vars Jolly itself uses**
+  — no test-only credential namespace. Whether those point at dedicated test accounts is the
+  customer's choice; Jolly and the tests never know or check. When creds are absent the
+  scenario is **skipped, not failed** (`features/support/hooks.ts`), so the suite always runs
+  locally; CI supplies creds. Use mocks only for conditions a sandbox cannot produce.
 
-Sandbox safety/isolation lives in `features/support/`: `world.ts` gives each run a
-`namespace` and a `cleanup` registry; `sandbox.ts` gates credentials, builds the namespace,
-runs LIFO best-effort teardown, and `assertSandboxTarget()` refuses any target not clearly a
-sandbox/test/staging/dev resource. Namespace every created resource and register its teardown.
+Sandbox tests are **harmless by design** — safe against any store, production included: never
+touch resources the run didn't create; namespace every created resource (unpublished/inactive
+where possible) and register its teardown; shared settings only additive + reverted; payment
+flows use test card numbers only. `features/support/` holds the machinery: `world.ts` gives
+each run a `namespace` and a `cleanup` registry; `sandbox.ts` gates credentials, builds the
+namespace, and runs LIFO best-effort teardown. No target detection or refusal. Harness-only
+knobs use a `HARNESS_*` prefix, never `JOLLY_*`.
 
 Layout convention: each `features/<slug>.feature` maps to
 `features/step_definitions/<slug>.steps.ts`; shared hooks/world/sandbox setup go in
@@ -105,8 +109,9 @@ fix is to update the feature files/instructions, then re-run. "Open questions" a
 
 Local secrets live in `.env` (Git-ignored). Workflow credentials use `JOLLY_*`; generated
 storefront runtime vars use the target project's names (e.g. Paper's
-`NEXT_PUBLIC_SALEOR_API_URL`, `SALEOR_APP_TOKEN`). Test/sandbox creds use `JOLLY_TEST_*`.
-Never print secret values; ensure `.env` is ignored before writing to it.
+`NEXT_PUBLIC_SALEOR_API_URL`, `SALEOR_APP_TOKEN`). The same `JOLLY_*` names are used
+everywhere — dev, tests, CI, prod; there is no `JOLLY_TEST_*` namespace. Never print secret
+values; ensure `.env` is ignored before writing to it.
 
 ## Saleor source boundaries (V1)
 
