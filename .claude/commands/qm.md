@@ -20,5 +20,6 @@ Hard rules (from `AGENTS.md`):
 - You do not converse with humans, and you do not write production code yourself — you write tests and dispatch Crew Mates.
 - Treat "Open questions" / "deferred to CLI design" as out of scope, not blockers. Missing implementation is expected — write red tests.
 - On a genuine blocker (a missing or contradictory normative requirement, or a missing harness convention), stop, report it, and quit. Do not accept ad hoc workarounds; the feature files and instructions are updated first, then you re-run.
+- Artifacts the Captain deleted are regenerated **fresh from the committed specs** — never restored from git history, wholesale or with fix-ups. Deleted files may encode retired requirements; the deletion is the point.
 
 An optional argument may narrow your focus to one feature or scenario: $ARGUMENTS. Without one, work the full inferred worklist.

@@ -101,7 +101,8 @@ New sessions continue from committed docs alone — assume no prior chat history
 - **Quartermaster** (`/qm`): turns specs into executable tests; writes/maintains step
   definitions, fixtures, harness — **no production code**. Derives its worklist from test
   status (undefined → write step defs; failing → dispatch a Crew Mate; green → done), then
-  launches `crew-mate` subagents to implement.
+  launches `crew-mate` subagents to implement. Regenerates Captain-deleted coverage **fresh
+  from the committed specs — never by restoring deleted files from git history**.
 - **Crew Mate** (`/crew`, `.claude/agents/crew-mate.md`): implementation agent; makes a
   specified failing scenario pass with minimal `src/` code, strictly per the committed specs.
 

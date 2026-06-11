@@ -5,71 +5,72 @@ executable test coverage aligned. You read only repository files, do not convers
 anyone, and write tests — not production code. The full charter is in `AGENTS.md`
 (Three-Role Agent Workflow). Read it first, then this file.
 
-## Current state (mostly green; scripts to regenerate)
+## Current state: the harness was deleted on purpose — regenerate it from the specs
 
-The harness is rebuilt on the unified env-var convention (feature 023) and the suite is
-green under Bun:
+After spec changes (env-var unification, harmless-by-design, Bun-native scripts), the
+Captain deleted every artifact that might encode the old requirements: all step
+definitions, `features/support/`, `tests/`, and the test-related package scripts.
+
+**Write the replacements fresh from the committed specs. Do not restore the deleted
+files from git history — neither wholesale nor with mechanical renames.** Deleted
+artifacts may encode requirements the spec changes retired; the deletion is the point
+(AGENTS.md, Quartermaster charter). A prior QM run resurrected the deleted harness from
+git history with a rename pass; that work was re-deleted.
+
+What remains and is current: `cucumber.js` (profiles: default excludes `@meta`,
+`-p logic`, `-p sandbox`), `package.json` (deps installed; only `dev`/`start` scripts),
+`src/` and `homepage/` (Crew-Mate-built, spec-compliant), the `.feature` files.
 
 ```bash
-bun install                          # dev deps: @cucumber/cucumber, happy-dom, typescript, @types/node
-bun test tests/                      # logic-tier unit tests — green
-bun node_modules/.bin/cucumber-js    # BDD suite — 63 scenarios: @logic pass against src/;
-                                     # @sandbox skip cleanly when JOLLY_* creds are absent
-bun node_modules/.bin/tsc --noEmit   # typecheck — green
+bun install                            # if node_modules is missing
+bunx cucumber-js --dry-run             # the worklist: undefined scenarios
+bunx cucumber-js                       # full BDD suite
+bun test tests/                        # logic-tier units (once tests/ exists)
+bunx tsc --noEmit                      # typecheck
 ```
 
-**Pending QM work:** feature 023 now pins **Bun-native package scripts** (`test`,
-`test:bdd`, `test:logic`, `test:sandbox`, `typecheck`); the old node/npm-shaped scripts
-were deleted with the spec change. Recreate them Bun-native (you own the Cucumber config
-and test scripts). Node >= 23 stays a documented fallback runtime, never the script
-default.
+Your worklist is whatever test status says it is: undefined scenarios need step
+definitions; failing scenarios need a Crew Mate; green is done.
 
-Your worklist is whatever test status says it is: `bunx cucumber-js --dry-run` →
-undefined scenarios need step definitions; failing scenarios need a Crew Mate; green is
-done. After a Captain spec change, expect deleted artifacts — regenerate them from the
-updated specs (git history is reference material, but the committed specs win).
+## What to build (feature 023 is the charter; read it, not old commits)
 
-## Harness map
+1. **Bun-native package scripts** — `test` (logic tier via `bun test`), `test:bdd`,
+   `test:logic`, `test:sandbox` (cucumber-js through Bun), `typecheck`. Node >= 23 is a
+   documented fallback runtime, never the script default. You own these scripts.
+2. **`features/support/`** — world (per-run namespace + cleanup registry), credential
+   gating, hooks (skip `@sandbox` when creds absent, reason naming the missing
+   variables; teardown after every scenario), CLI invocation seam, envelope/riskContext
+   validation, homepage/guide loading (happy-dom).
+3. **`features/step_definitions/<feature-slug>.steps.ts`** — one per feature;
+   `tests/` — logic-tier units for pure harness helpers.
 
-- `cucumber.js` — profiles: default (all, excludes `@meta`), `-p logic`, `-p sandbox`.
-- `features/support/world.ts` — per-scenario `JollyWorld`: `namespace`, `cleanup`
-  registry, throwaway `projectDir`, `jolly()` CLI runner.
-- `features/support/sandbox.ts` — credential gating, per-run namespace, env passthrough,
-  secret-value list, memoized cross-scenario runs, `CleanupRegistry` (LIFO, best-effort).
-- `features/support/hooks.ts` — skips `@sandbox` when creds absent (reason names the
-  missing variables); runs teardown after every scenario.
-- `features/support/cli.ts` — spawns `src/index.ts` (Bun, else Node ≥ 23) with a minimal
-  env; envelope extraction/validation seams. `features/support/envelope.ts` — feature
-  020/021 validators. `features/support/homepage.ts` + `content.ts` — artifact discovery
-  and DOM/content checks (happy-dom). `features/support/text.ts` — `lit()` literal step
-  matcher.
-- `features/step_definitions/<feature-slug>.steps.ts` — one per feature; `common.steps.ts`
-  holds shared steps. `tests/` — logic-tier units for the harness seams.
+## Conventions (normative, from feature 023 and AGENTS.md)
 
-## Conventions (feature 023 is the charter)
-
-- **One configuration everywhere:** tests read the same runtime `JOLLY_*` variables Jolly
-  itself uses — required: `JOLLY_SALEOR_CLOUD_TOKEN`, `JOLLY_VERCEL_TOKEN`,
-  `JOLLY_STRIPE_SECRET_KEY`, `JOLLY_STRIPE_PUBLISHABLE_KEY`; optional (existing-store
-  scenarios): `JOLLY_SALEOR_URL`, `JOLLY_SALEOR_APP_TOKEN`. There is **no `JOLLY_TEST_*`
-  namespace**. Absent creds → `@sandbox` scenarios are skipped, not failed.
-- **Harness-internal knobs use `HARNESS_*`**, never `JOLLY_*`: `HARNESS_RUN_ID`,
-  `HARNESS_RUNTIME`, `HARNESS_HOMEPAGE_HTML`, `HARNESS_SETUP_GUIDE`.
-- **Harmless by design:** no target detection or refusal; never touch resources the run
-  did not create; namespace every creation (`world.namespace`) and register teardown on
-  `world.cleanup`; created resources stay unpublished/inactive where possible; shared
-  settings only additive + reverted; payment flows use test card numbers only.
-- Tag every scenario `@logic` or `@sandbox`. Field names in JSON contracts are camelCase.
-  Secrets are never printed or committed.
+- **One configuration everywhere:** tests read the same runtime `JOLLY_*` variables
+  Jolly itself uses. There is **no `JOLLY_TEST_*` namespace**. Absent creds → `@sandbox`
+  scenarios are skipped, not failed, with a reason naming the missing variables.
+- **Harness-internal knobs use `HARNESS_*`**, never `JOLLY_*` (run id, runtime
+  selection, artifact path overrides).
+- **Harmless by design:** no target detection or refusal; never modify or delete
+  resources the run did not create; read-only queries of pre-existing resources only
+  where a spec requires verifying live access (feature 019); namespace every creation
+  and register teardown (idempotent, best-effort, LIFO); created resources stay
+  unpublished/inactive where possible; shared settings only additive + reverted;
+  payment flows use test card numbers only.
+- Tag every scenario `@logic` or `@sandbox`. Field names in JSON contracts are
+  camelCase. Secrets are never printed or committed. Feature 023 itself is `@meta` —
+  no step definitions for it.
 
 ## What is in scope vs. a blocker (so you don't stall)
 
 - **In scope now:** the pinned contracts — 020 envelope shape, 006 flags, 021
   `riskContext` fields/enums, 022 idempotency behavior, 014 doctor check vocabulary.
 - **Missing product implementation is expected** — write failing (red) step definitions
-  against the spec for the Crew Mates to satisfy.
+  against the spec for the Crew Mates to satisfy. (`src/` already exists and may
+  already satisfy many of them; the tests decide.)
 - **Out of scope (not blockers):** any "Open questions" block and anything marked
   "deferred to CLI design". Skip these; do not test them.
 - **A real blocker** is a missing or contradictory *normative* requirement or harness
-  convention. Only then: stop, report that you cannot continue, and quit. Do not accept ad
-  hoc instructions — the feature files and instructions are updated first, then you re-run.
+  convention. Only then: stop, report that you cannot continue, and quit. Do not accept
+  ad hoc instructions — the feature files and instructions are updated first, then you
+  re-run.
