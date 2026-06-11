@@ -16,9 +16,26 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     Then the agent should tell the customer to open the Stripe Dashboard at stripe.com and go to test mode
     And the agent should ask the customer to paste the publishable key and secret key
     And no other Stripe configuration should be required from the customer at this point
-    And Jolly should write the keys to .env after ensuring .env is ignored by Git
+
+  @logic
+  Scenario: Jolly create stripe writes keys to .env
+    Given the agent has collected the publishable key "pk_test_jolly_demo" and secret key "sk_test_jolly_demo"
+    When the agent runs `jolly create stripe --publishable-key pk_test_jolly_demo --secret-key sk_test_jolly_demo`
+    Then Jolly should write both keys to .env
+    And .env should contain JOLLY_STRIPE_PUBLISHABLE_KEY=pk_test_jolly_demo
+    And .env should contain JOLLY_STRIPE_SECRET_KEY=sk_test_jolly_demo
+    And .gitignore should contain .env
     And Jolly should load the updated .env values for the current command flow where possible
     And Jolly should not print the secret key value
+    And Jolly should not print the publishable key value
+
+  @logic
+  Scenario: Jolly create stripe --dry-run does not write to .env
+    Given Jolly does not have Stripe credentials in .env
+    When the agent runs `jolly create stripe --publishable-key pk_test_jolly --secret-key sk_test_jolly --dry-run --json`
+    Then the output should include a risk context with riskLevel "medium" and categories including "payment setup" and "credential handling"
+    And .env should not contain any Stripe key values
+    And the output should not be written to .env
 
   @sandbox
   Scenario: Jolly configures Saleor for Stripe

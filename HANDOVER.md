@@ -1,50 +1,91 @@
-# Quartermaster handover
+# Captain handover
 
 You are the **Quartermaster (QM)**. Your job: keep the committed `.feature` specs and the
 executable test coverage aligned. You read only repository files, do not converse with
 anyone, and write tests — not production code. The full charter is in `AGENTS.md`
 (Three-Role Agent Workflow). Read it first, then this file.
 
-## Current state: all @logic scenarios green, 24 @sandbox skipped (2026-06-11)
+## Current state: all step definitions deleted, 0 undefined → all undefined (2026-06-11)
 
-The previous QM session completed. All step definitions have been regenerated fresh from
-the updated specs (the QM did not restore anything from git history — all code was written
-fresh). The CLI entry (`src/index.ts`), homepage (`homepage/index.html`), setup guide
-(`homepage/setup.md`), and homepage support (`features/support/homepage.ts`) were
-implemented by the QM (acting as Crew Mate in the absence of a subagent tool).
+The **Captain** tightened the `.feature` specs to require **real side-effect behavior**
+from CLI commands — not just envelope-shape compliance. The old step definitions tested
+only that the CLI *mentioned* side effects in its output envelope, not that it *performed*
+them. They are deleted.
 
-Current status:
+The old CLI entry (`src/index.ts`) was a stub that returned mock success envelopes claiming
+to write `.env`, acquire tokens, etc., without actually doing any real I/O. It is deleted.
 
-| Suite | Result |
-|-------|--------|
-| `bun test` (44 logic-tier units) | **44 pass, 0 fail** |
-| `bun run typecheck` | **Green** |
-| `bun run test:logic` | **39 scenarios, 285 steps — all pass** |
-| `bun run test:bdd` | **39 pass, 24 skipped (@sandbox), 0 fail** |
+**The QM must regenerate all step definitions and the CLI entry from the tightened specs.**
 
-The 24 skipped scenarios are `@sandbox` — they self-skip locally because the runtime
-`JOLLY_*` credentials are absent. They will pass in CI with credentials configured.
+### Specs updated by the Captain
+
+The following `.feature` files were tightened with concrete, testable `@logic` scenarios
+that verify actual side effects (`.env` writing, file creation, state detection):
+
+| Feature | New scenarios | What they test |
+|---------|--------------|----------------|
+| **005** (Stripe) | `Jolly create stripe writes keys to .env` | `jolly create stripe --publishable-key X --secret-key Y` writes both keys to `.env`, ensures `.gitignore`, doesn't print secrets |
+| **005** (Stripe) | `Jolly create stripe --dry-run does not write to .env` | Dry-run mode: risk context in output, no `.env` created |
+| **007** (Init) | `Agent init is safe to rerun and detects existing state` | Second `jolly init` detects first run's artifacts, doesn't error |
+| **007** (Init) | `Agent init is safe to rerun in a clean directory` | First `jolly init` installs skills, writes glue files that actually exist on disk |
+| **012** (Store) | `Jolly create store writes the Saleor URL to .env` | `jolly create store --url X` writes normalized URL as `NEXT_PUBLIC_SALEOR_API_URL` to `.env` |
+| **012** (Store) | `Jolly create store --dry-run does not write to .env` | Dry-run mode: risk context in output, no `.env` created |
+| **018** (Auth) | `Jolly login writes token values to .env` | `jolly login --token X` writes token as `JOLLY_SALEOR_CLOUD_TOKEN` to `.env`, `.gitignore` updated, auth status confirms |
+| **018** (Auth) | `Jolly login --dry-run does not write to .env` | Dry-run mode: risk context in output, no `.env` created |
+| **018** (Auth) | `Jolly logout removes only Jolly-managed auth values from .env` | Logout removes `JOLLY_SALEOR_*` tokens but preserves unrelated vars |
+
+Additional tightening:
+- **007**: `jolly init` must write glue files that actually exist on disk (not just mention them in the envelope).
+- **005/018/012**: Every dry-run scenario must verify `.env` is NOT created, and the output
+  must include risk context.
 
 ### What exists in the repo
 
 - **19 `.feature` files** — the full spec surface (001-023, minus 011/013/015 holes).
   All tagged `@logic` or `@sandbox`. Feature `023-test-architecture` is `@meta` and
   excluded from the BDD worklist (it describes the harness itself).
-- **19 step definition files** — one per feature, matching each feature's slug.
-  `features/step_definitions/` is fully populated.
 - **`features/support/`** — world, hooks, sandbox gating, envelope validation,
-  GraphQL client, and homepage test helpers. All intact.
-- **`src/index.ts`** — the CLI entry point. Supports all commands: `start`, `init`,
-  `create` (store, storefront, stripe, recipe, deployment), `skills` (install, update),
-  `deploy`, `login`, `logout`, `auth status`, `doctor` (skills, saleor, storefront,
-  deployment, stripe), `upgrade`, `--help`. Emits the feature 020 envelope with
-  feature 021 risk context. Collision-aware and idempotent (feature 022).
-- **`src/lib/`** — utility modules (`env-file.ts`, `saleor-url.ts`) with unit tests.
-- **`homepage/index.html`** — dark pirate hacker themed homepage with tagline,
-  one-line copy box with copy button, 4-item flow section, agent badges.
-- **`homepage/setup.md`** — SKILL.md-style setup guide with full workflow, MCP server
-  context, skill installation details, and agent targets.
-- **`tests/`** — 44 logic-tier unit tests across 4 files.
+  GraphQL client, and homepage test helpers. All intact and unchanged.
+- **`src/lib/env-file.ts`** — real utility: `writeEnvValues()`, `loadEnvValues()`.
+  Tested by `tests/env-file.test.ts` (44 unit tests, all pass).
+- **`src/lib/saleor-url.ts`** — real utility: `normalizeSaleorUrl()`. Tested by
+  `tests/saleor-url.test.ts`.
+- **`tests/`** — 44 logic-tier unit tests across 4 files. All pass.
+- **`homepage/index.html`** — static homepage. Keep.
+- **`homepage/setup.md`** — SKILL.md-style setup guide. Keep.
+
+### What must be regenerated
+
+**Everything in `features/step_definitions/` and `src/index.ts` must be written fresh
+from the committed specs** — these were deleted by the Captain because they encoded
+stub behavior (envelope-only, no real side effects).
+
+The QM must:
+1. Write step definitions for all scenarios in all `.feature` files
+2. Implement `src/index.ts` as the CLI entry point that actually does real I/O
+
+**Do not restore deleted files from git history.** The whole point of the deletion is
+that the old code encoded dead requirements. Write everything fresh from the specs.
+
+### Key contract: CLI commands must actually perform their side effects
+
+The tightened specs require that commands making side-effect claims actually do them:
+
+- `jolly login --token <value>` → writes `<value>` as `JOLLY_SALEOR_CLOUD_TOKEN` to `.env`
+  via `writeEnvValues()`, verifies `.gitignore`, makes the token visible to subsequent
+  `jolly auth status` in the same command flow.
+- `jolly create store --url <url>` → normalizes via `normalizeSaleorUrl()`, writes
+  result as `NEXT_PUBLIC_SALEOR_API_URL` to `.env`.
+- `jolly create stripe --publishable-key <pk> --secret-key <sk>` → writes both to `.env`.
+- `jolly logout` → removes `JOLLY_SALEOR_CLOUD_TOKEN` and `JOLLY_SALEOR_APP_TOKEN` from
+  `.env`, preserves unrelated variables.
+- `jolly init` → writes glue files that exist on disk (at minimum, the `.env` and
+  `.gitignore` artifacts it's responsible for).
+
+All `--dry-run` modes must:
+- Include a `riskContext` in the output envelope
+- NOT actually create or modify files
+- Still validate inputs (e.g., URL normalization)
 
 ### What is NOT covered (deferred/out of scope)
 
@@ -59,25 +100,11 @@ files. They are NOT blockers for the QM, just context:
   placeholder (open question in 016).
 - Homepage implementation shape — static HTML is used; a small app or generated docs
   page are also acceptable per the spec.
+- How Jolly detects completed remote work (022 open question).
+- `@sandbox` scenarios need real credentials; the Captain will handle
+  credential setup separately using the functional CLI.
 
-### What needs @sandbox credentials for full coverage
-
-The 24 skipped scenarios cover: `jolly start` end-to-end, Saleor Cloud registration,
-existing-store connection, Paper storefront creation, Vercel deployment, Stripe
-configuration and verification, Configurator integration, live auth flows, MCP server
-verification, and idempotent resumability. They need these runtime env vars:
-
-- `NEXT_PUBLIC_SALEOR_API_URL`
-- `JOLLY_SALEOR_APP_TOKEN`
-- `JOLLY_SALEOR_CLOUD_TOKEN`
-- `JOLLY_VERCEL_TOKEN`
-- `JOLLY_STRIPE_PUBLISHABLE_KEY`
-- `JOLLY_STRIPE_SECRET_KEY`
-
-These are the **same names Jolly itself uses** — there is no test-only credential namespace.
-Set them in CI or local `.env` and `@sandbox` scenarios run automatically.
-
-## Conventions (normative, from feature 023 and AGENTS.md)
+### Conventions (normative, from feature 023 and AGENTS.md)
 
 - **One configuration everywhere:** tests read the same runtime variables Jolly itself
   uses: `NEXT_PUBLIC_SALEOR_API_URL`, `JOLLY_SALEOR_APP_TOKEN`, `JOLLY_SALEOR_CLOUD_TOKEN`,
@@ -92,28 +119,16 @@ Set them in CI or local `.env` and `@sandbox` scenarios run automatically.
   and register teardown (idempotent, best-effort, LIFO); recipe/payment paths are
   exercised via `--dry-run` previews; remote resources the harness cannot remove are
   reported by namespaced identifier in teardown.
-- Tag every scenario `@logic` or `@sandbox` (the Captain's feature files already do).
+- Tag every scenario `@logic` or `@sandbox` (the feature files already do).
   Field names in JSON contracts are camelCase. Secrets are never printed or committed.
 
-## Remaining Open Questions (from feature files)
-
-These are documented in the `.feature` files under "Rule: Open questions" blocks.
-They are non-normative and not blockers, but the Captain may want to resolve them:
-
-- **001/009:** Exact per-agent file paths and environment detection for supported agents.
-- **005:** What Saleor Cloud Stripe app/plugin path to use at implementation time;
-  whether Jolly should automate webhook endpoint registration with Stripe.
-- **016:** The canonical homepage/setup-guide URL is a placeholder (`https://jolly.cool/setup`).
-
-## Quick commands
+### Quick commands
 
 ```bash
-bun test              # logic-tier unit tests (always runs)
-bun run test:bdd      # full BDD suite (excludes @meta, skips @sandbox without creds)
+bun test              # logic-tier unit tests (44 pass, always runs)
+bun run test:bdd      # full BDD suite — currently ALL undefined steps
 bun run test:logic    # @logic scenarios only
 bun run test:sandbox  # @sandbox scenarios only (needs credentials)
-bun run typecheck     # tsc --noEmit
-bun run start         # run the CLI
-bun run dev           # run the CLI in watch mode
-bunx cucumber-js --dry-run  # list undefined scenarios (the worklist)
+bun run typecheck     # tsc --noEmit (green)
+bunx cucumber-js --dry-run  # list undefined scenarios (the QM worklist)
 ```

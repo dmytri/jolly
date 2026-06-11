@@ -11,6 +11,16 @@ Feature: Existing Saleor store connection
     And Jolly should normalize the input to a Saleor GraphQL endpoint where possible
     And Jolly should ask a clarifying question only when the URL cannot be normalized safely
 
+  @logic
+  Scenario: Jolly create store writes the Saleor URL to .env
+    Given the agent has a Saleor GraphQL endpoint URL "https://test-shop.saleor.cloud/graphql/"
+    When the agent runs `jolly create store --url https://test-shop.saleor.cloud/graphql/`
+    Then Jolly should write the URL to .env as NEXT_PUBLIC_SALEOR_API_URL
+    And .env should contain NEXT_PUBLIC_SALEOR_API_URL=https://test-shop.saleor.cloud/graphql/
+    And .gitignore should contain .env
+    And Jolly should load the updated .env values for the current command flow
+    And Jolly should not print the URL in a way that exposes the store path
+
   @sandbox
   Scenario: Jolly validates the GraphQL endpoint
     Given Jolly has a candidate Saleor GraphQL endpoint
@@ -40,6 +50,14 @@ Feature: Existing Saleor store connection
     And if automation is unavailable, it should guide the customer through the current Saleor Dashboard token creation path
     And it should avoid storing the token outside environment variables
     And it should use the token to run Configurator introspection
+
+  @logic
+  Scenario: Jolly create store --dry-run does not write to .env
+    Given the agent has no existing .env file
+    When the agent runs `jolly create store --url https://shop.saleor.cloud/graphql/ --dry-run --json`
+    Then the output should include a risk context with action "create store"
+    And .env should not be created
+    And the output should include the normalized URL in the data object
 
   Rule: Existing-store automation principles
     - Validate the GraphQL endpoint before using it.
