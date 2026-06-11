@@ -5,8 +5,27 @@
 // After every scenario: run the LIFO, idempotent, best-effort teardown and
 // report anything it could not remove by its namespaced identifier.
 import { After, Before, type ITestCaseHookParameter } from "@cucumber/cucumber";
+import { browserTier } from "./browser.ts";
 import { missingCredentials, requiredGroups } from "./sandbox.ts";
 import type { JollyWorld } from "./world.ts";
+
+// @requires-browser gate (feature 018, "Browser OAuth prerequisites" rule):
+// checked before the @sandbox credential check. Native browser capability
+// first, then Playwright; when neither is available the scenario skips with
+// guidance to install Playwright or use `jolly login --token <value>`.
+Before({ tags: "@requires-browser" }, function (this: JollyWorld) {
+  const tier = browserTier();
+  if (tier === "none") {
+    this.log(
+      "Skipped (no browser capability): no native browser could be opened and " +
+        "Playwright is not installed with browser binaries. Install Playwright " +
+        "(`bun add -d playwright && bunx playwright install chromium`) to run " +
+        "this flow headlessly, or authenticate with `jolly login --token <value>`.",
+    );
+    return "skipped";
+  }
+  this.notes["browserTier"] = tier;
+});
 
 Before({ tags: "@sandbox" }, function (
   this: JollyWorld,

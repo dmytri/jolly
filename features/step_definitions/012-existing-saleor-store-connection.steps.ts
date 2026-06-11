@@ -504,12 +504,41 @@ Then(
 
 Given(
   "the Cloud API has no existing projects or environments",
-  function (this: JollyWorld) {
-    // @sandbox — verifies that the authenticated Cloud org has no pre-existing
-    // projects or environments so the scenario can test from-scratch creation.
-    // This uses the real Cloud API via the CLI.
-    // We check the org state to confirm emptiness.
-    this.notes["expectCleanOrg"] = true;
+  async function (this: JollyWorld) {
+    // Read-only premise check. The harness may not delete pre-existing
+    // resources to produce this condition (feature 023, harmless by design),
+    // so when the authenticated org already has projects or environments the
+    // premise is unsatisfiable here and the scenario skips with the reason.
+    const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? "";
+    const headers = { Authorization: `Token ${token}` };
+    const orgsResp = await fetch(
+      "https://cloud.saleor.io/platform/api/organizations/",
+      { headers },
+    );
+    assert.ok(orgsResp.ok, `Cloud API organizations list failed: ${orgsResp.status}`);
+    const orgs = (await orgsResp.json()) as Array<Record<string, unknown>>;
+    assert.ok(orgs.length > 0, "Cloud token is not a member of any organization");
+    const orgSlug = orgs[0].slug as string;
+
+    const [projectsResp, envsResp] = await Promise.all([
+      fetch(`https://cloud.saleor.io/platform/api/organizations/${orgSlug}/projects/`, { headers }),
+      fetch(`https://cloud.saleor.io/platform/api/organizations/${orgSlug}/environments/`, { headers }),
+    ]);
+    assert.ok(projectsResp.ok, `Cloud API projects list failed: ${projectsResp.status}`);
+    assert.ok(envsResp.ok, `Cloud API environments list failed: ${envsResp.status}`);
+    const projects = (await projectsResp.json()) as Array<Record<string, unknown>>;
+    const envs = (await envsResp.json()) as Array<Record<string, unknown>>;
+
+    if (projects.length > 0 || envs.length > 0) {
+      this.log(
+        `Skipped (premise unsatisfiable): organization "${orgSlug}" already has ` +
+          `${projects.length} project(s) and ${envs.length} environment(s) ` +
+          `(${envs.map((e) => String(e.name)).join(", ") || "none"}). ` +
+          `The harness never deletes pre-existing resources to produce an empty ` +
+          `org; run this scenario against a fresh organization.`,
+      );
+      return "skipped";
+    }
   },
 );
 
@@ -529,28 +558,30 @@ When(
       const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? "";
 
       if (cloudToken) {
+        // Failures must surface — the CleanupRegistry catches and reports
+        // them by identifier (feature 023: teardown reports what it could
+        // not remove). Swallowing here is how environments leak silently.
         this.cleanup.register(`Cloud environment ${envName} (${domain})`, async () => {
-          try {
-            // List environments to find the key
-            const resp = await fetch(
-              `https://cloud.saleor.io/platform/api/organizations/${orgSlug}/environments/`,
-              { headers: { Authorization: `Token ${cloudToken}` } },
-            );
-            if (resp.ok) {
-              const envs = (await resp.json()) as Array<Record<string, unknown>>;
-              const match = envs.find((e: Record<string, unknown>) =>
-                e.name === envName || (e.domain as string)?.includes(domain.split(".")[0]),
-              );
-              if (match?.key) {
-                // Delete the environment
-                await fetch(
-                  `https://cloud.saleor.io/platform/api/organizations/${orgSlug}/environments/${match.key}/`,
-                  { method: "DELETE", headers: { Authorization: `Token ${cloudToken}` } },
-                );
-              }
-            }
-          } catch {
-            // Best-effort cleanup
+          const headers = { Authorization: `Token ${cloudToken}` };
+          const resp = await fetch(
+            `https://cloud.saleor.io/platform/api/organizations/${orgSlug}/environments/`,
+            { headers },
+          );
+          if (!resp.ok) {
+            throw new Error(`listing environments failed: ${resp.status}`);
+          }
+          const envs = (await resp.json()) as Array<Record<string, unknown>>;
+          const match = envs.find((e: Record<string, unknown>) =>
+            e.name === envName || (e.domain as string)?.includes(domain.split(".")[0]),
+          );
+          if (!match?.key) return; // already gone — teardown is idempotent
+          const del = await fetch(
+            `https://cloud.saleor.io/platform/api/organizations/${orgSlug}/environments/${match.key}/`,
+            { method: "DELETE", headers },
+          );
+          if (!del.ok && del.status !== 404) {
+            const body = await del.text().catch(() => "");
+            throw new Error(`DELETE returned ${del.status} ${body}`.trim());
           }
         });
       }

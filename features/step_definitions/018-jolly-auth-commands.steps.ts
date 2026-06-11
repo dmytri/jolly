@@ -312,10 +312,12 @@ Then(
       const match = authUrl.match(/redirect_uri=([^&]+)/);
       if (match) {
         const decoded = decodeURIComponent(match[1]);
-        assert.equal(
+        // "Points to" host:port/path — the OAuth redirect_uri itself carries
+        // an http scheme (loopback redirect per RFC 8252).
+        assert.match(
           decoded,
-          redirectUri,
-          `redirect_uri should be "${redirectUri}", got "${decoded}"`,
+          new RegExp(`^https?://${redirectUri.replace(/[.\/]/g, "\\$&")}$`),
+          `redirect_uri should point to "${redirectUri}", got "${decoded}"`,
         );
       }
     }
@@ -333,6 +335,61 @@ Then(
         `Should start server on port ${port}, got ${data.callbackPort}`,
       );
     }
+  },
+);
+
+When(
+  "the agent runs `jolly login --browser --dry-run`",
+  function (this: JollyWorld) {
+    this.runCli(["login", "--browser", "--dry-run", "--json"]);
+  },
+);
+
+// ── @requires-browser: full browser OAuth login flow ─────────────────────
+// Gated by the @requires-browser Before hook (features/support/hooks.ts):
+// native browser first, then Playwright, else skipped. The Saleor Cloud
+// email/password credentials for Playwright automation and their env var
+// names are deferred to CLI design (non-normative), so the harness asserts
+// only the capability tier it can know about.
+
+Given(
+  "Playwright is installed with browser binaries and Saleor Cloud credentials are configured for browser login",
+  function (this: JollyWorld) {
+    // The Before hook already skipped the scenario when no tier is available.
+    const tier = this.notes["browserTier"];
+    assert.ok(
+      tier === "native" || tier === "playwright",
+      `browser capability tier should be resolved by the hook, got ${String(tier)}`,
+    );
+  },
+);
+
+When("the agent runs `jolly login --browser`", function (this: JollyWorld) {
+  this.runCli(["login", "--browser", "--json"], { timeoutMs: 300_000 });
+});
+
+Then(
+  "Jolly should complete the browser OAuth flow via Playwright automation",
+  function (this: JollyWorld) {
+    assert.equal(
+      this.envelope.status,
+      "success",
+      `browser OAuth flow should succeed, got ${this.envelope.status}: ` +
+        JSON.stringify(this.envelope.errors),
+    );
+  },
+);
+
+Then(
+  "it should store the Saleor Cloud token in .env as JOLLY_SALEOR_CLOUD_TOKEN",
+  function (this: JollyWorld) {
+    const values = loadEnvValues(this.projectDir);
+    const stored = values["JOLLY_SALEOR_CLOUD_TOKEN"];
+    assert.ok(
+      typeof stored === "string" && stored.trim() !== "",
+      "JOLLY_SALEOR_CLOUD_TOKEN missing from .env after browser OAuth login",
+    );
+    this.trackSecret(stored);
   },
 );
 
