@@ -15,14 +15,13 @@ Feature: Jolly auth commands
     And Jolly should not print the token value
 
   @logic
-  Scenario: Jolly login constructs the browser OAuth authorization request
+  Scenario: Jolly login prepares browser OAuth authorization material
     Given the agent has no existing Saleor Cloud authentication
-    When the agent initiates a browser OAuth login
+    When the agent runs `jolly login --browser --dry-run`
     Then Jolly should generate a PKCE code challenge and verifier
     And it should construct a Keycloak authorization URL at auth.saleor.io
     And the authorization URL should include response_type=code, client_id="saleor-cli", code_challenge, code_challenge_method=S256, state, redirect_uri, and scope="email openid profile"
-    And the redirect_uri should point to a localhost HTTP server
-    And it should start a local HTTP server on port 5375 to receive the callback
+    And the redirect_uri should point to 127.0.0.1:5375/callback
 
   @logic
   Scenario: Jolly login exchanges the OAuth code for a Saleor Cloud token
@@ -49,13 +48,14 @@ Feature: Jolly auth commands
     And it should not write any value to .env
     And the error message should direct the customer to create a new token at https://cloud.saleor.io/tokens
 
-  @sandbox @requires-browser
+  @requires-browser
   Scenario: Agent completes the full browser OAuth login flow
-    Given the customer has a Saleor Cloud account and a browser available
-    When the agent invokes `jolly login` and the customer completes the browser flow
-    Then Jolly should complete the OAuth PKCE flow
+    Given Playwright is installed with browser binaries and Saleor Cloud credentials are configured for browser login
+    When the agent runs `jolly login --browser`
+    Then Jolly should complete the browser OAuth flow via Playwright automation
     And it should store the Saleor Cloud token in .env as JOLLY_SALEOR_CLOUD_TOKEN
     And subsequent `jolly auth status` should report the token is configured
+    And Jolly should not print the token value
 
   @logic
   Scenario: Agent logs out
@@ -95,9 +95,14 @@ Feature: Jolly auth commands
     - V1 should include `jolly login`, `jolly logout`, and `jolly auth status`.
     - Auth commands are helpers that empower the customer's agent; they do not make Jolly a separate control plane.
     - `jolly login` should support browser OAuth and headless token flows.
-    - `jolly login` with no flags runs browser OAuth with a localhost callback server (port 5375). When the user's browser can reach the VM's localhost, the full flow completes automatically.
-    - `jolly login --token <value>` is the headless/CI/VM fallback: when a browser or localhost callback is unavailable, instruct the user to create a token at cloud.saleor.io/tokens and pass it via --token.
-    - If browser OAuth is invoked but the browser cannot be opened or the callback server is unreachable from the user's browser, output a clear message directing the user to use --token <value> with a token from cloud.saleor.io/tokens.
+    - `jolly login` (no flags) tries to open the Keycloak authorization URL in the user's native browser (using `open` on macOS, `xdg-open` on Linux, `start` on Windows). If the native browser opens successfully, it runs the standard browser OAuth flow (PKCE, callback server, callback, exchange).
+    - If opening the native browser fails (headless environment, CI, VM with no display), Jolly checks for Playwright. If Playwright is installed with browser binaries, it automates the flow headlessly.
+    - If both native browser and Playwright are unavailable, Jolly directs the user to create a token at cloud.saleor.io/tokens and pass it via `jolly login --token <value>`.
+    - `jolly login --browser` forces the browser-based path: first tries native browser, then falls back to Playwright, then errors with guidance to use `--token`.
+    - `jolly login --token <value>` is the headless/CI/VM fallback that always works regardless of browser availability.
+    - Native browser detection: `child_process.execSync` of the platform-appropriate open command (`open`, `xdg-open`, `start`). If the process exits with code 0, the browser is available.
+    - Playwright detection checks whether the `playwright` npm package can be imported AND the chromium browser binary exists at Playwright's expected path. Fast synchronous check, no browser launch.
+    - Playwright is a headless fallback only — on a machine with a display, the native browser is always preferred.
     - The registered Keycloak client is `saleor-cli` (realm `saleor-cloud` on auth.saleor.io). Jolly may use this client or register its own in future versions.
     - Jolly should not depend on the deprecated Saleor CLI for authentication.
     - Auth output must not expose secret values.
@@ -106,8 +111,11 @@ Feature: Jolly auth commands
   Rule: Open questions
     - Where should Jolly store non-secret auth state, if any?
     - Jolly workflow credentials should use `JOLLY_*` environment variable names, while Paper-required storefront variables should be written separately using Paper-compatible names.
+    - Saleor Cloud credentials for browser login automation (email/password) and their corresponding environment variable names are deferred to CLI design.
 
   Rule: Browser OAuth prerequisites
-    - The full browser OAuth login flow (`@requires-browser`) requires a real browser on the same host as Jolly, or at least one that can reach Jolly's localhost callback server.
-    - CI and headless VM runners should skip the browser OAuth end-to-end scenario and fall back to the `--token <value>` headless flow.
-    - The `@requires-browser` tag is a hint to the test harness that this scenario needs interactive browser capabilities beyond standard sandbox credentials.
+    - `@requires-browser` scenarios run in one of three tiers depending on environment capability.
+    - Tier 1 (native browser): When a display is available and the native browser can be opened (a developer laptop), the test runs the full end-to-end flow: `jolly login --browser` → browser opens → user authenticates → callback → exchange → token in .env. This requires a human to complete the OAuth consent. The test harness detects native browser availability by trying `open`/`xdg-open`/`start`.
+    - Tier 2 (Playwright headless): When no native browser is available but Playwright is installed with browser binaries, the test runs the full flow via Playwright automation. This requires Saleor Cloud login credentials (email/password).
+    - Tier 3 (skip): When neither native browser nor Playwright is available, the scenario skips with a message directing the user/agent to install Playwright or use `--token <value>`.
+    - The `@requires-browser` tag is checked by the test harness before the `@sandbox` credential check. The harness first checks for native browser capability, then for Playwright, in that order.

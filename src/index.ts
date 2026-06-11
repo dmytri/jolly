@@ -470,6 +470,15 @@ async function cmdLogin(token?: string): Promise<void> {
   const verifyUrl = "https://id.saleor.online/configure";
   const isInvalid = tokenValue!.startsWith("invalid-") || tokenValue!.startsWith("expired-");
 
+  const loginRc = riskContext(
+    "login",
+    { type: "Saleor Cloud authentication", scope: "local .env" },
+    "medium",
+    ["credential handling"],
+    true,
+    ["Writes JOLLY_SALEOR_CLOUD_TOKEN to .env"],
+  );
+
   if (isInvalid) {
     output(
       buildEnvelope("login", {
@@ -508,6 +517,7 @@ async function cmdLogin(token?: string): Promise<void> {
         authenticated: true,
         tokenConfigured: true,
         accountContext: "Saleor Cloud user (authenticated)",
+        riskContext: loginRc,
       },
       checks: [
         { id: "login-token-written", status: "pass" as CheckStatus, description: "JOLLY_SALEOR_CLOUD_TOKEN written to .env" },
@@ -964,7 +974,7 @@ function cmdCreateStripe(): void {
     buildEnvelope("create stripe", {
       status: "success",
       summary: "Stripe test-mode keys written to .env.",
-      data: { envUpdated: true, keysConfigured: true },
+      data: { envUpdated: true, keysConfigured: true, riskContext: rc },
       checks: [
         { id: "create-stripe-keys-written", status: "pass" as CheckStatus, description: "Stripe keys written to .env" },
         { id: "create-stripe-gitignore", status: "pass" as CheckStatus, description: ".env is git-ignored" },
@@ -1251,7 +1261,7 @@ function cmdCreateStorefront(): void {
     buildEnvelope("create storefront", {
       status: "success",
       summary: "Storefront project prepared.",
-      data: { defaultDir: "storefront", cloned: true },
+      data: { defaultDir: "storefront", cloned: true, riskContext: rc },
       checks: [
         { id: "create-storefront", status: "pass" as CheckStatus, description: "Paper template prepared" },
       ],
@@ -1324,6 +1334,7 @@ function cmdCreateAppToken(): void {
             instanceUrl: graphqlUrl,
             authMethod: "Bearer",
             apps: [],
+            riskContext: rc,
           },
           checks: [
             { id: "create-app-token-apps", status: "fail" as CheckStatus, description: "No apps found" },
@@ -1351,6 +1362,7 @@ function cmdCreateAppToken(): void {
           authMethod: "Bearer",
           apps,
           requiresSelection: apps.length > 1,
+          riskContext: rc,
         },
         checks: [
           { id: "create-app-token-apps", status: "pass" as CheckStatus, description: `${apps.length} app(s) found` },
@@ -1389,6 +1401,7 @@ function cmdCreateAppToken(): void {
         requestedPermissions,
         authToken: "<redacted>",
         envUpdated: true,
+        riskContext: rc,
       },
       checks: [
         { id: "create-app-token-mutation", status: "pass" as CheckStatus, description: "appTokenCreate mutation sent" },

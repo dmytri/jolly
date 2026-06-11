@@ -60,6 +60,18 @@
 - Re-running any `jolly create` subcommand or `jolly start` is safe and creates no duplicates; commands detect completed work and report it rather than erroring on "already exists". See feature `022-command-idempotency-and-resumability`.
 - `jolly start` is resumable: it skips satisfied stages and continues from the first incomplete one; work done by individual subcommands and by `jolly start` is mutually recognized.
 
+## Playwright and Browser OAuth
+
+- `jolly login` (no flags) tries the native browser first (via `open`/`xdg-open`/`start`). If the native browser opens, standard OAuth flow runs. If native fails (headless), checks Playwright. If Playwright is available, automates headlessly. If neither works, directs user to cloud.saleor.io/tokens.
+- `jolly login --browser` forces browser-based auth: native browser first, then Playwright fallback, then error with `--token` guidance.
+- `jolly login --token <value>` always works regardless of browser availability.
+- Playwright is a **headless fallback only** — on a machine with a display, the native browser is always preferred.
+- Native browser detection: platform-appropriate open command. Exit code 0 = browser available.
+- Playwright detection: import the `playwright` npm package + verify chromium executable exists on disk. Fast synchronous check, no browser launch.
+- The `--dry-run` path (`jolly login --browser --dry-run`) shows PKCE material and auth URL without needing a browser or Playwright. This is how the @logic scenario tests the construction logic.
+- The `@requires-browser` test tag gates on browser capability: native browser first, Playwright second. Harness checks in that order.
+- Saleor Cloud credentials for browser login automation (email/password) and their env var names are deferred to CLI design.
+
 ## Current Workflow
 
 This project is currently in planning mode.

@@ -237,13 +237,6 @@ Given(
   },
 );
 
-When(
-  "the agent initiates a browser OAuth login",
-  function (this: JollyWorld) {
-    this.runCli(["login", "--browser", "--json"]);
-  },
-);
-
 Then(
   "Jolly should generate a PKCE code challenge and verifier",
   function (this: JollyWorld) {
@@ -311,18 +304,18 @@ Then(
 );
 
 Then(
-  "the redirect_uri should point to a localhost HTTP server",
-  function (this: JollyWorld) {
+  /^the redirect_uri should point to (127\.0\.0\.1:\d+\/callback)$/,
+  function (this: JollyWorld, redirectUri: string) {
     const data = this.envelope.data as Record<string, unknown>;
     if (data?.authUrl) {
       const authUrl = String(data.authUrl);
       const match = authUrl.match(/redirect_uri=([^&]+)/);
       if (match) {
-        const redirectUri = decodeURIComponent(match[1]);
-        assert.ok(
-          redirectUri.startsWith("http://localhost") ||
-            redirectUri.startsWith("http://127.0.0.1"),
-          `redirect_uri should be localhost or 127.0.0.1, got ${redirectUri}`,
+        const decoded = decodeURIComponent(match[1]);
+        assert.equal(
+          decoded,
+          redirectUri,
+          `redirect_uri should be "${redirectUri}", got "${decoded}"`,
         );
       }
     }
@@ -547,36 +540,3 @@ Then(
   },
 );
 
-// ── @sandbox: Full browser OAuth login flow (new @sandbox) ──────────────────
-
-Given(
-  "the customer has a Saleor Cloud account and a browser available",
-  function (this: JollyWorld) {
-    // @sandbox - needs real credentials.
-  },
-);
-
-When(
-  "the agent invokes `jolly login` and the customer completes the browser flow",
-  function (this: JollyWorld) {
-    this.notes["sandboxLogin"] = true;
-  },
-);
-
-Then(
-  "Jolly should complete the OAuth PKCE flow",
-  function (this: JollyWorld) {
-    // @sandbox - verified by end-to-end flow.
-  },
-);
-
-Then(
-  "it should store the Saleor Cloud token in .env as JOLLY_SALEOR_CLOUD_TOKEN",
-  function (this: JollyWorld) {
-    const values = loadEnvValues(this.projectDir);
-    assert.ok(
-      "JOLLY_SALEOR_CLOUD_TOKEN" in values,
-      "JOLLY_SALEOR_CLOUD_TOKEN missing from .env",
-    );
-  },
-);
