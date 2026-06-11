@@ -11,8 +11,8 @@ customer's agent rather than replacing it.
 
 The project is **spec-driven and currently in planning mode**. Feature `.feature` files and
 tests are the durable assets; application code is considered disposable and regenerated from
-the specs. `src/` (CLI entry `src/index.ts`) does not exist yet — it is created by
-implementation agents, driven by failing tests.
+the specs. `src/` (CLI entry `src/index.ts`) and `homepage/` exist, built by Crew Mates and
+driven by failing tests; they are deleted and regenerated whenever specs change.
 
 **`AGENTS.md` is the authoritative charter.** Read it before doing substantive work; it owns
 the product vision, V1 scope/boundaries, the pinned contracts (output envelope, risk context,
@@ -24,24 +24,26 @@ the source of truth, and `HANDOVER.md` is the Quartermaster's starting brief.
 Runtime/package manager is **Bun**; TypeScript, ES modules. Step definitions and support code
 are TypeScript loaded directly (Bun runs TS natively; Node ≥23 strips types on import).
 
+Package scripts are **Bun-native** (feature 023); Node ≥23 is a fallback runtime only.
+
 ```bash
-npm install            # dev deps (cucumber, happy-dom, typescript, @types/node)
-npm test               # logic-tier unit tests — node --test on tests/**/*.test.ts
-npm run test:bdd       # full BDD suite (cucumber-js); excludes @meta
-npm run test:logic     # cucumber-js -p logic  → @logic scenarios only
-npm run test:sandbox   # cucumber-js -p sandbox → @sandbox scenarios only
-npm run typecheck      # tsc --noEmit
-bun run start          # run the CLI (once src/index.ts exists)
+bun install            # dev deps (cucumber, happy-dom, typescript, @types/node)
+bun test               # logic-tier unit tests on tests/**/*.test.ts
+bun run test:bdd       # full BDD suite (cucumber-js); excludes @meta
+bun run test:logic     # cucumber-js -p logic  → @logic scenarios only
+bun run test:sandbox   # cucumber-js -p sandbox → @sandbox scenarios only
+bun run typecheck      # tsc --noEmit
+bun run start          # run the CLI
 bun run dev            # run the CLI in watch mode
 ```
 
 Run a single feature or scenario:
 
 ```bash
-npx cucumber-js features/020-cli-output-contract.feature        # one feature file
-npx cucumber-js features/020-cli-output-contract.feature:10     # one scenario by line number
-npx cucumber-js --dry-run                                       # list UNDEFINED scenarios (the worklist)
-node --test tests/sandbox.test.ts                               # one logic-tier test file
+bunx cucumber-js features/020-cli-output-contract.feature        # one feature file
+bunx cucumber-js features/020-cli-output-contract.feature:10     # one scenario by line number
+bunx cucumber-js --dry-run                                       # list UNDEFINED scenarios (the worklist)
+bun test tests/sandbox.test.ts                                   # one logic-tier test file
 ```
 
 ## Test architecture (feature 023)
@@ -59,7 +61,8 @@ Two tiers, sandbox over mocks:
   locally; CI supplies creds. Use mocks only for conditions a sandbox cannot produce.
 
 Sandbox tests are **harmless by design** — safe against any store, production included: never
-touch resources the run didn't create; namespace every created resource (unpublished/inactive
+modify or delete resources the run didn't create (read-only queries of pre-existing resources
+only where a spec demands live-access verification); namespace every created resource (unpublished/inactive
 where possible) and register its teardown; shared settings only additive + reverted; payment
 flows use test card numbers only. `features/support/` holds the machinery: `world.ts` gives
 each run a `namespace` and a `cleanup` registry; `sandbox.ts` gates credentials, builds the

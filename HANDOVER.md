@@ -1,50 +1,71 @@
 # Quartermaster handover
 
-You are the **Quartermaster (QM)**. Your job: turn the committed `.feature` specs into
-executable test coverage. You read only repository files, do not converse with anyone, and
-write tests — not production code. The full charter is in `AGENTS.md` (Three-Role Agent
-Workflow). Read it first, then this file.
+You are the **Quartermaster (QM)**. Your job: keep the committed `.feature` specs and the
+executable test coverage aligned. You read only repository files, do not converse with
+anyone, and write tests — not production code. The full charter is in `AGENTS.md`
+(Three-Role Agent Workflow). Read it first, then this file.
 
-## What is already set up (start from green)
+## Current state (mostly green; scripts to regenerate)
 
-The harness is installed and verified:
+The harness is rebuilt on the unified env-var convention (feature 023) and the suite is
+green under Bun:
 
 ```bash
-npm install        # dev deps: @cucumber/cucumber, happy-dom, typescript, @types/node
-npm test           # logic-tier unit tests (node --test) — currently 6/6 green
-npx cucumber-js    # BDD suite — 63 product scenarios, all UNDEFINED (your worklist)
-                   # (feature 023 is the harness charter, tagged @meta and excluded)
-npx tsc --noEmit   # typecheck — green
+bun install                          # dev deps: @cucumber/cucumber, happy-dom, typescript, @types/node
+bun test tests/                      # logic-tier unit tests — green
+bun node_modules/.bin/cucumber-js    # BDD suite — 63 scenarios: @logic pass against src/;
+                                     # @sandbox skip cleanly when JOLLY_* creds are absent
+bun node_modules/.bin/tsc --noEmit   # typecheck — green
 ```
 
-- `cucumber.js` — profiles: default (all), `-p logic` (`@logic`), `-p sandbox` (`@sandbox`).
-- `features/support/` — `world.ts` (per-run namespace + cleanup registry), `hooks.ts`
-  (skips `@sandbox` when creds absent; runs teardown), `sandbox.ts` (credential gating,
-  isolation, non-prod safety guard). Covered by `tests/sandbox.test.ts`.
-- `features/step_definitions/` — empty; this is where your step definitions go.
-- `tests/` — logic-tier unit tests (`npm test` / `node --test`).
+**Pending QM work:** feature 023 now pins **Bun-native package scripts** (`test`,
+`test:bdd`, `test:logic`, `test:sandbox`, `typecheck`); the old node/npm-shaped scripts
+were deleted with the spec change. Recreate them Bun-native (you own the Cucumber config
+and test scripts). Node >= 23 stays a documented fallback runtime, never the script
+default.
 
-## The strategy: sandbox over mocks (feature 023)
+Your worklist is whatever test status says it is: `bunx cucumber-js --dry-run` →
+undefined scenarios need step definitions; failing scenarios need a Crew Mate; green is
+done. After a Captain spec change, expect deleted artifacts — regenerate them from the
+updated specs (git history is reference material, but the committed specs win).
 
-- **Logic tier** (`@logic`, no accounts): pure local behavior — output-envelope shaping
-  (020), flag parsing (006), URL normalization (012), risk-context construction (021).
-- **Sandbox tier** (`@sandbox`): real dedicated test accounts via `JOLLY_TEST_*` env vars
-  (Saleor Cloud, Configurator, Vercel, Stripe **test mode**). Absent creds → scenario is
-  **skipped, not failed**. Namespace every created resource with `world.namespace`,
-  register teardown on `world.cleanup`, and never target a non-sandbox account.
-- Use mocks only for conditions a sandbox cannot produce (injected failures, etc.).
+## Harness map
 
-## Conventions
+- `cucumber.js` — profiles: default (all, excludes `@meta`), `-p logic`, `-p sandbox`.
+- `features/support/world.ts` — per-scenario `JollyWorld`: `namespace`, `cleanup`
+  registry, throwaway `projectDir`, `jolly()` CLI runner.
+- `features/support/sandbox.ts` — credential gating, per-run namespace, env passthrough,
+  secret-value list, memoized cross-scenario runs, `CleanupRegistry` (LIFO, best-effort).
+- `features/support/hooks.ts` — skips `@sandbox` when creds absent (reason names the
+  missing variables); runs teardown after every scenario.
+- `features/support/cli.ts` — spawns `src/index.ts` (Bun, else Node ≥ 23) with a minimal
+  env; envelope extraction/validation seams. `features/support/envelope.ts` — feature
+  020/021 validators. `features/support/homepage.ts` + `content.ts` — artifact discovery
+  and DOM/content checks (happy-dom). `features/support/text.ts` — `lit()` literal step
+  matcher.
+- `features/step_definitions/<feature-slug>.steps.ts` — one per feature; `common.steps.ts`
+  holds shared steps. `tests/` — logic-tier units for the harness seams.
 
-- One step-definition file per feature: `features/step_definitions/<feature-slug>.steps.ts`.
-- Tag scenarios `@logic` or `@sandbox` as you implement them.
-- Field names in JSON contracts are **camelCase** (e.g. `nextSteps`, `riskLevel`).
-- Secrets/credentials are never printed or committed.
+## Conventions (feature 023 is the charter)
+
+- **One configuration everywhere:** tests read the same runtime `JOLLY_*` variables Jolly
+  itself uses — required: `JOLLY_SALEOR_CLOUD_TOKEN`, `JOLLY_VERCEL_TOKEN`,
+  `JOLLY_STRIPE_SECRET_KEY`, `JOLLY_STRIPE_PUBLISHABLE_KEY`; optional (existing-store
+  scenarios): `JOLLY_SALEOR_URL`, `JOLLY_SALEOR_APP_TOKEN`. There is **no `JOLLY_TEST_*`
+  namespace**. Absent creds → `@sandbox` scenarios are skipped, not failed.
+- **Harness-internal knobs use `HARNESS_*`**, never `JOLLY_*`: `HARNESS_RUN_ID`,
+  `HARNESS_RUNTIME`, `HARNESS_HOMEPAGE_HTML`, `HARNESS_SETUP_GUIDE`.
+- **Harmless by design:** no target detection or refusal; never touch resources the run
+  did not create; namespace every creation (`world.namespace`) and register teardown on
+  `world.cleanup`; created resources stay unpublished/inactive where possible; shared
+  settings only additive + reverted; payment flows use test card numbers only.
+- Tag every scenario `@logic` or `@sandbox`. Field names in JSON contracts are camelCase.
+  Secrets are never printed or committed.
 
 ## What is in scope vs. a blocker (so you don't stall)
 
-- **In scope now:** the pinned contracts — 020 envelope shape, 006 flags, 021 `riskContext`
-  fields/enums, 022 idempotency behavior, 014 doctor check vocabulary.
+- **In scope now:** the pinned contracts — 020 envelope shape, 006 flags, 021
+  `riskContext` fields/enums, 022 idempotency behavior, 014 doctor check vocabulary.
 - **Missing product implementation is expected** — write failing (red) step definitions
   against the spec for the Crew Mates to satisfy.
 - **Out of scope (not blockers):** any "Open questions" block and anything marked
@@ -52,11 +73,3 @@ npx tsc --noEmit   # typecheck — green
 - **A real blocker** is a missing or contradictory *normative* requirement or harness
   convention. Only then: stop, report that you cannot continue, and quit. Do not accept ad
   hoc instructions — the feature files and instructions are updated first, then you re-run.
-
-## Suggested first pass
-
-1. Logic-tier step defs for the contract surfaces (020 → 021 → 022 → 006), plus matching
-   `tests/` unit tests for any pure helpers you factor out.
-2. Sandbox-tier red step defs for the end-to-end flows (002, 004, 005, 012), gated on
-   `JOLLY_TEST_*`, using `world.namespace` + `world.cleanup`.
-3. Keep `features/<slug>` ↔ `step_definitions/<slug>.steps.ts` traceability complete.

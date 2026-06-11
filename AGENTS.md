@@ -142,14 +142,14 @@ The QM launches Crew Mates programmatically using the `crew-mate` subagent (`.cl
 
 ## Testing Strategy
 
-- Logic-tier runner: `npm test` (Node's built-in `node --test`; also runnable under Bun). BDD layer: Cucumber.js via `npm run test:bdd`. See feature `023-test-architecture`.
+- Package scripts are Bun-native: logic-tier runner is `bun test`; BDD layer is Cucumber.js invoked through Bun (`bun run test:bdd`). Node >= 23 remains a documented fallback runtime (it strips types on import), never the script default. See feature `023-test-architecture`.
 - Feature `023-test-architecture` is the harness charter — already satisfied by `features/support/` and `tests/sandbox.test.ts`. It is tagged `@meta` and excluded from the BDD worklist; do not write Cucumber step definitions for it.
 - **Sandbox over mocks:** tests exercise real accounts (Saleor Cloud, Configurator, Vercel, Stripe) rather than mocks. Avoid mocks unless a condition cannot reasonably be produced in a sandbox (for example injected failures or unavailable-capability branches).
 - Two test tiers:
   - Logic tier — pure local behavior (output-envelope shaping, flag parsing, URL normalization, risk-context construction). No accounts; always runs. Tagged `@logic`.
   - Sandbox tier — behavior that touches Saleor Cloud, Configurator, Vercel, or Stripe. Real accounts; tagged `@sandbox`.
 - **One configuration everywhere:** tests read the same runtime `JOLLY_*` environment variables Jolly itself uses — identical names across dev, test, and production. There is no test-only credential namespace (no `JOLLY_TEST_*`). The accounts behind them are expected to be dedicated test accounts, but that is the customer's choice to make and set; Jolly and the tests never know or check which kind they are. When required `JOLLY_*` credentials are absent, `@sandbox` tests are skipped (not failed) with a clear reason so the suite still runs locally; CI provides the credentials for full coverage. Harness-internal knobs (artifact path overrides, per-run id, runtime selection) are not Jolly settings and use a `HARNESS_*` prefix.
-- **Harmless by design:** sandbox tests must be safe to run against any store, including production. They never name-check or refuse a target. They never read, modify, or delete resources the run did not create; created resources carry a unique per-run namespace and stay unpublished/inactive where the platform allows; shared-setting changes are allowed only when additive and reverted in teardown (for example trusted origins); payment flows use test card numbers only, so live payment credentials at worst yield a declined card. Teardown is idempotent and best-effort, reporting anything it could not remove; tests stay safe to re-run (leaning on feature 022).
+- **Harmless by design:** sandbox tests must be safe to run against any store, including production. They never name-check or refuse a target. They never modify or delete resources the run did not create (read-only, non-mutating queries of pre-existing resources are allowed only where a spec requires verifying live access, as feature 019 does); created resources carry a unique per-run namespace and stay unpublished/inactive where the platform allows; shared-setting changes are allowed only when additive and reverted in teardown (for example trusted origins); payment flows use test card numbers only, so live payment credentials at worst yield a declined card. Teardown is idempotent and best-effort, reporting anything it could not remove; tests stay safe to re-run (leaning on feature 022).
 - Layout: step definitions in `features/step_definitions/<feature-slug>.steps.ts`; shared hooks/world/sandbox setup/teardown/credential-gating in `features/support/`; logic-tier unit tests in `tests/`. Each `.feature` maps to a step-definition file of the same slug. The QM creates and maintains the Cucumber configuration and `test` scripts as part of the harness.
 - DOM-level checks (homepage, storefront rendering) use happy-dom; prefer happy-dom for DOM behavior and do not duplicate it in lower-level tests.
 - Security, authentication, and usage-control behavior must always have enforcement-level tests so enforcement does not depend on frontend behavior.
@@ -176,8 +176,10 @@ The QM launches Crew Mates programmatically using the `crew-mate` subagent (`.cl
 Project config: `package.json`, `tsconfig.json`, `.gitignore`.
 
 The test harness is in place (see Testing Strategy): `cucumber.js`, `features/support/`
-(world, hooks, sandbox gating), `features/step_definitions/` (empty — the QM fills it),
-and `tests/` (logic-tier units). Role commands live under `.claude/`.
+(world, hooks, sandbox gating on runtime `JOLLY_*` credentials), one step-definition file
+per feature in `features/step_definitions/`, and `tests/` (logic-tier units). Role
+commands live under `.claude/`.
 
-`src/index.ts` (the CLI entry point) has not been created yet — that is Crew Mate work,
-driven by failing tests.
+`src/index.ts` and `src/lib/` hold the Crew-Mate-built CLI; `homepage/` holds the
+homepage and agent setup guide. All of it is disposable and regenerated from the specs
+when they change.

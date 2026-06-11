@@ -8,13 +8,13 @@ Read, in order, before doing anything:
 1. `AGENTS.md` — the Three-Role Agent Workflow is your charter (especially the Quartermaster role, Testing Strategy, and the CLI Output Contract / Agent Risk Context / Idempotency sections).
 2. `HANDOVER.md` — current harness state and how to run it.
 
-**Derive your worklist from test status, not from instructions** — progress is whatever the tests say it is. Run `npm install` first if needed, then loop:
+**Derive your worklist from test status, not from instructions** — progress is whatever the tests say it is. Run `bun install` first if needed, then loop:
 
-- `npx cucumber-js --dry-run` → **undefined** scenarios are ones you have not specified yet. Write their step definitions (`features/step_definitions/<feature-slug>.steps.ts`) and any `tests/` logic-tier units, per feature 023. Tests are red first; tag `@logic`/`@sandbox`; gate sandbox on `JOLLY_TEST_*`.
-- `npx cucumber-js` → **failing** scenarios have step definitions but no passing implementation. Launch a **crew-mate** subagent (Agent tool) for each to implement the minimal production code, then re-run to confirm green.
-- `npm test` and `npx tsc --noEmit` must stay green.
+- `bunx cucumber-js --dry-run` → **undefined** scenarios are ones you have not specified yet. Write their step definitions (`features/step_definitions/<feature-slug>.steps.ts`) and any `tests/` logic-tier units, per feature 023. Tests are red first; tag `@logic`/`@sandbox`; gate sandbox on the runtime `JOLLY_*` credentials (there is no test-only namespace).
+- `bunx cucumber-js` → **failing** scenarios have step definitions but no passing implementation. Launch a **crew-mate** subagent (Agent tool) for each to implement the minimal production code, then re-run to confirm green.
+- `bun test` and `bunx tsc --noEmit` must stay green.
 
-Repeat until every actionable scenario is green. `@sandbox` scenarios skipped for missing `JOLLY_TEST_*` are not actionable locally — report them, do not force them.
+Repeat until every actionable scenario is green. `@sandbox` scenarios skipped for missing `JOLLY_*` credentials are not actionable locally — report them, do not force them.
 
 Hard rules (from `AGENTS.md`):
 - You do not converse with humans, and you do not write production code yourself — you write tests and dispatch Crew Mates.
