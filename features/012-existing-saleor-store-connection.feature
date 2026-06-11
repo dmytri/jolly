@@ -59,6 +59,35 @@ Feature: Existing Saleor store connection
     And .env should not be created
     And the output should include the normalized URL in the data object
 
+  @logic
+  Scenario: Jolly create store builds a Cloud API environment creation request
+    Given the agent has a Saleor Cloud token authenticated via JOLLY_SALEOR_CLOUD_TOKEN
+    And the agent has selected or created a Saleor Cloud organization
+    When Jolly prepares to create a new Saleor Cloud environment from the Cloud API
+    Then it should POST to /platform/api/organizations/{organization}/environments/
+    And the POST body should include name, project, domain_label, database_population, service, and optional basic-auth credentials
+    And the default region should be "us-east-1"
+    And the default database template should be "sample"
+    And the environment creation should return a task_id for async job polling
+    And Jolly should poll GET /platform/api/service/task-status/{task_id} until status is "SUCCEEDED"
+    And once complete, it should set NEXT_PUBLIC_SALEOR_API_URL from the resulting domain
+
+  @logic
+  Scenario: Jolly create store handles domain name collision
+    Given Jolly submits an environment creation with a domain that already exists
+    When the Cloud API responds with HTTP 400 and "environment with this domain label already exists"
+    Then Jolly should suggest an alternative domain label
+    And it should allow the agent to provide a new domain
+    And it should retry the request with the corrected domain
+
+  @logic
+  Scenario: Jolly create store creates a project when none exists
+    Given the agent has not created or selected a Saleor Cloud project
+    When Jolly needs a project for environment creation
+    Then it should create a project via POST /platform/api/organizations/{organization}/projects/
+    And the project body should include name, plan="dev", and region
+    And it should proceed to create the environment in the new project
+
   Rule: Existing-store automation principles
     - Validate the GraphQL endpoint before using it.
     - Infer Saleor Cloud organization/environment from authenticated Cloud context where possible.

@@ -35,9 +35,11 @@ Feature: Jolly create subcommands
     - `jolly create store` for Saleor Cloud store/project/environment setup.
     - `jolly create storefront` for cloning/configuring Saleor Paper; it should propose `storefront` as the default target directory, handle name collisions safely, and allow confirmation or change before cloning.
     - `jolly create recipe` for preparing or applying the Jolly Configurator starter recipe.
+    - `jolly create app-token` for acquiring a Saleor app token from a Saleor instance via GraphQL.
     - `jolly create deployment` for Vercel deployment setup.
     - `jolly deploy` as a friendly top-level alias for deployment setup.
 
   Rule: Open questions
     - `jolly create store` is the v1 command name for Saleor Cloud store/project/environment setup.
+    - Whether `jolly create app-token` should request all available permissions or allow the agent to specify a subset is deferred.
     - Exact behavior differences, if any, between `jolly create deployment` and `jolly deploy` remain open.

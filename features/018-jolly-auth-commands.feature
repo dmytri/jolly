@@ -14,13 +14,48 @@ Feature: Jolly auth commands
     And subsequent `jolly auth status` should report the token is configured
     And Jolly should not print the token value
 
+  @logic
+  Scenario: Jolly login constructs the browser OAuth authorization request
+    Given the agent has no existing Saleor Cloud authentication
+    When the agent initiates a browser OAuth login
+    Then Jolly should generate a PKCE code challenge and verifier
+    And it should construct a Keycloak authorization URL at auth.saleor.io
+    And the authorization URL should include response_type=code, client_id="jolly-cli", code_challenge, code_challenge_method=S256, state, redirect_uri, and scope="email openid profile"
+    And the redirect_uri should point to a localhost HTTP server
+    And it should start a local HTTP server on port 5375 to receive the callback
+
+  @logic
+  Scenario: Jolly login exchanges the OAuth code for a Saleor Cloud token
+    Given Jolly receives an authorization code on the localhost callback
+    When it exchanges the code with the Keycloak token endpoint
+    Then it should POST the code, code_verifier, client_id="jolly-cli", and redirect_uri
+    And it should call POST /platform/api/tokens on the Cloud API with the OIDC id_token
+    And it should store the resulting Saleor Cloud token in .env as JOLLY_SALEOR_CLOUD_TOKEN
+    And it should verify the stored token via the id.saleor.online/verify endpoint
+
+  @logic
+  Scenario: Jolly login validates a headless token against the verify endpoint
+    Given the agent provides a token from https://cloud.saleor.io/tokens
+    When Jolly validates the token
+    Then it should POST the token to https://id.saleor.online/configure for verification
+    And if valid, it should store the token in .env as JOLLY_SALEOR_CLOUD_TOKEN
+    And it should report the authenticated account or organization context
+
+  @logic
+  Scenario: Jolly login rejects an invalid token gracefully
+    Given the agent provides an invalid or expired token
+    When Jolly validates the token
+    Then it should report a clear error message
+    And it should not write any value to .env
+    And the error message should direct the customer to create a new token at https://cloud.saleor.io/tokens
+
   @sandbox
-  Scenario: Agent logs in to Saleor Cloud with browser OAuth
-    Given the agent needs Saleor Cloud authentication
-    When it invokes `jolly login`
-    Then Jolly should support browser OAuth authentication when available
-    And Jolly should support a headless token flow when browser OAuth is unavailable or undesirable
-    And Jolly should explain any required human browser or token steps
+  Scenario: Agent completes the full browser OAuth login flow
+    Given the customer has a Saleor Cloud account and a browser available
+    When the agent invokes `jolly login` and the customer completes the browser flow
+    Then Jolly should complete the OAuth PKCE flow
+    And it should store the Saleor Cloud token in .env as JOLLY_SALEOR_CLOUD_TOKEN
+    And subsequent `jolly auth status` should report the token is configured
 
   @logic
   Scenario: Agent logs out
