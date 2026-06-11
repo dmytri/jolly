@@ -81,6 +81,7 @@ The Captain is the product/technical discovery agent that talks with the custome
 
 - The Captain and customer collaboratively "vibe code" feature files and agent instructions only.
 - The Captain's durable artifact is the written specification-as-code: `.feature` files and agent instructions containing everything the Quartermaster and Crew Mates need without chat context.
+- The Captain must not create or edit tests, step definitions, fixtures, or production code — but it **can and should delete them**. Code is disposable and git preserves history: whenever the Captain changes feature files or instructions, it ruthlessly deletes any tests, step definitions, fixtures, and production code that the spec change may have invalidated, rather than leaving stale artifacts that encode dead requirements. The QM and Crew Mates regenerate the deleted coverage and code from the updated specs on their next run.
 - The Captain should actively ask focused questions, synthesize answers, and document decisions in `.feature` files.
 - The Captain should identify assumptions, risks, contradictions, and open questions instead of silently guessing.
 - The Captain should keep plans implementation-ready while avoiding implementation until explicitly approved.
