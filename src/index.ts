@@ -10,6 +10,7 @@
 // referenced by environment-variable name only.
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { syncAgentAssets, type AgentAssetSync, type AssetStatus } from "./lib/agent-assets.ts";
 
 const JOLLY_VERSION = "0.1.0";
 
@@ -195,6 +196,24 @@ Options:
   --quiet      Trim nonessential human-readable text
   --yes, -y    Skip Jolly prompts where the agent environment allows
   --dry-run    Preview side effects (including riskContext) without performing them
+  --help, -h   Show help
+`;
+
+const SKILLS_HELP = `Usage: jolly skills <subcommand> [options]
+
+Manage the Jolly-managed Saleor agent skills. Skills are installed in the
+standard project-local skills/ directory; installed versions are recorded in
+skills/skills-lock.json so version management stays centralized in Jolly.
+
+Subcommands:
+  install      Install or check the default Saleor skill set and agent glue
+  update       Update installed Jolly-managed skills to their current versions
+
+Options:
+  --json       Print only the machine-readable output envelope
+  --quiet      Trim nonessential human-readable text
+  --yes, -y    Skip Jolly prompts where the agent environment allows
+  --dry-run    Preview what would be installed or updated without writing
   --help, -h   Show help
 `;
 
@@ -651,6 +670,52 @@ function runCreate(commandName: string, subcommand: string, flags: Flags): void 
   );
 }
 
+/**
+ * `jolly init` and `jolly skills install` (features 007 and 009): install or
+ * check the default Saleor skill set in the standard project-local skills/
+ * location and write agent-specific glue for supported environments. Local
+ * agent setup only — no remote Saleor Cloud or Vercel resources, no secrets;
+ * safe to re-run (existing assets are detected and reported, user-authored
+ * instructions are never overwritten).
+ */
+function runAgentSetup(commandName: string, flags: Flags): void {
+  const sync: AgentAssetSync = syncAgentAssets(process.cwd(), { write: !flags.dryRun });
+
+  const countByStatus = (items: { status: AssetStatus }[]): string => {
+    const order: AssetStatus[] = ["installed", "updated", "unchanged", "skipped"];
+    return (
+      order
+        .map((status) => [status, items.filter((item) => item.status === status).length] as const)
+        .filter(([, count]) => count > 0)
+        .map(([status, count]) => `${count} ${status}`)
+        .join(", ") || "none"
+    );
+  };
+
+  const summaryCore = `default Saleor skill set checked — skills: ${countByStatus(sync.skills)}; agent guidance: ${countByStatus(sync.guidance)} (versions recorded in ${sync.lockFile}).`;
+  const nextSteps: NextStep[] = [
+    { description: "Verify skill installation and agent guidance status", command: "jolly doctor skills" },
+  ];
+  if (commandName === "init") {
+    nextSteps.push({ description: "Start the guided end-to-end setup", command: "jolly start" });
+  }
+
+  emit(
+    {
+      command: commandName,
+      status: "success",
+      summary: flags.dryRun
+        ? `Dry run: jolly ${commandName} would install or update local agent assets — ${summaryCore} No files were written.`
+        : `jolly ${commandName} completed local agent setup: ${summaryCore}`,
+      data: { dryRun: flags.dryRun, ...sync },
+      checks: [],
+      nextSteps,
+      errors: [],
+    },
+    flags,
+  );
+}
+
 function runNotImplemented(commandName: string, flags: Flags): void {
   emit(
     {
@@ -684,6 +749,20 @@ function main(argv: string[]): void {
   }
 
   switch (command) {
+    case "init":
+      runAgentSetup("init", flags);
+      return;
+    case "skills":
+      if (flags.help || !subcommand) {
+        process.stdout.write(SKILLS_HELP);
+        return;
+      }
+      if (subcommand === "install") {
+        runAgentSetup("skills install", flags);
+        return;
+      }
+      runNotImplemented(positionals.join(" "), flags);
+      return;
     case "doctor":
       runDoctor(subcommand, flags);
       return;
