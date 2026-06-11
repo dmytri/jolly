@@ -7,19 +7,31 @@ Crew Mate dispatch: this environment provides the `crew-mate` subagent (Agent to
 QM dispatches Crew Mates for production code as the charter requires. The fallback rule
 (QM writes production code itself) applies only if that mechanism is genuinely absent.
 
-## Current state (2026-06-11, Captain session)
+## Current state (2026-06-11, Captain follow-up session)
 
-Baseline before this session's spec change was fully green (commit `2eb1240`):
-unit 44/44, `@logic` 58/58, full BDD 74 passed / 10 skipped / 0 failed, typecheck clean.
+A prior QM session already regenerated the Captain-deleted artifacts (012/018 step
+definitions, `features/support/browser.ts`, `features/support/hooks.ts`,
+`src/lib/cloud-api.ts`, the `src/index.ts` rebuild, and the `SANDBOX_REQUIREMENTS`
+re-key) but left the work **uncommitted in the working tree**. Worklist items 1–3
+below are done; do not redo them — verify, finish, and commit.
 
-This session's spec change then **deleted** two artifacts, so the suite is now
-intentionally red/undefined until regenerated:
+Verified status of the working tree as of this brief:
 
-| Suite | Expected result now |
-|-------|---------------------|
-| `bun run typecheck` | **fails** — `src/index.ts` imports the deleted `src/lib/cloud-api.ts` |
-| `bunx cucumber-js --dry-run` | undefined scenarios in feature 012 (step defs deleted) |
-| `bun test` (unit) | passes (no unit test touched the deleted files) |
+| Suite | Result |
+|-------|--------|
+| `bun run typecheck` | passes |
+| `bunx cucumber-js --dry-run` | 0 undefined (84 scenarios all defined) |
+| `bun test` (unit) | 44/44 pass |
+| `bun run test:logic` | **57/58 — 1 failing scenario** (see below) |
+| `@sandbox` tier | not yet re-verified after regeneration |
+
+The one failing scenario is feature 018 "Agent checks auth status": `jolly auth status`
+must "report the authenticated account or organization context where safe"
+(`features/018-jolly-auth-commands.feature:75`), but `data` lacks `accountContext`
+(currently only `{authenticated, hasCloudToken, hasAppToken}`). The spec and step
+definition agree; this is Crew Mate implementation work, not a spec gap. Remaining QM
+loop: dispatch a Crew Mate for that scenario, re-verify end-to-end (including
+`@sandbox` with the available Saleor Cloud credentials), then commit everything.
 
 ## Spec changes this session (feature 018: login credentials never persisted)
 
