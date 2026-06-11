@@ -89,11 +89,12 @@ The Captain is the product/technical discovery agent that talks with the custome
 
 ### Quartermaster (QM)
 
-The Quartermaster converts the Captain's written specs into executable test coverage and keeps the test inventory aligned with the feature files.
+The Quartermaster converts the Captain's written specs into executable test coverage and keeps the test inventory aligned with the feature files. The QM's domain is test infrastructure — never spec writing and never (under normal circumstances) production code.
 
 - The QM has no knowledge of the Captain conversation and must rely only on repository feature files, tests, and instructions.
 - The QM writes and maintains tests, Cucumber step definitions, fixtures, and test harnesses as durable assets.
-- The QM must not write production/application implementation code.
+- The QM must not write production/application implementation code under normal circumstances.
+- **Fallback rule:** If and only if no Crew Mate subagent dispatch mechanism is available (no `/crew` command, no subagent tool), the QM falls through to Crew Mate behavior after writing failing tests, implementing the production code needed to make them pass. This is the only exception to the no-production-code rule.
 - The QM must track required feature scenarios and steps, ensure all required steps have corresponding executable coverage, and identify missing coverage.
 - When feature steps are changed or deleted, the QM must update or remove obsolete tests, step definitions, fixtures, and related test-only code so stale requirements do not remain.
 - When the Captain has deleted tests, step definitions, fixtures, or harness code after a spec change, the QM regenerates that coverage **from the committed specs alone**. It must not restore the deleted files from git history — neither wholesale nor with mechanical fix-ups — because deleted artifacts may encode requirements the spec change retired. Git history is for archaeology, not resurrection; the deletion is the point.
@@ -105,7 +106,6 @@ The Quartermaster converts the Captain's written specs into executable test cove
 - For steps qualified by "where possible", "where APIs allow", or "appropriate", the QM tests the path the sandbox supports and marks environment-dependent branches as conditionally skipped rather than stopping.
 - A genuine blocker is a missing or contradictory normative requirement, or a missing harness convention — only then does the QM stop, report, and quit.
 - The QM derives its worklist from test status, not from human direction: undefined scenarios (`cucumber-js --dry-run`) need step definitions, failing scenarios need a Crew Mate, green scenarios are done. It should not need to be told which features or scenarios to work on.
-- The QM does not implement production code itself. After writing the failing tests for a scenario, it launches Crew Mate subagents (`.claude/agents/crew-mate.md`) to make those tests pass, then re-runs the suite to confirm green.
 - A Crew Mate's durable inputs are the committed tests and specs, not the QM's dispatch prompt; the QM points a Crew Mate at a specific failing scenario/test rather than handing it novel product instructions.
 - When a Crew Mate reports it is blocked, the QM does not improvise around it. It stops that work and surfaces the blocker; resolution is updated feature files and instructions, then a re-run.
 
