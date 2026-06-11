@@ -38,6 +38,7 @@ Feature: Jolly auth commands
     When Jolly validates the token
     Then it should POST the token to https://id.saleor.online/configure for verification
     And if valid, it should store the token in .env as JOLLY_SALEOR_CLOUD_TOKEN
+    And it should store the authenticated organization name in .env as JOLLY_SALEOR_ORGANIZATION
     And it should report the authenticated account or organization context
 
   @logic
@@ -72,7 +73,8 @@ Feature: Jolly auth commands
     Given the agent needs to know whether Saleor Cloud auth is available
     When it invokes `jolly auth status`
     Then Jolly should report whether Saleor Cloud authentication is configured
-    And it should report the authenticated account or organization context where safe
+    And when .env contains JOLLY_SALEOR_ORGANIZATION, it should report that value as the account context
+    And when no organization is stored, it should report the account context as unknown rather than failing
     And it should avoid exposing secret token values
     And it should support `--json`, `--quiet`, and other global output flags
 
@@ -86,9 +88,9 @@ Feature: Jolly auth commands
 
   @logic
   Scenario: Jolly logout removes only Jolly-managed auth values from .env
-    Given .env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token and JOLLY_SALEOR_APP_TOKEN=some-app-token and THIRD_PARTY_KEY=keep-me
+    Given .env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token and JOLLY_SALEOR_APP_TOKEN=some-app-token and JOLLY_SALEOR_ORGANIZATION=some-org and THIRD_PARTY_KEY=keep-me
     When the agent runs `jolly logout`
-    Then Jolly should remove JOLLY_SALEOR_CLOUD_TOKEN and JOLLY_SALEOR_APP_TOKEN from .env
+    Then Jolly should remove JOLLY_SALEOR_CLOUD_TOKEN, JOLLY_SALEOR_APP_TOKEN, and JOLLY_SALEOR_ORGANIZATION from .env
     And THIRD_PARTY_KEY should remain in .env unchanged
     And subsequent `jolly auth status` should report not authenticated
 
@@ -108,6 +110,11 @@ Feature: Jolly auth commands
     - Jolly should not depend on the deprecated Saleor CLI for authentication.
     - Auth output must not expose secret values.
     - Jolly auth secrets should be written to `.env` as environment variables in v1.
+    - Successful login flows also store the authenticated organization name in `.env` as
+      JOLLY_SALEOR_ORGANIZATION. It is non-secret account context, not a credential; it may
+      appear in output, and `jolly auth status` reads it back so it can report account
+      context without a network call. When it is absent, account context is reported as
+      unknown — never an error.
 
   Rule: Login credentials are one-time inputs, never persisted
     - Saleor Cloud email and password are one-time login inputs. Jolly holds them in
@@ -127,7 +134,6 @@ Feature: Jolly auth commands
       email/password from environment variables or files.
 
   Rule: Open questions
-    - Where should Jolly store non-secret auth state, if any?
     - Jolly workflow credentials should use `JOLLY_*` environment variable names, while Paper-required storefront variables should be written separately using Paper-compatible names.
 
   Rule: Browser OAuth prerequisites
