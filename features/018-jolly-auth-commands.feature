@@ -50,10 +50,11 @@ Feature: Jolly auth commands
 
   @requires-browser
   Scenario: Agent completes the full browser OAuth login flow
-    Given Playwright is installed with browser binaries and Saleor Cloud credentials are configured for browser login
+    Given the runner can complete a browser OAuth flow natively or via Playwright with harness-supplied login input
     When the agent runs `jolly login --browser`
-    Then Jolly should complete the browser OAuth flow via Playwright automation
+    Then Jolly should complete the browser OAuth flow
     And it should store the Saleor Cloud token in .env as JOLLY_SALEOR_CLOUD_TOKEN
+    And .env should not contain any email or password value
     And subsequent `jolly auth status` should report the token is configured
     And Jolly should not print the token value
 
@@ -108,14 +109,31 @@ Feature: Jolly auth commands
     - Auth output must not expose secret values.
     - Jolly auth secrets should be written to `.env` as environment variables in v1.
 
+  Rule: Login credentials are one-time inputs, never persisted
+    - Saleor Cloud email and password are one-time login inputs. Jolly holds them in
+      memory only for the duration of the login flow and never persists them — not to
+      `.env`, not to any file, not in command output.
+    - There are no Jolly environment variables for email or password; the durable
+      artifact of every login flow is the Saleor Cloud token, stored in `.env` as
+      JOLLY_SALEOR_CLOUD_TOKEN.
+    - In the native browser flow (Tier 1) the human types credentials into the real
+      browser; Jolly never sees them.
+    - When the Playwright fallback needs credentials to complete the Keycloak login
+      form, Jolly prompts for email and password on stdin (hidden input on a TTY;
+      reading piped input otherwise) at login time.
+    - If the Playwright flow needs credentials and none are provided (EOF, empty
+      input, or no interactive stdin), Jolly errors with guidance to use
+      `jolly login --token <value>` instead. It never falls back to reading
+      email/password from environment variables or files.
+
   Rule: Open questions
     - Where should Jolly store non-secret auth state, if any?
     - Jolly workflow credentials should use `JOLLY_*` environment variable names, while Paper-required storefront variables should be written separately using Paper-compatible names.
-    - Saleor Cloud credentials for browser login automation (email/password) and their corresponding environment variable names are deferred to CLI design.
 
   Rule: Browser OAuth prerequisites
     - `@requires-browser` scenarios run in one of three tiers depending on environment capability.
     - Tier 1 (native browser): When a display is available and the native browser can be opened (a developer laptop), the test runs the full end-to-end flow: `jolly login --browser` → browser opens → user authenticates → callback → exchange → token in .env. This requires a human to complete the OAuth consent. The test harness detects native browser availability by trying `open`/`xdg-open`/`start`.
-    - Tier 2 (Playwright headless): When no native browser is available but Playwright is installed with browser binaries, the test runs the full flow via Playwright automation. This requires Saleor Cloud login credentials (email/password).
+    - Tier 2 (Playwright headless): When no native browser is available but Playwright is installed with browser binaries, the test runs the full flow via Playwright automation. The harness supplies the Saleor Cloud email/password by piping them into Jolly's stdin prompt from the harness-only knobs HARNESS_SALEOR_EMAIL and HARNESS_SALEOR_PASSWORD (these are CI/test secrets, not Jolly settings — Jolly itself never reads credentials from the environment, and nothing writes them to `.env`).
+    - Tier 2 also skips when Playwright is available but HARNESS_SALEOR_EMAIL/HARNESS_SALEOR_PASSWORD are absent, with a reason naming the missing harness knobs.
     - Tier 3 (skip): When neither native browser nor Playwright is available, the scenario skips with a message directing the user/agent to install Playwright or use `--token <value>`.
     - The `@requires-browser` tag is checked by the test harness before the `@sandbox` credential check. The harness first checks for native browser capability, then for Playwright, in that order.

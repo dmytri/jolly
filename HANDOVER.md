@@ -21,6 +21,36 @@ intentionally red/undefined until regenerated:
 | `bunx cucumber-js --dry-run` | undefined scenarios in feature 012 (step defs deleted) |
 | `bun test` (unit) | passes (no unit test touched the deleted files) |
 
+## Spec changes this session (feature 018: login credentials never persisted)
+
+Customer decision: Saleor Cloud email/password are **one-time login inputs** — Jolly
+never persists them and never reads them from env vars or files. See the new Rule
+"Login credentials are one-time inputs, never persisted" in
+`features/018-jolly-auth-commands.feature` and the updated "Playwright and Browser
+OAuth" section of `AGENTS.md`. Key points:
+
+- Playwright login flow prompts for email/password on stdin (hidden on TTY, piped
+  otherwise); in-memory only; the durable artifact is `JOLLY_SALEOR_CLOUD_TOKEN` in `.env`.
+- No credentials on stdin → error with `--token` guidance.
+- The `@requires-browser` scenario was reworded (new Given, new "no email/password in
+  .env" Then) and Tier 2 gating changed: harness pipes `HARNESS_SALEOR_EMAIL` /
+  `HARNESS_SALEOR_PASSWORD` into the prompt; Playwright present but knobs absent → skip
+  naming the missing knobs. Tier ordering (native first, then Playwright) is unchanged.
+
+**Additional artifacts DELETED by the Captain for this change** (regenerate fresh from
+the committed specs):
+
+```
+features/step_definitions/018-jolly-auth-commands.steps.ts
+features/support/browser.ts
+features/support/hooks.ts
+```
+
+Note `hooks.ts` carried the @sandbox credential-skip and After-teardown hooks (feature
+023) plus the @requires-browser gate (feature 018) — regenerate all of it from those two
+specs. `src/index.ts` `cmdLogin()` is impacted too (stdin prompting for the Playwright
+path); it is already guaranteed-red via the broken `cloud-api.ts` import below.
+
 ## Spec changes this session (feature 012)
 
 The `@sandbox` environment-creation scenario was reworked; see
@@ -60,12 +90,16 @@ Also impacted, not deleted (fix via regeneration, the broken import forces it):
 
 ## QM worklist
 
-1. `bunx cucumber-js --dry-run` → regenerate feature 012 step definitions fresh from the
-   committed feature file (never from git history).
-2. Update the `SANDBOX_REQUIREMENTS` key in `features/support/sandbox.ts` (see above).
-3. Dispatch Crew Mates for the failing/undefined coverage — at minimum the Cloud API
-   client and `cmdCreateEnvironment()` rebuild in `src/`.
-4. Verify end-to-end: `bun run typecheck`, `bun test`, `bun run test:logic`,
+1. Regenerate `features/support/hooks.ts` (feature 023 @sandbox gate + After teardown;
+   feature 018 @requires-browser gate with the new Tier 2 HARNESS_* knob condition) and
+   the browser-capability detection it needs.
+2. `bunx cucumber-js --dry-run` → regenerate feature 012 and feature 018 step
+   definitions fresh from the committed feature files (never from git history).
+3. Update the `SANDBOX_REQUIREMENTS` key in `features/support/sandbox.ts` (see above).
+4. Dispatch Crew Mates for the failing/undefined coverage — at minimum the Cloud API
+   client + `cmdCreateEnvironment()` rebuild, and `cmdLogin()` stdin prompting for the
+   Playwright path.
+5. Verify end-to-end: `bun run typecheck`, `bun test`, `bun run test:logic`,
    `bun run test:bdd`.
 
 ## Credentials & account state (`.env`, Bun auto-loads it)
