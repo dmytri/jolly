@@ -89,12 +89,12 @@ Feature: Existing Saleor store connection
     And it should proceed to create the environment in the new project
 
   @sandbox
-  Scenario: Jolly creates a Saleor Cloud environment from scratch
+  Scenario: Jolly creates a Saleor Cloud environment
     Given the agent has a Saleor Cloud token authenticated via JOLLY_SALEOR_CLOUD_TOKEN
-    And the Cloud API has no existing projects or environments
     When the agent runs `jolly create store --create-environment --json`
     Then Jolly should discover the organization from the Cloud API
-    And it should create a project via POST /platform/api/organizations/{organization}/projects/ with plan="dev"
+    And it should reuse an existing project when one exists, otherwise create one via POST /platform/api/organizations/{organization}/projects/ with plan="dev"
+    And the output envelope data should state whether the project was created or reused
     And it should create an environment via POST /platform/api/organizations/{organization}/environments/
     And the environment creation should return a task_id for async job polling
     And Jolly should poll GET /platform/api/service/task-status/{task_id} until status is "SUCCEEDED"
@@ -102,6 +102,22 @@ Feature: Existing Saleor store connection
     And it should write NEXT_PUBLIC_SALEOR_API_URL to .env from the resulting domain
     And it should create an app token via the Saleor GraphQL API
     And it should write JOLLY_SALEOR_APP_TOKEN to .env
+
+  Rule: Environment creation against in-use organizations
+    - `jolly create store --create-environment` must work against organizations that already
+      have projects and environments; it never requires an empty organization.
+    - Project handling is create-or-reuse: reuse an existing project when one exists,
+      otherwise create one with plan "dev". The output envelope `data` must state which
+      happened (created vs reused).
+    - When the Cloud API rejects environment creation because the organization's sandbox
+      environment limit is reached, Jolly must emit `status` "error" with the stable error
+      code `ENVIRONMENT_LIMIT_REACHED` and a message guiding the customer to delete an
+      unused environment or upgrade the plan.
+    - The sandbox test harness treats an `ENVIRONMENT_LIMIT_REACHED` outcome as an
+      environmental skip (like absent credentials), not a failure: the account's capacity,
+      not Jolly's behavior, is what prevented the run.
+    - Sandbox runs that create an environment must register its deletion in teardown
+      (feature 023), so a test run never permanently consumes a sandbox slot.
 
   Rule: Existing-store automation principles
     - Validate the GraphQL endpoint before using it.

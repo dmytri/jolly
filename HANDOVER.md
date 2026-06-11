@@ -3,109 +3,92 @@
 You are the **Quartermaster (QM)** role. Your charter is in `AGENTS.md` (Three-Role Agent
 Workflow). Read it first, then this file.
 
-**Important:** This environment has no Crew Mate subagent dispatch mechanism.
-Per AGENTS.md: when no dispatch mechanism is available, the QM falls through to
-Crew Mate behavior after writing failing tests — implement the production code
-needed to make them pass.
+Crew Mate dispatch: this environment provides the `crew-mate` subagent (Agent tool), so the
+QM dispatches Crew Mates for production code as the charter requires. The fallback rule
+(QM writes production code itself) applies only if that mechanism is genuinely absent.
 
 ## Current state (2026-06-11, Captain session)
 
-**Unit tests pass, typecheck passes. Some BDD step definitions deleted.**
+Baseline before this session's spec change was fully green (commit `2eb1240`):
+unit 44/44, `@logic` 58/58, full BDD 74 passed / 10 skipped / 0 failed, typecheck clean.
 
-| Suite | Result |
-|-------|--------|
-| `bun test` (unit) | 44 pass, 0 fail |
-| `bun run test:logic` (BDD @logic) | — will fail, step defs deleted |
-| `bun run test:bdd` (full BDD) | — will fail, step defs deleted |
-| `bun run typecheck` | pass |
-| `bunx cucumber-js --dry-run` | **9 undefined scenarios, 43 undefined steps** |
+This session's spec change then **deleted** two artifacts, so the suite is now
+intentionally red/undefined until regenerated:
 
-The Captain deleted stale step definition files after spec changes. The QM must
-regenerate them from the committed feature files.
+| Suite | Expected result now |
+|-------|---------------------|
+| `bun run typecheck` | **fails** — `src/index.ts` imports the deleted `src/lib/cloud-api.ts` |
+| `bunx cucumber-js --dry-run` | undefined scenarios in feature 012 (step defs deleted) |
+| `bun test` (unit) | passes (no unit test touched the deleted files) |
 
-**Credentials (`.env`):**
+## Spec changes this session (feature 012)
+
+The `@sandbox` environment-creation scenario was reworked; see
+`features/012-existing-saleor-store-connection.feature`:
+
+- Scenario renamed: "Jolly creates a Saleor Cloud environment **from scratch**" →
+  "Jolly creates a Saleor Cloud environment". The empty-org Given is gone — the command
+  must work against organizations that already have projects and environments.
+- Project handling is **create-or-reuse**: reuse an existing project when one exists,
+  otherwise create one with plan "dev"; the envelope `data` must state which happened.
+- New stable error code **`ENVIRONMENT_LIMIT_REACHED`** when the Cloud API rejects
+  creation because the org's sandbox limit is reached, with guidance to delete an unused
+  environment or upgrade.
+- New harness convention (also added to `AGENTS.md` → Testing Strategy): an
+  `ENVIRONMENT_LIMIT_REACHED` outcome — and any premise the harness cannot produce
+  harmlessly — is an **environmental skip, not a failure**.
+- Sandbox runs that create an environment must register its deletion in teardown so a
+  test run never permanently consumes a sandbox slot.
+
+## Artifacts DELETED by the Captain (regenerate fresh from the committed specs)
+
 ```
-JOLLY_SALEOR_CLOUD_TOKEN=0ca90999...  (Saleor Cloud auth, dmytris-organization-1)
-NEXT_PUBLIC_SALEOR_API_URL=https://jolly-mq9ol7f2.saleor.cloud/graphql/  (live instance)
-JOLLY_SALEOR_APP_TOKEN=1wrjqr1u...   (app token for that instance)
+features/step_definitions/012-existing-saleor-store-connection.steps.ts
+src/lib/cloud-api.ts
 ```
 
-Bun auto-loads `.env`, so all three are available in `process.env`. The org dev
-plan allows 2 sandbox environments. **3 sandbox slots consumed currently** (the
-live instance above = 1). You have 1 remaining before hitting the limit.
+Also impacted, not deleted (fix via regeneration, the broken import forces it):
 
-## Spec changes this session
-
-### Feature 018 (auth commands)
-- Added `@requires-browser` tag to the full browser OAuth login flow scenario
-- Added "Browser OAuth prerequisites" rule clarifying that the browser flow
-  requires a browser-capable runner; headless runners should skip it
-
-### Feature 021 (risk context)
-- **Critical change:** Every command that supports `--dry-run` MUST emit a
-  `riskContext` in its real execution output, identical to the one produced
-  during `--dry-run` preview. Previously this was a "should" — now it's a "MUST".
-- The `riskContext` for real execution must be carried inside the output
-  envelope (`data` or `checks`), not hidden or omitted.
-- Added explicit step: "the real execution output must include a riskContext
-  identical to the dry-run preview"
-
-### Steps definition files DELETED by Captain
-```
-features/step_definitions/021-agent-risk-context.steps.ts
-features/step_definitions/024-jolly-app-token-acquisition.steps.ts
-```
-The QM must rebuild these from the spec files.
+- `src/index.ts` — imports the deleted `src/lib/cloud-api.ts`; its
+  `cmdCreateEnvironment()` encodes the retired behavior (hardcoded
+  `projectCreated: true`, no created-vs-reused distinction, no
+  `ENVIRONMENT_LIMIT_REACHED` code). Crew Mates rebuild this against the new spec.
+- `features/support/sandbox.ts` — `SANDBOX_REQUIREMENTS` still keys the old scenario
+  name "Jolly creates a Saleor Cloud environment from scratch". Re-key to the new
+  name "Jolly creates a Saleor Cloud environment" (needs `saleorCloud`), or the
+  scenario will conservatively require every credential group and never run.
 
 ## QM worklist
 
-### 1. Rebuild step definitions for feature 021 (4 scenarios, @logic + @sandbox)
-Feature: `features/021-agent-risk-context.feature` (4 scenarios)
-- 3 @logic scenarios (step defs from `common.steps.ts` handle most steps)
-- 1 @sandbox scenario: "Risk context is consistent across preview and execution"
-  - This must now verify that **execution also emits riskContext** matching the preview
-  - The login command's real execution path doesn't currently emit riskContext;
-    the QM/Crew must add it
+1. `bunx cucumber-js --dry-run` → regenerate feature 012 step definitions fresh from the
+   committed feature file (never from git history).
+2. Update the `SANDBOX_REQUIREMENTS` key in `features/support/sandbox.ts` (see above).
+3. Dispatch Crew Mates for the failing/undefined coverage — at minimum the Cloud API
+   client and `cmdCreateEnvironment()` rebuild in `src/`.
+4. Verify end-to-end: `bun run typecheck`, `bun test`, `bun run test:logic`,
+   `bun run test:bdd`.
 
-### 2. Rebuild step definitions for feature 024 (5 scenarios, @logic + @sandbox)
-Feature: `features/024-jolly-app-token-acquisition.feature` (5 scenarios)
-- 4 @logic scenarios
-- 1 @sandbox scenario: "Jolly create app-token acquires a real token from Saleor"
-  - The `When` step must actually invoke `jolly create app-token --app-id <id>`
-  - The step definitions eliminated previous placeholders
+## Credentials & account state (`.env`, Bun auto-loads it)
 
-### 3. Implement riskContext in login command's real execution
-With the new spec (feature 021), `jolly login --token <value>` must include a
-`riskContext` in its output envelope during real execution (not just `--dry-run`).
-This requires modifying `cmdLogin()` in `src/index.ts`.
-
-### 4. Verify end-to-end
-After rebuilding step defs and implementing changes, run the full suite:
-```bash
-bun run typecheck
-bun run test:logic   # 58 scenarios should pass
-bun run test:bdd     # 84 scenarios, 60+ pass, rest skipped
+```
+JOLLY_SALEOR_CLOUD_TOKEN   (Saleor Cloud auth, dmytris-organization-1)
+NEXT_PUBLIC_SALEOR_API_URL = https://jolly-mq9ol7f2.saleor.cloud/graphql/  (live instance — never delete)
+JOLLY_SALEOR_APP_TOKEN     (app token for that instance)
 ```
 
-## Key files created or modified (previous session)
-
-| File | Change |
-|------|--------|
-| `src/lib/cloud-api.ts` | **NEW** — Full Cloud API client (organizations, projects, services, environments, app tokens) |
-| `src/index.ts` | Added `--create-environment` flag, auto-load `.env`, fix localhost→127.0.0.1 |
-| `features/018-jolly-auth-commands.feature` | Added `@requires-browser` tag, browser prereq rules |
-| `features/021-agent-risk-context.feature` | MUST emit riskContext on real execution; clarified rules |
-| `features/step_definitions/012-existing-saleor-store-connection.steps.ts` | Added 9 @sandbox step definitions |
-| `features/step_definitions/018-jolly-auth-commands.steps.ts` | Updated redirect_uri check to accept 127.0.0.1 |
-| `features/support/sandbox.ts` | Added SANDBOX_REQUIREMENTS for new scenario, browser OAuth req |
+Vercel/Stripe credentials are absent locally; those `@sandbox` scenarios skip (8 of the
+10 skips in the green baseline). The org's sandbox environment capacity: the leaked
+`jolly-env-mq9pzkc1` was deleted by the Captain on 2026-06-11 (customer-approved), so
+**one sandbox slot is free** for the environment-creation scenario; its teardown must
+delete what it creates (the teardown DELETE-response check landed in `2eb1240`).
 
 ## Running the suite
 
 ```bash
-bun test              # logic-tier unit tests (44 pass, always runs)
-bun run test:logic    # @logic scenarios only
-bun run test:bdd      # full BDD suite
-bun run test:sandbox  # @sandbox scenarios only (needs credentials)
-bun run typecheck     # tsc --noEmit
-bunx cucumber-js --dry-run  # list undefined scenarios
+bun test                    # logic-tier unit tests
+bun run test:logic          # @logic scenarios only
+bun run test:bdd            # full BDD suite
+bun run test:sandbox        # @sandbox scenarios only (needs credentials)
+bun run typecheck           # tsc --noEmit
+bunx cucumber-js --dry-run  # list undefined scenarios (the worklist)
 ```
