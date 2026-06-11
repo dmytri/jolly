@@ -20,7 +20,7 @@ Feature: Jolly auth commands
     When the agent initiates a browser OAuth login
     Then Jolly should generate a PKCE code challenge and verifier
     And it should construct a Keycloak authorization URL at auth.saleor.io
-    And the authorization URL should include response_type=code, client_id="jolly-cli", code_challenge, code_challenge_method=S256, state, redirect_uri, and scope="email openid profile"
+    And the authorization URL should include response_type=code, client_id="saleor-cli", code_challenge, code_challenge_method=S256, state, redirect_uri, and scope="email openid profile"
     And the redirect_uri should point to a localhost HTTP server
     And it should start a local HTTP server on port 5375 to receive the callback
 
@@ -28,7 +28,7 @@ Feature: Jolly auth commands
   Scenario: Jolly login exchanges the OAuth code for a Saleor Cloud token
     Given Jolly receives an authorization code on the localhost callback
     When it exchanges the code with the Keycloak token endpoint
-    Then it should POST the code, code_verifier, client_id="jolly-cli", and redirect_uri
+    Then it should POST the code, code_verifier, client_id="saleor-cli", and redirect_uri
     And it should call POST /platform/api/tokens on the Cloud API with the OIDC id_token
     And it should store the resulting Saleor Cloud token in .env as JOLLY_SALEOR_CLOUD_TOKEN
     And it should verify the stored token via the id.saleor.online/verify endpoint
@@ -92,9 +92,13 @@ Feature: Jolly auth commands
     And subsequent `jolly auth status` should report not authenticated
 
   Rule: Auth command principles
-    - V1 should include `jolly login`, `jolly logout`, and `jolly auth status`.`}]</parameterį     </invoke>  </tool_calls>  <block_info>Replying to edit call - the edit was successful</block_info>  <response>The edit was successful. Now let me also read the rest of the auth commands file to make sure everything is consistent, and add a dry-run scenario for login. </response>  <details>  <summary>Let me read the auth file again to understand the current state: </summary>  <tool_calls>  <invoke name=
+    - V1 should include `jolly login`, `jolly logout`, and `jolly auth status`.
     - Auth commands are helpers that empower the customer's agent; they do not make Jolly a separate control plane.
     - `jolly login` should support browser OAuth and headless token flows.
+    - `jolly login` with no flags runs browser OAuth with a localhost callback server (port 5375). When the user's browser can reach the VM's localhost, the full flow completes automatically.
+    - `jolly login --token <value>` is the headless/CI/VM fallback: when a browser or localhost callback is unavailable, instruct the user to create a token at cloud.saleor.io/tokens and pass it via --token.
+    - If browser OAuth is invoked but the browser cannot be opened or the callback server is unreachable from the user's browser, output a clear message directing the user to use --token <value> with a token from cloud.saleor.io/tokens.
+    - The registered Keycloak client is `saleor-cli` (realm `saleor-cloud` on auth.saleor.io). Jolly may use this client or register its own in future versions.
     - Jolly should not depend on the deprecated Saleor CLI for authentication.
     - Auth output must not expose secret values.
     - Jolly auth secrets should be written to `.env` as environment variables in v1.

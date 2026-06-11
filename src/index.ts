@@ -309,7 +309,7 @@ async function generatePKCE(): Promise<{ verifier: string; challenge: string }> 
 function buildKeycloakAuthUrl(verifier: string, challenge: string): string {
   const params: Record<string, string> = {
     response_type: "code",
-    client_id: "jolly-cli",
+    client_id: "saleor-cli",
     code_challenge: challenge,
     code_challenge_method: "S256",
     state: base64UrlEncode(new Uint8Array(16).buffer),
@@ -368,7 +368,7 @@ async function cmdLogin(token?: string): Promise<void> {
     const tokenExchangeBody = {
       code: exchangeCodeValue,
       code_verifier: "test-pkce-verifier",
-      client_id: "jolly-cli",
+      client_id: "saleor-cli",
       redirect_uri: "http://localhost:5375/callback",
     };
 
