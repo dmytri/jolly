@@ -1,97 +1,90 @@
 # Captain handover
 
-You are the **Quartermaster (QM)**. Your job: keep the committed `.feature` specs and the
-executable test coverage aligned. Your charter is in `AGENTS.md` (Three-Role Agent
+You are the **Quartermaster (QM)** role. Your charter is in `AGENTS.md` (Three-Role Agent
 Workflow). Read it first, then this file.
+
+**Important:** This environment has no Crew Mate subagent dispatch mechanism.
+Per AGENTS.md: when no dispatch mechanism is available, the QM falls through to
+Crew Mate behavior after writing failing tests — implement the production code
+needed to make them pass.
 
 ## Current state (2026-06-11)
 
-**All @logic tests pass (47/47, 343 steps).** The base CLI (`src/index.ts`) is implemented
-with real side effects — .env writing, URL normalization, risk context, dry-run support,
-doctor diagnostics. The test harness (`features/support/`) is stable.
+**All tests pass.** Summary:
 
-**24 @sandbox scenarios skip** because no `JOLLY_*` credentials are configured. The
-Captain will handle credential setup separately using the functional CLI.
+| Suite | Result |
+|-------|--------|
+| `bun test` (unit) | 44 pass, 0 fail |
+| `bun run test:logic` (BDD @logic) | 58 scenarios, 417 steps, all pass |
+| `bun run test:bdd` (full BDD) | 83 scenarios, 58 pass, 25 skipped (needs JOLLY_* credentials) |
+| `bun run typecheck` | pass |
 
-## What changed this session
+**Credentials partially set up.** The file `.env` contains `JOLLY_SALEOR_CLOUD_TOKEN`
+for user `dmytris-organization-1` (owner Dmytri Kleiner). The org has zero
+projects and zero environments — nothing to break.
 
-The Captain studied the deprecated Saleor CLI (`saleor/cli`) to understand how it handled
-registration, authentication, environment creation, and app token acquisition. Based on
-that research, three sets of scenarios were added:
+## What was implemented this session (by Captain + QM fallthrough)
 
-### 018-jolly-auth-commands.feature — tightened OAuth login scenarios
+### Step definitions written
+- `features/step_definitions/024-jolly-app-token-acquisition.steps.ts` — 5 scenarios
+- Additions to `features/step_definitions/012-existing-saleor-store-connection.steps.ts` — 3 scenarios
+- Additions to `features/step_definitions/018-jolly-auth-commands.steps.ts` — 5 scenarios
 
-The old vague `@sandbox` scenario ("Agent logs in to Saleor Cloud with browser OAuth")
-was replaced with four concrete `@logic` scenarios plus one stricter `@sandbox`:
+### CLI features implemented (stubbed for @logic tests)
+- `jolly login --browser` — PKCE generation, Keycloak auth URL construction (realm `saleor-cloud`, client `saleor-cli`), port 5375
+- `jolly login --exchange-code <code>` — OAuth code exchange, Cloud API token call, verify endpoint
+- `jolly login --token <value>` — token validation with `id.saleor.online/configure`, invalid token rejection
+- `jolly create app-token` — GetApps query, appTokenCreate mutation, NO_APPS_AVAILABLE error, dry-run risk context
+- `jolly create store` — Cloud API environment creation request data in envelope, domain collision handling, project creation fallback
 
-| Scenario | Tag | What it verifies |
-|----------|-----|-----------------|
-| `Jolly login constructs the browser OAuth authorization request` | `@logic` | PKCE challenge generation, Keycloak auth URL construction with all OIDC params, localhost callback server on port 5375 |
-| `Jolly login exchanges the OAuth code for a Saleor Cloud token` | `@logic` | Code exchange at Keycloak token endpoint, Cloud API `/tokens` call with OIDC id_token, token verification at `id.saleor.online/verify` |
-| `Jolly login validates a headless token against the verify endpoint` | `@logic` | Token POST to `id.saleor.online/configure`, storage in `.env`, account context reporting |
-| `Jolly login rejects an invalid token gracefully` | `@logic` | Error message, no `.env` write, redirect to `cloud.saleor.io/tokens` |
-| `Agent completes the full browser OAuth login flow` | `@sandbox` | Full end-to-end OAuth PKCE flow + token storage |
+All implementations are **stubbed** — they return the right data shapes for
+@logic tests but don't make real HTTP calls to the Cloud API or Saleor GraphQL.
 
-Key finding from deprecated CLI: login uses Keycloak at `auth.saleor.io`, OIDC params
-with PKCE, a localhost callback on port 5375, then exchanges the OIDC token for a
-Saleor Cloud API token via `POST /platform/api/tokens`.
+## What the QM must implement (real Cloud API calls)
 
-### 012-existing-saleor-store-connection.feature — Cloud API environment creation
+### 1. Real environment creation via Cloud API (`jolly create store --create-environment`)
 
-Three new `@logic` scenarios:
+The Cloud API accepts the token as `Authorization: Token <token>` and returns:
 
-| Scenario | What it verifies |
-|----------|-----------------|
-| `Jolly create store builds a Cloud API environment creation request` | POST body shape (name, project, domain_label, database_population, service, region="us-east-1"), async task polling via task status endpoint |
-| `Jolly create store handles domain name collision` | 400 error recovery, suggestion of alternative domain, retry |
-| `Jolly create store creates a project when none exists` | Project creation via POST to `/projects/` with plan="dev" |
+**Organizations:** `GET https://cloud.saleor.io/platform/api/organizations/`
+```json
+[{"slug": "dmytris-organization-1", "environments": "https://.../environments/", ...}]
+```
 
-Key finding from deprecated CLI: environments are created via the Cloud API
-(`POST /platform/api/organizations/{org}/environments/`) and the creation is async —
-returns a `task_id` that must be polled.
+**Projects:** `POST {org_url}projects/` with body `{ name, plan: "dev", region }`
 
-### 024-jolly-app-token-acquisition.feature — new feature
+**Environments:** `POST {org_url}environments/` with body:
+```json
+{ "name": "...", "project": "...", "domain_label": "...",
+  "database_population": "sample", "service": "saleor", "region": "us-east-1" }
+```
+Returns: `{ "task_id": "..." }` (async)
 
-| Scenario | Tag | What it verifies |
-|----------|-----|-----------------|
-| `Jolly create app-token lists available apps via GraphQL` | `@logic` | GetApps query, bearer auth, app list parsing |
-| `Jolly create app-token constructs the correct GraphQL mutation` | `@logic` | `appTokenCreate(input: { app: $app })` mutation, all-permissions token, .env write |
-| `Jolly create app-token handles missing apps gracefully` | `@logic` | Empty result handling, error code "NO_APPS_AVAILABLE" |
-| `Jolly create app-token --dry-run shows risk context` | `@logic` | Dry-run: risk context, no GraphQL mutations |
-| `Jolly create app-token acquires a real token from Saleor` | `@sandbox` | Full end-to-end, real token acquisition |
+**Task polling:** `GET https://cloud.saleor.io/platform/api/service/task-status/{task_id}`
+Poll until status is `"SUCCEEDED"`. The result should contain the domain URL.
 
-Key finding: app tokens are created via the **Saleor GraphQL API on the instance itself**
-(not the Cloud API), using the standard `appTokenCreate` mutation. The deprecated CLI
-lists apps via `GetApps`, lets the user pick one, then calls `appTokenCreate` with the
-app ID.
+**Domain collision:** Cloud API returns HTTP 400 with message `"environment with this domain label already exists"`.
 
-### Updates to other files
+### 2. Real app token creation via Saleor GraphQL
 
-- `008-jolly-create-subcommands.feature` — `jolly create app-token` added to the V1
-  create subcommands rule list.
-- `features/support/sandbox.ts` — added credential requirements for the new `@sandbox`
-  scenarios.
+Once we have an environment + Cloud token, call the instance's GraphQL endpoint:
+- Query: `GetApps` — `query GetApps { apps(first: 100) { edges { node { id name } } } }`
+- Mutation: `mutation { appTokenCreate(input: { app: "<app-id>" }) { authToken errors { message } } }`
+- Auth: `Authorization: Bearer <cloud-token>`
+- Pick the first app (or let agent select), create token, store as `JOLLY_SALEOR_APP_TOKEN`
 
-## What the QM must do
+### 3. Wire credentials for @sandbox tests
 
-1. **Write step definitions for all new scenarios** in:
-   - `features/step_definitions/018-jolly-auth-commands.steps.ts` (4 new `@logic` + 1 `@sandbox`)
-   - `features/step_definitions/012-existing-saleor-store-connection.steps.ts` (3 new `@logic`)
-   - `features/step_definitions/024-jolly-app-token-acquisition.steps.ts` (4 new `@logic` + 1 `@sandbox`)
+After implementation, run the `@sandbox` tests to verify they work against the
+real Cloud API and Saleor instance. The existing `.env` already has the Cloud
+token — environment creation and app token creation will produce the remaining
+values.
 
-2. **Implement the new CLI behavior** in `src/index.ts`:
-   - `jolly login --help` should mention browser OAuth and headless modes
-   - PKCE challenge generation and Keycloak URL construction
-   - Localhost HTTP server for OAuth callback (port 5375)
-   - OAuth code exchange with Keycloak token endpoint
-   - Cloud API `/tokens` endpoint call
-   - Token verification against `id.saleor.online/verify`
-   - `jolly create app-token` subcommand with GetApps query and `appTokenCreate` mutation
-   - Cloud API environment creation with project fallback and domain collision handling
+### 4. Update the auth URL steps to use `127.0.0.1` not `localhost`
 
-3. **Dispatch Crew Mates** for any failing scenarios (expected to new CLI features)
-
-Do not restore deleted files from git history. Write everything fresh from the specs.
+The Keycloak client `saleor-cli` has `http://127.0.0.1:5375/` registered as
+redirect URI, not `http://localhost:5375/`. The `redirect_uri` in the OAuth
+URL builder and the token exchange body should use `127.0.0.1`.
 
 ## Running the suite
 
@@ -99,23 +92,7 @@ Do not restore deleted files from git history. Write everything fresh from the s
 bun test              # logic-tier unit tests (44 pass, always runs)
 bun run test:bdd      # full BDD suite
 bun run test:logic    # @logic scenarios only
-bun run test:sandbox  # @sandbox scenarios only (needs JOLLY_* credentials)
+bun run test:sandbox  # @sandbox scenarios only (needs credentials)
 bun run typecheck     # tsc --noEmit
-bunx cucumber-js --dry-run  # list undefined scenarios (the QM worklist)
+bunx cucumber-js --dry-run  # list undefined scenarios
 ```
-
-## Credentials for @sandbox
-
-The 24 existing `@sandbox` scenarios plus the new ones need these `JOLLY_*` env vars:
-
-| Variable | Where to get it |
-|----------|----------------|
-| `JOLLY_SALEOR_CLOUD_TOKEN` | https://cloud.saleor.io/tokens |
-| `NEXT_PUBLIC_SALEOR_API_URL` | Your Saleor Cloud Dashboard (environment GraphQL endpoint) |
-| `JOLLY_SALEOR_APP_TOKEN` | Created via `jolly create app-token` or Saleor Dashboard |
-| `JOLLY_VERCEL_TOKEN` | https://vercel.com/account/tokens |
-| `JOLLY_STRIPE_PUBLISHABLE_KEY` | https://dashboard.stripe.com/test/apikeys |
-| `JOLLY_STRIPE_SECRET_KEY` | https://dashboard.stripe.com/test/apikeys |
-
-The Captain will set these up using the functional Jolly CLI once the new features are
-implemented.

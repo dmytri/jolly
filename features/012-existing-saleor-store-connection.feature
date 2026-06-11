@@ -88,9 +88,30 @@ Feature: Existing Saleor store connection
     And the project body should include name, plan="dev", and region
     And it should proceed to create the environment in the new project
 
+  @sandbox
+  Scenario: Jolly creates a Saleor Cloud environment from scratch
+    Given the agent has a Saleor Cloud token authenticated via JOLLY_SALEOR_CLOUD_TOKEN
+    And the Cloud API has no existing projects or environments
+    When the agent runs `jolly create store --create-environment --json`
+    Then Jolly should discover the organization from the Cloud API
+    And it should create a project via POST /platform/api/organizations/{organization}/projects/ with plan="dev"
+    And it should create an environment via POST /platform/api/organizations/{organization}/environments/
+    And the environment creation should return a task_id for async job polling
+    And Jolly should poll GET /platform/api/service/task-status/{task_id} until status is "SUCCEEDED"
+    And Jolly should extract the resulting domain from the task result
+    And it should write NEXT_PUBLIC_SALEOR_API_URL to .env from the resulting domain
+    And it should create an app token via the Saleor GraphQL API
+    And it should write JOLLY_SALEOR_APP_TOKEN to .env
+
   Rule: Existing-store automation principles
     - Validate the GraphQL endpoint before using it.
     - Infer Saleor Cloud organization/environment from authenticated Cloud context where possible.
+    - The Cloud API is at https://cloud.saleor.io/platform/api. Authenticate with `Authorization: Token <token>`.
+    - Organizations: GET /platform/api/organizations/ returns a list with slug and environments URL.
+    - Projects: POST /platform/api/organizations/{slug}/projects/ with body { name, plan: "dev", region }.
+    - Environments: POST /platform/api/organizations/{slug}/environments/ with body { name, project, domain_label, database_population: "sample", service: "saleor", region: "us-east-1" }. Returns a task_id.
+    - Task status: GET /platform/api/service/task-status/{task_id} until status is "SUCCEEDED".
+    - The environment task result contains the domain URL (https://{domain_label}.saleor.cloud/graphql/).
     - Require an app token or equivalent credential for full existing-store setup.
     - Acquire or create the app token automatically where Saleor APIs allow; otherwise guide the customer through Saleor Dashboard token creation.
     - The deprecated CLI shows useful example flows for Saleor Cloud OAuth/headless token acquisition, local app selection/creation, permission updates, and app token creation through Saleor GraphQL.
@@ -100,3 +121,5 @@ Feature: Existing Saleor store connection
   Rule: Open questions
     - Which pasted URL forms should Jolly normalize in v1?
     - What exact Saleor API or Dashboard automation path can create an app token at implementation time?
+    - Whether environment creation should be part of `jolly create store` or a separate `jolly create environment` subcommand is deferred to CLI design.
+    - The exact shape of the task status response and how to extract the domain URL from it needs verification against the live Cloud API at implementation time.
