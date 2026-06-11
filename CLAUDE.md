@@ -93,7 +93,8 @@ New sessions continue from committed docs alone — assume no prior chat history
 - **Captain** (`/captain`): the only role that talks to humans. "Vibe codes" `.feature` files
   and agent instructions, resolves blockers raised by QM/Crew. Updates `AGENTS.md` on durable
   decisions. Never creates/edits tests, steps, or code — but **deletes** any of them a spec
-  change invalidates (code is disposable; git remembers; QM/Crew regenerate).
+  change even *might* invalidate: err on the side of deletion (code is disposable; git
+  remembers; QM/Crew regenerate).
 - **Quartermaster** (`/qm`): turns specs into executable tests; writes/maintains step
   definitions, fixtures, harness — **no production code**. Derives its worklist from test
   status (undefined → write step defs; failing → dispatch a Crew Mate; green → done), then
