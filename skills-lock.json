@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "shipshape": {
+      "source": "dmytri/shipshape",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "06a797e302976fd7777901c62d8ff149d65f792f8afe991ed96787f27f1c9a8c"
+    }
+  }
+}

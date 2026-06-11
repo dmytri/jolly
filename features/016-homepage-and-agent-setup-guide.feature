@@ -51,6 +51,15 @@ Feature: Jolly homepage and agent setup guide
     Then it should not dwell on scope or boundaries in its own section — let the product speak for itself
     And boundaries and scope details belong in the setup guide at the linked URL, not on the homepage
 
+  Rule: Homepage asset ownership
+    - Approved homepage copy, visual style, and product/brand context live in `assets/homepage/` as durable Captain-authored source material.
+    - `assets/homepage/copy.md` is the source of truth for all homepage text (tagline, copy-box prompt, flow cards, footer, agent labels, etc.).
+    - `assets/homepage/style.md` is the source of truth for visual style (color palette, typography, effects, layout, component shapes).
+    - `assets/homepage/context.md` is the source of truth for product/brand context (value proposition, target audience, supported environments).
+    - `homepage/index.html` is implementation output that consumes `assets/homepage/*`. It is not the source of truth for approved content.
+    - Quartermaster and Crew Mate may read `assets/**` but must not edit or delete it.
+    - `homepage/setup.md` is QM/Crew-owned implementation documentation, not a protected asset.
+
   Rule: Homepage visual and content design
     - Overall style: dark theme with neon/hacker aesthetic (cyberpunk-inspired like swamp.club) fused with heavy pirate/swashbuckling personality. The page should feel like a pirate radio station run by hackers.
     - Brand elements: Jolly Roger skull-and-crossbones as the primary logo/icon or mark; "XO" as a shorthand brand mark; pirate emoji (🏴‍☠️, ⚓, 🦜, 💀, 🔱) used as decorative/enumeration elements; gold/amber accent color alongside the neon green; CRT scan lines, treasure-map textures, and grid overlays welcome.

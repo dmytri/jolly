@@ -16,8 +16,27 @@ driven by failing tests; they are deleted and regenerated whenever specs change.
 
 **`AGENTS.md` is the authoritative charter.** Read it before doing substantive work; it owns
 the product vision, V1 scope/boundaries, the pinned contracts (output envelope, risk context,
-idempotency), and the three-role workflow. This file is the orientation layer; `AGENTS.md` is
-the source of truth, and `HANDOVER.md` is the Quartermaster's starting brief.
+idempotency), and the Shipshape workflow integration. This file is the orientation layer;
+`AGENTS.md` is the source of truth, and `HANDOVER.md` is the Quartermaster's starting brief.
+
+## Shipshape workflow
+
+This repository uses Shipshape for the generic Captain → Quartermaster → Crew Mate workflow.
+
+Before substantive Claude Code work, install/load Shipshape:
+
+```bash
+npx skills add dmytri/shipshape --agent claude-code
+```
+
+Then read `AGENTS.md` for Jolly-specific constraints and `HANDOVER.md` for current Quartermaster state.
+
+Do not recreate project-local `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompts in this repository. Shipshape owns those.
+
+Session rule:
+
+- Captain → Quartermaster: clear the session or start a fresh agent.
+- Quartermaster → Captain: do not clear; Captain benefits from QM's concrete blocker context.
 
 ## Commands
 
@@ -88,28 +107,6 @@ DOM checks (homepage/storefront) use happy-dom.
   execution. Jolly never hardcodes the approval decision — the customer's agent decides.
 - **Idempotency/resumability (022):** re-running any `jolly create` subcommand or
   `jolly start` is safe and creates no duplicates; `jolly start` skips satisfied stages.
-
-## Three-role workflow (see AGENTS.md for the full charter)
-
-New sessions continue from committed docs alone — assume no prior chat history.
-
-- **Captain** (`/captain`): the only role that talks to humans. "Vibe codes" `.feature` files
-  and agent instructions, resolves blockers raised by QM/Crew. Updates `AGENTS.md` on durable
-  decisions. Never creates/edits tests, steps, or code — but **deletes** any of them a spec
-  change even *might* invalidate: err on the side of deletion (code is disposable; git
-  remembers; QM/Crew regenerate).
-- **Quartermaster** (`/qm`): turns specs into executable tests; writes/maintains step
-  definitions, fixtures, harness — **no production code**. Derives its worklist from test
-  status (undefined → write step defs; failing → dispatch a Crew Mate; green → done), then
-  launches `crew-mate` subagents to implement. Regenerates Captain-deleted coverage **fresh
-  from the committed specs — never by restoring deleted files from git history**.
-- **Crew Mate** (`/crew`, `.claude/agents/crew-mate.md`): implementation agent; makes a
-  specified failing scenario pass with minimal `src/` code, strictly per the committed specs.
-
-QM and Crew Mates **do not converse** and **must not accept ad hoc instructions**. When
-blocked by a missing/contradictory normative requirement, they stop, report, and quit — the
-fix is to update the feature files/instructions, then re-run. "Open questions" and anything
-"deferred to CLI design" are non-normative and out of scope, not blockers.
 
 ## Secrets & environment
 

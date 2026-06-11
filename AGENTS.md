@@ -1,5 +1,41 @@
 # Agent Instructions
 
+## Required Shipshape Workflow
+
+This repository uses Shipshape for its three-role, spec-driven agent workflow.
+
+Before doing substantive work, install or load Shipshape for your active agent runtime:
+
+```bash
+npx skills add dmytri/shipshape
+```
+
+For Claude Code:
+
+```bash
+npx skills add dmytri/shipshape --agent claude-code
+```
+
+For Zed:
+
+```bash
+npx skills add dmytri/shipshape --agent zed
+```
+
+For Pi:
+
+```bash
+pi install npm:@dk/shipshape
+```
+
+Then reload/restart the agent runtime if needed.
+
+Substantive work means changing specs, tests, fixtures, harnesses, implementation code, docs that encode product behavior, or agent workflow instructions. Reading files to verify setup is allowed.
+
+If Shipshape is not available and cannot be installed, stop and report that blocker before editing.
+
+Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompts locally in this repository. Shipshape owns the workflow. Jolly-specific project constraints live in this file.
+
 ## Project Stack
 
 - Runtime/package manager: Bun
@@ -70,9 +106,8 @@
 - Playwright detection: import the `playwright` npm package + verify chromium executable exists on disk. Fast synchronous check, no browser launch.
 - The `--dry-run` path (`jolly login --browser --dry-run`) shows PKCE material and auth URL without needing a browser or Playwright. This is how the @logic scenario tests the construction logic.
 - The `@requires-browser` test tag gates on browser capability: native browser first, Playwright second. Harness checks in that order.
-- Saleor Cloud email/password are **one-time login inputs, never persisted**: Jolly prompts on stdin when the Playwright flow needs them, holds them in memory only for the login flow, and stores only the resulting token (`.env` → `JOLLY_SALEOR_CLOUD_TOKEN`) plus the non-secret organization name (`.env` → `JOLLY_SALEOR_ORGANIZATION`). There are no Jolly env vars for email/password, and Jolly never reads them from the environment or files. If the Playwright flow gets no credentials on stdin, it errors with `--token` guidance.
+- Saleor Cloud email/password are **one-time login inputs, never persisted**: Jolly prompts on stdin when the Playwright flow needs them, holds them in memory only for the login flow, and stores only the resulting token (`.env` → `JOLLY_SALEOR_CLOUD_TOKEN`). There are no Jolly env vars for email/password, and Jolly never reads them from the environment or files. If the Playwright flow gets no credentials on stdin, it errors with `--token` guidance.
 - The test harness supplies Tier 2 credentials by piping `HARNESS_SALEOR_EMAIL` / `HARNESS_SALEOR_PASSWORD` (harness-only knobs, CI secrets — not Jolly settings) into Jolly's stdin prompt; if Playwright is available but these are absent, the scenario skips naming the missing knobs.
-- Non-secret auth state lives in `.env` alongside the token: successful login stores the authenticated organization name as `JOLLY_SALEOR_ORGANIZATION`; `jolly auth status` reports it as the account context without a network call, reporting it as unknown (never an error) when absent; `jolly logout` removes it with the tokens.
 
 ## Current Workflow
 
@@ -83,77 +118,59 @@ This project is currently in planning mode.
 - Use `.feature` files for behavior and feature planning when possible.
 - Discuss implementation plans interactively before making code changes.
 
-## Three-Role Agent Workflow
+## Shipshape Workflow
 
-New agent sessions must be able to continue from repository documents alone. Do not assume access to prior chat history. The durable handoff between roles is the committed project documentation, especially `.feature` files, tests, and this `AGENTS.md`.
+Shipshape defines the generic Captain → Quartermaster → Crew Mate workflow. This file records only Jolly-specific constraints and project facts.
 
-Only the Captain converses with humans. The Quartermaster and Crew Mates do not converse with anyone, because conversations are not durable artifacts and instructions buried in past sessions are lost. When they hit something they cannot resolve from the committed specs, they stop, report that they cannot continue, and quit. They must not be given ad hoc instructions to work around the problem. The only way forward is to update the feature files and instructions so that the next run either succeeds or fails the same way — and is then refined again. This keeps every instruction explicit and preserved in source control.
+Do not reimplement generic Shipshape role prompts, slash commands, or workflow rules in this repository.
+
+Jolly-specific role notes:
 
 ### Captain
 
-The Captain is the product/technical discovery agent that talks with the customer and decision maker.
+- Jolly is currently in planning mode unless explicitly approved otherwise.
+- Product behavior specs live in `features/*.feature`.
+- Durable project decisions belong in `AGENTS.md` and relevant feature files.
+- Captain may create/update `assets/**` for durable human-approved source material.
+- When specs change, Captain may delete generated/derived tests, fixtures, harnesses, and implementation code that may have been invalidated.
+- Captain must not delete `assets/**` unless specs explicitly retire the asset.
 
-- The Captain and customer collaboratively "vibe code" feature files and agent instructions only.
-- The Captain's durable artifact is the written specification-as-code: `.feature` files and agent instructions containing everything the Quartermaster and Crew Mates need without chat context.
-- The Captain must not create or edit tests, step definitions, fixtures, or production code — but it **can and should delete them**. Code is disposable and git preserves history: whenever the Captain changes feature files or instructions, it ruthlessly deletes every test, step definition, fixture, and piece of production code the spec change might have invalidated — **if there is even a small chance an artifact is impacted, delete it**; err on the side of deletion, never on the side of leaving stale artifacts that encode dead requirements. The QM and Crew Mates regenerate the deleted coverage and code from the updated specs on their next run — written fresh from the specs, never restored from git history.
-- The Captain should actively ask focused questions, synthesize answers, and document decisions in `.feature` files.
-- The Captain should identify assumptions, risks, contradictions, and open questions instead of silently guessing.
-- The Captain should keep plans implementation-ready while avoiding implementation until explicitly approved.
-- The Captain should update this `AGENTS.md` file when durable workflow, stack, or project-level decisions are made.
+### Quartermaster
 
-### Quartermaster (QM)
+- Read `HANDOVER.md` for current state before deriving work.
+- Derive the worklist from verification status:
+  - `bunx cucumber-js --dry-run`
+  - `bun run test:bdd`
+  - `bun test`
+  - `bun run typecheck`
+- Step definitions live in `features/step_definitions/<feature-slug>.steps.ts`.
+- Shared hooks/world/sandbox setup live in `features/support/`.
+- Logic-tier unit tests live in `tests/`.
+- Sandbox tests use runtime `JOLLY_*` credentials only; there is no `JOLLY_TEST_*` namespace.
 
-The Quartermaster converts the Captain's written specs into executable test coverage and keeps the test inventory aligned with the feature files. The QM's domain is test infrastructure — never spec writing and never (under normal circumstances) production code.
+### Crew Mate
 
-- The QM has no knowledge of the Captain conversation and must rely only on repository feature files, tests, and instructions.
-- The QM writes and maintains tests, Cucumber step definitions, fixtures, and test harnesses as durable assets.
-- The QM must not write production/application implementation code under normal circumstances.
-- **Fallback rule:** If and only if no Crew Mate subagent dispatch mechanism is available (no `/crew` command, no subagent tool), the QM falls through to Crew Mate behavior after writing failing tests, implementing the production code needed to make them pass. This is the only exception to the no-production-code rule.
-- The QM must track required feature scenarios and steps, ensure all required steps have corresponding executable coverage, and identify missing coverage.
-- When feature steps are changed or deleted, the QM must update or remove obsolete tests, step definitions, fixtures, and related test-only code so stale requirements do not remain.
-- When the Captain has deleted tests, step definitions, fixtures, or harness code after a spec change, the QM regenerates that coverage **from the committed specs alone**. It must not restore the deleted files from git history — neither wholesale nor with mechanical fix-ups — because deleted artifacts may encode requirements the spec change retired. Git history is for archaeology, not resurrection; the deletion is the point.
-- The QM should preserve traceability between `.feature` scenarios/steps and executable tests.
-- The QM does not converse with the Captain, customer, or any human; its only inputs are the committed feature files, tests, and instructions.
-- If a requirement is ambiguous, contradictory, missing, or impossible to test from the written specs, the QM must stop, report that it cannot continue, and quit rather than invent product behavior. It must not be steered with ad hoc instructions; the feature files and instructions are updated first, then the QM is re-run.
-- The QM tests behavior the specs concretely define. It treats "Open questions" blocks and anything marked "deferred to CLI design" as non-normative and out of scope, not as blockers.
-- Missing product implementation is expected, not a blocker: the QM writes failing (red) tests against the specified contract for Crew Mates to satisfy.
-- For steps qualified by "where possible", "where APIs allow", or "appropriate", the QM tests the path the sandbox supports and marks environment-dependent branches as conditionally skipped rather than stopping.
-- A genuine blocker is a missing or contradictory normative requirement, or a missing harness convention — only then does the QM stop, report, and quit.
-- The QM derives its worklist from test status, not from human direction: undefined scenarios (`cucumber-js --dry-run`) need step definitions, failing scenarios need a Crew Mate, green scenarios are done. It should not need to be told which features or scenarios to work on.
-- A Crew Mate's durable inputs are the committed tests and specs, not the QM's dispatch prompt; the QM points a Crew Mate at a specific failing scenario/test rather than handing it novel product instructions.
-- When a Crew Mate reports it is blocked, the QM does not improvise around it. It stops that work and surfaces the blocker; resolution is updated feature files and instructions, then a re-run.
+- CLI implementation lives under `src/`.
+- Homepage implementation lives under `homepage/`.
+- Implement the minimal production/application change needed to satisfy committed specs and tests.
 
-### Crew Mates
+## Durable Assets
 
-Crew Mates are implementation agents. They do nothing except make specified tests/steps pass according to the written specs.
+Jolly follows Shipshape's `assets/` policy.
 
-- Crew Mates must read the relevant feature files, tests, and agent instructions before changing implementation code.
-- Crew Mates run tests, choose a failing scenario or step, and implement the minimal production/application code needed to make that step pass.
-- Crew Mates must follow the specs exactly and must never choose another approach when the specs prescribe one.
-- Crew Mates do not converse with anyone; their only inputs are the committed feature files, tests, and instructions, and their only output is code that makes specified tests pass.
-- If a Crew Mate encounters any obstacle, ambiguity, missing detail, contradictory requirement, failing external dependency, impossible test, or uncertainty of any kind, it must stop, report that it cannot continue, and quit. It must not be given ad hoc instructions to work around the problem; the feature files and instructions are updated first, then the Crew Mate is re-run so the next attempt either succeeds or fails the same way.
-- Crew Mates must not change feature files, test intent, or acceptance criteria unless explicitly instructed by the Captain/customer through updated specs.
-- Crew Mates must not broaden scope, add unrequested behavior, or refactor unrelated code.
-- Crew Mate progress is measured by tests passing, not by a separate hand-written checklist.
-- Crew Mates are launched by the QM as subagents (or via the `/crew` command) to make a specific failing scenario pass; they read the committed tests and specs, never the dispatch prompt, for product behavior.
+Use root `assets/` for durable human/Captain-authored source material such as approved copy, brand context, style direction, mockups, reference data, and approved fixture-like examples.
 
-## Role session kickoff
+`assets/homepage/*` holds the durable source of truth for the homepage:
 
-Each role can be started in a fresh Claude Code session via a project slash command. Durable role behavior lives in the committed charter above, not in chat.
+- `copy.md` — approved homepage text (tagline, copy-box prompt, flow cards, footer, etc.)
+- `style.md` — approved visual style (color palette, typography, effects, layout, component shapes)
+- `context.md` — approved product/brand context (value proposition, target audience, supported environments)
 
-- `/captain` — discovery: update feature files and instructions; resolve blockers raised by the QM or Crew.
-- `/qm` — Quartermaster: build/extend the test harness, write failing tests, and launch Crew Mates to implement them.
-- `/crew` — run a single Crew Mate against a named scenario.
+`homepage/index.html` is derived implementation output. It may be regenerated by Crew and is not the source of truth for approved homepage content.
 
-The QM launches Crew Mates programmatically using the `crew-mate` subagent (`.claude/agents/crew-mate.md`); `/crew` is the manual entry point for the same role.
+`homepage/setup.md` is QM/Crew-owned implementation documentation, not a protected asset. It describes the product's setup behavior and is maintained by QM/Crew through the normal test-driven workflow.
 
-## Spec-Driven Development Philosophy
-
-- During discovery, agents should collaboratively "vibe code" feature/spec files only.
-- Feature files and tests are the project's core durable assets.
-- Application code is considered disposable and may be regenerated by implementation agents from the specs.
-- Todo/progress state should be derived from passing or failing tests, not maintained as a separate hand-written checklist.
-- Planning agents should write implementation-ready specs for a separate implementation agent to turn into code later.
+Quartermaster and Crew Mate may read `assets/**` but must not edit or delete it.
 
 ## Testing Strategy
 
@@ -198,9 +215,9 @@ Project config: `package.json`, `tsconfig.json`, `.gitignore`.
 
 The test harness is in place (see Testing Strategy): `cucumber.js`, `features/support/`
 (world, hooks, sandbox gating on runtime `JOLLY_*` credentials), one step-definition file
-per feature in `features/step_definitions/`, and `tests/` (logic-tier units). Role
-commands live under `.claude/`.
+per feature in `features/step_definitions/`, and `tests/` (logic-tier units).
 
 `src/index.ts` and `src/lib/` hold the Crew-Mate-built CLI; `homepage/` holds the
-homepage and agent setup guide. All of it is disposable and regenerated from the specs
-when they change.
+homepage and agent setup guide. `homepage/index.html` consumes `assets/homepage/*` as
+its source of truth for copy, style, and context. All of it is disposable and regenerated
+from the specs when they change.

@@ -1,7 +1,12 @@
 # Captain handover
 
-You are the **Quartermaster (QM)** role. Your charter is in `AGENTS.md` (Three-Role Agent
-Workflow). Read it first, then this file.
+You are the **Quartermaster** role from Shipshape.
+
+Before substantive work, Shipshape must be installed or loaded for your agent runtime. Read:
+
+1. Shipshape role instructions.
+2. `AGENTS.md` for Jolly-specific constraints.
+3. This file for current project state.
 
 Crew Mate dispatch: this environment provides the `crew-mate` subagent (Agent tool), so the
 QM dispatches Crew Mates for production code as the charter requires. The fallback rule
