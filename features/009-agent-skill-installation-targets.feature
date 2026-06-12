@@ -26,7 +26,16 @@ Feature: Agent skill installation targets
     - Keep version management centralized through Jolly CLI commands.
     - Do not store secrets in skill directories or agent guidance.
 
+  Rule: Agent detection must recognize all supported targets
+    - Jolly must detect the current agent environment and write the correct glue files.
+    - `opencode` — detected by the presence of .opencode/ or .agents/ directory in the project
+    - `claude` — detected by the presence of CLAUDE.md or .claude/ directory in the project
+    - `cursor` — detected by the presence of .cursor/rules/ directory in the project
+    - `zed` — detected by the presence of .zed/ directory in the project
+    - `pi` — detected by the presence of .pi/ directory in the project
+    - `generic` — fallback when no known agent directory is detected
+    - Detection must check these paths in order and stop at the first match, so the glue written matches the agent that is actually being used.
+    - When detection yields no match, write generic glue and report that no specific agent was detected.
+
   Rule: Open questions
-    - What exact file paths should be used for each supported agent environment?
-    - How should Jolly detect the current agent environment?
     - Skill versions and updates should be reported from standard skills lock/metadata files where possible.

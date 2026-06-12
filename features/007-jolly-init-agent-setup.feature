@@ -15,6 +15,7 @@ Feature: Jolly init for local agent setup
     Then Jolly should install or check the full default Saleor skill set
     And the default skill set should include `saleor-storefront`, `saleor-configurator`, `storefront-builder`, `saleor-core`, and `saleor-app`
     And it should include Paper's embedded `saleor-paper-storefront` skill when a storefront exists
+    And Jolly should report each skill as actually verified on disk, not unconditionally claim success
     And Jolly should write agent-specific glue files or instructions for supported environments
     And the glue files should actually exist on disk under standard project-local skill locations
     And Jolly should explain what was installed or updated
@@ -29,6 +30,8 @@ Feature: Jolly init for local agent setup
     And it should report the existing state in the output envelope rather than erroring
     And it should update outdated managed guidance when appropriate
     And it should avoid overwriting unrelated user-authored instructions without approval
+    And it should merge, not replace, any existing .mcp.json, adding the Jolly MCP server entry to the existing servers object rather than writing a fresh object
+    And it should merge, not replace, any existing AGENTS.md or agent glue file, inserting or updating the Jolly section without removing user-authored content
     And it should produce a concise summary of changes
 
   @logic
@@ -45,4 +48,6 @@ Feature: Jolly init for local agent setup
     - `jolly init` may call or share logic with `jolly skills install`.
     - `jolly init` should not perform Saleor Cloud authentication, registration, configuration deployment, storefront creation, or Vercel deployment.
     - `jolly init` should not store secrets.
+    - Jolly must never silently overwrite an existing .mcp.json or AGENTS.md. Merge, never replace.
+    - Skill installation output must reflect what was actually verified on disk, not pre-computed names. If a clone or install step fails, surface stderr and exit non-zero.
     - Exact per-agent instruction file targets remain open.

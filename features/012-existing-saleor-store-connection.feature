@@ -88,6 +88,22 @@ Feature: Existing Saleor store connection
     And the project body should include name, plan="dev", and region
     And it should proceed to create the environment in the new project
 
+  @logic
+  Scenario: Jolly create store honors --region and --organization overrides
+    Given the agent has a Saleor Cloud token authenticated via JOLLY_SALEOR_CLOUD_TOKEN
+    When the agent runs `jolly create store --create-environment --organization other-org --region eu-central-1 --dry-run --json`
+    Then the prepared environment creation should target organization "other-org"
+    And the prepared environment creation region should be "eu-central-1"
+
+  @logic
+  Scenario: Jolly create store warns when the token has multiple organizations
+    Given the Cloud token can access organizations "org-one" and "org-two"
+    When the agent runs `jolly create store --create-environment` without `--organization`
+    Then the output envelope status should be "warning"
+    And the output should list the available organization slugs
+    And the output should name the organization slug Jolly selected
+    And the output should advise re-running with `--organization <slug>` if the selection is wrong
+
   @sandbox
   Scenario: Jolly creates a Saleor Cloud environment
     Given the agent has a Saleor Cloud token authenticated via JOLLY_SALEOR_CLOUD_TOKEN
@@ -112,6 +128,15 @@ Feature: Existing Saleor store connection
     - `jolly create store --create-environment` accepts optional `--name <name>` and
       `--domain-label <label>` overrides; when omitted, Jolly generates them. The test
       harness uses these overrides to namespace test environments.
+    - `jolly create store --create-environment` accepts optional `--region <region>`;
+      when omitted the default is `us-east-1`.
+    - `jolly create store --create-environment` accepts optional
+      `--organization <slug>` to select a specific organization when the Cloud token
+      has access to multiple organizations. When omitted and the token has access to
+      exactly one organization, Jolly uses it without prompting. When omitted and the
+      token has access to multiple organizations, Jolly must emit a warning with the
+      list of available organizations and the slug of the one it selected, so the agent
+      can re-run with `--organization` if the wrong one was chosen.
     - Project handling is create-or-reuse: reuse an existing project when one exists,
       otherwise create one with plan "dev". The output envelope `data` must state which
       happened (created vs reused).

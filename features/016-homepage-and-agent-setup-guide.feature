@@ -56,9 +56,10 @@ Feature: Jolly homepage and agent setup guide
     - `assets/homepage/copy.md` is the source of truth for all homepage text (tagline, copy-box prompt, flow cards, footer, agent labels, etc.).
     - `assets/homepage/style.md` is the source of truth for visual style (color palette, typography, effects, layout, component shapes).
     - `assets/homepage/context.md` is the source of truth for product/brand context (value proposition, target audience, supported environments).
+    - `assets/homepage/setup.md` is the source of truth for the agent setup guide content (provenance, contacted hosts, prerequisites, human-required moments, version pinning, quick start, per-step verification, troubleshooting, boundaries).
     - `homepage/index.html` is implementation output that consumes `assets/homepage/*`. It is not the source of truth for approved content.
+    - `homepage/setup.md` is implementation output that consumes `assets/homepage/setup.md`. It is not the source of truth for approved setup-guide content.
     - Quartermaster and Crew Mate may read `assets/**` but must not edit or delete it.
-    - `homepage/setup.md` is QM/Crew-owned implementation documentation, not a protected asset.
 
   Rule: Homepage visual and content design
     - Overall style: dark theme with neon/hacker aesthetic (cyberpunk-inspired like swamp.club) fused with heavy pirate/swashbuckling personality. The page should feel like a pirate radio station run by hackers.
@@ -75,7 +76,9 @@ Feature: Jolly homepage and agent setup guide
 
   Rule: Setup guide (SKILL.md) content
     - The setup guide is a single SKILL.md-style markdown file, designed for agents to read as instructions (like moltbook.com/skill.md).
+    - Its content derives from `assets/homepage/setup.md`; the derived guide must preserve that asset's sections (provenance, contacted hosts, prerequisites, human-required moments, quick start with dry-run-first, per-step verification, skills table, troubleshooting, idempotency, supported agents, boundaries).
     - It must tell the agent to invoke the Jolly CLI via `npx @saleor/jolly start` — the CLI handles everything, including automatically installing all Saleor agent skills.
+    - Command examples in the guide pin an exact version (`npx @saleor/jolly@X.Y.Z start`) and tell the agent not to use `@latest` in automation; the version-pinned form satisfies any step that checks for the start command.
     - There is no separate optional skill-install step for the agent. All skills are installed by Jolly automatically.
     - The guide should mention the Saleor MCP server (mcp.saleor.app) for live store data access after setup.
     - The guide should list supported agent environments.
@@ -93,3 +96,4 @@ Feature: Jolly homepage and agent setup guide
   Rule: Open questions
     - Canonical homepage/setup-guide URL is deferred; specs should use a placeholder until decided.
     - Homepage implementation shape is left to the implementation agent: static page, small app, or generated docs page are acceptable if they satisfy the required single-page landing and setup-guide behavior.
+    - The HIPP byte-for-byte reproducible-build verification flow is unresolved; `assets/homepage/setup.md` carries `[TODO: HIPP ...]` markers until the Captain specifies it. Derived guides omit the unresolved sections rather than inventing content for them.
