@@ -25,7 +25,7 @@ npx skills add dmytri/shipshape --agent zed
 For Pi:
 
 ```bash
-pi install npm:@dk/shipshape
+pi install npm:pi-shipshape
 ```
 
 Then reload/restart the agent runtime if needed.

@@ -29,7 +29,7 @@ npx skills add dmytri/shipshape --agent zed
 For Pi:
 
 ```bash
-pi install npm:@dk/shipshape
+pi install npm:pi-shipshape
 ```
 
 Read `AGENTS.md` for Jolly-specific constraints and `HANDOVER.md` for current state.
