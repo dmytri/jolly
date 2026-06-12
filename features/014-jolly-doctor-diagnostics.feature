@@ -68,6 +68,3 @@ Feature: Jolly doctor diagnostics
     - Doctor should be diagnostics-only in v1.
     - Doctor should not make local or remote changes in v1.
 
-  Rule: Open questions
-    - `jolly doctor` should support named check groups: skills, saleor, storefront, deployment, and stripe.
-    - A future repair/fix mode is deferred; v1 doctor remains diagnostics-only.

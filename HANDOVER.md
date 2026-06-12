@@ -76,6 +76,23 @@ QM worklist from this pass:
 - New 020 honesty rules warrant a junk-input sweep test (no success/
   verification language from any command on junk input) — QM judgment on
   shape (unit sweep vs scenario steps).
+- Housekeeping pass (same day): feature 012's fabrication-prone @logic
+  scenarios were reconciled with the honesty rule — "builds a Cloud API
+  environment creation request" is now an explicit `--dry-run` preview
+  (no polling/env-write steps; those stay pinned by the @sandbox creation
+  scenario), "handles domain name collision" is retagged @sandbox with a
+  producible premise (duplicate jolly-test domain label within the run;
+  retry-created environments need namespace + teardown), and the @logic
+  "creates a project when none exists" scenario was deleted (duplicated
+  the sandbox create-or-reuse coverage). 002: keyword-only Gherkin fixes
+  (no step-text changes) plus signup URL changed `saleor.io/cloud` →
+  `cloud.saleor.io` in two steps — 002 step texts affected. Open-question
+  rules cleaned across 001/004/008/009/012/014/017/018 (settled decisions
+  moved into principles or removed as duplicates; the default skill-set
+  list now lives in 001's Product principles). README gained the Shipshape
+  link and the author/non-affiliation statement. Worklist: 14 undefined
+  steps total (11 from the 018 rewrite, 3 from the 012 rework); 012/002
+  steps files have orphaned or mismatched steps to regenerate or update.
 - Package naming (decision 2026-06-12, feature 006 rule): `@dk/jolly`
   everywhere; `@saleor/jolly` must never be mentioned — not as runnable,
   not as "future/official". Jolly is a tool by Dmytri Kleiner, not an

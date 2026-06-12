@@ -40,6 +40,5 @@ Feature: Jolly create subcommands
     - `jolly deploy` as a friendly top-level alias for deployment setup.
 
   Rule: Open questions
-    - `jolly create store` is the v1 command name for Saleor Cloud store/project/environment setup.
     - Whether `jolly create app-token` should request all available permissions or allow the agent to specify a subset is deferred.
     - Exact behavior differences, if any, between `jolly create deployment` and `jolly deploy` remain open.

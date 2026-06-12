@@ -37,5 +37,3 @@ Feature: Agent skill installation targets
     - Detection must check these paths in order and stop at the first match, so the glue written matches the agent that is actually being used.
     - When detection yields no match, write generic glue and report that no specific agent was detected.
 
-  Rule: Open questions
-    - Skill versions and updates should be reported from standard skills lock/metadata files where possible.

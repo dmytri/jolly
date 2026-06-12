@@ -62,31 +62,24 @@ Feature: Existing Saleor store connection
   @logic
   Scenario: Jolly create store builds a Cloud API environment creation request
     Given the agent has a Saleor Cloud token authenticated via JOLLY_SALEOR_CLOUD_TOKEN
-    And the agent has selected or created a Saleor Cloud organization
-    When Jolly prepares to create a new Saleor Cloud environment from the Cloud API
-    Then it should POST to /platform/api/organizations/{organization}/environments/
+    When the agent previews environment creation with `jolly create store --create-environment --dry-run --json`
+    Then the prepared request should POST to /platform/api/organizations/{organization}/environments/
     And the POST body should include name, project, domain_label, database_population, service, and optional basic-auth credentials
     And the default region should be "us-east-1"
     And the default database template should be "sample"
-    And the environment creation should return a task_id for async job polling
-    And Jolly should poll GET /platform/api/service/task-status/{task_id} until status is "SUCCEEDED"
-    And once complete, it should set NEXT_PUBLIC_SALEOR_API_URL from the resulting domain
+    And no environment should be created
+    # Real execution (task polling, domain extraction, env writes) is pinned by
+    # the @sandbox scenario "Jolly creates a Saleor Cloud environment" below.
 
-  @logic
+  @sandbox
   Scenario: Jolly create store handles domain name collision
-    Given Jolly submits an environment creation with a domain that already exists
-    When the Cloud API responds with HTTP 400 and "environment with this domain label already exists"
-    Then Jolly should suggest an alternative domain label
+    Given this run has already created an environment with a jolly-test-namespaced domain label
+    When the agent requests another environment with the same domain label
+    Then the Cloud API should reject the duplicate domain label
+    And Jolly should suggest an alternative domain label
     And it should allow the agent to provide a new domain
     And it should retry the request with the corrected domain
-
-  @logic
-  Scenario: Jolly create store creates a project when none exists
-    Given the agent has not created or selected a Saleor Cloud project
-    When Jolly needs a project for environment creation
-    Then it should create a project via POST /platform/api/organizations/{organization}/projects/
-    And the project body should include name, plan="dev", and region
-    And it should proceed to create the environment in the new project
+    And every environment created by the retry should carry the run's jolly-test namespace and registered teardown
 
   @logic
   Scenario: Jolly create store honors --region and --organization overrides
@@ -192,5 +185,4 @@ Feature: Existing Saleor store connection
   Rule: Open questions
     - Which pasted URL forms should Jolly normalize in v1?
     - What exact Saleor API or Dashboard automation path can create an app token at implementation time?
-    - Whether environment creation should be part of `jolly create store` or a separate `jolly create environment` subcommand is deferred to CLI design.
     - The exact shape of the task status response and how to extract the domain URL from it needs verification against the live Cloud API at implementation time.

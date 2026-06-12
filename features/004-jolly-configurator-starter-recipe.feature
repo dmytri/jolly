@@ -35,8 +35,3 @@ Feature: Jolly Configurator starter recipe
     - Provide the channel, product model, navigation, sample catalog, shipping, Stripe-ready checkout assumptions, and other configuration required for a working end-to-end storefront.
     - Keep the recipe version-controlled and reviewable in the cloned storefront repository.
 
-  Rule: Open questions
-    - Exact pirate-themed catalog details are intentionally left to the implementation agent, as long as the result is useful for testing an operational Paper storefront.
-    - Additional markets/channels are deferred beyond v1.
-    - What Stripe account, test mode, webhook, and credential setup should Jolly automate or guide?
-    - The Jolly starter recipe should live in the cloned storefront repository.

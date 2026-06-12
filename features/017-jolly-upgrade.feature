@@ -45,5 +45,3 @@ Feature: Jolly upgrade
 
   Rule: Open questions
     - Exact safety rules for auto-applying Jolly-managed updates remain open.
-    - Version metadata for installed skills/guidance should use standard skills lock/metadata files where possible, avoiding a separate Jolly metadata store for now.
-    - `jolly upgrade` should generate a Paper upgrade plan from Paper's migration guidance, but should not apply Paper migrations automatically in v1.

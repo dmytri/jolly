@@ -49,12 +49,11 @@ Feature: Agent-first Jolly onboarding and CLI
     - Jolly should make full use of subcommands, including `init`, `create`, and `start` concepts.
     - Agent instructions and skills are part of the product experience, not afterthought documentation.
     - Skill management is fully automated by the Jolly CLI — `jolly start` installs ALL Saleor agent skills automatically. There is no separate optional skill-install step for the agent.
+    - The full default skill set is `saleor-storefront`, `saleor-configurator`, `storefront-builder`, `saleor-core`, `saleor-app`, plus Paper's embedded `saleor-paper-storefront` skill when a storefront exists.
     - `jolly start` installs all skills as part of the setup flow. The standalone `jolly skills install` and `jolly skills update` commands remain available for post-setup maintenance.
     - Skill installation should use standard project-local locations where possible, plus agent-specific glue/instructions for supported environments.
     - Setup instructions should support generic agents plus Zed, Claude Code, Cursor, OpenCode, and Pi.dev first.
 
   Rule: Open questions
     - Should Jolly create project-local durable artifacts such as `.jolly/` reports or state? This is deferred until CLI design.
-    - `jolly skills install` should install the full Saleor skill set by default: `saleor-storefront`, `saleor-configurator`, `storefront-builder`, `saleor-core`, `saleor-app`, and Paper's embedded `saleor-paper-storefront` skill when a storefront exists.
-    - Generic agents, Zed, Claude Code, Cursor, OpenCode, and Pi.dev should be supported first; exact per-environment setup steps remain open.
-    - The CLI output envelope schema is defined in feature 020; remaining field-naming and schema-versioning details are deferred there.
+    - Exact per-environment setup steps for the supported agent targets remain open (the target list itself is decided above; detection order is feature 009).

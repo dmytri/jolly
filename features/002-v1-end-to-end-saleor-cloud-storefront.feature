@@ -4,7 +4,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
   So that I can get a fully operational Saleor-powered commerce experience online
 
   Background:
-    And Vercel is the first deployment target
+    Given Vercel is the first deployment target
     And Saleor's official `saleor/storefront` Paper template is the first storefront baseline
     And Jolly should create the storefront by cloning or otherwise directly using `saleor/storefront` from the `main` branch by default
     And `saleor/configurator` should be used directly by Jolly CLI and/or skills where appropriate
@@ -15,7 +15,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
   Scenario: Agent starts the Saleor Cloud setup journey
     Given the customer has copied the Jolly onboarding prompt into their agent
     When the agent begins the V1 setup journey
-    And it should ask whether the customer already has a Saleor store or wants to register one
+    Then it should ask whether the customer already has a Saleor store or wants to register one
     And it should identify which steps require human action outside the agent
 
   @sandbox
@@ -30,7 +30,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And Jolly should use `saleor/configurator` recipes as the default mechanism for initial store configuration
     And Jolly should provide or select a Jolly-specific starter recipe optimized for making the Paper storefront immediately operational
     And the agent should clearly pause for any browser, email, payment, or account-verification step that cannot be completed programmatically
-    And for new Saleor Cloud account creation, Jolly should direct the customer to saleor.io/cloud for the browser signup flow
+    And for new Saleor Cloud account creation, Jolly should direct the customer to cloud.saleor.io for the browser signup flow
     And Jolly should resume automatically once the customer provides the new store URL
     And Jolly should not attempt to automate the browser account signup itself
 
@@ -102,5 +102,5 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     - Jolly should use safe defaults and skip confirmation steps that do not protect against irreversible actions.
     - Jolly should never ask for information it can infer, detect, or safely default.
     - When a human step is required, Jolly should tell the agent exactly what to ask the customer for, then resume automatically once the value is provided.
-    - For new Saleor Cloud accounts: direct the customer to saleor.io/cloud, wait for the resulting store URL, then automate everything from that point.
+    - For new Saleor Cloud accounts: direct the customer to cloud.saleor.io, wait for the resulting store URL, then automate everything from that point.
     - For Stripe test mode: the agent should ask for the Stripe publishable key and secret key from the Stripe Dashboard, write them to .env, and proceed without further manual steps.

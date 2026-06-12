@@ -174,9 +174,6 @@ Feature: Jolly auth commands
       `jolly login --token <value>` instead. It never falls back to reading
       email/password from environment variables or files.
 
-  Rule: Open questions
-    - Jolly workflow credentials should use `JOLLY_*` environment variable names, while Paper-required storefront variables should be written separately using Paper-compatible names.
-
   Rule: Browser OAuth prerequisites
     - `@requires-browser` scenarios run in one of three tiers depending on environment capability.
     - Tier 1 (native browser): When a display is available and the native browser can be opened (a developer laptop), the test runs the full end-to-end flow: `jolly login --browser` → browser opens → user authenticates → callback → exchange → token in .env. This requires a human to complete the OAuth consent. The test harness detects native browser availability by trying `open`/`xdg-open`/`start`.
