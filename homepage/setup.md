@@ -47,14 +47,6 @@ Only three moments require your human. Stop and ask when you reach them:
 
 Everything else you can do yourself.
 
-## Running Jolly
-
-Run every command through `npx` — no install needed:
-
-```
-npx @dk/jolly <command>
-```
-
 ---
 
 ## Quick start
@@ -157,5 +149,5 @@ Generic agents, Zed, Claude Code, Cursor, OpenCode, and Pi.dev.
 - Saleor Cloud only (no self-hosted Saleor in v1).
 - Stripe test mode only in v1 (live mode requires explicit human choice).
 - Deployment target: Vercel.
-- Jolly never stores secrets outside `.env`, has no telemetry, and never replaces
-  your agent — it empowers it.
+- Jolly never stores secrets outside `.env` and never replaces your agent — it
+  empowers it.

@@ -208,6 +208,10 @@ on 2026-06-12 once the homepage was built and live — they remain in git histor
 
 Quartermaster and Crew Mate may read `assets/**` and `homepage/**` but must not edit or delete them.
 
+Homepage/setup-guide copy principle (customer, 2026-06-12): less is more — say only
+what the reader needs; do not mention what is assumed or absent (e.g. version
+pinning, install steps); no junk, no duplication.
+
 ## Testing Strategy
 
 - Package scripts are Bun-native: logic-tier runner is `bun test`; BDD layer is Cucumber.js invoked through Bun (`bun run test:bdd`). Node >= 23 remains a documented fallback runtime for the dev scripts (it strips types on import), never the script default. The published CLI itself targets Node (see Project Stack); tests must cover that the launcher works without Bun. See features `023-test-architecture` and `006`.
