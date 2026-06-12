@@ -49,11 +49,10 @@ Everything else you can do yourself.
 
 ## Running Jolly
 
-Run every command through `npx` with the latest published version — no install,
-no version pinning needed:
+Run every command through `npx` — no install needed:
 
 ```
-npx @dk/jolly@latest <command>
+npx @dk/jolly <command>
 ```
 
 ---
@@ -65,7 +64,7 @@ A single command orchestrates the entire setup. Always preview first.
 ### Step 0 — Preview the plan (no changes made)
 
 ```
-npx @dk/jolly@latest start --dry-run
+npx @dk/jolly start --dry-run
 ```
 
 This prints exactly what `start` will do — directories created, files written, API
@@ -74,7 +73,7 @@ calls made, and repos cloned — without changing anything. Review it, then proc
 ### Step 1 — Run setup
 
 ```
-npx @dk/jolly@latest start
+npx @dk/jolly start
 ```
 
 `start` runs the steps below in order. It is idempotent: re-running detects existing
@@ -97,12 +96,12 @@ from that step on the next run.
 Each step is also a standalone command if you need to redo just one:
 
 ```
-npx @dk/jolly@latest create store [--create-environment]
-npx @dk/jolly@latest create storefront
-npx @dk/jolly@latest create recipe
-npx @dk/jolly@latest create app-token
-npx @dk/jolly@latest create deployment
-npx @dk/jolly@latest deploy                          # friendly alias for deployment
+npx @dk/jolly create store [--create-environment]
+npx @dk/jolly create storefront
+npx @dk/jolly create recipe
+npx @dk/jolly create app-token
+npx @dk/jolly create deployment
+npx @dk/jolly deploy                          # friendly alias for deployment
 ```
 
 ## Skills installed (Step 4)
@@ -129,8 +128,8 @@ contacts it.
 ## Diagnostics
 
 ```
-npx @dk/jolly@latest doctor      # checks env, store, deploy, MCP health
-npx @dk/jolly@latest upgrade     # updates skills and config to latest
+npx @dk/jolly doctor      # checks env, store, deploy, MCP health
+npx @dk/jolly upgrade     # updates skills and config to latest
 ```
 
 ## Troubleshooting
