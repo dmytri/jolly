@@ -26,7 +26,7 @@ This repository uses Shipshape for the generic Captain → Quartermaster → Cre
 Before substantive Claude Code work, install/load Shipshape:
 
 ```bash
-npx skills add dmytri/shipshape --agent claude-code
+npx skills add dmytri/shipshape --agent claude-code --skill '*'
 ```
 
 Then read `AGENTS.md` for Jolly-specific constraints and `HANDOVER.md` for current Quartermaster state.

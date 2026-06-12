@@ -7,19 +7,19 @@ This repository uses Shipshape for its three-role, spec-driven agent workflow.
 Before doing substantive work, install or load Shipshape for your active agent runtime:
 
 ```bash
-npx skills add dmytri/shipshape
+npx skills add dmytri/shipshape --skill '*'
 ```
 
 For Claude Code:
 
 ```bash
-npx skills add dmytri/shipshape --agent claude-code
+npx skills add dmytri/shipshape --agent claude-code --skill '*'
 ```
 
 For Zed:
 
 ```bash
-npx skills add dmytri/shipshape --agent zed
+npx skills add dmytri/shipshape --agent zed --skill '*'
 ```
 
 For Pi:
