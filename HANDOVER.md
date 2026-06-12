@@ -18,11 +18,34 @@ The 012 `--validate` / `--infer-cloud` / app-token-configurator contract is
 implemented; sandbox teardown was hardened (300s After-hook timeout, pre-run
 snapshot catch-all diff teardown, retrying environment DELETE).
 
-Two Captain passes followed: first the self-provisioning spec change (next
-section), then a finalization pass that committed further spec additions. The
-dry-run worklist now shows 86 scenarios, 5 undefined / 16 undefined steps.
+Three Captain passes followed: the self-provisioning spec change (next
+section), a finalization pass committing further spec additions, and an
+ownership change pulling the homepage out of the spec/test loop entirely. The
+dry-run worklist now shows 78 scenarios, 6 undefined / 24 undefined steps;
+typecheck clean; `test:logic` has 0 failures (only undefined + skips).
 
-## Spec additions this session (features 007, 009, 012, 016)
+## Ownership change this session: homepage is a Captain-owned asset
+
+Customer decision (2026-06-12): the **entire `homepage/` directory**
+(`index.html`, styles, `setup.md` — everything served) is a Captain-owned
+asset like `assets/**`: not specified in `.feature` files, not covered by
+tests, never worked on by QM or Crew. See `AGENTS.md` (Durable Assets, Crew
+Mate notes, Testing Strategy) and `CLAUDE.md`.
+
+Consequences already applied:
+
+- Feature 016 (homepage and agent setup guide) **deleted**, along with its
+  step definitions and `features/support/homepage.ts` (happy-dom homepage
+  helpers). happy-dom stays a dev dependency for future storefront DOM checks.
+- The three homepage/setup-guide `@logic` scenarios were removed from feature
+  001; its remaining `@sandbox` scenario ("Jolly start completes successfully")
+  is unchanged, but `001-...steps.ts` was deleted as invalidated — QM should
+  regenerate a lean steps file for just that scenario (8 undefined steps of the
+  24 are this).
+- `homepage/setup.md` was restored by the Captain from `assets/homepage/setup.md`
+  (clean markdown, HIPP TODO sections omitted). Do not edit or test it.
+
+## Spec additions this session (features 007, 009, 012)
 
 - **007 (`jolly init`):** three new scenario steps — skill install output must
   report what was actually verified on disk (fail loudly, surface stderr,
@@ -43,21 +66,8 @@ dry-run worklist now shows 86 scenarios, 5 undefined / 16 undefined steps.
   warning; the multi-org premise cannot be produced in the sandbox (the account
   has one organization), so a mock/injected org list is the sanctioned approach
   there.
-- **016 (homepage/setup guide):** `assets/homepage/setup.md` is now the durable
-  source of truth for setup-guide content; `homepage/setup.md` is derived
-  implementation output — the stale derived copy was **deleted** and Crew must
-  regenerate it from the asset. New content rules: preserve the asset's
-  sections (provenance, contacted hosts, prerequisites, human moments,
-  dry-run-first quick start, per-step verification, skills table,
-  troubleshooting, idempotency, supported agents, boundaries); command examples
-  pin exact versions (`npx @saleor/jolly@X.Y.Z start`, never `@latest`) and the
-  pinned form satisfies start-command checks. The asset's `[TODO: HIPP ...]`
-  reproducible-build verification flow is an open question — derived guides
-  omit unresolved sections rather than inventing content. Expect the 001 and
-  016 step defs asserting on the old `homepage/setup.md` to fail until
-  regeneration (verified: `test:logic` is 6 failed / 4 undefined / 50 passed at
-  handover — all failures trace to the deleted derived guide or the new
-  undefined steps).
+(A fourth area, feature 016 / the setup guide, was superseded within the same
+session by the homepage ownership change above — 016 no longer exists.)
 
 ## Spec change this session (features 023 + 012: self-provisioned endpoints)
 
@@ -92,8 +102,9 @@ derived" + Rule "Credentials and gating"), feature 012's Rule
 QM worklist notes:
 
 - `bunx cucumber-js --dry-run` shows the undefined steps: the 012
-  create-environment rework, the two new 012 region/organization scenarios, and
-  the three new 007 merge/verified-on-disk steps; the old create-environment
+  create-environment rework, the two new 012 region/organization scenarios, the
+  three new 007 merge/verified-on-disk steps, and the 001 sandbox scenario
+  whose steps file was deleted (regenerate it lean); the old create-environment
   steps in `012-...steps.ts` are superseded — rework that section.
 - The harness work is the bigger piece: suite-level provisioning (likely a
   lazy BeforeAll-style fixture in `features/support/` that creates the shared

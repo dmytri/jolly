@@ -11,8 +11,10 @@ customer's agent rather than replacing it.
 
 The project is **spec-driven and currently in planning mode**. Feature `.feature` files and
 tests are the durable assets; application code is considered disposable and regenerated from
-the specs. `src/` (CLI entry `src/index.ts`) and `homepage/` exist, built by Crew Mates and
-driven by failing tests; they are deleted and regenerated whenever specs change.
+the specs. `src/` (CLI entry `src/index.ts`) is built by Crew Mates, driven by failing tests,
+and deleted and regenerated whenever specs change. `homepage/` (index.html, styles, setup.md)
+is a Captain-owned asset like `assets/**`: not specified in `.feature` files, not covered by
+tests, and never edited by QM or Crew.
 
 **`AGENTS.md` is the authoritative charter.** Read it before doing substantive work; it owns
 the product vision, V1 scope/boundaries, the pinned contracts (output envelope, risk context,
@@ -95,7 +97,7 @@ Layout convention: each `features/<slug>.feature` maps to
 `features/step_definitions/<slug>.steps.ts`; shared hooks/world/sandbox setup go in
 `features/support/`; logic-tier units go in `tests/`. Feature `023` is the harness charter,
 tagged `@meta` and **excluded** from the BDD worklist — do not write step definitions for it.
-DOM checks (homepage/storefront) use happy-dom.
+DOM checks (storefront) use happy-dom; the homepage has no test coverage (Captain-owned asset).
 
 ## Pinned contracts (do not redesign without spec change)
 
