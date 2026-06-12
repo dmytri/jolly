@@ -47,15 +47,14 @@ Only three moments require your human. Stop and ask when you reach them:
 
 Everything else you can do yourself.
 
-## Always pin the version
+## Running Jolly
 
-Use an exact version in every command so runs are reproducible:
+Run every command through `npx` with the latest published version — no install,
+no version pinning needed:
 
 ```
-npx @dk/jolly@X.Y.Z <command>
+npx @dk/jolly@latest <command>
 ```
-
-Do not use `@latest` in automation.
 
 ---
 
@@ -66,7 +65,7 @@ A single command orchestrates the entire setup. Always preview first.
 ### Step 0 — Preview the plan (no changes made)
 
 ```
-npx @dk/jolly@X.Y.Z start --dry-run
+npx @dk/jolly@latest start --dry-run
 ```
 
 This prints exactly what `start` will do — directories created, files written, API
@@ -75,7 +74,7 @@ calls made, and repos cloned — without changing anything. Review it, then proc
 ### Step 1 — Run setup
 
 ```
-npx @dk/jolly@X.Y.Z start
+npx @dk/jolly@latest start
 ```
 
 `start` runs the steps below in order. It is idempotent: re-running detects existing
@@ -98,12 +97,12 @@ from that step on the next run.
 Each step is also a standalone command if you need to redo just one:
 
 ```
-npx @dk/jolly@X.Y.Z create store [--create-environment]
-npx @dk/jolly@X.Y.Z create storefront
-npx @dk/jolly@X.Y.Z create recipe
-npx @dk/jolly@X.Y.Z create app-token
-npx @dk/jolly@X.Y.Z create deployment
-npx @dk/jolly@X.Y.Z deploy                          # friendly alias for deployment
+npx @dk/jolly@latest create store [--create-environment]
+npx @dk/jolly@latest create storefront
+npx @dk/jolly@latest create recipe
+npx @dk/jolly@latest create app-token
+npx @dk/jolly@latest create deployment
+npx @dk/jolly@latest deploy                          # friendly alias for deployment
 ```
 
 ## Skills installed (Step 4)
@@ -130,8 +129,8 @@ contacts it.
 ## Diagnostics
 
 ```
-npx @dk/jolly@X.Y.Z doctor      # checks env, store, deploy, MCP health
-npx @dk/jolly@X.Y.Z upgrade     # updates skills and config to latest
+npx @dk/jolly@latest doctor      # checks env, store, deploy, MCP health
+npx @dk/jolly@latest upgrade     # updates skills and config to latest
 ```
 
 ## Troubleshooting
