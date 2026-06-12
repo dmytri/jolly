@@ -42,10 +42,13 @@ Session rule:
 
 ## Commands
 
-Runtime/package manager is **Bun**; TypeScript, ES modules. Step definitions and support code
-are TypeScript loaded directly (Bun runs TS natively; Node ≥23 strips types on import).
+Dev runtime/package manager is **Bun** (dev environment only); TypeScript, ES modules. Step
+definitions and support code are TypeScript loaded directly (Bun runs TS natively; Node ≥23
+strips types on import).
 
-Package scripts are **Bun-native** (feature 023); Node ≥23 is a fallback runtime only.
+Package scripts are **Bun-native** (feature 023); Node ≥23 is the dev-script fallback runtime.
+The **published CLI is a Node program** (feature 006): `bin/jolly` runs under Node ≥23 and
+never requires Bun — Bun is never a customer-facing requirement.
 
 ```bash
 bun install            # dev deps (cucumber, happy-dom, typescript, @types/node)

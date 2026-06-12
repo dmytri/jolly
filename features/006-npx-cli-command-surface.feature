@@ -4,6 +4,13 @@ Feature: Npx-first Jolly CLI command surface
   So that I can run setup workflows without requiring a prior global install
 
   @logic
+  Scenario: Npx execution does not require Bun
+    Given a machine with Node.js available but no Bun on the PATH
+    When the agent runs `jolly start --dry-run --json` through the published launcher
+    Then the command should succeed using Node alone
+    And stdout should carry the standard output envelope
+
+  @logic
   Scenario: Agent starts the guided setup flow
     Given the customer wants the end-to-end guided Saleor storefront setup
     When the agent invokes the primary guided command
@@ -20,3 +27,11 @@ Feature: Npx-first Jolly CLI command surface
     - Side-effecting remote/action commands should support `--dry-run` for preview/no-side-effects mode.
     - Production package name should be `@saleor/jolly`.
     - Testing package name should be `@dk/jolly`.
+    - The published Jolly CLI is a Node.js program (decision 2026-06-12): the
+      launcher (`bin/jolly`) runs under Node.js >= 23 (native type stripping) and
+      never invokes or requires Bun. Bun is the project's development/test
+      environment only, never a customer-facing requirement.
+    - The published package's `engines` field must declare the Node.js requirement
+      and must not require Bun.
+    - On a Node.js older than the minimum, the launcher should fail with a clear
+      message naming the minimum Node version, not a raw syntax or module error.

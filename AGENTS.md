@@ -38,11 +38,12 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompt
 
 ## Project Stack
 
-- Runtime/package manager: Bun
+- Development runtime/package manager: Bun (dev environment only — never a customer-facing requirement)
+- Published CLI runtime: Node.js >= 23 (native type stripping); the `bin/jolly` launcher runs under Node and never invokes or requires Bun (decision 2026-06-12, feature 006)
 - Language: TypeScript
 - Module system: ES modules
 - Entry point: `src/index.ts`
-- CLI distribution target: executable via `npx` with package `@saleor/jolly` for production and `@dk/jolly` for testing, with subcommands such as `init`, `create`, and `start`
+- CLI distribution target: executable via `npx` with package `@saleor/jolly` for production and `@dk/jolly` for testing, with subcommands such as `init`, `create`, and `start`; `package.json` `engines` declares the Node requirement and must not require Bun
 - Package scripts:
   - `bun run start` runs the app
   - `bun run dev` runs the app in watch mode
@@ -174,7 +175,7 @@ Quartermaster and Crew Mate may read `assets/**` and `homepage/**` but must not 
 
 ## Testing Strategy
 
-- Package scripts are Bun-native: logic-tier runner is `bun test`; BDD layer is Cucumber.js invoked through Bun (`bun run test:bdd`). Node >= 23 remains a documented fallback runtime (it strips types on import), never the script default. See feature `023-test-architecture`.
+- Package scripts are Bun-native: logic-tier runner is `bun test`; BDD layer is Cucumber.js invoked through Bun (`bun run test:bdd`). Node >= 23 remains a documented fallback runtime for the dev scripts (it strips types on import), never the script default. The published CLI itself targets Node (see Project Stack); tests must cover that the launcher works without Bun. See features `023-test-architecture` and `006`.
 - Feature `023-test-architecture` is the harness charter — already satisfied by `features/support/` and `tests/sandbox.test.ts`. It is tagged `@meta` and excluded from the BDD worklist; do not write Cucumber step definitions for it.
 - **Sandbox over mocks:** tests exercise real accounts (Saleor Cloud, Configurator, Vercel, Stripe) rather than mocks. Avoid mocks unless a condition cannot reasonably be produced in a sandbox (for example injected failures or unavailable-capability branches).
 - Two test tiers:
