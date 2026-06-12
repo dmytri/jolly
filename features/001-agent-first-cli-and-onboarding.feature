@@ -14,6 +14,17 @@ Feature: Agent-first Jolly onboarding and CLI
     And it should include next-step guidance for customizing the storefront with the customer's own agent and workflow
     And it should avoid printing secret values
 
+  @logic
+  Scenario: Jolly start --dry-run previews the plan without side effects
+    Given the agent runs Jolly in a fresh project directory
+    When the agent runs `jolly start --dry-run --json`
+    Then the output envelope data should mark the run as a dry run
+    And the data should include a per-stage plan of intended effects: directories created, files written, network hosts contacted, and repositories cloned
+    And each side-effecting stage in the plan should carry a feature 021 riskContext
+    And the preview must be distinguishable from execution progress, with nextSteps directing the agent to run `jolly start` to execute the plan
+    And no files should be created or modified in the project directory
+    And no remote side effects should occur during the dry run
+
   Rule: Product principles
     - The homepage and agent setup guide (`homepage/`, including `index.html`, styles, and
       `setup.md`) are Captain-owned assets: not specified by `.feature` scenarios, not
@@ -27,6 +38,11 @@ Feature: Agent-first Jolly onboarding and CLI
     - All CLI commands should support `--json` for machine-readable output.
     - All CLI commands should support `--quiet` for reduced output.
     - All CLI commands should support `--yes` / `-y` to skip Jolly prompts where the agent environment allows.
+    - `jolly start --dry-run` is the setup guide's Step 0 ("preview the plan"): it prints
+      exactly what `start` would do — directories created, files written, API hosts
+      contacted, repos cloned — marks the envelope as a dry run, carries feature 021
+      riskContexts for side-effecting stages, and changes nothing. Its output must be
+      programmatically distinguishable from real execution progress.
     - `jolly start` should run `jolly doctor` automatically at the end for final verification.
     - Final `jolly start` success output should include a concise summary, structured stdout data/report, key URLs/statuses, final doctor verification results, next-step agent guidance, and no secret values.
     - `jolly start` should be hybrid: agent-friendly by default, with a human-friendly interactive mode available.
