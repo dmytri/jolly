@@ -161,19 +161,14 @@ Jolly-specific role notes:
 
 Jolly follows Shipshape's `assets/` policy.
 
-Use root `assets/` for durable human/Captain-authored source material such as approved copy, brand context, style direction, mockups, reference data, and approved fixture-like examples.
+Use root `assets/` for durable human/Captain-authored source material such as approved copy, brand context, style direction, mockups, reference data, and approved fixture-like examples. It is currently empty.
 
-`assets/homepage/*` holds approved source material for the homepage:
-
-- `copy.md` — approved homepage text (tagline, copy-box prompt, flow cards, footer, etc.)
-- `style.md` — approved visual style (color palette, typography, effects, layout, component shapes)
-- `context.md` — approved product/brand context (value proposition, target audience, supported environments)
-- `setup.md` — approved agent setup guide content (provenance, contacted hosts, prerequisites, human-required moments, version pinning, quick start, per-step verification, troubleshooting, boundaries)
-
-The entire `homepage/` directory (`index.html`, styles, `setup.md` — everything served) is
-itself a Captain-owned asset: Captain/human-authored, not specified in `.feature` files,
-not covered by tests, and never worked on by Quartermaster or Crew Mate. The Captain keeps
-it consistent with `assets/homepage/*`.
+The entire `homepage/` directory (`index.html`, styles, `setup.md`, `vercel.json` —
+everything served at https://jolly.cool) is itself a Captain-owned asset:
+Captain/human-authored, not specified in `.feature` files, not covered by tests, and never
+worked on by Quartermaster or Crew Mate. The Captain edits it in place. The former
+`assets/homepage/*` design sources (copy, style, context, setup-guide draft) were retired
+on 2026-06-12 once the homepage was built and live — they remain in git history.
 
 Quartermaster and Crew Mate may read `assets/**` and `homepage/**` but must not edit or delete them.
 
