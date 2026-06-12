@@ -10,7 +10,43 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
-## Current state (2026-06-12, QM session after Captain commit 42b5dc1)
+## Current state (2026-06-12, QM session after Captain commit bae8910)
+
+All green at this QM commit: typecheck clean, unit 54/54, full BDD 80
+scenarios (72 passed, 8 skipped, 0 failed), 0 undefined. The 8 skips are
+unchanged — all Vercel/Stripe-gated (underivable credentials). Teardown
+verified: the organization has zero environments after the run.
+
+This session covered Captain commit bae8910 (feature 006: the published
+Jolly CLI is a Node program; Bun is dev-env only):
+
+- **006 Node-launcher steps** — new @logic scenario steps in
+  `006-...steps.ts` execute `bin/jolly` directly (shebang and all, exactly
+  as npx would) on a PATH holding only a `node` symlink, after asserting
+  Bun is not resolvable on it; the envelope must come back on stdout with
+  exit 0. Per the 012-incident lesson the run builds its env from scratch
+  (no `.env` leakage) and forces dummy credentials for all groups plus an
+  unroutable `.invalid` API URL.
+- **`tests/node-launcher.test.ts`** — logic-tier units pinning the 006
+  rule bullets: `engines.node` declared and >= 23, no `engines.bun`,
+  `bin.jolly` = `bin/jolly`.
+- **Crew-implemented Node launcher** — `bin/jolly` is now plain
+  CommonJS-compatible JS with a `#!/usr/bin/env node` shebang: an explicit
+  version guard (clear error naming Node >= 23 on older majors — the rule
+  bullet about too-old Node; written so old Node parses it instead of
+  raising a syntax/module error), dynamic `import()` of `src/index.ts` via
+  native type stripping, and an `ERR_UNKNOWN_FILE_EXTENSION` fallback that
+  re-spawns with `--experimental-strip-types` for Node 23.0–23.5.
+  `package.json` `engines` is now `{"node": ">=23.0.0"}`. Dev scripts and
+  devDependencies stay Bun-native (feature 023).
+
+Coverage gap (accepted): the too-old-Node clear-error rule bullet has no
+executable test — the harness cannot produce an old Node binary; the guard
+is implemented in the launcher. Note for Captain: `bin/jolly` and `engines`
+changed after the `@dk/jolly` 0.1.11 publish — a republish/version bump is
+a Captain/customer action.
+
+## Previous session (same day, after Captain commit 42b5dc1)
 
 All green at this QM commit: typecheck clean, unit 51/51, `@logic` 53/53,
 full BDD 79 scenarios (71 passed, 8 skipped, 0 failed), 0 undefined. The 8

@@ -15,7 +15,7 @@
     "access": "public"
   },
   "engines": {
-    "bun": ">=1.1.0"
+    "node": ">=23.0.0"
   },
   "scripts": {
     "dev": "bun run --watch src/index.ts",
