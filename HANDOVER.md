@@ -3,57 +3,63 @@
 This file is the durable handoff between Shipshape roles. Read Shipshape role
 instructions and `AGENTS.md` first, then this file for current project state.
 
+You are the **Quartermaster**.
+
 Crew Mate dispatch: the `.claude/agents/` definition is currently absent, but the
 Agent tool works — dispatch a general-purpose subagent under an explicit Crew Mate
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
-## Current state (2026-06-12, QM session — suite fully green)
+## Current state (2026-06-12, Captain session following a green QM session)
 
-All verification passes at this commit:
+Baseline at the previous QM commit (`5273b44`): typecheck clean, unit 44/44,
+`@logic` 58/58, BDD 84 scenarios (74 passed, 10 skipped, 0 failed), 0 undefined.
+The 012 `--validate` / `--infer-cloud` / app-token-configurator contract is
+implemented; sandbox teardown was hardened (300s After-hook timeout, pre-run
+snapshot catch-all diff teardown, retrying environment DELETE).
 
-- `bun run typecheck` — clean
-- `bun test` — 44/44
-- `bun run test:logic` — 58/58 scenarios
-- `bun run test:bdd` — 84 scenarios: 74 passed, 10 skipped, 0 failed
-- `bunx cucumber-js --dry-run` — 0 undefined
+The Captain then resolved the leaked-environment blocker and changed the spec
+(see below), which makes parts of the 012 create-environment coverage stale.
 
-The 10 skips: 8 from absent Vercel/Stripe credentials (expected locally; CI
-supplies them) and the rest environmental — including the 012 create-environment
-scenario, which skips on `ENVIRONMENT_LIMIT_REACHED` (see blocker below).
+## Spec change this session (feature 012: opt-in, namespaced env creation)
 
-Work completed this session:
+Customer decision (2026-06-12): environment-creation tests are **opt-in,
+jolly-test-namespaced, and self-cleaning**. See feature 012's new Rule
+"Environment-creation test runs are opt-in, namespaced, and self-cleaning" and
+`AGENTS.md` → Testing Strategy → "Environment creation is opt-in":
 
-1. **012 sandbox contract implemented** (Crew Mate, in `src/index.ts`):
-   `create store --validate` (live introspection check `create-store-validate-endpoint`;
-   on failure status error + stable code, nothing written to .env);
-   `create store --infer-cloud` (`data.cloudContext` from the Cloud API via
-   `src/lib/cloud-api.ts`); `create app-token` success envelope now directs the
-   agent to Configurator introspection via `nextSteps`. Plus
-   `JOLLY_SALEOR_ORGANIZATION` added to `cmdCreateStore`'s jolly-managed key list.
-2. **Sandbox teardown hardened** (QM): the After cleanup hook now has an explicit
-   300s timeout (it previously ran under Cucumber's 5s default — a cut-off DELETE
-   is a leak path); the 012 create-environment step registers a catch-all diff
-   teardown *before* the CLI runs (pre-run snapshot of environment keys; any new
-   `jolly-env-*` environment is deleted even if the CLI timed out or crashed
-   before emitting an envelope), and environment deletion retries while
-   provisioning tasks briefly block it.
+- The scenario runs only when expressly requested via `HARNESS_ENV_CREATE`
+  (harness knob); default runs skip it with a clear reason.
+- The CLI gains optional `--name <name>` / `--domain-label <label>` overrides on
+  `jolly create store --create-environment` (Rule "Environment creation against
+  in-use organizations"); the harness passes the per-run `jolly-test` namespace
+  through them so test environments are positively identifiable.
+- Before creating, the harness checks for leftover `jolly-test` environments:
+  interactive sessions may ask and delete with explicit approval; otherwise skip
+  naming the leftover. The harness never deletes an environment it cannot
+  positively identify as test-created.
+- Teardown deletes the created environment right after the run (registered
+  before creation begins — the hardened machinery from `5273b44` stays).
 
-## Blocker for Captain
+The scenario's Given/When/Then text changed, so `bunx cucumber-js --dry-run`
+shows the undefined steps — that is the worklist. The old create-environment
+steps in `features/step_definitions/012-existing-saleor-store-connection.steps.ts`
+are superseded; rework that section (remove the no-longer-matching steps) and
+gate the scenario on `HARNESS_ENV_CREATE` in the harness (`features/support/`),
+keeping the skip-not-fail semantics. `SANDBOX_REQUIREMENTS` knows nothing about
+the new knob yet.
 
-A leaked sandbox environment occupies the org's only free sandbox slot:
-`jolly-env-mq9xbafzoovm` (key `dkobNf93`, domain `jolly-mq9xbafzoovm.saleor.cloud`,
-created 2026-06-11T20:01:41Z — by the previous QM session's sandbox run, before
-the teardown hardening above existed). Per the harmless-by-design rules the
-harness/QM never deletes pre-existing resources; the previous leak
-(`jolly-env-mq9pzkc1`) was deleted by the Captain with customer approval —
-this one needs the same decision. Until then the 012 create-environment
-scenario skips environmentally (`ENVIRONMENT_LIMIT_REACHED`); once the slot is
-freed, the hardened teardown should keep it from leaking again.
+Implementation impact for Crew Mates: `src/index.ts` `cmdCreateEnvironment` does
+not yet accept `--name`/`--domain-label`; it generates `jolly-env-<suffix>` /
+`jolly-<suffix>` itself (around src/index.ts:700).
 
-Never delete `jolly-mq9ol7f2.saleor.cloud` (key `pFVKHJdY`) — the live instance.
+## Account state
 
-## Credentials & account state (`.env`, Bun auto-loads it)
+The leaked `jolly-env-mq9xbafzoovm` was deleted by the Captain on 2026-06-12
+(customer-approved); **one sandbox slot is free**. Never delete
+`jolly-mq9ol7f2.saleor.cloud` (key `pFVKHJdY`) — the live instance.
+
+## Credentials (`.env`, Bun auto-loads it)
 
 ```
 JOLLY_SALEOR_CLOUD_TOKEN   (Saleor Cloud auth, dmytris-organization-1)
@@ -63,6 +69,8 @@ JOLLY_SALEOR_ORGANIZATION  (non-secret auth context, written by jolly login)
 ```
 
 Vercel/Stripe credentials are absent locally; those `@sandbox` scenarios skip.
+`HARNESS_ENV_CREATE` is intentionally unset by default — set it only for an
+expressly requested environment-creation run.
 
 ## Running the suite
 

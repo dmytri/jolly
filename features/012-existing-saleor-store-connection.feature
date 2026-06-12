@@ -91,7 +91,9 @@ Feature: Existing Saleor store connection
   @sandbox
   Scenario: Jolly creates a Saleor Cloud environment
     Given the agent has a Saleor Cloud token authenticated via JOLLY_SALEOR_CLOUD_TOKEN
-    When the agent runs `jolly create store --create-environment --json`
+    And environment creation was expressly requested via HARNESS_ENV_CREATE
+    And no leftover jolly-test environment remains from a previous run
+    When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier
     Then Jolly should discover the organization from the Cloud API
     And it should reuse an existing project when one exists, otherwise create one via POST /platform/api/organizations/{organization}/projects/ with plan="dev"
     And the output envelope data should state whether the project was created or reused
@@ -102,10 +104,15 @@ Feature: Existing Saleor store connection
     And it should write NEXT_PUBLIC_SALEOR_API_URL to .env from the resulting domain
     And it should create an app token via the Saleor GraphQL API
     And it should write JOLLY_SALEOR_APP_TOKEN to .env
+    And the created environment's name and domain label should carry the run's jolly-test namespace
+    And teardown should delete the created environment right after the scenario
 
   Rule: Environment creation against in-use organizations
     - `jolly create store --create-environment` must work against organizations that already
       have projects and environments; it never requires an empty organization.
+    - `jolly create store --create-environment` accepts optional `--name <name>` and
+      `--domain-label <label>` overrides; when omitted, Jolly generates them. The test
+      harness uses these overrides to namespace test environments.
     - Project handling is create-or-reuse: reuse an existing project when one exists,
       otherwise create one with plan "dev". The output envelope `data` must state which
       happened (created vs reused).
@@ -116,8 +123,26 @@ Feature: Existing Saleor store connection
     - The sandbox test harness treats an `ENVIRONMENT_LIMIT_REACHED` outcome as an
       environmental skip (like absent credentials), not a failure: the account's capacity,
       not Jolly's behavior, is what prevented the run.
+
+  Rule: Environment-creation test runs are opt-in, namespaced, and self-cleaning
+    - The environment-creation sandbox scenario runs only when expressly requested via the
+      harness knob `HARNESS_ENV_CREATE` (a `HARNESS_*` knob, never `JOLLY_*`); otherwise it
+      is skipped with a clear reason. Environment creation consumes scarce sandbox capacity
+      and is never exercised by a default test run.
+    - When opted in, the harness creates the environment under the per-run `jolly-test`
+      namespace (feature 023), passing it as the environment name and domain label via the
+      `--name`/`--domain-label` overrides, so every test-created environment is identifiable
+      as such.
+    - Before creating, the harness checks for leftover `jolly-test`-namespaced environments
+      from previous runs. When one exists it does not create another: in an interactive
+      session it may ask the customer and delete the leftover only with explicit approval;
+      otherwise it skips, naming the leftover so the customer can remove it.
     - Sandbox runs that create an environment must register its deletion in teardown
-      (feature 023), so a test run never permanently consumes a sandbox slot.
+      (feature 023) before the creation can begin, so the environment is cleaned up right
+      after the test run even when the run times out or crashes — a test run never
+      permanently consumes a sandbox slot.
+    - The harness never deletes an environment it cannot positively identify as
+      test-created (the `jolly-test` namespace); anything else is the customer's to delete.
 
   Rule: Existing-store automation principles
     - Validate the GraphQL endpoint before using it.

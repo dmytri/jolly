@@ -187,6 +187,14 @@ Quartermaster and Crew Mate may read `assets/**` but must not edit or delete it.
   skipped with a clear reason, not failed. Premises the harness cannot produce harmlessly
   (it never deletes pre-existing resources to manufacture a precondition) are treated the
   same way.
+- **Environment creation is opt-in:** the feature 012 environment-creation scenario runs
+  only when expressly requested via `HARNESS_ENV_CREATE`; default runs skip it (sandbox
+  capacity is scarce). When opted in, the created environment carries the per-run
+  `jolly-test` namespace as its name and domain label (via `--name`/`--domain-label`),
+  leftover `jolly-test` environments from previous runs block creation (interactive
+  approval may delete them; otherwise skip naming the leftover), and teardown deletes the
+  created environment right after the run. The harness never deletes an environment it
+  cannot positively identify as test-created.
 - **Harmless by design:** sandbox tests must be safe to run against any store, including production. They never name-check or refuse a target. They never modify or delete resources the run did not create (read-only, non-mutating queries of pre-existing resources are allowed only where a spec requires verifying live access, as feature 019 does); created resources carry a unique per-run namespace and stay unpublished/inactive where the platform allows; shared-setting changes are allowed only when additive and reverted in teardown (for example trusted origins); payment flows use test card numbers only, so live payment credentials at worst yield a declined card. Teardown is idempotent and best-effort, reporting anything it could not remove; tests stay safe to re-run (leaning on feature 022).
 - Layout: step definitions in `features/step_definitions/<feature-slug>.steps.ts`; shared hooks/world/sandbox setup/teardown/credential-gating in `features/support/`; logic-tier unit tests in `tests/`. Each `.feature` maps to a step-definition file of the same slug. The QM creates and maintains the Cucumber configuration and `test` scripts as part of the harness.
 - DOM-level checks (homepage, storefront rendering) use happy-dom; prefer happy-dom for DOM behavior and do not duplicate it in lower-level tests.
