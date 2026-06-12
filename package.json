@@ -1,8 +1,22 @@
 {
-  "name": "jolly",
-  "version": "0.1.0",
-  "private": true,
+  "name": "@dk/jolly",
+  "version": "0.1.10",
+  "description": "Ahoy, agent. Go build a Saleor storefront.",
   "type": "module",
+  "bin": {
+    "jolly": "bin/jolly"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  },
   "scripts": {
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
