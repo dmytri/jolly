@@ -76,6 +76,14 @@ QM worklist from this pass:
 - New 020 honesty rules warrant a junk-input sweep test (no success/
   verification language from any command on junk input) — QM judgment on
   shape (unit sweep vs scenario steps).
+- Package naming (decision 2026-06-12, feature 006 rule): `@dk/jolly`
+  everywhere; `@saleor/jolly` must never be mentioned — not as runnable,
+  not as "future/official". Jolly is a tool by Dmytri Kleiner, not an
+  official product of Saleor, Vercel, or Stripe (AGENTS.md Product
+  Vision). Spec-stale in src: `src/index.ts:10` (comment) and `:247`
+  (init output string says `npx @saleor/jolly start`) — the output string
+  is test-reachable; homepage/setup.md and index.html already updated by
+  Captain (Captain-owned).
 - The @sandbox 018 scenarios needing only network (failed exchange,
   invalid-token rejection) should run without any credentials — gate
   accordingly.

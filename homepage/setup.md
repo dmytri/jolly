@@ -3,15 +3,14 @@
 Ahoy, agent. Your human wants a Saleor Cloud storefront. Jolly sets it up
 end-to-end. This guide is written so you can follow it deterministically and verify
 every step. Nothing here asks you to run unexplained code or hand secrets to anyone
-but the official Saleor/Stripe APIs.
+but the official Saleor, Vercel, and Stripe APIs.
 
 ## Provenance (read first)
 
-- Package: `@saleor/jolly` (stable) — published by Saleor from
-  https://github.com/saleor/jolly.
-- Testing channel: `@dk/jolly` — the same source/commit, a pre-release staging
-  build used to validate changes before the `@saleor` release.
-- Both channels are publisher-signed and reproducible from public git source.
+- Jolly is a tool by Dmytri Kleiner that helps agents set up a store quickly
+  using Saleor, Vercel and Stripe. It is **not an official product of Saleor,
+  Vercel, or Stripe**.
+- Package: `@dk/jolly` — source at https://github.com/dmytri/jolly.
 - Jolly has no telemetry. Secrets are written only to a gitignored `.env` and
   sent only to the official APIs you authenticate against.
 
@@ -19,15 +18,21 @@ but the official Saleor/Stripe APIs.
 
 Jolly only talks to these. If your environment is locked down, allowlist exactly:
 
+- `auth.saleor.io` — browser OAuth login (Keycloak)
 - `cloud.saleor.io` — Saleor Cloud API (store/env/config)
-- `github.com/saleor` — clones the Paper storefront and agent-skills
-- `mcp.saleor.app` — read-only MCP server for live store data
-- `vercel.com` — deployment (Step: deploy)
+- `*.saleor.cloud` — your own store's GraphQL endpoint
+- `github.com` — clones the Paper storefront and agent-skills (saleor org repos)
+- `api.vercel.com` — deployment (Step: deploy)
 - `api.stripe.com` — payment configuration (test mode)
+- `127.0.0.1` — local OAuth callback during login
+
+Jolly never contacts `mcp.saleor.app` — that is a separate read-only MCP server
+*you* (the agent) may choose to use after setup; see "After setup" below.
 
 ## Prerequisites
 
-- Node ≥ 20 — check with `node -v`. Install it before continuing if missing.
+- Node ≥ 23 — check with `node -v`. The Jolly CLI runs on Node's native
+  TypeScript support; install Node ≥ 23 before continuing if missing.
 - pnpm — check with `pnpm -v` (the Paper storefront uses pnpm).
 - A Saleor Cloud account. 🧑 If your human doesn't have one, they sign up at
   https://cloud.saleor.io (account creation needs a human).
@@ -47,8 +52,7 @@ Everything else you can do yourself.
 Use an exact version in every command so runs are reproducible:
 
 ```
-npx @saleor/jolly@X.Y.Z <command>      # stable
-npx @dk/jolly@X.Y.Z <command>          # testing (same source)
+npx @dk/jolly@X.Y.Z <command>
 ```
 
 Do not use `@latest` in automation.
@@ -62,7 +66,7 @@ A single command orchestrates the entire setup. Always preview first.
 ### Step 0 — Preview the plan (no changes made)
 
 ```
-npx @saleor/jolly@X.Y.Z start --dry-run
+npx @dk/jolly@X.Y.Z start --dry-run
 ```
 
 This prints exactly what `start` will do — directories created, files written, API
@@ -71,7 +75,7 @@ calls made, and repos cloned — without changing anything. Review it, then proc
 ### Step 1 — Run setup
 
 ```
-npx @saleor/jolly@X.Y.Z start
+npx @dk/jolly@X.Y.Z start
 ```
 
 `start` runs the steps below in order. It is idempotent: re-running detects existing
@@ -83,8 +87,8 @@ work and resumes or skips rather than duplicating. It pauses and prompts you at 
 | 1 | Connect/create store | Uses an existing Saleor org/env, or creates one. 🧑 your human pastes a scoped `JOLLY_SALEOR_CLOUD_TOKEN` (saved to `.env`). | cloud.saleor.io | `jolly create store --json` returns the environment |
 | 2 | Clone Paper storefront | Clones the official Paper template (Next.js, Tailwind, pnpm) and runs `pnpm install`. | github.com/saleor | `package.json` present, install clean |
 | 3 | Configure `.env` | Writes Saleor + Stripe values. 🧑 your human pastes Stripe publishable + secret keys (test mode). | — | `.env` present and gitignored |
-| 4 | Configure agent | Clones agent-skills and merges `.mcp.json` (→ mcp.saleor.app) + `AGENTS.md`. | github.com/saleor | `.mcp.json` has saleor; skills populated |
-| 5 | Deploy to Vercel | Git-based deploy. 🧑 first run needs browser OAuth consent. | vercel.com | deployment URL loads |
+| 4 | Configure agent | Clones agent-skills and merges `.mcp.json` (local mcp-graphql → your store's GraphQL endpoint) + `AGENTS.md`. | github.com/saleor | `.mcp.json` has saleor-graphql; skills populated |
+| 5 | Deploy to Vercel | Git-based deploy. 🧑 first run needs browser OAuth consent. | api.vercel.com | deployment URL loads |
 
 On any failed step, `start` exits non-zero with an actionable message and resumes
 from that step on the next run.
@@ -94,12 +98,12 @@ from that step on the next run.
 Each step is also a standalone command if you need to redo just one:
 
 ```
-npx @saleor/jolly@X.Y.Z create store [--create-environment]
-npx @saleor/jolly@X.Y.Z create storefront
-npx @saleor/jolly@X.Y.Z create recipe
-npx @saleor/jolly@X.Y.Z create app-token
-npx @saleor/jolly@X.Y.Z create deployment
-npx @saleor/jolly@X.Y.Z deploy                          # friendly alias for deployment
+npx @dk/jolly@X.Y.Z create store [--create-environment]
+npx @dk/jolly@X.Y.Z create storefront
+npx @dk/jolly@X.Y.Z create recipe
+npx @dk/jolly@X.Y.Z create app-token
+npx @dk/jolly@X.Y.Z create deployment
+npx @dk/jolly@X.Y.Z deploy                          # friendly alias for deployment
 ```
 
 ## Skills installed (Step 4)
@@ -117,15 +121,17 @@ npx @saleor/jolly@X.Y.Z deploy                          # friendly alias for dep
 
 ## After setup — live store access
 
-Once `.mcp.json` is in place, you have read-only access to live store data via
-mcp.saleor.app: query products, orders, and customers. Restart your agent to load
-the MCP server and skills.
+Once `.mcp.json` is in place, restart your agent to load the skills and the local
+mcp-graphql server, which gives you live access to your own store's GraphQL
+endpoint. Separately, Saleor runs a read-only MCP server at mcp.saleor.app
+(products, orders, customers) that you may also configure — Jolly itself never
+contacts it.
 
 ## Diagnostics
 
 ```
-npx @saleor/jolly@X.Y.Z doctor      # checks env, store, deploy, MCP health
-npx @saleor/jolly@X.Y.Z upgrade     # updates skills and config to latest
+npx @dk/jolly@X.Y.Z doctor      # checks env, store, deploy, MCP health
+npx @dk/jolly@X.Y.Z upgrade     # updates skills and config to latest
 ```
 
 ## Troubleshooting

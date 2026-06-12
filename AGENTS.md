@@ -43,7 +43,7 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompt
 - Language: TypeScript
 - Module system: ES modules
 - Entry point: `src/index.ts`
-- CLI distribution target: executable via `npx` with package `@saleor/jolly` for production and `@dk/jolly` for testing, with subcommands such as `init`, `create`, and `start`; `package.json` `engines` declares the Node requirement and must not require Bun
+- CLI distribution target: executable via `npx` with package `@dk/jolly` — the only package name, everywhere (decision 2026-06-12); never mention any `@saleor/...` package, not even as "future/official" — with subcommands such as `init`, `create`, and `start`; `package.json` `engines` declares the Node requirement and must not require Bun
 - Package scripts:
   - `bun run start` runs the app
   - `bun run dev` runs the app in watch mode
@@ -51,6 +51,11 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompt
 ## Product Vision
 
 - **Name:** Jolly
+- **Author and affiliation (decision 2026-06-12):** Jolly is a tool by Dmytri Kleiner
+  that helps agents set up a store quickly using Saleor, Vercel and Stripe. It is **not
+  an official product of Saleor, Vercel, or Stripe**; all public-facing copy and output
+  must make this clear and never imply official status. The package is `@dk/jolly`
+  (source: https://github.com/dmytri/jolly).
 - **Tagline:** Ahoy, agent. Go build a store.
 - **Purpose:** Jolly, via the customer's own agent, helps people set up a fully operational end-to-end commerce experience on Saleor Cloud.
 - **Primary users:** AI agents and agent skills are the primary consumers; human developer DX should remain decent but secondary.

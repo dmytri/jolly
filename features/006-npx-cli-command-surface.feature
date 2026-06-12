@@ -25,8 +25,12 @@ Feature: Npx-first Jolly CLI command surface
     - All CLI commands should support `--quiet`.
     - All CLI commands should support `--yes` / `-y` to skip Jolly prompts where the agent environment allows.
     - Side-effecting remote/action commands should support `--dry-run` for preview/no-side-effects mode.
-    - Production package name should be `@saleor/jolly`.
-    - Testing package name should be `@dk/jolly`.
+    - The package name is `@dk/jolly`, everywhere (decision 2026-06-12). Jolly is a
+      tool by Dmytri Kleiner that helps agents set up a store quickly using Saleor,
+      Vercel and Stripe; it is not an official product of any of those. No other
+      package name (including any `@saleor/...` scope) may be mentioned in code,
+      output, or docs — not as runnable, not as "future/official"; docs describe
+      only what exists and can be run.
     - The published Jolly CLI is a Node.js program (decision 2026-06-12): the
       launcher (`bin/jolly`) runs under Node.js >= 23 (native type stripping) and
       never invokes or requires Bun. Bun is the project's development/test
