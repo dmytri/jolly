@@ -1665,7 +1665,162 @@ function cmdDoctor(group?: string): void {
 
 // ── Command: start ───────────────────────────────────────────────────────
 
+/**
+ * Per-stage intended effects for the `jolly start --dry-run` preview plan
+ * (feature 001). All four arrays are always present; empty when the stage
+ * has no such effect.
+ */
+interface StageEffects {
+  directoriesCreated: string[];
+  filesWritten: string[];
+  networkHostsContacted: string[];
+  repositoriesCloned: string[];
+}
+
+interface PlanEntry {
+  stage: string;
+  description: string;
+  effects: StageEffects;
+  riskContext?: RiskContext;
+}
+
+/**
+ * `jolly start --dry-run`: a true preview plan, not a status report.
+ * Emits exactly what `start` would do — directories created, files
+ * written, network hosts contacted, repositories cloned — with a feature
+ * 021 riskContext on every side-effecting stage. Touches nothing: no file
+ * reads beyond the .env already loaded, no writes, no network calls.
+ */
+function cmdStartDryRun(): void {
+  const effects = (partial: Partial<StageEffects>): StageEffects => ({
+    directoriesCreated: [],
+    filesWritten: [],
+    networkHostsContacted: [],
+    repositoriesCloned: [],
+    ...partial,
+  });
+
+  const plan: PlanEntry[] = [
+    {
+      stage: "init",
+      description: "Install Saleor agent skills and Jolly guidance",
+      effects: effects({
+        directoriesCreated: [".jolly", ".jolly/skills"],
+        filesWritten: [".jolly/init.json", ".mcp.json", "AGENTS.md", ".gitignore"],
+      }),
+      riskContext: riskContext(
+        "init",
+        { type: "local project files", path: "." },
+        "low",
+        [],
+        true,
+        [
+          "Installs Saleor agent skills under .jolly/skills",
+          "Merges mcp-graphql config into .mcp.json and a Jolly section into AGENTS.md",
+          "Ensures .env is git-ignored",
+        ],
+      ),
+    },
+    {
+      stage: "store",
+      description: "Connect or create a Saleor Cloud store",
+      effects: effects({
+        networkHostsContacted: ["cloud.saleor.io"],
+        filesWritten: [".env"],
+      }),
+      riskContext: riskContext(
+        "create store",
+        { type: "Saleor Cloud environment", organization: "auto-discovered" },
+        "medium",
+        ["billing", "credential handling"],
+        true,
+        [
+          "Creates a Saleor Cloud environment (consumes a sandbox slot)",
+          "Writes NEXT_PUBLIC_SALEOR_API_URL and JOLLY_SALEOR_APP_TOKEN to .env",
+        ],
+      ),
+    },
+    {
+      stage: "storefront",
+      description: "Clone and configure the Saleor Paper storefront",
+      effects: effects({
+        directoriesCreated: ["storefront"],
+        networkHostsContacted: ["github.com"],
+        repositoriesCloned: ["https://github.com/saleor/storefront"],
+      }),
+      riskContext: riskContext(
+        "create storefront",
+        { type: "Paper storefront clone", path: "storefront" },
+        "low",
+        [],
+        true,
+        ["Clones saleor/storefront Paper template", "Initializes local Git repository"],
+      ),
+    },
+    {
+      stage: "deployment",
+      description: "Deploy the storefront to Vercel",
+      effects: effects({
+        networkHostsContacted: ["api.vercel.com"],
+      }),
+      riskContext: riskContext(
+        "create deployment",
+        { type: "Vercel project", provider: "vercel" },
+        "medium",
+        ["live deployment"],
+        true,
+        ["Creates a Vercel project and triggers a deployment"],
+      ),
+    },
+    {
+      stage: "stripe",
+      description: "Configure Stripe test-mode payments",
+      effects: effects({
+        networkHostsContacted: ["api.stripe.com"],
+        filesWritten: [".env"],
+      }),
+      riskContext: riskContext(
+        "create stripe",
+        { type: "Stripe test-mode configuration" },
+        "medium",
+        ["payment setup", "credential handling"],
+        true,
+        ["Writes JOLLY_STRIPE_PUBLISHABLE_KEY and JOLLY_STRIPE_SECRET_KEY references to .env"],
+      ),
+    },
+    {
+      stage: "doctor",
+      description: "Run final jolly doctor verification",
+      effects: effects({}),
+    },
+  ];
+
+  output(
+    buildEnvelope("start", {
+      status: "success",
+      summary:
+        "Dry-run: previewed the jolly start plan. Nothing was created, written, or contacted.",
+      data: { dryRun: true, plan },
+      checks: [
+        {
+          id: "start-dry-run",
+          status: "pass" as CheckStatus,
+          description: "Preview only — no files created or modified, no network calls",
+        },
+      ],
+      nextSteps: [
+        { description: "Run jolly start to execute this plan" },
+      ],
+    }),
+  );
+}
+
 function cmdStart(): void {
+  if (FLAG_DRY_RUN) {
+    cmdStartDryRun();
+    return;
+  }
+
   const existing = loadEnvValues(cwd);
 
   // Simulate running stages and detecting progress

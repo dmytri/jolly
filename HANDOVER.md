@@ -10,17 +10,38 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
-## Current state (2026-06-12, QM session after the second Captain session)
+## Current state (2026-06-12, QM session after Captain commit 42b5dc1)
 
-All green at this QM commit: typecheck clean, unit 51/51, `@logic` 52/52,
-full BDD 78 scenarios (70 passed, 8 skipped, 0 failed), 0 undefined. The 8
-skips are all Vercel/Stripe-gated (underivable credentials): the
-FULL_END_TO_END scenarios (001 `jolly start`, 014 start-runs-doctor, 022
-resume/agree-on-state) plus the vercel/stripe-dependent 002/005/014
-scenarios. Teardown verified: the organization has zero environments after
-the run.
+All green at this QM commit: typecheck clean, unit 51/51, `@logic` 53/53,
+full BDD 79 scenarios (71 passed, 8 skipped, 0 failed), 0 undefined. The 8
+skips are unchanged — all Vercel/Stripe-gated (underivable credentials).
+Teardown verified: the organization has zero environments after the run.
 
-This session delivered the whole worklist from the previous handover:
+This session covered Captain commit 42b5dc1 (feature 001: `jolly start
+--dry-run` as a true preview plan):
+
+- **001 dry-run preview steps** — new @logic scenario steps in
+  `001-...steps.ts` pin the contract (documented in the file header):
+  `data.dryRun === true`; `data.plan` entries `{stage, effects}` with the
+  four intended-effect arrays (`directoriesCreated`, `filesWritten`,
+  `networkHostsContacted`, `repositoriesCloned`), each kind non-empty
+  somewhere in a fresh-project plan; feature 021 `riskContext`
+  (`dryRunAvailable: true`) on every side-effecting entry; a
+  `start-dry-run` check (the `<command>-dry-run` convention) for
+  programmatic distinguishability; nextSteps directing `jolly start`
+  (without `--dry-run`); and a before/after recursive snapshot proving no
+  file in the project directory was created or modified. Following the
+  012-incident lesson, the When step forces dummy credentials for **all**
+  credential groups (Cloud/app token, Vercel, Stripe) and an unroutable
+  `.invalid` API URL — a CLI ignoring `--dry-run` cannot reach any real
+  account.
+- **Crew-implemented `cmdStartDryRun`** — `src/index.ts` gained a dry-run
+  branch in `cmdStart` (six-stage static plan incl. doctor; no file writes,
+  no network). The non-dry-run `jolly start` path is untouched.
+
+## Previous session (same day, second Captain session)
+
+That session delivered the whole worklist from its previous handover:
 
 - **Self-provisioning harness (features 023 + 012)** — `features/support/`
   gained `cloud.ts` (shared Cloud API helpers: list/delete/leftover
