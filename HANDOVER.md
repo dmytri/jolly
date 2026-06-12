@@ -10,7 +10,90 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
-## Current state (2026-06-12, Captain pass: honest auth, retired hosts)
+## Current state (2026-06-12, QM session: honest-auth coverage + Crew rewrite, all green)
+
+All green at this QM commit: typecheck clean, unit 61/61 (two new
+enforcement suites), full BDD 80 scenarios (72 passed, 8 skipped, 0 failed),
+0 undefined. The 8 skips are unchanged — all Vercel/Stripe-gated
+(underivable credentials). Teardown verified: the organization has zero
+environments after the run (the run provisioned the shared environment AND
+the collision-retry environment; both deleted).
+
+This session delivered the whole worklist from the Captain's honest-auth
+pass (next section):
+
+- **018 steps regenerated** (`018-...steps.ts`, all 11 scenarios). The
+  header pins the CLI contract: verification = one authenticated GET of
+  `${apiBase}/organizations/` honoring `JOLLY_SALEOR_CLOUD_API_URL`;
+  2xx → verified (real org name stored, check `login-token-verification`
+  pass); 401/403 → `INVALID_TOKEN` + numeric `httpStatus`, nothing written;
+  other failure → "stored, not verified" warning with check `unknown`.
+  Browser preview pins realm saleor-cloud, real S256 PKCE (the step
+  recomputes base64url(SHA-256(verifier))), and the full param set.
+  Exchange preview pins `data.exchangePreview.tokenRequest/cloudTokenRequest`;
+  the real exchange pins `OAUTH_EXCHANGE_FAILED` + `httpStatus` + `endpoint`
+  as evidence the request was really sent. auth status reports
+  configuration only (`hasCloudToken`/`hasAppToken`/`accountContext`,
+  "unknown" fallback) and may not claim `authenticated: true` from a file
+  read. The two no-credential @sandbox scenarios (failed exchange,
+  invalid token) are gated `[]` in `SANDBOX_REQUIREMENTS` — network only.
+- **012 steps reworked.** The @logic env-creation preview now runs against
+  a LOCAL harness Cloud API server through the `JOLLY_SALEOR_CLOUD_API_URL`
+  override (serves organizations + projects GETs, records and 500s any
+  write) — pins that the org/project in the preview are really resolved
+  from the token, only GETs happen, and nothing is created. The collision
+  scenario is honestly @sandbox: the run's shared provisioned environment
+  is the duplicate-label premise, the rejection must carry
+  `DOMAIN_LABEL_TAKEN` + `httpStatus` + `data.suggestedDomain` +
+  `retryAvailable`, and the agent-driven retry (namespaced
+  `<ns>-retry`, teardown registered before assertions) really creates and
+  deletes an environment. Orphaned steps for the retired
+  --collision/--needs-project mock scenarios deleted.
+- **Dummy-token login vehicles reconciled** (012 Givens, 020:secrets Given,
+  021 dry-run-consistency Given): each now forces an unroutable `.invalid`
+  API base so the run takes the honest "stored, not verified" warning path
+  and can never reach a real account. The common step "Jolly should load
+  the updated .env values..." now asserts status !== error (warning is the
+  legitimate unverified-store outcome). 002's signup-URL step text updated
+  to cloud.saleor.io.
+- **New enforcement units**: `tests/first-party-hosts.test.ts` (retired
+  hosts id.saleor.online / api.saleor.cloud and the `@saleor/` package
+  scope appear nowhere in src/, bin/jolly, package.json) and
+  `tests/honesty.test.ts` (junk-input sweep: junk token / junk URLs /
+  junk exchange code never yield success status, pass verification checks,
+  or authenticated/valid claims; runs with from-scratch env + `.invalid`
+  API base).
+- **Harness fix (QM-owned)**: `world.runCliAsync()` added — the 012 preview
+  step hosts an in-process server, and `spawnSync` blocks the event loop
+  (deadlock found by Crew). Async spawn with the same env/result handling.
+- **Crew-implemented honest auth** (dispatched, delivered, verified):
+  `src/lib/cloud-api.ts` gained `cloudApiBase()` honoring
+  `JOLLY_SALEOR_CLOUD_API_URL` for every Cloud API request plus real
+  duplicate-domain detection; `cmdLogin` rewritten (real verification,
+  warning path, realm saleor-cloud, real PKCE/state, pure exchange
+  preview, real exchange POSTs, honest `--browser` error when no
+  browser/Playwright); `cmdAuthStatus` reports configuration only;
+  `cmdCreateStore`/`cmdCreateEnvironment` fabrication branches removed
+  (--collision, --needs-project, URL-substring triggers, org-test-123,
+  Math.random task ids); `npx @saleor/jolly` → `npx @dk/jolly`. Live-
+  verified during the run: real token verified with the real organization
+  name; invalid token really rejected 401; bogus OAuth code really
+  rejected by Keycloak.
+
+Notes for the next session:
+
+- The full credentialed BDD run now creates TWO environments (shared +
+  collision retry) and takes ~5 minutes; cost accepted per the existing
+  customer decision on per-run provisioning.
+- `jolly login --browser` real execution errors honestly
+  (`BROWSER_LOGIN_UNAVAILABLE`) — the native/Playwright callback flow is
+  still unimplemented; the @requires-browser scenario skips (tier 3) on
+  this VM, so there is no failing target to dispatch until a browser-
+  capable runner exists.
+- The known latent worklist (cmdStart stage stub vs 001 sandbox pins)
+  is unchanged — still blocked on Vercel/Stripe credentials.
+
+## Previous state (2026-06-12, Captain pass: honest auth, retired hosts)
 
 Customer-driven audit of `cmdLogin` found fabricated success output: "Token
 verified via id.saleor.online/verify" / "at id.saleor.online/configure" with

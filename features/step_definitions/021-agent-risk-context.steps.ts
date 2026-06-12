@@ -35,10 +35,16 @@ Given(
   "a command supports `--dry-run`",
   function (this: JollyWorld) {
     // Contract: the command under test supports --dry-run.
-    // We use `jolly login --token dummy-test-token` as the test command.
-    // The credentials required for the sandbox scenario are gated by the
-    // @sandbox Before hook.
+    // We use `jolly login --token dummy-sandbox-token` as the test command.
+    // Under feature 018 a dummy-token login hits the Cloud API, so the run
+    // points JOLLY_SALEOR_CLOUD_API_URL at an unroutable base: the real
+    // execution takes the honest "stored, not verified" warning path, which
+    // must carry the same riskContext as the --dry-run preview.
     this.notes["commandUnderTest"] = ["login", "--token", "dummy-sandbox-token"];
+    this.notes["commandUnderTestEnv"] = {
+      JOLLY_SALEOR_CLOUD_TOKEN: undefined,
+      JOLLY_SALEOR_CLOUD_API_URL: `https://${this.namespace}.invalid/platform/api`,
+    };
   },
 );
 
@@ -52,6 +58,9 @@ When(
     if (!cmd) {
       throw new Error("commandUnderTest not set — missing Given step");
     }
+    const env = this.notes["commandUnderTestEnv"] as
+      | Record<string, string | undefined>
+      | undefined;
 
     const envPath = join(this.projectDir, ".env");
 
@@ -60,11 +69,11 @@ When(
     const preDryRunEnv = existsSync(envPath) ? readFileSync(envPath, "utf8") : null;
 
     // Step 1: Run with --dry-run
-    this.runCli([...cmd, "--dry-run"]);
+    this.runCli([...cmd, "--dry-run"], { env });
     const dryRunEnvelope = this.lastRun!.envelope;
 
     // Step 2: Run without --dry-run (becomes this.lastRun)
-    this.runCli(cmd);
+    this.runCli(cmd, { env });
 
     // Restore .env to its pre-dry-run state so the "no remote side
     // effects should occur during the dry run" check in common.steps.ts

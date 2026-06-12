@@ -3,7 +3,7 @@
 // (feature 023).
 import { World, setWorldConstructor, type IWorldOptions } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -119,6 +119,54 @@ export class JollyWorld extends World {
       stderr: spawned.stderr ?? "",
       envelope: findEnvelope(stdout),
     };
+    this.previousRun = this.lastRun;
+    this.lastRun = result;
+    return result;
+  }
+
+  /**
+   * Invoke the Jolly CLI without blocking the test process's event loop.
+   * Required when the scenario hosts an in-process server the CLI must
+   * reach (the feature 012 dry-run preview against the local harness Cloud
+   * API): spawnSync would block the loop and deadlock the server. Same
+   * runtime, env handling, and result bookkeeping as runCli.
+   */
+  async runCliAsync(args: string[], options: RunCliOptions = {}): Promise<CliResult> {
+    const runtime = process.env.HARNESS_CLI_RUNTIME ?? "bun";
+    const cwd = options.cwd ?? this.projectDir;
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries({ ...process.env, ...options.env })) {
+      if (value !== undefined) env[key] = value;
+    }
+    const result = await new Promise<CliResult>((resolve, reject) => {
+      const child = spawn(runtime, [CLI_ENTRY, ...args], { cwd, env });
+      let stdout = "";
+      let stderr = "";
+      const killTimer = setTimeout(
+        () => child.kill("SIGKILL"),
+        options.timeoutMs ?? 120_000,
+      );
+      child.stdout.on("data", (chunk: Buffer) => (stdout += chunk));
+      child.stderr.on("data", (chunk: Buffer) => (stderr += chunk));
+      child.stdin.end(options.input ?? "");
+      child.on("error", (error) => {
+        clearTimeout(killTimer);
+        reject(
+          new Error(`Failed to invoke Jolly CLI via "${runtime}": ${error.message}`),
+        );
+      });
+      child.on("close", (code) => {
+        clearTimeout(killTimer);
+        resolve({
+          args,
+          cwd,
+          exitCode: code ?? -1,
+          stdout,
+          stderr,
+          envelope: findEnvelope(stdout),
+        });
+      });
+    });
     this.previousRun = this.lastRun;
     this.lastRun = result;
     return result;

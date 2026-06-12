@@ -34,6 +34,14 @@ Given("a command fails or partially succeeds", function (this: JollyWorld) {
 // ── Secrets ──────────────────────────────────────────────────────────────
 
 Given("a command handles secret values such as tokens or API keys", function (this: JollyWorld) {
-  // Already handled by login/stripe scenarios.
-  this.runCli(["login", "--token", "test-secret-token", "--json"]);
+  // A dummy-token login against an unroutable Cloud API base takes the
+  // honest feature 018 "stored, not verified" warning path — the secret is
+  // still handled (stored) without this @logic step touching a real account.
+  this.trackSecret("test-secret-token");
+  this.runCli(["login", "--token", "test-secret-token", "--json"], {
+    env: {
+      JOLLY_SALEOR_CLOUD_TOKEN: undefined,
+      JOLLY_SALEOR_CLOUD_API_URL: `https://${this.namespace}.invalid/platform/api`,
+    },
+  });
 });

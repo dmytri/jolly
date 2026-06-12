@@ -1,7 +1,9 @@
 // Saleor Cloud API client (feature 012 — existing Saleor store connection).
 //
 // Pinned by the feature 012 Rule "Existing-store automation principles":
-// - The Cloud API is at https://cloud.saleor.io/platform/api.
+// - The Cloud API is at https://cloud.saleor.io/platform/api, optionally
+//   overridden by JOLLY_SALEOR_CLOUD_API_URL (feature 018 Rule); every Cloud
+//   API request honors the override.
 //   Authenticate with `Authorization: Token <token>`.
 // - Organizations: GET /platform/api/organizations/ returns a list with slug
 //   and environments URL.
@@ -25,7 +27,20 @@
 // with the Cloud token (Bearer), select an existing local app or create one,
 // and create an app token via the Saleor GraphQL API.
 
-export const CLOUD_API_BASE = "https://cloud.saleor.io/platform/api";
+const DEFAULT_CLOUD_API_BASE = "https://cloud.saleor.io/platform/api";
+
+/**
+ * The Cloud API base URL for this request: the JOLLY_SALEOR_CLOUD_API_URL
+ * override when set (feature 018 Rule — pointing it elsewhere is the
+ * customer's explicit choice), otherwise the first-party default.
+ */
+export function cloudApiBase(): string {
+  const override = process.env["JOLLY_SALEOR_CLOUD_API_URL"];
+  if (override && override.trim().length > 0) {
+    return override.trim().replace(/\/+$/, "");
+  }
+  return DEFAULT_CLOUD_API_BASE;
+}
 
 const POLL_INTERVAL_MS = 5_000;
 const POLL_TIMEOUT_MS = 480_000; // stay under the harness's CLI timeout
@@ -70,7 +85,7 @@ export interface CloudOrganization {
 export async function listOrganizations(
   token: string,
 ): Promise<CloudOrganization[]> {
-  const response = await cloudFetch(`${CLOUD_API_BASE}/organizations/`, token);
+  const response = await cloudFetch(`${cloudApiBase()}/organizations/`, token);
   if (!response.ok) {
     throw new CloudApiError(
       `Failed to list organizations: HTTP ${response.status} ${await response.text()}`,
@@ -97,7 +112,7 @@ export async function listProjects(
   organizationSlug: string,
 ): Promise<CloudProject[]> {
   const response = await cloudFetch(
-    `${CLOUD_API_BASE}/organizations/${organizationSlug}/projects/`,
+    `${cloudApiBase()}/organizations/${organizationSlug}/projects/`,
     token,
   );
   if (!response.ok) {
@@ -117,7 +132,7 @@ export async function createProject(
   body: { name: string; plan: string; region: string },
 ): Promise<CloudProject> {
   const response = await cloudFetch(
-    `${CLOUD_API_BASE}/organizations/${organizationSlug}/projects/`,
+    `${cloudApiBase()}/organizations/${organizationSlug}/projects/`,
     token,
     { method: "POST", body: JSON.stringify(body) },
   );
@@ -147,7 +162,7 @@ export async function listProjectServices(
   projectSlug: string,
 ): Promise<CloudService[]> {
   const response = await cloudFetch(
-    `${CLOUD_API_BASE}/organizations/${organizationSlug}/projects/${projectSlug}/services/`,
+    `${cloudApiBase()}/organizations/${organizationSlug}/projects/${projectSlug}/services/`,
     token,
   );
   if (!response.ok) return [];
@@ -202,12 +217,25 @@ export async function createEnvironment(
   },
 ): Promise<CloudEnvironment> {
   const response = await cloudFetch(
-    `${CLOUD_API_BASE}/organizations/${organizationSlug}/environments/`,
+    `${cloudApiBase()}/organizations/${organizationSlug}/environments/`,
     token,
     { method: "POST", body: JSON.stringify(body) },
   );
   if (!response.ok) {
     const text = await response.text();
+    if (
+      response.status >= 400 &&
+      response.status < 500 &&
+      /domain/i.test(text) &&
+      /taken|exists|already|unique|in use|duplicate/i.test(text)
+    ) {
+      throw new CloudApiError(
+        `The Cloud API rejected the environment creation: the domain label ` +
+          `"${body.domain_label}" is already taken (HTTP ${response.status}).`,
+        "DOMAIN_LABEL_TAKEN",
+        response.status,
+      );
+    }
     if (
       response.status >= 400 &&
       response.status < 500 &&
@@ -236,7 +264,7 @@ export async function listEnvironments(
   organizationSlug: string,
 ): Promise<CloudEnvironment[]> {
   const response = await cloudFetch(
-    `${CLOUD_API_BASE}/organizations/${organizationSlug}/environments/`,
+    `${cloudApiBase()}/organizations/${organizationSlug}/environments/`,
     token,
   );
   if (!response.ok) return [];
@@ -250,7 +278,7 @@ export async function getEnvironment(
   environmentKey: string,
 ): Promise<CloudEnvironment | undefined> {
   const response = await cloudFetch(
-    `${CLOUD_API_BASE}/organizations/${organizationSlug}/environments/${environmentKey}/`,
+    `${cloudApiBase()}/organizations/${organizationSlug}/environments/${environmentKey}/`,
     token,
   );
   if (!response.ok) return undefined;
@@ -266,7 +294,7 @@ export interface TaskStatus {
 
 /** The poll URL for a task: GET /platform/api/service/task-status/{task_id}. */
 export function taskStatusUrl(taskId: string): string {
-  return `${CLOUD_API_BASE}/service/task-status/${taskId}/`;
+  return `${cloudApiBase()}/service/task-status/${taskId}/`;
 }
 
 /**

@@ -235,10 +235,17 @@ Then(
 Then(
   "Jolly should load the updated .env values for the current command flow",
   function (this: JollyWorld) {
-    // Same as above but stronger (no "where possible" qualifier).
-    // Check that the command succeeded and that .env has the expected values.
+    // The command flow must have proceeded with the updated values. Status
+    // "warning" is legitimate here — feature 018's honest
+    // "stored, not verified" path stores and loads the value while
+    // reporting verification did not happen; only "error" means the flow
+    // did not continue.
     const env = this.envelope;
-    assert.equal(env.status, "success", `Command should succeed, got ${env.status}`);
+    assert.notEqual(
+      env.status,
+      "error",
+      `the command flow should have continued with the updated .env values, got error: ${env.summary}`,
+    );
   },
 );
 

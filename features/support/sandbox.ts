@@ -86,12 +86,17 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   "Doctor checks deployment and payment readiness": ["vercel", "stripe"],
   "Jolly start runs doctor automatically": FULL_END_TO_END,
   // 018-jolly-auth-commands
-  "Agent logs in to Saleor Cloud": ["saleorCloud"],
+  // The failed-exchange and invalid-token scenarios need only outbound
+  // network (real requests, really rejected) — no credentials at all.
+  "A failed OAuth code exchange is reported honestly": [],
+  "Jolly login rejects an invalid token gracefully": [],
+  "Jolly login verifies a headless token against the Cloud API": ["saleorCloud"],
   "Agent completes the full browser OAuth login flow": ["saleorCloud", "saleorAppToken"],  // needs JOLLY_SALEOR_APP_TOKEN for the real token check after browser flow
   // 024-jolly-app-token-acquisition
   "Jolly create app-token acquires a real token from Saleor": ["saleorEndpoint", "saleorCloud"],
   // 012-existing-saleor-store-connection
   "Jolly creates a Saleor Cloud environment": ["saleorCloud"],
+  "Jolly create store handles domain name collision": ["saleorCloud"],
   // 019-iteration-phase
   "Agent has live store access from day one": ["saleorEndpoint", "saleorAppToken"],
   // 021-agent-risk-context

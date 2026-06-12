@@ -7,15 +7,15 @@
  * commands accept --json (stdout = envelope only) and --quiet (reduced
  * human text).
  *
- * The entry is executable via `npx @saleor/jolly` (production) or
- * `npx @dk/jolly` (testing). Also runnable directly with `bun src/index.ts`.
+ * The entry is executable via `npx @dk/jolly`. Also runnable directly with
+ * `bun src/index.ts`.
  */
 import { existsSync, writeFileSync, readFileSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { loadEnvValues, writeEnvValues } from "./lib/env-file.ts";
 import { normalizeSaleorUrl } from "./lib/saleor-url.ts";
 import {
-  CLOUD_API_BASE,
+  cloudApiBase,
   CloudApiError,
   acquireAppToken,
   createEnvironment,
@@ -57,7 +57,15 @@ interface Envelope {
   data: Record<string, unknown>;
   checks: Check[];
   nextSteps: Array<Record<string, unknown>>;
-  errors: Array<{ code: string; message: string; remediation?: string }>;
+  errors: Array<{
+    code: string;
+    message: string;
+    remediation?: string;
+    /** The real HTTP status a remote service returned, when one did. */
+    httpStatus?: number;
+    /** The real endpoint a failed request was sent to, when one was. */
+    endpoint?: string;
+  }>;
 }
 
 interface RiskContext {
@@ -244,7 +252,7 @@ live under \`.jolly/skills/\`:
 
 ${DEFAULT_SKILLS.map((s) => `- \`${s}\` — \`.jolly/skills/${s}/SKILL.md\``).join("\n")}
 
-- Run \`npx @saleor/jolly start\` for end-to-end store setup.
+- Run \`npx @dk/jolly start\` for end-to-end store setup.
 - Live store data access: the read-only Saleor MCP server (https://mcp.saleor.app)
   provides products, orders, and customers for a configured store.
 - \`.mcp.json\` configures an mcp-graphql server (\`saleor-graphql\`) against your
@@ -465,110 +473,39 @@ async function generatePKCE(): Promise<{ verifier: string; challenge: string }> 
   return { verifier, challenge };
 }
 
-function buildKeycloakAuthUrl(verifier: string, challenge: string): string {
+// Keycloak on auth.saleor.io, realm saleor-cloud, registered client
+// saleor-cli (feature 018 Rule "Auth command principles").
+const KEYCLOAK_AUTH_URL =
+  "https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/auth";
+const KEYCLOAK_TOKEN_URL =
+  "https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/token";
+const OAUTH_CLIENT_ID = "saleor-cli";
+const OAUTH_REDIRECT_URI = "http://127.0.0.1:5375/callback";
+const OAUTH_SCOPE = "email openid profile";
+
+function buildKeycloakAuthUrl(challenge: string): string {
+  const stateBytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(stateBytes);
   const params: Record<string, string> = {
     response_type: "code",
-    client_id: "saleor-cli",
+    client_id: OAUTH_CLIENT_ID,
     code_challenge: challenge,
     code_challenge_method: "S256",
-    state: base64UrlEncode(new Uint8Array(16).buffer),
-    redirect_uri: "http://127.0.0.1:5375/callback",
-    scope: "email openid profile",
+    state: base64UrlEncode(stateBytes.buffer),
+    redirect_uri: OAUTH_REDIRECT_URI,
+    scope: OAUTH_SCOPE,
   };
   const query = Object.entries(params)
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
     .join("&");
-  return `https://auth.saleor.io/auth/realms/saleor/protocol/openid-connect/auth?${query}`;
+  return `${KEYCLOAK_AUTH_URL}?${query}`;
 }
 
 // ── Command: login ───────────────────────────────────────────────────────
 
-async function cmdLogin(token?: string): Promise<void> {
-  const hasBrowser = args.includes("--browser");
-  const exchangeCodeIdx = args.indexOf("--exchange-code");
-  const hasExchangeCode = exchangeCodeIdx >= 0;
-  const exchangeCodeValue = hasExchangeCode ? args[exchangeCodeIdx + 1] : undefined;
-  const tokenIdx = args.indexOf("--token");
-  const tokenValue = tokenIdx >= 0 ? args[tokenIdx + 1] : token;
-
-  // ── Browser OAuth flow ──────────────────────────────────────────────
-  if (hasBrowser) {
-    const pkce = await generatePKCE();
-    const authUrl = buildKeycloakAuthUrl(pkce.verifier, pkce.challenge);
-
-    output(
-      buildEnvelope("login", {
-        status: "success",
-        summary: "Browser OAuth login prepared. Open the authorization URL in a browser to continue.",
-        data: {
-          authUrl,
-          pkceChallenge: pkce.challenge,
-          pkceVerifier: pkce.verifier,
-          callbackPort: 5375,
-          authMethod: "browser_oauth",
-          envUpdated: false,
-          authenticated: false,
-        },
-        checks: [
-          { id: "login-pkce-generated", status: "pass" as CheckStatus, description: "PKCE challenge generated" },
-          { id: "login-auth-url", status: "pass" as CheckStatus, description: "Keycloak authorization URL constructed" },
-        ],
-        nextSteps: [
-          { description: "Open the authorization URL in a browser and complete the OAuth flow" },
-          { description: "After receiving the code, run jolly login --exchange-code <code> to complete authentication" },
-        ],
-      }),
-    );
-    return;
-  }
-
-  // ── OAuth code exchange ─────────────────────────────────────────────
-  if (hasExchangeCode && exchangeCodeValue) {
-    const tokenExchangeBody = {
-      code: exchangeCodeValue,
-      code_verifier: "test-pkce-verifier",
-      client_id: "saleor-cli",
-      redirect_uri: "http://127.0.0.1:5375/callback",
-    };
-
-    // Simulate the Cloud API token exchange
-    const cloudTokenUrl = "https://api.saleor.cloud/platform/api/tokens";
-    const cloudTokenBody = { id_token: "oidc-id-token-mock" };
-    const verifyUrl = "https://id.saleor.online/verify";
-    const saleorCloudToken = "saleor-cloud-token-from-exchange";
-
-    writeEnvValues(cwd, {
-      "JOLLY_SALEOR_CLOUD_TOKEN": saleorCloudToken,
-      "JOLLY_SALEOR_ORGANIZATION": "Saleor Cloud user (authenticated)",
-    });
-
-    output(
-      buildEnvelope("login", {
-        status: "success",
-        summary: "OAuth code exchanged. Saleor Cloud token stored in .env.",
-        data: {
-          tokenExchangeBody,
-          cloudTokenUrl,
-          cloudTokenBody,
-          verifyUrl,
-          envUpdated: true,
-          authenticated: true,
-          tokenConfigured: true,
-        },
-        checks: [
-          { id: "login-code-exchanged", status: "pass" as CheckStatus, description: "OAuth code exchanged for Saleor Cloud token" },
-          { id: "login-token-verified", status: "pass" as CheckStatus, description: "Token verified via id.saleor.online/verify" },
-        ],
-        nextSteps: [
-          { description: "Verify authentication with jolly auth status" },
-        ],
-      }),
-    );
-    return;
-  }
-
-  // ── Dry-run ─────────────────────────────────────────────────────────
-  const rc = riskContext(
+/** The shared feature 021 risk context for every login envelope. */
+function loginRiskContext(): RiskContext {
+  return riskContext(
     "login",
     { type: "Saleor Cloud authentication", scope: "local .env" },
     "medium",
@@ -576,23 +513,430 @@ async function cmdLogin(token?: string): Promise<void> {
     true,
     ["Writes JOLLY_SALEOR_CLOUD_TOKEN to .env"],
   );
+}
+
+/**
+ * Token verification (feature 018 Rule "Token verification is a real request
+ * or it is not verification"): one authenticated read-only GET of the Cloud
+ * API organizations endpoint, whose response is actually received and
+ * checked. Stores the token according to the real outcome:
+ * - 2xx + parseable list → verified; token and the real organization name
+ *   are written to .env.
+ * - 401/403 → INVALID_TOKEN error; nothing is written.
+ * - any other failure → token stored (organization NOT stored); status
+ *   "warning"; every surface says "stored, not verified".
+ */
+async function verifyTokenAndStore(tokenValue: string): Promise<void> {
+  const rc = loginRiskContext();
+  const organizationsUrl = `${cloudApiBase()}/organizations/`;
+
+  let response: Response | undefined;
+  let failureReason: string | undefined;
+  try {
+    response = await fetch(organizationsUrl, {
+      headers: { Authorization: `Token ${tokenValue}` },
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (error: unknown) {
+    failureReason = `the Cloud API organizations request could not be completed (${
+      error instanceof Error ? error.message : String(error)
+    })`;
+  }
+
+  // Real rejection: the token is invalid. Nothing is written.
+  if (response && (response.status === 401 || response.status === 403)) {
+    errorExit(
+      buildEnvelope("login", {
+        status: "error",
+        summary: `Invalid token: the Saleor Cloud API rejected it (HTTP ${response.status}). Nothing was written to .env.`,
+        data: { riskContext: rc, envUpdated: false },
+        checks: [
+          { id: "login-token-verification", status: "fail" as CheckStatus, description: `The Cloud API organizations request was rejected with HTTP ${response.status}` },
+        ],
+        errors: [{
+          code: "INVALID_TOKEN",
+          message: `The Saleor Cloud API rejected the token (HTTP ${response.status}). Create a new token at https://cloud.saleor.io/tokens and re-run jolly login --token <value>.`,
+          httpStatus: response.status,
+          remediation: "Create a new token at https://cloud.saleor.io/tokens",
+        }],
+        nextSteps: [
+          { description: "Create a new token at https://cloud.saleor.io/tokens, then run jolly login --token <value>" },
+        ],
+      }),
+    );
+  }
+
+  // 2xx: verified only when the organization list is actually parseable.
+  let organizationName: string | undefined;
+  let verified = false;
+  if (response && response.ok) {
+    try {
+      const body = (await response.json()) as unknown;
+      if (Array.isArray(body)) {
+        verified = true;
+        const first = body.find(
+          (entry) =>
+            entry !== null &&
+            typeof entry === "object" &&
+            typeof (entry as Record<string, unknown>).name === "string",
+        ) as Record<string, unknown> | undefined;
+        organizationName = first ? String(first.name) : undefined;
+      } else {
+        failureReason = "the Cloud API organizations response was not an organization list";
+      }
+    } catch {
+      failureReason = "the Cloud API organizations response was not parseable JSON";
+    }
+  } else if (response && !failureReason) {
+    failureReason = `the Cloud API organizations request returned HTTP ${response.status}`;
+  }
+
+  if (verified) {
+    const values: Record<string, string> = { JOLLY_SALEOR_CLOUD_TOKEN: tokenValue };
+    if (organizationName) values["JOLLY_SALEOR_ORGANIZATION"] = organizationName;
+    writeEnvValues(cwd, values);
+    output(
+      buildEnvelope("login", {
+        status: "success",
+        summary: organizationName
+          ? `Saleor Cloud token verified against the Cloud API and written to .env (organization: ${organizationName}).`
+          : "Saleor Cloud token verified against the Cloud API and written to .env.",
+        data: {
+          organization: organizationName,
+          accountContext: organizationName ?? "unknown",
+          envUpdated: true,
+          tokenConfigured: true,
+          riskContext: rc,
+        },
+        checks: [
+          { id: "login-token-verification", status: "pass" as CheckStatus, description: "Authenticated read-only GET of the Cloud API organizations endpoint returned a parseable organization list" },
+          { id: "login-token-written", status: "pass" as CheckStatus, description: "JOLLY_SALEOR_CLOUD_TOKEN written to .env" },
+          { id: "login-gitignore", status: "pass" as CheckStatus, description: ".env is git-ignored" },
+        ],
+        nextSteps: [
+          { description: "Run jolly start or jolly create store to continue setup" },
+        ],
+      }),
+    );
+    return;
+  }
+
+  // Verification did not happen (unreachable, 5xx, timeout, unparseable):
+  // store the token, say so honestly, and never store an organization.
+  writeEnvValues(cwd, { JOLLY_SALEOR_CLOUD_TOKEN: tokenValue });
+  output(
+    buildEnvelope("login", {
+      status: "warning",
+      summary: `Saleor Cloud token stored, not verified: ${failureReason ?? "the verification request did not complete"}.`,
+      data: {
+        tokenVerification: "stored, not verified",
+        envUpdated: true,
+        tokenConfigured: true,
+        riskContext: rc,
+      },
+      checks: [
+        { id: "login-token-verification", status: "unknown" as CheckStatus, description: `stored, not verified — the read-only Cloud API organizations GET did not complete (${failureReason ?? "unknown failure"})` },
+        { id: "login-token-written", status: "pass" as CheckStatus, description: "JOLLY_SALEOR_CLOUD_TOKEN written to .env" },
+        { id: "login-gitignore", status: "pass" as CheckStatus, description: ".env is git-ignored" },
+      ],
+      nextSteps: [
+        { description: "Re-run jolly login --token <value> when the Cloud API is reachable to verify the token" },
+      ],
+    }),
+  );
+}
+
+/**
+ * The OAuth code exchange (feature 018): a real POST of the code to the
+ * Keycloak token endpoint, then a real POST of the resulting OIDC id_token
+ * to the Cloud API tokens endpoint. Reports real outcomes only; with
+ * --dry-run it is a pure preview of those two requests.
+ */
+async function exchangeOAuthCode(code: string): Promise<void> {
+  const rc = loginRiskContext();
+  const cloudTokensUrl = `${cloudApiBase()}/tokens`;
+  // No pending login state store exists in this build, so a fresh PKCE
+  // verifier is generated for the exchange.
+  const pkce = await generatePKCE();
+  const tokenRequestBody = {
+    grant_type: "authorization_code",
+    code,
+    code_verifier: pkce.verifier,
+    client_id: OAUTH_CLIENT_ID,
+    redirect_uri: OAUTH_REDIRECT_URI,
+  };
 
   if (FLAG_DRY_RUN) {
     output(
       buildEnvelope("login", {
         status: "success",
-        summary: "Dry-run: would write Saleor Cloud token to .env",
+        summary: "Dry-run: previewed the OAuth code exchange requests. No request was sent and nothing was written.",
         data: {
           dryRun: true,
           riskContext: rc,
           envUpdated: false,
-          authenticated: false,
+          exchangePreview: {
+            tokenRequest: {
+              url: KEYCLOAK_TOKEN_URL,
+              method: "POST",
+              body: tokenRequestBody,
+            },
+            cloudTokenRequest: {
+              url: cloudTokensUrl,
+              method: "POST",
+              body: {
+                id_token: "<id_token from the Keycloak token response, obtained at execution time>",
+              },
+            },
+          },
         },
         checks: [
-          { id: "login-dry-run", status: "pass" as CheckStatus, description: "Login preview — no changes made" },
+          { id: "login-dry-run", status: "pass" as CheckStatus, description: "Preview only — no requests sent, .env untouched" },
         ],
         nextSteps: [
-          { description: "Run jolly login --token <token> (without --dry-run) to authenticate" },
+          { description: "Run jolly login --exchange-code <code> (without --dry-run) to send the requests" },
+        ],
+      }),
+    );
+    return;
+  }
+
+  // Really send the Keycloak code exchange and report its real outcome.
+  let response: Response;
+  try {
+    response = await fetch(KEYCLOAK_TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(tokenRequestBody).toString(),
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    errorExit(
+      buildEnvelope("login", {
+        status: "error",
+        summary: `The OAuth code exchange step failed: the request to the Keycloak token endpoint could not be completed (${message}). Nothing was written to .env.`,
+        data: { riskContext: rc, envUpdated: false },
+        errors: [{
+          code: "OAUTH_EXCHANGE_FAILED",
+          message: `OAuth code exchange step failed: the POST to ${KEYCLOAK_TOKEN_URL} could not be completed (${message}).`,
+          endpoint: KEYCLOAK_TOKEN_URL,
+          remediation: "Re-run jolly login --browser for a fresh authorization code, or create a token at https://cloud.saleor.io/tokens and run jolly login --token <value>.",
+        }],
+        nextSteps: [
+          { description: "Create a token at https://cloud.saleor.io/tokens, then run jolly login --token <value>" },
+        ],
+      }),
+    );
+  }
+  if (!response!.ok) {
+    const text = (await response!.text()).slice(0, 300);
+    errorExit(
+      buildEnvelope("login", {
+        status: "error",
+        summary: `The OAuth code exchange step failed: Keycloak rejected the code (HTTP ${response!.status}). Nothing was written to .env.`,
+        data: { riskContext: rc, envUpdated: false },
+        errors: [{
+          code: "OAUTH_EXCHANGE_FAILED",
+          message: `OAuth code exchange step failed: ${KEYCLOAK_TOKEN_URL} responded with HTTP ${response!.status}: ${text}`,
+          httpStatus: response!.status,
+          endpoint: KEYCLOAK_TOKEN_URL,
+          remediation: "Re-run jolly login --browser for a fresh authorization code, or create a token at https://cloud.saleor.io/tokens and run jolly login --token <value>.",
+        }],
+        nextSteps: [
+          { description: "Create a token at https://cloud.saleor.io/tokens, then run jolly login --token <value>" },
+        ],
+      }),
+    );
+  }
+
+  let idToken: string | undefined;
+  try {
+    const payload = (await response!.json()) as Record<string, unknown>;
+    if (typeof payload.id_token === "string" && payload.id_token.length > 0) {
+      idToken = payload.id_token;
+    }
+  } catch {
+    // handled below: no id_token
+  }
+  if (!idToken) {
+    errorExit(
+      buildEnvelope("login", {
+        status: "error",
+        summary: "The OAuth code exchange step failed: the Keycloak response carried no id_token. Nothing was written to .env.",
+        data: { riskContext: rc, envUpdated: false },
+        errors: [{
+          code: "OAUTH_EXCHANGE_FAILED",
+          message: `OAuth code exchange step failed: the response from ${KEYCLOAK_TOKEN_URL} carried no id_token.`,
+          httpStatus: response!.status,
+          endpoint: KEYCLOAK_TOKEN_URL,
+        }],
+        nextSteps: [
+          { description: "Create a token at https://cloud.saleor.io/tokens, then run jolly login --token <value>" },
+        ],
+      }),
+    );
+  }
+
+  // Really send the id_token to the Cloud API tokens endpoint.
+  let cloudResponse: Response;
+  try {
+    cloudResponse = await fetch(cloudTokensUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id_token: idToken }),
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    errorExit(
+      buildEnvelope("login", {
+        status: "error",
+        summary: `The Cloud API token step failed: the request to the Cloud API tokens endpoint could not be completed (${message}). Nothing was written to .env.`,
+        data: { riskContext: rc, envUpdated: false },
+        errors: [{
+          code: "CLOUD_TOKEN_REQUEST_FAILED",
+          message: `Cloud API token step failed: the POST to ${cloudTokensUrl} could not be completed (${message}).`,
+          endpoint: cloudTokensUrl,
+        }],
+        nextSteps: [
+          { description: "Create a token at https://cloud.saleor.io/tokens, then run jolly login --token <value>" },
+        ],
+      }),
+    );
+  }
+  if (!cloudResponse!.ok) {
+    const text = (await cloudResponse!.text()).slice(0, 300);
+    errorExit(
+      buildEnvelope("login", {
+        status: "error",
+        summary: `The Cloud API token step failed: the Cloud API rejected the id_token (HTTP ${cloudResponse!.status}). Nothing was written to .env.`,
+        data: { riskContext: rc, envUpdated: false },
+        errors: [{
+          code: "CLOUD_TOKEN_REQUEST_FAILED",
+          message: `Cloud API token step failed: ${cloudTokensUrl} responded with HTTP ${cloudResponse!.status}: ${text}`,
+          httpStatus: cloudResponse!.status,
+          endpoint: cloudTokensUrl,
+        }],
+        nextSteps: [
+          { description: "Create a token at https://cloud.saleor.io/tokens, then run jolly login --token <value>" },
+        ],
+      }),
+    );
+  }
+
+  let cloudToken: string | undefined;
+  try {
+    const payload = (await cloudResponse!.json()) as Record<string, unknown>;
+    for (const field of ["token", "auth_token", "key"]) {
+      if (typeof payload[field] === "string" && (payload[field] as string).length > 0) {
+        cloudToken = payload[field] as string;
+        break;
+      }
+    }
+  } catch {
+    // handled below: no token found
+  }
+  if (!cloudToken) {
+    errorExit(
+      buildEnvelope("login", {
+        status: "error",
+        summary: "The Cloud API token step failed: no token field could be read from the Cloud API tokens response. Nothing was written to .env.",
+        data: { riskContext: rc, envUpdated: false },
+        errors: [{
+          code: "CLOUD_TOKEN_REQUEST_FAILED",
+          message: `Cloud API token step failed: the response from ${cloudTokensUrl} carried no readable token field.`,
+          endpoint: cloudTokensUrl,
+        }],
+        nextSteps: [
+          { description: "Create a token at https://cloud.saleor.io/tokens, then run jolly login --token <value>" },
+        ],
+      }),
+    );
+  }
+
+  // Store according to the real verification outcome (shared token path).
+  await verifyTokenAndStore(cloudToken!);
+}
+
+async function cmdLogin(): Promise<void> {
+  const hasBrowser = args.includes("--browser");
+  const exchangeCodeIdx = args.indexOf("--exchange-code");
+  const exchangeCodeValue = exchangeCodeIdx >= 0 ? args[exchangeCodeIdx + 1] : undefined;
+  const tokenIdx = args.indexOf("--token");
+  const tokenValue = tokenIdx >= 0 ? args[tokenIdx + 1] : undefined;
+  const rc = loginRiskContext();
+
+  // ── Browser OAuth ───────────────────────────────────────────────────
+  if (hasBrowser) {
+    if (FLAG_DRY_RUN) {
+      const pkce = await generatePKCE();
+      const authUrl = buildKeycloakAuthUrl(pkce.challenge);
+      output(
+        buildEnvelope("login", {
+          status: "success",
+          summary: "Dry-run: prepared browser OAuth authorization material. No request was sent and nothing was written.",
+          data: {
+            dryRun: true,
+            riskContext: rc,
+            authUrl,
+            pkceChallenge: pkce.challenge,
+            pkceVerifier: pkce.verifier,
+            callbackPort: 5375,
+            envUpdated: false,
+          },
+          checks: [
+            { id: "login-dry-run", status: "pass" as CheckStatus, description: "Preview only — no requests sent, .env untouched" },
+          ],
+          nextSteps: [
+            { description: "Open the authorization URL in a browser to continue the OAuth flow" },
+            { description: "After receiving the code on the localhost callback, run jolly login --exchange-code <code>" },
+          ],
+        }),
+      );
+      return;
+    }
+    // Honest error: this build implements no native-browser or Playwright
+    // completion of the OAuth flow (callback handling). No simulated flow.
+    errorExit(
+      buildEnvelope("login", {
+        status: "error",
+        summary: "Browser OAuth login is unavailable: the browser flow completion step (native browser or Playwright callback handling) is not implemented in this build. Create a token at https://cloud.saleor.io/tokens and run jolly login --token <value>.",
+        data: { riskContext: rc, envUpdated: false },
+        errors: [{
+          code: "BROWSER_LOGIN_UNAVAILABLE",
+          message: "The browser OAuth completion step (opening a native browser or automating via Playwright and handling the localhost callback) is not implemented in this build.",
+          remediation: "Create a token at https://cloud.saleor.io/tokens, then run jolly login --token <value>.",
+        }],
+        nextSteps: [
+          { description: "Create a token at https://cloud.saleor.io/tokens, then run jolly login --token <value>" },
+        ],
+      }),
+    );
+  }
+
+  // ── OAuth code exchange ─────────────────────────────────────────────
+  if (exchangeCodeValue) {
+    await exchangeOAuthCode(exchangeCodeValue);
+    return;
+  }
+
+  // ── Token login dry-run preview ─────────────────────────────────────
+  if (FLAG_DRY_RUN) {
+    output(
+      buildEnvelope("login", {
+        status: "success",
+        summary: "Dry-run: would write the Saleor Cloud token to .env after a read-only Cloud API check. Nothing was written.",
+        data: {
+          dryRun: true,
+          riskContext: rc,
+          envUpdated: false,
+        },
+        checks: [
+          { id: "login-dry-run", status: "pass" as CheckStatus, description: "Preview only — no requests sent, .env untouched" },
+        ],
+        nextSteps: [
+          { description: "Run jolly login --token <token> (without --dry-run) to log in" },
         ],
       }),
     );
@@ -606,77 +950,12 @@ async function cmdLogin(token?: string): Promise<void> {
         status: "error",
         summary: "No token provided. Usage: jolly login --token <token> or jolly login --browser for browser OAuth",
         data: {},
-        errors: [{ code: "MISSING_TOKEN", message: "A Saleor Cloud token is required. Provide it via --token <value>, or use --browser for browser OAuth." }],
+        errors: [{ code: "MISSING_TOKEN", message: "A Saleor Cloud token is required. Provide it via --token <value> (create one at https://cloud.saleor.io/tokens), or use --browser for browser OAuth." }],
       }),
     );
   }
 
-  // Validate token — for @logic testing, invalid/expired tokens are rejected
-  const verifyUrl = "https://id.saleor.online/configure";
-  const isInvalid = tokenValue!.startsWith("invalid-") || tokenValue!.startsWith("expired-");
-
-  const loginRc = riskContext(
-    "login",
-    { type: "Saleor Cloud authentication", scope: "local .env" },
-    "medium",
-    ["credential handling"],
-    true,
-    ["Writes JOLLY_SALEOR_CLOUD_TOKEN to .env"],
-  );
-
-  if (isInvalid) {
-    output(
-      buildEnvelope("login", {
-        status: "error",
-        summary: "Invalid token: the provided Saleor Cloud token could not be verified.",
-        data: {
-          verifyUrl,
-          valid: false,
-        },
-        checks: [
-          { id: "login-token-validation", status: "fail" as CheckStatus, description: "Token verification failed" },
-        ],
-        errors: [{
-          code: "INVALID_TOKEN",
-          message: "The provided token is invalid or expired. Create a new token at https://cloud.saleor.io/tokens",
-          remediation: "Create a new token at https://cloud.saleor.io/tokens",
-        }],
-        nextSteps: [
-          { description: "Create a new token at https://cloud.saleor.io/tokens and run jolly login --token <token>" },
-        ],
-      }),
-    );
-    return;
-  }
-
-  writeEnvValues(cwd, {
-    "JOLLY_SALEOR_CLOUD_TOKEN": tokenValue!,
-    "JOLLY_SALEOR_ORGANIZATION": "Saleor Cloud user (authenticated)",
-  });
-
-  output(
-    buildEnvelope("login", {
-      status: "success",
-      summary: "Logged in to Saleor Cloud. Token written to .env.",
-      data: {
-        verifyUrl,
-        valid: true,
-        envUpdated: true,
-        authenticated: true,
-        tokenConfigured: true,
-        accountContext: "Saleor Cloud user (authenticated)",
-        riskContext: loginRc,
-      },
-      checks: [
-        { id: "login-token-written", status: "pass" as CheckStatus, description: "JOLLY_SALEOR_CLOUD_TOKEN written to .env" },
-        { id: "login-gitignore", status: "pass" as CheckStatus, description: ".env is git-ignored" },
-        { id: "login-token-validation", status: "pass" as CheckStatus, description: "Token verified at id.saleor.online/configure" },
-      ],
-      nextSteps: [
-        { description: "Verify authentication with jolly auth status" },
-      ],
-    }),
-  );
+  await verifyTokenAndStore(tokenValue!);
 }
 
 // ── Command: logout ──────────────────────────────────────────────────────
@@ -725,32 +1004,34 @@ function cmdLogout(): void {
 
 // ── Command: auth status ─────────────────────────────────────────────────
 
+// Reports CONFIGURATION, not verification: booleans read from .env and the
+// stored organization context. No network request, and no `authenticated`
+// claim for a token merely found on disk (feature 020 "No fabricated
+// success").
 function cmdAuthStatus(): void {
   const existing = loadEnvValues(cwd);
   const hasCloudToken = "JOLLY_SALEOR_CLOUD_TOKEN" in existing;
   const hasAppToken = "JOLLY_SALEOR_APP_TOKEN" in existing;
-  const organizationName = existing["JOLLY_SALEOR_ORGANIZATION"] ?? null;
-  const accountContext = organizationName ?? "unknown";
+  const accountContext = existing["JOLLY_SALEOR_ORGANIZATION"] ?? "unknown";
 
   output(
     buildEnvelope("auth status", {
       status: "success",
       summary: hasCloudToken
-        ? "Saleor Cloud authentication is configured."
-        : "Saleor Cloud authentication is not configured.",
+        ? "A Saleor Cloud token is configured in .env (configuration only — the token was not re-checked against the Cloud API)."
+        : "No Saleor Cloud token is configured in .env.",
       data: {
-        authenticated: hasCloudToken,
         hasCloudToken,
         hasAppToken,
         accountContext,
       },
       checks: [
-        { id: "auth-cloud-token", status: (hasCloudToken ? "pass" : "fail") as CheckStatus, description: "JOLLY_SALEOR_CLOUD_TOKEN" },
-        { id: "auth-app-token", status: (hasAppToken ? "pass" : "skipped") as CheckStatus, description: "JOLLY_SALEOR_APP_TOKEN (optional)" },
+        { id: "auth-cloud-token", status: (hasCloudToken ? "pass" : "fail") as CheckStatus, description: "JOLLY_SALEOR_CLOUD_TOKEN present in .env" },
+        { id: "auth-app-token", status: (hasAppToken ? "pass" : "skipped") as CheckStatus, description: "JOLLY_SALEOR_APP_TOKEN present in .env (optional)" },
       ],
       nextSteps: hasCloudToken
-        ? [{ description: "Authentication is configured. Run jolly start to proceed." }]
-        : [{ description: "Run jolly login --token <token> to authenticate with Saleor Cloud" }],
+        ? [{ description: "Run jolly start to proceed." }]
+        : [{ description: "Run jolly login --token <token> to configure Saleor Cloud authentication" }],
     }),
   );
 }
@@ -838,9 +1119,11 @@ async function cmdCreateEnvironment(): Promise<void> {
 
   // ── Dry-run: prepare the creation without any Cloud API write ───────
   // Emits the prepared POST (requestUrl + requestBody); nothing is created
-  // and .env is not written. With --organization (or the mock-injected
-  // organization list) no Cloud API call is made at all, so this works
-  // with a dummy token.
+  // and .env is not written. The preview shows the REAL request (feature
+  // 020 "No fabricated success"): the organization actually resolved from
+  // the token (a read-only organizations GET when --organization is not
+  // given) and the project really resolved from a read-only projects GET
+  // when one exists. The preview makes GET requests only — never a POST.
   if (FLAG_DRY_RUN) {
     const dryData: Record<string, unknown> = {
       dryRun: true,
@@ -866,12 +1149,35 @@ async function cmdCreateEnvironment(): Promise<void> {
       return;
     }
     const organizationSlug = organization.slug;
+
+    // Resolve the real project (create-or-reuse, feature 012 Rule): reuse
+    // the existing project when one exists; otherwise preview the name the
+    // real run would create with plan "dev". Skipped when the organization
+    // list was mock-injected (no real account context exists to query).
+    let project: string | undefined;
+    if (!mockOrganizations) {
+      try {
+        const projects = await listProjects(cloudToken, organizationSlug);
+        if (projects.length > 0) {
+          project = String(projects[0].slug ?? projects[0].name);
+          dryData.projectName = String(projects[0].name ?? project);
+        }
+      } catch {
+        // The projects endpoint could not be read; the preview falls back
+        // to the project name the real run would create.
+      }
+    }
+    if (!project) {
+      project = `jolly-project-${Date.now().toString(36)}`;
+      dryData.projectName = project;
+    }
+
     dryData.organizationSlug = organizationSlug;
     dryData.environmentName = environmentName;
-    dryData.requestUrl = `${CLOUD_API_BASE}/organizations/${organizationSlug}/environments/`;
+    dryData.requestUrl = `${cloudApiBase()}/organizations/${organizationSlug}/environments/`;
     dryData.requestBody = {
       name: environmentName,
-      project: "jolly-project",
+      project,
       domain_label: domainLabel,
       database_population: "sample",
       service: "saleor",
@@ -1026,6 +1332,33 @@ async function cmdCreateEnvironment(): Promise<void> {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     const code = error instanceof CloudApiError ? error.code : "CREATE_ENVIRONMENT_FAILED";
+    const httpStatus = error instanceof CloudApiError ? error.httpStatus : undefined;
+
+    // Real duplicate-domain-label rejection from the Cloud API (feature 012):
+    // suggest an alternative label and signal that the agent may retry with
+    // a corrected --domain-label.
+    if (code === "DOMAIN_LABEL_TAKEN") {
+      const suggestedDomain = `${domainLabel}-${Date.now().toString(36).slice(-4)}`;
+      data.suggestedDomain = suggestedDomain;
+      data.retryAvailable = true;
+      errorExit(
+        buildEnvelope("create store", {
+          status: "error",
+          summary: `Environment creation rejected: the domain label "${domainLabel}" is already taken. An alternative label is suggested in data.suggestedDomain.`,
+          data,
+          checks,
+          errors: [{
+            code: "DOMAIN_LABEL_TAKEN",
+            message,
+            httpStatus,
+            remediation: `Re-run jolly create store --create-environment --domain-label <new-label> (for example "${suggestedDomain}").`,
+          }],
+          nextSteps: [
+            { description: `Re-run with a different domain label, for example --domain-label ${suggestedDomain}` },
+          ],
+        }),
+      );
+    }
 
     if (code === "ENVIRONMENT_LIMIT_REACHED") {
       errorExit(
@@ -1037,6 +1370,7 @@ async function cmdCreateEnvironment(): Promise<void> {
           errors: [{
             code: "ENVIRONMENT_LIMIT_REACHED",
             message,
+            httpStatus,
             remediation: "Delete an unused environment or upgrade the organization's plan, then re-run jolly create store --create-environment.",
           }],
           nextSteps: [
@@ -1052,7 +1386,7 @@ async function cmdCreateEnvironment(): Promise<void> {
         summary: `Failed to create Saleor Cloud environment: ${message}`,
         data,
         checks,
-        errors: [{ code, message }],
+        errors: [{ code, message, httpStatus }],
       }),
     );
   }
@@ -1328,96 +1662,6 @@ async function cmdCreateStore(): Promise<void> {
     return;
   }
 
-  // ── Cloud API environment creation data ─────────────────────────────
-  // For @logic tests: emit the Cloud API request construction data
-  const host = new URL(url).host;
-  const orgId = "org-test-123";
-  const requestUrl = `https://api.saleor.cloud/platform/api/organizations/${orgId}/environments/`;
-  const requestBody = {
-    name: host.split(".")[0],
-    project: "jolly-setup",
-    domain_label: host.split(".")[0],
-    database_population: "sample",
-    service: "saleor",
-    region: "us-east-1",
-  };
-  const taskId = "task-" + Math.random().toString(36).slice(2, 10);
-  const taskPollUrl = `https://api.saleor.cloud/platform/api/service/task-status/${taskId}`;
-
-  // Collision detection
-  const isCollision = args.includes("--collision") || url.includes("existing-shop");
-  if (isCollision) {
-    output(
-      buildEnvelope("create store", {
-        status: "warning",
-        summary: "Domain label collision: 'existing-shop' is already taken. Suggesting an alternative.",
-        data: {
-          requestUrl,
-          requestBody: { ...requestBody, domain_label: "existing-shop" },
-          taskId,
-          taskPollUrl,
-          suggestedDomain: "existing-shop-2",
-          retryAvailable: true,
-          retried: true,
-          envUpdated: false,
-        },
-        checks: [
-          { id: "create-store-domain-collision", status: "warning" as CheckStatus, description: "Domain label collision detected" },
-        ],
-        nextSteps: [
-          { description: "Provide a new domain label to retry the request" },
-        ],
-      }),
-    );
-    return;
-  }
-
-  // Project creation fallback
-  const needsProject = args.includes("--needs-project") || url.includes("new-project");
-  if (needsProject) {
-    const projectCreateUrl = `https://api.saleor.cloud/platform/api/organizations/${orgId}/projects/`;
-    const projectBody = {
-      name: "jolly-setup-project",
-      plan: "dev",
-      region: "us-east-1",
-    };
-    output(
-      buildEnvelope("create store", {
-        status: "success",
-        summary: "Created a new project and environment on Saleor Cloud.",
-        data: {
-          requestUrl,
-          requestBody,
-          taskId,
-          taskPollUrl,
-          projectCreateUrl,
-          projectBody,
-          projectCreated: true,
-          environmentCreated: true,
-          url,
-          envUpdated: true,
-        },
-        checks: [
-          { id: "create-store-project-created", status: "pass" as CheckStatus, description: "Project created" },
-          { id: "create-store-environment-created", status: "pass" as CheckStatus, description: "Environment created" },
-        ],
-        nextSteps: [
-          { description: "Run jolly create storefront to clone Saleor Paper" },
-        ],
-      }),
-    );
-    return;
-  }
-
-  // Standard Cloud API environment creation info
-  const cloudApiData: Record<string, unknown> = {
-    requestUrl,
-    requestBody,
-    taskId,
-    taskPollUrl,
-    taskFinalStatus: "SUCCEEDED",
-  };
-
   writeEnvValues(cwd, { "NEXT_PUBLIC_SALEOR_API_URL": url });
 
   if (hasUnrelatedKeys) {
@@ -1425,7 +1669,7 @@ async function cmdCreateStore(): Promise<void> {
       buildEnvelope("create store", {
         status: "warning",
         summary: "Warning: .env already contains values not managed by Jolly. The Saleor URL was added, but review the existing values to avoid conflicts.",
-        data: { ...cloudApiData, ...extraData, existing: false, url, envUpdated: true, collision: true },
+        data: { ...extraData, existing: false, url, envUpdated: true, collision: true },
         checks: [
           ...extraChecks,
           { id: "create-store-url-written", status: "pass" as CheckStatus, description: "NEXT_PUBLIC_SALEOR_API_URL written to .env" },
@@ -1444,7 +1688,7 @@ async function cmdCreateStore(): Promise<void> {
     buildEnvelope("create store", {
       status: "success",
       summary: "Saleor store connected. URL written to .env.",
-      data: { ...cloudApiData, ...extraData, existing: false, url, envUpdated: true },
+      data: { ...extraData, existing: false, url, envUpdated: true },
       checks: [
         ...extraChecks,
         { id: "create-store-url-written", status: "pass" as CheckStatus, description: "NEXT_PUBLIC_SALEOR_API_URL written to .env" },

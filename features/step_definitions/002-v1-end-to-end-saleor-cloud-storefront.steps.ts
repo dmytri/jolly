@@ -389,7 +389,7 @@ Then(
 );
 
 Then(
-  /^for new Saleor Cloud account creation, Jolly should direct the customer to saleor\.io\/cloud for the browser signup flow$/, // regex
+  /^for new Saleor Cloud account creation, Jolly should direct the customer to cloud\.saleor\.io for the browser signup flow$/, // regex
   function (this: JollyWorld) {
     // Contract.
   },

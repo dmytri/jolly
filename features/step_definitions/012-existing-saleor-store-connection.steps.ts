@@ -35,21 +35,39 @@
 //       the output advises re-running with --organization <slug>.
 //     --dry-run prepares the creation without any Cloud API write: data
 //       carries requestUrl and requestBody (the prepared POST), nothing is
-//       created and .env is not written.
+//       created and .env is not written. The preview shows the REAL request
+//       (feature 020 "No fabricated success" / 012 Cloud API rule): the
+//       organization actually resolved from the token (a real read-only GET
+//       of the organizations endpoint when --organization is not given), a
+//       real project name (resolved, not invented), and no random task ids.
+//       All Cloud API requests honor JOLLY_SALEOR_CLOUD_API_URL (feature
+//       018); the @logic preview scenario runs against a local harness
+//       Cloud API server through that override.
+//     On a duplicate domain label the Cloud API really rejects the request:
+//       status "error" with stable code DOMAIN_LABEL_TAKEN carrying the
+//       numeric httpStatus, plus data.suggestedDomain (an alternative
+//       label) and data.retryAvailable: true so the agent can re-run with a
+//       corrected --domain-label. (The retired --collision and
+//       --needs-project injection flags encoded mocked premises and must be
+//       removed from src.)
 //   Mock-injected @logic conditions (sandbox cannot produce them harmlessly):
-//     --collision           Cloud API HTTP 400 "domain label already exists"
-//     --needs-project       no project exists yet; project creation path
 //     --mock-organizations <s1,s2,...>  the org list the token would see
 //       (the sandbox account has one organization, so the multi-org premise
 //       is injected; sanctioned by the feature's Rule + AGENTS.md)
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import type { JollyWorld } from "../support/world.ts";
 import {
   deleteEnvironment,
   leftoverTestEnvironments,
   listAllEnvironments,
 } from "../support/cloud.ts";
+import {
+  ensureSharedEnvironment,
+  sharedEnvironmentName,
+} from "../support/provision.ts";
 import { makeNamespace } from "../support/sandbox.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
 import { normalizeSaleorUrl } from "../../src/lib/saleor-url.ts";
@@ -266,10 +284,12 @@ Then(
 
 Given(
   "the customer has authenticated Jolly with Saleor Cloud",
+  { timeout: 60_000 },
   function (this: JollyWorld) {
     const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
     assert.ok(token, "JOLLY_SALEOR_CLOUD_TOKEN must be set (gated by @sandbox hook)");
     this.trackSecret(token!);
+    // Real token, real Cloud API: a real feature 018 verification.
     this.runCli(["login", "--token", token!]);
     assert.equal(this.envelope.status, "success", "jolly login should succeed");
   },
@@ -360,7 +380,7 @@ Then(
 
 // ── Scenario: Jolly acquires the required app token (@sandbox) ───────────
 
-Given("the endpoint has been verified", function (this: JollyWorld) {
+Given("the endpoint has been verified", { timeout: 60_000 }, function (this: JollyWorld) {
   const url = process.env["NEXT_PUBLIC_SALEOR_API_URL"];
   const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
   assert.ok(url && token, "sandbox credentials must be present (gated by @sandbox hook)");
@@ -503,45 +523,132 @@ Then(
 
 Given(
   "the agent has a Saleor Cloud token authenticated via JOLLY_SALEOR_CLOUD_TOKEN",
+  { timeout: 60_000 },
   function (this: JollyWorld) {
-    // Real token when present (sandbox); a dummy otherwise so @logic
-    // request-construction scenarios can run without accounts.
+    // Real token when present (sandbox): a real feature 018 verification.
+    // Otherwise a dummy token against an unroutable API base takes the
+    // honest "stored, not verified" warning path, so @logic
+    // request-construction scenarios run without accounts and can never
+    // reach a real one.
     const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
-    if (token) this.trackSecret(token);
-    this.runCli([
-      "login", "--token", token ?? "test-cloud-token-for-logic",
-    ]);
+    if (token) {
+      this.trackSecret(token);
+      this.runCli(["login", "--token", token]);
+      assert.equal(
+        this.envelope.status,
+        "success",
+        `real-token login should verify and succeed: ${this.envelope.summary}`,
+      );
+    } else {
+      this.runCli(["login", "--token", LOGIC_CLOUD_TOKEN], {
+        env: {
+          JOLLY_SALEOR_CLOUD_TOKEN: undefined,
+          JOLLY_SALEOR_CLOUD_API_URL: `https://${this.namespace}.invalid/platform/api`,
+        },
+      });
+      assert.equal(
+        this.envelope.status,
+        "warning",
+        `dummy-token login with an unreachable API must take the "stored, not verified" warning path: ${this.envelope.summary}`,
+      );
+    }
   },
 );
 
-Given(
-  "the agent has selected or created a Saleor Cloud organization",
-  function (this: JollyWorld) {
-    // Premise marker — the organization appears in the constructed request.
-  },
-);
+// ── Scenario: Jolly create store builds a Cloud API environment creation
+//    request (@logic, --dry-run against a local harness Cloud API) ─────────
+// The preview must show the real request: the organization is resolved from
+// the token via a real read-only organizations GET. The harness serves that
+// GET locally and the CLI reaches it through the documented
+// JOLLY_SALEOR_CLOUD_API_URL override — so the scenario needs no account,
+// honors the override contract, and a CLI that ignores --dry-run can only
+// POST to the harness (which records and rejects it), never to Saleor.
+
+const HARNESS_ORG_SLUG = "jolly-logic-org";
+const HARNESS_PROJECT_NAME = "jolly-logic-project";
 
 When(
-  "Jolly prepares to create a new Saleor Cloud environment from the Cloud API",
-  function (this: JollyWorld) {
-    this.runCli([
-      "create", "store",
-      "--url", "https://test-shop.saleor.cloud/graphql/",
-      "--json",
-    ]);
+  "the agent previews environment creation with `jolly create store --create-environment --dry-run --json`",
+  { timeout: 60_000 },
+  async function (this: JollyWorld) {
+    const requests: Array<{ method: string; url: string }> = [];
+    const server = createServer((req, res) => {
+      requests.push({ method: req.method ?? "", url: req.url ?? "" });
+      if (req.method !== "GET") {
+        res.statusCode = 500;
+        res.end(JSON.stringify({ error: "a dry-run preview must not write" }));
+        return;
+      }
+      res.setHeader("content-type", "application/json");
+      const path = (req.url ?? "").split("?")[0];
+      if (path.endsWith("/organizations/")) {
+        res.end(JSON.stringify([{ slug: HARNESS_ORG_SLUG, name: "Jolly Logic Org" }]));
+      } else if (path.endsWith("/projects/")) {
+        res.end(JSON.stringify([{ slug: HARNESS_PROJECT_NAME, name: HARNESS_PROJECT_NAME }]));
+      } else {
+        res.end(JSON.stringify([]));
+      }
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    this.cleanup.register("local harness Cloud API server", () => {
+      server.close();
+    });
+    const apiBase = `http://127.0.0.1:${(server.address() as AddressInfo).port}/platform/api`;
+    this.notes["harnessApiRequests"] = requests;
+    this.notes["harnessApiBase"] = apiBase;
+    // runCliAsync, not runCli: the CLI must be able to reach the in-process
+    // server above, so the event loop has to keep running.
+    await this.runCliAsync(
+      ["create", "store", "--create-environment", "--dry-run", "--json"],
+      {
+        env: {
+          JOLLY_SALEOR_CLOUD_TOKEN: LOGIC_CLOUD_TOKEN,
+          JOLLY_SALEOR_CLOUD_API_URL: apiBase,
+        },
+      },
+    );
   },
 );
 
 Then(
-  /^it should POST to \/platform\/api\/organizations\/\{organization\}\/environments\/$/,
+  /^the prepared request should POST to \/platform\/api\/organizations\/\{organization\}\/environments\/$/,
   function (this: JollyWorld) {
-    assert.match(
-      String(data(this).requestUrl),
-      /\/platform\/api\/organizations\/[^/]+\/environments\/$/,
-      `data.requestUrl should be the Cloud API environments endpoint: ${data(this).requestUrl}`,
+    const apiBase = this.notes["harnessApiBase"] as string;
+    assert.equal(
+      data(this).requestUrl,
+      `${apiBase}/organizations/${HARNESS_ORG_SLUG}/environments/`,
+      `data.requestUrl should target the environments endpoint of the organization ` +
+        `actually resolved from the token, on the configured Cloud API base: ${data(this).requestUrl}`,
+    );
+    // No invented identifiers (feature 020): the previewed project must be
+    // the one really resolved from the Cloud API, not a hardcoded label.
+    const body = data(this).requestBody as Record<string, unknown> | undefined;
+    assert.ok(body, "data.requestBody should carry the prepared POST body");
+    assert.equal(
+      body!.project,
+      HARNESS_PROJECT_NAME,
+      `requestBody.project should be the project resolved from the Cloud API: ${JSON.stringify(body)}`,
     );
   },
 );
+
+Then("no environment should be created", function (this: JollyWorld) {
+  const requests = this.notes["harnessApiRequests"] as Array<{
+    method: string;
+    url: string;
+  }>;
+  const writes = requests.filter((r) => r.method !== "GET");
+  assert.equal(
+    writes.length,
+    0,
+    `the dry-run preview must send no write requests, got: ${JSON.stringify(writes)}`,
+  );
+  const values = loadEnvValues(this.projectDir);
+  assert.ok(
+    !("NEXT_PUBLIC_SALEOR_API_URL" in values) && !("JOLLY_SALEOR_APP_TOKEN" in values),
+    "the dry-run preview must not write environment outputs to .env",
+  );
+});
 
 Then(
   "the POST body should include name, project, domain_label, database_population, service, and optional basic-auth credentials",
@@ -597,37 +704,94 @@ Then(
   },
 );
 
-Then(
-  "once complete, it should set NEXT_PUBLIC_SALEOR_API_URL from the resulting domain",
-  function (this: JollyWorld) {
-    const values = loadEnvValues(this.projectDir);
-    assert.ok(
-      typeof values["NEXT_PUBLIC_SALEOR_API_URL"] === "string" &&
-        values["NEXT_PUBLIC_SALEOR_API_URL"].length > 0,
-      "NEXT_PUBLIC_SALEOR_API_URL should be set in .env",
-    );
-  },
-);
-
-// ── Scenario: Jolly create store handles domain name collision (@logic) ──
+// ── Scenario: Jolly create store handles domain name collision (@sandbox) ─
+// The premise — an environment this run already created with a jolly-test
+// domain label — is the run's shared provisioned environment (features 023 +
+// 012), so the scenario produces a REAL duplicate-label rejection from the
+// Cloud API without consuming an extra sandbox slot for the premise. The
+// retry is agent-driven: the test provides the corrected, still-namespaced
+// label, exactly as the customer's agent would.
 
 Given(
-  "Jolly submits an environment creation with a domain that already exists",
-  function (this: JollyWorld) {
-    this.notes["collisionDomain"] = "existing-shop";
+  "this run has already created an environment with a jolly-test-namespaced domain label",
+  { timeout: 900_000 },
+  async function (this: JollyWorld) {
+    const outcome = await ensureSharedEnvironment();
+    if (outcome.status === "skip") {
+      this.attach(`Skipped: ${outcome.reason}`, "text/plain");
+      return "skipped";
+    }
+    this.notes["collisionDomain"] = sharedEnvironmentName();
   },
 );
 
 When(
-  "the Cloud API responds with HTTP {int} and {string}",
-  function (this: JollyWorld, _status: number, _message: string) {
-    // The sandbox cannot produce a domain collision harmlessly (it would
-    // need a pre-existing environment), so the condition is mock-injected.
-    this.runCli([
-      "create", "store",
-      "--url", "https://existing-shop.saleor.cloud/graphql/",
-      "--collision", "--json",
-    ]);
+  "the agent requests another environment with the same domain label",
+  { timeout: 120_000 },
+  async function (this: JollyWorld) {
+    const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
+    assert.ok(cloudToken, "JOLLY_SALEOR_CLOUD_TOKEN must be set (gated by @sandbox hook)");
+    // Catch-all teardown before the CLI runs: a buggy CLI that sidesteps
+    // the duplicate label (for example by generating its own) must not
+    // leak whatever it created.
+    const snapshot = new Set(
+      (await listAllEnvironments(cloudToken!)).map((env) => env.key),
+    );
+    this.cleanup.register(
+      "Saleor Cloud environments created by the collision scenario (catch-all diff)",
+      async () => {
+        for (const env of await listAllEnvironments(cloudToken!)) {
+          if (
+            !snapshot.has(env.key) &&
+            (env.name.startsWith(this.namespace) ||
+              env.name.startsWith("jolly-env-"))
+          ) {
+            await deleteEnvironment(cloudToken!, env.org, env.key);
+          }
+        }
+      },
+    );
+    this.runCli(
+      [
+        "create", "store", "--create-environment",
+        "--name", `${this.namespace}-collide`,
+        "--domain-label", this.notes["collisionDomain"] as string,
+        "--json",
+      ],
+      { timeoutMs: 110_000 },
+    );
+    if (
+      this.envelope.errors.some((e) => e.code === "ENVIRONMENT_LIMIT_REACHED")
+    ) {
+      this.attach(
+        "Skipped: Cloud API rejected environment creation with ENVIRONMENT_LIMIT_REACHED.",
+        "text/plain",
+      );
+      return "skipped";
+    }
+  },
+);
+
+Then(
+  "the Cloud API should reject the duplicate domain label",
+  function (this: JollyWorld) {
+    assert.equal(
+      this.envelope.status,
+      "error",
+      `a duplicate domain label must be rejected: ${this.envelope.summary}`,
+    );
+    const error = this.envelope.errors.find(
+      (e) => e.code === "DOMAIN_LABEL_TAKEN",
+    );
+    assert.ok(
+      error,
+      `expected stable error code DOMAIN_LABEL_TAKEN: ${JSON.stringify(this.envelope.errors)}`,
+    );
+    // Evidence the rejection really came from the Cloud API.
+    assert.ok(
+      typeof error!.httpStatus === "number" && (error!.httpStatus as number) >= 400,
+      `errors[].httpStatus must carry the real Cloud API rejection status: ${JSON.stringify(error)}`,
+    );
   },
 );
 
@@ -660,65 +824,73 @@ Then(
 
 Then(
   "it should retry the request with the corrected domain",
+  { timeout: 600_000 },
   function (this: JollyWorld) {
+    // The agent provides the corrected, still-namespaced label and re-runs:
+    // the retry IS a real environment creation, registered for teardown.
+    const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"]!;
+    const retryName = `${this.namespace}-retry`;
+    this.notes["retryEnvironmentName"] = retryName;
+    this.runCli(
+      [
+        "create", "store", "--create-environment",
+        "--name", retryName,
+        "--domain-label", retryName,
+        "--json",
+      ],
+      { timeoutMs: 540_000 },
+    );
+    const envelope = this.envelope;
+    // Precise teardown registered before any assertion can fail.
+    const organizationSlug = envelope.data.organizationSlug;
+    const environmentKey = envelope.data.environmentKey;
+    if (
+      typeof organizationSlug === "string" &&
+      typeof environmentKey === "string"
+    ) {
+      this.cleanup.register(
+        `Saleor Cloud environment ${organizationSlug}/${environmentKey} (collision retry)`,
+        () => deleteEnvironment(cloudToken, organizationSlug, environmentKey),
+      );
+      this.notes["retryTeardownRegistered"] = true;
+    }
+    if (envelope.errors.some((e) => e.code === "ENVIRONMENT_LIMIT_REACHED")) {
+      this.attach(
+        "Skipped: Cloud API rejected the retry with ENVIRONMENT_LIMIT_REACHED.",
+        "text/plain",
+      );
+      return "skipped";
+    }
     assert.equal(
-      data(this).retried,
-      true,
-      "data.retried should confirm the request was retried with the corrected domain",
+      envelope.status,
+      "success",
+      `the retry with a corrected domain label should succeed: ${JSON.stringify(envelope.errors)}`,
     );
   },
 );
 
-// ── Scenario: Jolly create store creates a project when none exists ──────
-
-Given(
-  "the agent has not created or selected a Saleor Cloud project",
-  function (this: JollyWorld) {
-    // Premise marker — the no-project condition is mock-injected below.
-  },
-);
-
-When(
-  "Jolly needs a project for environment creation",
-  function (this: JollyWorld) {
-    this.runCli([
-      "create", "store",
-      "--url", "https://new-project.saleor.cloud/graphql/",
-      "--needs-project", "--json",
-    ]);
-  },
-);
-
 Then(
-  /^it should create a project via POST \/platform\/api\/organizations\/\{organization\}\/projects\/$/,
+  "every environment created by the retry should carry the run's jolly-test namespace and registered teardown",
   function (this: JollyWorld) {
+    const retryName = this.notes["retryEnvironmentName"] as string;
+    assert.equal(
+      data(this).environmentName,
+      retryName,
+      `the retry-created environment must carry the namespaced name "${retryName}": ${JSON.stringify(data(this))}`,
+    );
     assert.match(
-      String(data(this).projectCreateUrl),
-      /\/platform\/api\/organizations\/[^/]+\/projects\/$/,
-      `data.projectCreateUrl should be the Cloud API projects endpoint: ${data(this).projectCreateUrl}`,
+      String(data(this).domainUrl),
+      new RegExp(`^https://${retryName}\\.`),
+      `the retry-created domain must carry the namespaced label "${retryName}": ${data(this).domainUrl}`,
     );
-    assert.equal(data(this).projectCreated, true, "data.projectCreated should be true");
-  },
-);
-
-Then(
-  'the project body should include name, plan="dev", and region',
-  function (this: JollyWorld) {
-    const body = data(this).projectBody as Record<string, unknown> | undefined;
-    assert.ok(body, "data.projectBody should carry the project POST body");
-    assert.ok(typeof body!.name === "string" && (body!.name as string).length > 0);
-    assert.equal(body!.plan, "dev");
-    assert.ok(typeof body!.region === "string" && (body!.region as string).length > 0);
-  },
-);
-
-Then(
-  "it should proceed to create the environment in the new project",
-  function (this: JollyWorld) {
     assert.equal(
-      data(this).environmentCreated,
+      this.notes["retryTeardownRegistered"],
       true,
-      "data.environmentCreated should be true after the project was created",
+      "a teardown deletion for the retry-created environment should have been registered",
+    );
+    assert.ok(
+      this.cleanup.size > 0,
+      "the cleanup registry should hold the registered environment deletion",
     );
   },
 );
@@ -785,10 +957,15 @@ Given(
   "the Cloud token can access organizations {string} and {string}",
   function (this: JollyWorld, orgOne: string, orgTwo: string) {
     this.notes["mockOrganizations"] = [orgOne, orgTwo];
-    // The org list is mock-injected; a dummy token keeps this @logic and
-    // guarantees the real account is never touched.
+    // The org list is mock-injected; a dummy token plus an unroutable API
+    // base keeps this @logic and guarantees the real account is never
+    // touched (the login takes the feature 018 "stored, not verified"
+    // warning path).
     this.runCli(["login", "--token", LOGIC_CLOUD_TOKEN], {
-      env: { JOLLY_SALEOR_CLOUD_TOKEN: LOGIC_CLOUD_TOKEN },
+      env: {
+        JOLLY_SALEOR_CLOUD_TOKEN: LOGIC_CLOUD_TOKEN,
+        JOLLY_SALEOR_CLOUD_API_URL: `https://${this.namespace}.invalid/platform/api`,
+      },
     });
   },
 );
