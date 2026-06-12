@@ -60,7 +60,7 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompt
 - **Inspiration:** swamp.club.
 - **Core principle:** Jolly exists to empower the customer's own agent, not replace it. The customer's agent remains the primary orchestrator, explainer, and approval manager. Jolly provides capabilities, setup automation, wrappers, diagnostics, and local/project automation that make the agent more effective.
 - **Zero unnecessary friction:** The path from copying the Jolly homepage prompt to a working deployed storefront requires only the human actions that cannot be automated — new account creation, browser OAuth consent, and providing secret values. Everything else Jolly and the agent handle automatically using safe defaults.
-- **Architectural complement:** Jolly is complementary to the Saleor MCP server (mcp.saleor.app). The MCP server is read-only and provides live store data access — products, orders, and customers — for an already-configured store. Jolly handles setup automation, local project scaffolding, deployment orchestration, skill management, and diagnostics. As part of `jolly init`, Jolly should configure mcp-graphql and inform the agent about the MCP server so it has live store access from day one.
+- **Architectural complement:** Jolly is complementary to the Saleor MCP server (mcp.saleor.app). The MCP server is read-only and provides live store data access — products, orders, and customers — for an already-configured store. Jolly handles setup automation, local project scaffolding, deployment orchestration, skill management, and diagnostics. As part of `jolly init`, Jolly configures a local mcp-graphql server against the customer's own store endpoint and informs the agent that mcp.saleor.app exists for later use — Jolly itself never connects to mcp.saleor.app.
 
 ## V1 Scope and Boundaries
 
@@ -97,14 +97,21 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompt
 
 ## Network Boundaries (first-party hosts only)
 
-Decision 2026-06-12 (see feature 020 Rule "First-party hosts only"): Jolly contacts only
-auth.saleor.io (Keycloak, realm saleor-cloud), cloud.saleor.io (Cloud API + token page),
-the customer's *.saleor.cloud environment domains, mcp.saleor.app (read-only MCP),
+Decision 2026-06-12 (see feature 020 Rule "First-party hosts only"): Jolly's code sends
+network requests only to auth.saleor.io (Keycloak, realm saleor-cloud), cloud.saleor.io
+(Cloud API + token page), the customer's *.saleor.cloud environment domains,
 api.vercel.com, api.stripe.com, github.com (cloning saleor/storefront and skills), and
-127.0.0.1 (OAuth callback). Secrets travel only to their own service (Saleor tokens →
+127.0.0.1 (OAuth callback). "Hosts Jolly contacts" stays exactly equal to the hosts in
+Jolly's request-sending code. Secrets travel only to their own service (Saleor tokens →
 Saleor hosts; Vercel token → api.vercel.com; Stripe keys → api.stripe.com; nothing to
-github.com or mcp.saleor.app). `JOLLY_SALEOR_CLOUD_API_URL` optionally overrides the Cloud
-API base (default `https://cloud.saleor.io/platform/api`) for proxy/self-routing setups.
+github.com). `JOLLY_SALEOR_CLOUD_API_URL` optionally overrides the Cloud API base
+(default `https://cloud.saleor.io/platform/api`) for proxy/self-routing setups.
+
+Informational mentions are not contacts: mcp.saleor.app (the read-only Saleor MCP
+server) is something Jolly *tells the agent about* for later use — Jolly never connects
+to it during setup or otherwise. The `.mcp.json` Jolly writes configures a **local
+mcp-graphql server against the customer's own store endpoint**, which is the actual
+runtime behavior; keep that distinct from the informational mcp.saleor.app mention.
 
 The hosts `id.saleor.online` and `api.saleor.cloud` are **retired** saleor/cli-era
 remnants (live probe 2026-06-12: id.saleor.online is a Cloudflare stub; /verify and

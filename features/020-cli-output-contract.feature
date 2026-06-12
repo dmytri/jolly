@@ -84,15 +84,22 @@ Feature: Jolly CLI output contract
       path, real resolved identifiers — and never claim the previewed work happened.
 
   Rule: First-party hosts only (decision 2026-06-12)
-    - Jolly contacts only these hosts: auth.saleor.io (Keycloak OAuth, realm
-      saleor-cloud), cloud.saleor.io (Saleor Cloud API and token page), the customer's
-      own *.saleor.cloud environment domains, mcp.saleor.app (read-only MCP server),
-      api.vercel.com (deployment), api.stripe.com (payments), github.com (cloning
-      saleor/storefront and skills), and 127.0.0.1 (local OAuth callback).
+    - Jolly's code sends network requests only to these hosts: auth.saleor.io (Keycloak
+      OAuth, realm saleor-cloud), cloud.saleor.io (Saleor Cloud API and token page), the
+      customer's own *.saleor.cloud environment domains, api.vercel.com (deployment),
+      api.stripe.com (payments), github.com (cloning saleor/storefront and skills), and
+      127.0.0.1 (local OAuth callback). "Hosts Jolly contacts" stays exactly equal to
+      the hosts appearing in Jolly's request-sending code.
     - Secrets travel only to their own service: Saleor tokens only to auth.saleor.io,
       cloud.saleor.io, or the customer's *.saleor.cloud domains; the Vercel token only to
       api.vercel.com; Stripe keys only to api.stripe.com. No secret is ever sent to
-      github.com, mcp.saleor.app, or any host not on this list.
+      github.com or any host not on this list.
+    - Informational mentions are not contacts: Jolly may name other Saleor properties in
+      output or docs as guidance for the customer's agent — for example the read-only
+      MCP server mcp.saleor.app, which the agent may choose to use later — but Jolly
+      itself never sends requests (let alone secrets) to them. The .mcp.json Jolly
+      writes configures a local mcp-graphql server against the customer's own store
+      endpoint; it does not point at mcp.saleor.app.
     - `JOLLY_SALEOR_CLOUD_API_URL` (feature 018) may redirect the Cloud API base; secrets
       then go where the customer explicitly pointed them.
     - The retired saleor/cli-era hosts id.saleor.online and api.saleor.cloud must not

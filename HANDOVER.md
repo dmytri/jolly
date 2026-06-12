@@ -41,10 +41,15 @@ Spec changes (all committed this pass):
   actually performed+confirmed; "stored, not verified" wording; junk input
   never yields success language from any command; unimplemented → honest
   error; dry-run previews show the real request) and "First-party hosts
-  only" (allowlist: auth.saleor.io, cloud.saleor.io, *.saleor.cloud,
-  mcp.saleor.app, api.vercel.com, api.stripe.com, github.com, 127.0.0.1;
+  only" (request-sending allowlist: auth.saleor.io, cloud.saleor.io,
+  *.saleor.cloud, api.vercel.com, api.stripe.com, github.com, 127.0.0.1;
   secrets only to their own service; id.saleor.online + api.saleor.cloud
-  banned).
+  banned). Clarified same day: the allowlist covers hosts Jolly's code
+  sends requests to — exactly equal to hosts in request-sending code.
+  mcp.saleor.app is informational only (agent guidance in init output;
+  Jolly never contacts it; .mcp.json configures local mcp-graphql against
+  the customer's own endpoint), so a host gate must distinguish
+  request-sending code from informational mentions in output strings.
 - **012**: Cloud API rule now names api.saleor.cloud as retired and requires
   dry-run previews to show the real host/org/no invented ids.
 - **AGENTS.md** (output contract bullet + new "Network Boundaries" section)

@@ -117,11 +117,13 @@ DOM checks (storefront) use happy-dom; the homepage has no test coverage (Captai
   `jolly start` is safe and creates no duplicates; `jolly start` skips satisfied stages.
 - **No fabricated success + first-party hosts (020, 018):** success/verified claims and
   `pass` checks only for operations actually performed and confirmed; unverified storage
-  says exactly "stored, not verified"; unimplemented paths error honestly. Jolly contacts
-  only the allowlisted first-party hosts (auth.saleor.io, cloud.saleor.io, *.saleor.cloud,
-  mcp.saleor.app, api.vercel.com, api.stripe.com, github.com, 127.0.0.1); secrets go only
-  to their own service. `id.saleor.online` and `api.saleor.cloud` are retired hosts —
-  never use them. Cloud API base is overridable via `JOLLY_SALEOR_CLOUD_API_URL`.
+  says exactly "stored, not verified"; unimplemented paths error honestly. Jolly's code
+  sends requests only to the allowlisted first-party hosts (auth.saleor.io,
+  cloud.saleor.io, *.saleor.cloud, api.vercel.com, api.stripe.com, github.com,
+  127.0.0.1); secrets go only to their own service. mcp.saleor.app is informational only
+  (agent guidance — Jolly never contacts it; `.mcp.json` configures local mcp-graphql
+  against the customer's own endpoint). `id.saleor.online` and `api.saleor.cloud` are
+  retired hosts — never use them. Cloud API base: `JOLLY_SALEOR_CLOUD_API_URL` override.
 
 ## Secrets & environment
 
