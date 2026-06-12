@@ -88,6 +88,29 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompt
 - With `--json`, stdout contains only the envelope; default mode adds concise human text; `--quiet` trims nonessential human text only.
 - Stable `errors[].code` and check-id strings let agents branch programmatically; secrets are never printed and are referenced by name only.
 - Field names use camelCase (for example `nextSteps`, `riskLevel`, `dryRunAvailable`), across the envelope and the feature 021 risk context.
+- **No fabricated success (decision 2026-06-12):** verified/valid/connected/success claims
+  and `pass` checks are permitted only for operations actually performed and confirmed in
+  the run; storing without verifying is reported as exactly "stored, not verified"; junk
+  input never yields success language; unimplemented behavior errors honestly instead of
+  simulating (no placeholder tokens, invented ids, or input-pattern guessing). Dry-run
+  previews show the real request (host, path, resolved identifiers). See feature 020.
+
+## Network Boundaries (first-party hosts only)
+
+Decision 2026-06-12 (see feature 020 Rule "First-party hosts only"): Jolly contacts only
+auth.saleor.io (Keycloak, realm saleor-cloud), cloud.saleor.io (Cloud API + token page),
+the customer's *.saleor.cloud environment domains, mcp.saleor.app (read-only MCP),
+api.vercel.com, api.stripe.com, github.com (cloning saleor/storefront and skills), and
+127.0.0.1 (OAuth callback). Secrets travel only to their own service (Saleor tokens →
+Saleor hosts; Vercel token → api.vercel.com; Stripe keys → api.stripe.com; nothing to
+github.com or mcp.saleor.app). `JOLLY_SALEOR_CLOUD_API_URL` optionally overrides the Cloud
+API base (default `https://cloud.saleor.io/platform/api`) for proxy/self-routing setups.
+
+The hosts `id.saleor.online` and `api.saleor.cloud` are **retired** saleor/cli-era
+remnants (live probe 2026-06-12: id.saleor.online is a Cloudflare stub; /verify and
+/configure return 404) and must not appear in code, output, or specs. Token verification
+is a real authenticated GET of the Cloud API organizations endpoint — see feature 018
+Rule "Token verification is a real request or it is not verification".
 
 ## Agent Risk Context
 

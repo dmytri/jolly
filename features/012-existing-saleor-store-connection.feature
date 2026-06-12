@@ -172,7 +172,12 @@ Feature: Existing Saleor store connection
   Rule: Existing-store automation principles
     - Validate the GraphQL endpoint before using it.
     - Infer Saleor Cloud organization/environment from authenticated Cloud context where possible.
-    - The Cloud API is at https://cloud.saleor.io/platform/api. Authenticate with `Authorization: Token <token>`.
+    - The Cloud API is at https://cloud.saleor.io/platform/api (optionally overridden by
+      JOLLY_SALEOR_CLOUD_API_URL, feature 018). Authenticate with `Authorization: Token <token>`.
+      api.saleor.cloud is a retired saleor/cli-era host and must not appear in code or output.
+    - Dry-run previews of Cloud API requests show the real request: the cloud.saleor.io
+      host, the organization actually resolved from the token, and no invented
+      identifiers or random task ids (feature 020, "No fabricated success").
     - Organizations: GET /platform/api/organizations/ returns a list with slug and environments URL.
     - Projects: POST /platform/api/organizations/{slug}/projects/ with body { name, plan: "dev", region }.
     - Environments: POST /platform/api/organizations/{slug}/environments/ with body { name, project, domain_label, database_population: "sample", service: "saleor", region: "us-east-1" }. Returns a task_id.

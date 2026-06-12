@@ -4,13 +4,18 @@ Feature: Jolly auth commands
   So that Saleor Cloud authentication can be managed independently from the full setup flow
 
   @logic
-  Scenario: Jolly login writes token values to .env
-    Given the agent has a Saleor Cloud token value "jolly-login-test-token-abc"
+  Scenario: Jolly login stores a token honestly when verification is unreachable
+    Given the Saleor Cloud API is unreachable
+    And the agent has a Saleor Cloud token value "jolly-login-test-token-abc"
     When the agent runs `jolly login --token jolly-login-test-token-abc`
     Then Jolly should write the token to .env as JOLLY_SALEOR_CLOUD_TOKEN
     And .env should contain JOLLY_SALEOR_CLOUD_TOKEN=jolly-login-test-token-abc
     And .gitignore should contain .env
     And Jolly should load the updated .env values for the current command flow
+    And the envelope status should be "warning"
+    And the output should state the token was stored, not verified
+    And no check may report the token as verified
+    And no organization name should be written to .env
     And subsequent `jolly auth status` should report the token is configured
     And Jolly should not print the token value
 
@@ -24,29 +29,40 @@ Feature: Jolly auth commands
     And the redirect_uri should point to 127.0.0.1:5375/callback
 
   @logic
-  Scenario: Jolly login exchanges the OAuth code for a Saleor Cloud token
+  Scenario: Jolly login previews the OAuth code exchange requests
     Given Jolly receives an authorization code on the localhost callback
+    When it previews the code exchange with `--dry-run`
+    Then the preview should show a POST of the code, code_verifier, client_id="saleor-cli", and redirect_uri to the auth.saleor.io token endpoint
+    And the preview should show a POST of the resulting OIDC id_token to the Cloud API /platform/api/tokens endpoint
+    And the preview must not claim any exchange, verification, or login succeeded
+    And no token should be written to .env
+
+  @sandbox
+  Scenario: A failed OAuth code exchange is reported honestly
+    Given Jolly receives an authorization code that Keycloak will reject
     When it exchanges the code with the Keycloak token endpoint
-    Then it should POST the code, code_verifier, client_id="saleor-cli", and redirect_uri
-    And it should call POST /platform/api/tokens on the Cloud API with the OIDC id_token
-    And it should store the resulting Saleor Cloud token in .env as JOLLY_SALEOR_CLOUD_TOKEN
-    And it should verify the stored token via the id.saleor.online/verify endpoint
+    Then the exchange request should really be sent and really fail
+    And Jolly should emit an error envelope naming the step that failed
+    And it should not write any value to .env
+    And the output should contain no success, verified, or authenticated language
 
-  @logic
-  Scenario: Jolly login validates a headless token against the verify endpoint
-    Given the agent provides a token from https://cloud.saleor.io/tokens
+  @sandbox
+  Scenario: Jolly login verifies a headless token against the Cloud API
+    Given the agent provides a valid token from https://cloud.saleor.io/tokens
     When Jolly validates the token
-    Then it should POST the token to https://id.saleor.online/configure for verification
-    And if valid, it should store the token in .env as JOLLY_SALEOR_CLOUD_TOKEN
-    And it should store the authenticated organization name in .env as JOLLY_SALEOR_ORGANIZATION
-    And it should report the authenticated account or organization context
+    Then it should verify the token with an authenticated read-only request to the Cloud API organizations endpoint
+    And it should store the token in .env as JOLLY_SALEOR_CLOUD_TOKEN
+    And it should store the organization name returned by the Cloud API in .env as JOLLY_SALEOR_ORGANIZATION
+    And it should report the authenticated organization context using values from the real response
 
-  @logic
+  @sandbox
   Scenario: Jolly login rejects an invalid token gracefully
     Given the agent provides an invalid or expired token
-    When Jolly validates the token
-    Then it should report a clear error message
+    When Jolly validates the token against the Cloud API
+    Then the verification request should really be sent and really be rejected
+    And Jolly should report a clear error message
     And it should not write any value to .env
+    And the output should contain no success, verified, or authenticated language
     And the error message should direct the customer to create a new token at https://cloud.saleor.io/tokens
 
   @requires-browser
@@ -114,7 +130,32 @@ Feature: Jolly auth commands
       JOLLY_SALEOR_ORGANIZATION. It is non-secret account context, not a credential; it may
       appear in output, and `jolly auth status` reads it back so it can report account
       context without a network call. When it is absent, account context is reported as
-      unknown — never an error.
+      unknown — never an error. The stored value is always the organization name returned
+      by the Cloud API — never a placeholder or invented label.
+
+  Rule: Token verification is a real request or it is not verification
+    - Token verification means one thing (decision 2026-06-12): an authenticated read-only
+      GET of the Cloud API organizations endpoint
+      (`https://cloud.saleor.io/platform/api/organizations/`, `Authorization: Token <value>`)
+      whose response was actually received and checked. A 2xx response with a parseable
+      organization list is verified; a 401/403 is an invalid token (error, nothing written);
+      any other failure (network unreachable, 5xx, timeout) means verification did not
+      happen.
+    - When verification did not happen but the token was stored, every surface (summary,
+      checks, data) must say "stored, not verified"; the envelope status is "warning" and
+      the verification check status is "unknown" — never "pass".
+    - `JOLLY_SALEOR_CLOUD_API_URL` optionally overrides the Cloud API base URL (default
+      `https://cloud.saleor.io/platform/api`) for proxy or self-routing setups; all Cloud
+      API requests honor it. Pointing it elsewhere is the customer's explicit choice.
+    - The hosts `id.saleor.online` and `api.saleor.cloud` are retired remnants of the
+      deprecated saleor/cli era (live probe 2026-06-12: id.saleor.online is a stub with
+      404 /verify and /configure). They must not appear in Jolly code, output, or specs;
+      the real first-party hosts are auth.saleor.io (Keycloak, realm saleor-cloud) and
+      cloud.saleor.io (Cloud API and token page).
+    - The OAuth code exchange makes real requests (Keycloak token endpoint, then Cloud
+      API /platform/api/tokens) and reports their real outcomes. No placeholder tokens,
+      simulated responses, or fabricated "verified" checks — if a step is unimplemented,
+      Jolly errors naming the unimplemented step.
 
   Rule: Login credentials are one-time inputs, never persisted
     - Saleor Cloud email and password are one-time login inputs. Jolly holds them in

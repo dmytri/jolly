@@ -10,7 +10,72 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
-## Current state (2026-06-12, QM session after Captain commit bae8910)
+## Current state (2026-06-12, Captain pass: honest auth, retired hosts)
+
+Customer-driven audit of `cmdLogin` found fabricated success output: "Token
+verified via id.saleor.online/verify" / "at id.saleor.online/configure" with
+**no network request ever made** (validation was `startsWith("invalid-")`),
+plus a fully mocked OAuth exchange (`saleor-cloud-token-from-exchange`,
+`oidc-id-token-mock`). Live probes (2026-06-12): id.saleor.online is a
+Cloudflare stub ("Hello, Saleor!"), /verify and /configure 404;
+auth.saleor.io/realms/saleor-cloud is real Keycloak. The bogus host was in
+the committed spec (feature 018, imported from the deprecated saleor/cli
+study, commit dd04d7b) — a spec defect, now fixed at the spec level.
+
+Spec changes (all committed this pass):
+
+- **018**: id.saleor.online retired. Token verification redefined as a real
+  authenticated GET of `https://cloud.saleor.io/platform/api/organizations/`
+  (2xx+parse = verified; 401/403 = INVALID_TOKEN, nothing written; other
+  failure = "stored, not verified", envelope warning, check `unknown`).
+  Scenarios rewritten: @logic unreachable-API honest storage; @logic OAuth
+  exchange --dry-run preview (real endpoints, no success claims); @sandbox
+  failed-exchange honesty (needs no creds, just network); @sandbox real
+  token verification (stores the **real** org name — the placeholder
+  "Saleor Cloud user (authenticated)" is retired); @sandbox invalid-token
+  rejection with no success language. New runtime var
+  `JOLLY_SALEOR_CLOUD_API_URL` overrides the Cloud API base (default
+  cloud.saleor.io/platform/api) — the mock-free way for tests to produce
+  "unreachable" (point it at an .invalid host).
+- **020**: new Rules "No fabricated success" (pass checks only for work
+  actually performed+confirmed; "stored, not verified" wording; junk input
+  never yields success language from any command; unimplemented → honest
+  error; dry-run previews show the real request) and "First-party hosts
+  only" (allowlist: auth.saleor.io, cloud.saleor.io, *.saleor.cloud,
+  mcp.saleor.app, api.vercel.com, api.stripe.com, github.com, 127.0.0.1;
+  secrets only to their own service; id.saleor.online + api.saleor.cloud
+  banned).
+- **012**: Cloud API rule now names api.saleor.cloud as retired and requires
+  dry-run previews to show the real host/org/no invented ids.
+- **AGENTS.md** (output contract bullet + new "Network Boundaries" section)
+  and **CLAUDE.md** (pinned contract bullet) updated.
+
+QM worklist from this pass:
+
+- `features/step_definitions/018-...steps.ts` was **deleted** (encoded the
+  retired host and the mocked exchange) — regenerate from the updated spec.
+  All 018 scenarios are now undefined.
+- Known spec-stale implementation for Crew (via failing tests): `cmdLogin`
+  in `src/index.ts` (~535–680) — mocked exchange, prefix-based "validation",
+  fabricated verified checks, placeholder org name, id.saleor.online;
+  `api.saleor.cloud` ×4 in src (also `cmdCreateStore` ~1330–1390: invented
+  org-test-123, Math.random task ids, `--collision`/`--needs-project`/URL-
+  substring fabrication branches — violate the new 020 honesty rule and the
+  012 preview rule).
+- Other QM steps that run `jolly login --token <dummy>` as a vehicle
+  (012:273/368/512/790, 020:38, 021:41) must be reconciled: under the new
+  spec a dummy-token login hits the real Cloud API. For @logic, set
+  `JOLLY_SALEOR_CLOUD_API_URL` to an unroutable `.invalid` URL and expect
+  the "stored, not verified" warning path (status may change from success
+  to warning where asserted).
+- New 020 honesty rules warrant a junk-input sweep test (no success/
+  verification language from any command on junk input) — QM judgment on
+  shape (unit sweep vs scenario steps).
+- The @sandbox 018 scenarios needing only network (failed exchange,
+  invalid-token rejection) should run without any credentials — gate
+  accordingly.
+
+## Previous state (2026-06-12, QM session after Captain commit bae8910)
 
 All green at this QM commit: typecheck clean, unit 54/54, full BDD 80
 scenarios (72 passed, 8 skipped, 0 failed), 0 undefined. The 8 skips are

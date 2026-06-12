@@ -64,6 +64,40 @@ Feature: Jolly CLI output contract
     - Structured side-effect context (see feature 021) should be carried inside `data` and/or `checks`, not in a separate ad hoc format.
     - Field names use camelCase (for example `nextSteps`, `errors[].code`); this applies to the envelope and to the feature 021 risk context.
 
+  Rule: No fabricated success (decision 2026-06-12)
+    - Success, verified, valid, connected, authenticated, and similar claims — in
+      `summary`, `checks`, `data`, or human text — are permitted only when backed by an
+      operation the command actually performed and confirmed in this run: a real request
+      whose response was received and checked, or a local action actually taken and
+      observed.
+    - A check with status "pass" asserts the described verification really happened.
+      Work not attempted is "skipped"; work attempted but unconfirmable is "unknown".
+    - Storing is not verifying: when a value is stored without being verified, the output
+      must say exactly that ("stored, not verified").
+    - Junk or invalid input must never produce success or verification language, from any
+      command.
+    - Unimplemented behavior is reported as an error naming what is not implemented —
+      never simulated with placeholder values, invented identifiers (fake organization
+      ids, random task ids), hardcoded responses, or input-pattern guessing (for example
+      deciding validity from a token's prefix or a URL's substring).
+    - `--dry-run` previews show the real request the command would send — same host, same
+      path, real resolved identifiers — and never claim the previewed work happened.
+
+  Rule: First-party hosts only (decision 2026-06-12)
+    - Jolly contacts only these hosts: auth.saleor.io (Keycloak OAuth, realm
+      saleor-cloud), cloud.saleor.io (Saleor Cloud API and token page), the customer's
+      own *.saleor.cloud environment domains, mcp.saleor.app (read-only MCP server),
+      api.vercel.com (deployment), api.stripe.com (payments), github.com (cloning
+      saleor/storefront and skills), and 127.0.0.1 (local OAuth callback).
+    - Secrets travel only to their own service: Saleor tokens only to auth.saleor.io,
+      cloud.saleor.io, or the customer's *.saleor.cloud domains; the Vercel token only to
+      api.vercel.com; Stripe keys only to api.stripe.com. No secret is ever sent to
+      github.com, mcp.saleor.app, or any host not on this list.
+    - `JOLLY_SALEOR_CLOUD_API_URL` (feature 018) may redirect the Cloud API base; secrets
+      then go where the customer explicitly pointed them.
+    - The retired saleor/cli-era hosts id.saleor.online and api.saleor.cloud must not
+      appear anywhere in Jolly code or output.
+
   Rule: Open questions
     - Envelope schema versioning, if any, is deferred to CLI design.
     - The canonical registry of stable `code` and check-id strings is deferred to CLI design but must be documented when commands are implemented.
