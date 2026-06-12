@@ -4,14 +4,17 @@
 import { describe, expect, test } from "bun:test";
 import {
   ALL_CREDENTIAL_GROUPS,
+  classifyCredentials,
   CREDENTIAL_GROUPS,
   CleanupRegistry,
+  DERIVABLE_GROUPS,
   makeNamespace,
   missingCredentials,
   requiredGroups,
   runId,
   SANDBOX_REQUIREMENTS,
 } from "../features/support/sandbox.ts";
+import { leftoverTestEnvironments } from "../features/support/cloud.ts";
 
 describe("credential gating", () => {
   test("reports the exact runtime variable names that are absent", () => {
@@ -58,6 +61,81 @@ describe("credential gating", () => {
         expect(Object.keys(CREDENTIAL_GROUPS)).toContain(group);
       }
     }
+  });
+});
+
+describe("credential derivation (feature 023 self-provisioned endpoints)", () => {
+  test("endpoint and app token are derivable when the Cloud token is present", () => {
+    const env = { JOLLY_SALEOR_CLOUD_TOKEN: "token" };
+    const gate = classifyCredentials(["saleorEndpoint", "saleorAppToken"], env);
+    expect(gate.missing).toEqual([]);
+    expect(gate.derivable.sort()).toEqual([
+      "JOLLY_SALEOR_APP_TOKEN",
+      "NEXT_PUBLIC_SALEOR_API_URL",
+    ]);
+  });
+
+  test("without the Cloud token nothing is derivable — plain skip", () => {
+    const gate = classifyCredentials(["saleorEndpoint", "saleorAppToken"], {});
+    expect(gate.derivable).toEqual([]);
+    expect(gate.missing.sort()).toEqual([
+      "JOLLY_SALEOR_APP_TOKEN",
+      "NEXT_PUBLIC_SALEOR_API_URL",
+    ]);
+  });
+
+  test("Vercel and Stripe credentials are never derivable", () => {
+    const env = { JOLLY_SALEOR_CLOUD_TOKEN: "token" };
+    const gate = classifyCredentials(["vercel", "stripe"], env);
+    expect(gate.derivable).toEqual([]);
+    expect(gate.missing.sort()).toEqual([
+      "JOLLY_STRIPE_PUBLISHABLE_KEY",
+      "JOLLY_STRIPE_SECRET_KEY",
+      "JOLLY_VERCEL_TOKEN",
+    ]);
+  });
+
+  test("configured values are neither missing nor derivable", () => {
+    const env = {
+      JOLLY_SALEOR_CLOUD_TOKEN: "token",
+      NEXT_PUBLIC_SALEOR_API_URL: "https://shop.saleor.cloud/graphql/",
+      JOLLY_SALEOR_APP_TOKEN: "app",
+    };
+    const gate = classifyCredentials(
+      ["saleorEndpoint", "saleorAppToken", "saleorCloud"],
+      env,
+    );
+    expect(gate.missing).toEqual([]);
+    expect(gate.derivable).toEqual([]);
+  });
+
+  test("only the Saleor endpoint and app-token groups are derivable", () => {
+    expect([...DERIVABLE_GROUPS].sort()).toEqual([
+      "saleorAppToken",
+      "saleorEndpoint",
+    ]);
+  });
+});
+
+describe("leftover jolly-test environment detection (feature 012)", () => {
+  const ns = "jolly-test-current";
+  test("flags jolly-test environments from other runs only", () => {
+    const leftovers = leftoverTestEnvironments(
+      [
+        { org: "o", key: "1", name: "jolly-test-old-run-shared" },
+        { org: "o", key: "2", name: `${ns}-shared` },
+        { org: "o", key: "3", name: "customer-production" },
+        { org: "o", key: "4", name: "jolly-env-abc" },
+      ],
+      ns,
+    );
+    expect(leftovers.map((env) => env.key)).toEqual(["1"]);
+  });
+
+  test("reports nothing when only this run's environments exist", () => {
+    expect(
+      leftoverTestEnvironments([{ org: "o", key: "1", name: `${ns}-1` }], ns),
+    ).toEqual([]);
   });
 });
 

@@ -13,7 +13,9 @@
 //                   matches the endpoint host; emits data.cloudContext with
 //                   organizations[], environments[], matched, matchedDomain,
 //                   organizationSlug, requiresSelection.
-//   jolly create store --create-environment --json
+//   jolly create store --create-environment [--name <name>]
+//       [--domain-label <label>] [--region <region>] [--organization <slug>]
+//       [--dry-run] [--json]
 //     Create-or-reuse project (plan "dev"), create environment, poll the
 //     task, write NEXT_PUBLIC_SALEOR_API_URL and JOLLY_SALEOR_APP_TOKEN.
 //     data must include organizationSlug, projectName, projectCreated,
@@ -22,16 +24,35 @@
 //     environment limit: status "error" with stable code
 //     ENVIRONMENT_LIMIT_REACHED — the harness treats that as an
 //     environmental skip, not a failure.
+//     --name / --domain-label override the generated environment name and
+//       domain label (the harness namespaces test environments through them);
+//       data.environmentName must reflect the override and data.domainUrl
+//       must be https://<domain-label>.../graphql/.
+//     --region overrides the default "us-east-1".
+//     --organization <slug> selects the organization; when omitted and the
+//       token sees several, status is "warning", data.organizations lists
+//       the available slugs, data.organizationSlug names the selection, and
+//       the output advises re-running with --organization <slug>.
+//     --dry-run prepares the creation without any Cloud API write: data
+//       carries requestUrl and requestBody (the prepared POST), nothing is
+//       created and .env is not written.
 //   Mock-injected @logic conditions (sandbox cannot produce them harmlessly):
-//     --collision      Cloud API HTTP 400 "domain label already exists"
-//     --needs-project  no project exists yet; project creation path
+//     --collision           Cloud API HTTP 400 "domain label already exists"
+//     --needs-project       no project exists yet; project creation path
+//     --mock-organizations <s1,s2,...>  the org list the token would see
+//       (the sandbox account has one organization, so the multi-org premise
+//       is injected; sanctioned by the feature's Rule + AGENTS.md)
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import type { JollyWorld } from "../support/world.ts";
+import {
+  deleteEnvironment,
+  leftoverTestEnvironments,
+  listAllEnvironments,
+} from "../support/cloud.ts";
+import { makeNamespace } from "../support/sandbox.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
 import { normalizeSaleorUrl } from "../../src/lib/saleor-url.ts";
-
-const CLOUD_API = "https://cloud.saleor.io/platform/api";
 
 function data(world: JollyWorld): Record<string, unknown> {
   return world.envelope.data;
@@ -702,82 +723,201 @@ Then(
   },
 );
 
+// ── Scenario: Jolly create store honors --region and --organization
+//    overrides (@logic, via the --dry-run path) ──────────────────────────
+// --create-environment --dry-run must prepare the request without any Cloud
+// API call, so it must work with a dummy token. The runs below force one:
+// harmless by design means a logic-tier test can never create a real
+// environment, even against a CLI that does not implement --dry-run yet.
+
+const LOGIC_CLOUD_TOKEN = "test-cloud-token-for-logic";
+
+When(
+  "the agent runs `jolly create store --create-environment --organization other-org --region eu-central-1 --dry-run --json`",
+  function (this: JollyWorld) {
+    this.runCli(
+      [
+        "create", "store", "--create-environment",
+        "--organization", "other-org",
+        "--region", "eu-central-1",
+        "--dry-run", "--json",
+      ],
+      { env: { JOLLY_SALEOR_CLOUD_TOKEN: LOGIC_CLOUD_TOKEN } },
+    );
+  },
+);
+
+Then(
+  "the prepared environment creation should target organization {string}",
+  function (this: JollyWorld, organization: string) {
+    assert.equal(
+      data(this).organizationSlug,
+      organization,
+      `data.organizationSlug should be the --organization override: ${JSON.stringify(data(this))}`,
+    );
+    assert.match(
+      String(data(this).requestUrl),
+      new RegExp(`/platform/api/organizations/${organization}/environments/$`),
+      `data.requestUrl should target the overridden organization: ${data(this).requestUrl}`,
+    );
+  },
+);
+
+Then(
+  "the prepared environment creation region should be {string}",
+  function (this: JollyWorld, region: string) {
+    const body = data(this).requestBody as Record<string, unknown> | undefined;
+    assert.ok(body, "data.requestBody should carry the prepared POST body");
+    assert.equal(
+      body!.region,
+      region,
+      `requestBody.region should be the --region override: ${JSON.stringify(body)}`,
+    );
+  },
+);
+
+// ── Scenario: Jolly create store warns when the token has multiple
+//    organizations (@logic) ────────────────────────────────────────────────
+// The sandbox account has exactly one organization, so the multi-org premise
+// is mock-injected via --mock-organizations (sanctioned by the feature Rule).
+
+Given(
+  "the Cloud token can access organizations {string} and {string}",
+  function (this: JollyWorld, orgOne: string, orgTwo: string) {
+    this.notes["mockOrganizations"] = [orgOne, orgTwo];
+    // The org list is mock-injected; a dummy token keeps this @logic and
+    // guarantees the real account is never touched.
+    this.runCli(["login", "--token", LOGIC_CLOUD_TOKEN], {
+      env: { JOLLY_SALEOR_CLOUD_TOKEN: LOGIC_CLOUD_TOKEN },
+    });
+  },
+);
+
+When(
+  "the agent runs `jolly create store --create-environment` without `--organization`",
+  function (this: JollyWorld) {
+    const organizations = this.notes["mockOrganizations"] as string[];
+    this.runCli(
+      [
+        "create", "store", "--create-environment",
+        "--mock-organizations", organizations.join(","),
+        "--dry-run", "--json",
+      ],
+      { env: { JOLLY_SALEOR_CLOUD_TOKEN: LOGIC_CLOUD_TOKEN } },
+    );
+  },
+);
+
+Then(
+  "the output envelope status should be {string}",
+  function (this: JollyWorld, status: string) {
+    assert.equal(
+      this.envelope.status,
+      status,
+      `envelope status should be "${status}": ${this.envelope.summary}`,
+    );
+  },
+);
+
+Then(
+  "the output should list the available organization slugs",
+  function (this: JollyWorld) {
+    const expected = this.notes["mockOrganizations"] as string[];
+    const listed = data(this).organizations;
+    assert.ok(
+      Array.isArray(listed),
+      `data.organizations should list the available organizations: ${JSON.stringify(data(this))}`,
+    );
+    const slugs = (listed as unknown[]).map((entry) =>
+      typeof entry === "string"
+        ? entry
+        : String((entry as Record<string, unknown>).slug),
+    );
+    for (const slug of expected) {
+      assert.ok(
+        slugs.includes(slug),
+        `data.organizations should include "${slug}": ${JSON.stringify(slugs)}`,
+      );
+    }
+  },
+);
+
+Then(
+  "the output should name the organization slug Jolly selected",
+  function (this: JollyWorld) {
+    const expected = this.notes["mockOrganizations"] as string[];
+    const selected = data(this).organizationSlug;
+    assert.ok(
+      typeof selected === "string" && expected.includes(selected),
+      `data.organizationSlug should name the selected organization (one of ${expected.join(", ")}): got ${JSON.stringify(selected)}`,
+    );
+  },
+);
+
+Then(
+  "the output should advise re-running with `--organization <slug>` if the selection is wrong",
+  function (this: JollyWorld) {
+    const advice =
+      JSON.stringify(this.envelope.nextSteps) + this.envelope.summary;
+    assert.ok(
+      advice.includes("--organization"),
+      `the envelope should advise re-running with --organization: nextSteps=${JSON.stringify(this.envelope.nextSteps)}, summary="${this.envelope.summary}"`,
+    );
+  },
+);
+
 // ── Scenario: Jolly creates a Saleor Cloud environment (@sandbox) ────────
 // Must work against organizations that already have projects and
 // environments. ENVIRONMENT_LIMIT_REACHED is an environmental skip. The
-// created environment's deletion is registered in teardown so a run never
-// permanently consumes a sandbox slot — including when the CLI times out or
-// crashes after creation but before emitting an envelope: a catch-all diff
-// teardown is registered BEFORE the CLI runs, deleting any jolly-env-*
-// environment that did not exist in the pre-run snapshot.
+// created environment carries the run's jolly-test namespace as its name
+// and domain label (via --name/--domain-label) and its deletion is
+// registered in teardown so a run never permanently consumes a sandbox slot
+// — including when the CLI times out or crashes after creation but before
+// emitting an envelope: a catch-all diff teardown is registered BEFORE the
+// CLI runs, deleting any environment that did not exist in the pre-run
+// snapshot and carries a name this run could have generated.
 
-/** Every environment visible to the token, across all organizations. */
-async function listAllEnvironments(
-  token: string,
-): Promise<Array<{ org: string; key: string; name: string }>> {
-  const orgsResponse = await fetch(`${CLOUD_API}/organizations/`, {
-    headers: { Authorization: `Token ${token}` },
-  });
-  if (!orgsResponse.ok) {
-    throw new Error(`GET organizations returned HTTP ${orgsResponse.status}`);
-  }
-  const orgs = (await orgsResponse.json()) as Array<{ slug: string }>;
-  const all: Array<{ org: string; key: string; name: string }> = [];
-  for (const org of orgs) {
-    const envsResponse = await fetch(
-      `${CLOUD_API}/organizations/${org.slug}/environments/`,
-      { headers: { Authorization: `Token ${token}` } },
+Given(
+  "no leftover jolly-test environment remains from a previous run",
+  { timeout: 60_000 },
+  async function (this: JollyWorld) {
+    const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
+    assert.ok(cloudToken, "JOLLY_SALEOR_CLOUD_TOKEN must be set (gated by @sandbox hook)");
+    const leftovers = leftoverTestEnvironments(
+      await listAllEnvironments(cloudToken!),
+      makeNamespace(this.runId),
     );
-    if (!envsResponse.ok) {
-      throw new Error(
-        `GET environments for ${org.slug} returned HTTP ${envsResponse.status}`,
+    if (leftovers.length > 0) {
+      // Leftovers block creation. This non-interactive run never deletes an
+      // environment it cannot positively identify as its own — skip, naming
+      // the leftover so the customer can remove it (feature 012 Rule).
+      const named = leftovers
+        .map((env) => `${env.org}/${env.key} ("${env.name}")`)
+        .join(", ");
+      this.attach(
+        `Skipped: leftover jolly-test environment(s) from a previous run: ${named}. ` +
+          "Delete them to re-enable this scenario.",
+        "text/plain",
       );
+      return "skipped";
     }
-    const envs = (await envsResponse.json()) as Array<{
-      key: string;
-      name: string;
-    }>;
-    for (const env of envs) {
-      all.push({ org: org.slug, key: String(env.key), name: String(env.name) });
-    }
-  }
-  return all;
-}
-
-/**
- * Idempotent environment deletion: 404 = already gone. The platform can
- * reject deletion while provisioning tasks still block the environment, so
- * retry briefly — a creation that timed out mid-poll must still be removable.
- */
-async function deleteEnvironment(
-  token: string,
-  org: string,
-  key: string,
-): Promise<void> {
-  const maxAttempts = 6;
-  for (let attempt = 1; ; attempt++) {
-    const response = await fetch(
-      `${CLOUD_API}/organizations/${org}/environments/${key}/`,
-      { method: "DELETE", headers: { Authorization: `Token ${token}` } },
-    );
-    if (response.ok || response.status === 404) return;
-    if (attempt >= maxAttempts) {
-      throw new Error(`DELETE environment returned HTTP ${response.status}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 15_000));
-  }
-}
+  },
+);
 
 When(
-  "the agent runs `jolly create store --create-environment --json`",
+  "the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier",
   { timeout: 600_000 },
   async function (this: JollyWorld) {
     // Catch-all teardown, registered before the CLI can create anything: if
     // the run dies without an envelope (timeout, crash), the diff against
     // this snapshot still finds and deletes whatever it created. Only
-    // jolly-env-* environments absent from the snapshot are touched — never
-    // a pre-existing resource.
+    // environments absent from the snapshot and carrying a name this run
+    // could have generated are touched — never a pre-existing resource.
+    // (jolly-env-* covers a CLI that ignores --name and falls back to its
+    // own generated names; such an environment still must not leak.)
     const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
+    const environmentName = this.namespace;
+    this.notes["requestedEnvironmentName"] = environmentName;
     if (cloudToken) {
       const snapshot = new Set(
         (await listAllEnvironments(cloudToken)).map((env) => env.key),
@@ -786,7 +926,11 @@ When(
         "Saleor Cloud environments created by this run (catch-all diff vs pre-run snapshot)",
         async () => {
           for (const env of await listAllEnvironments(cloudToken)) {
-            if (!snapshot.has(env.key) && env.name.startsWith("jolly-env-")) {
+            if (
+              !snapshot.has(env.key) &&
+              (env.name.startsWith(this.namespace) ||
+                env.name.startsWith("jolly-env-"))
+            ) {
               await deleteEnvironment(cloudToken, env.org, env.key);
             }
           }
@@ -794,9 +938,15 @@ When(
       );
     }
 
-    this.runCli(["create", "store", "--create-environment", "--json"], {
-      timeoutMs: 540_000,
-    });
+    this.runCli(
+      [
+        "create", "store", "--create-environment",
+        "--name", environmentName,
+        "--domain-label", environmentName,
+        "--json",
+      ],
+      { timeoutMs: 540_000 },
+    );
     const envelope = this.envelope;
 
     if (
@@ -830,7 +980,43 @@ When(
         `Saleor Cloud environment ${organizationSlug}/${environmentKey}`,
         () => deleteEnvironment(cloudToken, organizationSlug, environmentKey),
       );
+      this.notes["environmentTeardownRegistered"] = true;
     }
+  },
+);
+
+Then(
+  "the created environment's name and domain label should carry the run's jolly-test namespace",
+  function (this: JollyWorld) {
+    const requested = this.notes["requestedEnvironmentName"] as string;
+    assert.equal(
+      data(this).environmentName,
+      requested,
+      `data.environmentName should be the namespaced --name override "${requested}": ${JSON.stringify(data(this))}`,
+    );
+    assert.match(
+      String(data(this).domainUrl),
+      new RegExp(`^https://${requested}\\.`),
+      `data.domainUrl should start with the namespaced --domain-label "${requested}": ${data(this).domainUrl}`,
+    );
+  },
+);
+
+Then(
+  "teardown should delete the created environment right after the scenario",
+  function (this: JollyWorld) {
+    // The deletion must be REGISTERED (feature 012: before creation can
+    // begin); the After hook then executes it and fails loudly if the
+    // environment could not be removed.
+    assert.equal(
+      this.notes["environmentTeardownRegistered"],
+      true,
+      "a teardown deletion for the created environment should have been registered",
+    );
+    assert.ok(
+      this.cleanup.size > 0,
+      "the cleanup registry should hold the registered environment deletion",
+    );
   },
 );
 

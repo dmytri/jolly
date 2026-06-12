@@ -126,6 +126,51 @@ export function missingCredentials(
   return [...new Set(missing)];
 }
 
+/**
+ * Groups whose variables the harness can DERIVE when they are not configured
+ * but `JOLLY_SALEOR_CLOUD_TOKEN` is present: it provisions one shared
+ * per-run `jolly-test` environment and reads the endpoint URL and app token
+ * from it (features 023 + 012). Everything else — the Cloud token itself,
+ * Vercel, Stripe — cannot be derived and stays a skip condition.
+ */
+export const DERIVABLE_GROUPS: readonly CredentialGroup[] = [
+  "saleorEndpoint",
+  "saleorAppToken",
+];
+
+export interface CredentialGate {
+  /** Absent and underivable: the scenario skips, naming exactly these. */
+  missing: string[];
+  /** Absent but derivable by provisioning the shared per-run environment. */
+  derivable: string[];
+}
+
+/**
+ * Split a scenario's absent credentials into underivable (skip) and
+ * derivable (provision) sets. Derivation requires `JOLLY_SALEOR_CLOUD_TOKEN`;
+ * without it the endpoint/app-token variables are plain skip conditions.
+ */
+export function classifyCredentials(
+  groups: readonly CredentialGroup[],
+  env: Record<string, string | undefined> = process.env,
+): CredentialGate {
+  const cloudPresent = missingCredentials(["saleorCloud"], env).length === 0;
+  const missing: string[] = [];
+  const derivable: string[] = [];
+  for (const group of groups) {
+    for (const name of CREDENTIAL_GROUPS[group]) {
+      const value = env[name];
+      if (value !== undefined && value.trim() !== "") continue;
+      if (cloudPresent && DERIVABLE_GROUPS.includes(group)) derivable.push(name);
+      else missing.push(name);
+    }
+  }
+  return {
+    missing: [...new Set(missing)],
+    derivable: [...new Set(derivable)],
+  };
+}
+
 let processRunId: string | undefined;
 
 /**

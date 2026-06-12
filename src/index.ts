@@ -15,6 +15,7 @@ import { join, resolve } from "node:path";
 import { loadEnvValues, writeEnvValues } from "./lib/env-file.ts";
 import { normalizeSaleorUrl } from "./lib/saleor-url.ts";
 import {
+  CLOUD_API_BASE,
   CloudApiError,
   acquireAppToken,
   createEnvironment,
@@ -223,96 +224,227 @@ function cmdHelp(subcommand?: string): void {
 
 // ── Command: init ────────────────────────────────────────────────────────
 
+const JOLLY_AGENTS_BEGIN = "<!-- jolly:begin -->";
+const JOLLY_AGENTS_END = "<!-- jolly:end -->";
+
+const DEFAULT_SKILLS = [
+  "saleor-storefront",
+  "saleor-configurator",
+  "storefront-builder",
+  "saleor-core",
+  "saleor-app",
+] as const;
+
+function jollyAgentsSection(): string {
+  return `${JOLLY_AGENTS_BEGIN}
+## Jolly (Saleor agent setup)
+
+Jolly has initialized Saleor agent guidance in this project. Installed skills
+live under \`.jolly/skills/\`:
+
+${DEFAULT_SKILLS.map((s) => `- \`${s}\` — \`.jolly/skills/${s}/SKILL.md\``).join("\n")}
+
+- Run \`npx @saleor/jolly start\` for end-to-end store setup.
+- Live store data access: the read-only Saleor MCP server (https://mcp.saleor.app)
+  provides products, orders, and customers for a configured store.
+- \`.mcp.json\` configures an mcp-graphql server (\`saleor-graphql\`) against your
+  Saleor GraphQL endpoint; it reads \`NEXT_PUBLIC_SALEOR_API_URL\` and
+  \`SALEOR_APP_TOKEN\` from the environment — no secrets are stored in the file.
+${JOLLY_AGENTS_END}`;
+}
+
+/** Merge the Jolly section into AGENTS.md without touching user content. */
+function mergeAgentsMd(agentsPath: string): "created" | "updated" | "unchanged" {
+  const section = jollyAgentsSection();
+  if (!existsSync(agentsPath)) {
+    writeFileSync(agentsPath, `# Agent Guidance\n\n${section}\n`);
+    return "created";
+  }
+  const existing = readFileSync(agentsPath, "utf8");
+  const beginIdx = existing.indexOf(JOLLY_AGENTS_BEGIN);
+  const endIdx = existing.indexOf(JOLLY_AGENTS_END);
+  if (beginIdx >= 0 && endIdx > beginIdx) {
+    // Replace only the managed section; user-authored content survives.
+    const before = existing.slice(0, beginIdx);
+    const after = existing.slice(endIdx + JOLLY_AGENTS_END.length);
+    const updated = `${before}${section}${after}`;
+    if (updated === existing) return "unchanged";
+    writeFileSync(agentsPath, updated);
+    return "updated";
+  }
+  // No managed section yet: append it, preserving everything user-authored.
+  const prefix = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
+  writeFileSync(agentsPath, `${existing}${prefix}\n${section}\n`);
+  return "updated";
+}
+
+/**
+ * Merge the Jolly mcp-graphql server entry into .mcp.json without replacing
+ * user-authored entries. Never stores secrets: the entry references env var
+ * names only. Returns the action taken; "skipped" means the existing file
+ * could not be parsed and was left untouched (never silently overwrite).
+ */
+function mergeMcpJson(mcpPath: string): "created" | "merged" | "unchanged" | "skipped" {
+  const jollyEntry = {
+    command: "npx",
+    args: ["mcp-graphql"],
+    env: {
+      ENDPOINT: "${NEXT_PUBLIC_SALEOR_API_URL}",
+      HEADERS: '{"Authorization":"Bearer ${SALEOR_APP_TOKEN}"}',
+    },
+  };
+  if (!existsSync(mcpPath)) {
+    writeFileSync(
+      mcpPath,
+      JSON.stringify({ mcpServers: { "saleor-graphql": jollyEntry } }, null, 2) + "\n",
+    );
+    return "created";
+  }
+  let parsed: Record<string, unknown>;
+  try {
+    const raw = JSON.parse(readFileSync(mcpPath, "utf8")) as unknown;
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return "skipped";
+    parsed = raw as Record<string, unknown>;
+  } catch {
+    return "skipped";
+  }
+  const servers =
+    parsed.mcpServers !== null &&
+    typeof parsed.mcpServers === "object" &&
+    !Array.isArray(parsed.mcpServers)
+      ? (parsed.mcpServers as Record<string, unknown>)
+      : {};
+  if ("saleor-graphql" in servers) return "unchanged";
+  parsed.mcpServers = { ...servers, "saleor-graphql": jollyEntry };
+  writeFileSync(mcpPath, JSON.stringify(parsed, null, 2) + "\n");
+  return "merged";
+}
+
 function cmdInit(): void {
-  // Detect existing state
+  // Detect existing state before making any changes.
   const jollyDir = join(cwd, ".jolly");
-  const skillsDir = join(cwd, ".skills");
-  const existingInit = existsSync(jollyDir) || existsSync(skillsDir);
+  const skillsRoot = join(jollyDir, "skills");
+  const existingInit = existsSync(jollyDir) || existsSync(join(cwd, ".skills"));
 
-  // Create .jolly directory
-  if (!existsSync(jollyDir)) {
-    mkdirSync(jollyDir, { recursive: true });
-  }
-
-  // Write a marker file showing init ran
-  const markerPath = join(jollyDir, "init.json");
-  const initData = { initialized: true, version: "0.1.0", installedSkills: [] };
-  writeFileSync(markerPath, JSON.stringify(initData, null, 2));
-
-  const installedSkills = [
-    "saleor-storefront",
-    "saleor-configurator",
-    "storefront-builder",
-    "saleor-core",
-    "saleor-app",
-  ];
-
-  if (existingInit) {
-    output(
-      buildEnvelope("init", {
-        status: "success",
-        summary: "Jolly guidance already initialized. Skills and glue files are up to date.",
-        data: {
-          existing: true,
-          initialized: true,
-          installedSkills,
-          updated: false,
-        },
-        checks: [
-          { id: "init-status", status: "pass" as CheckStatus, description: "Jolly init already completed" },
-        ],
-        nextSteps: [
-          { description: "Run jolly start to begin end-to-end setup" },
-        ],
-      }),
-    );
-  } else {
-    // Write agent glue files
-    const gluePath = join(jollyDir, "AGENTS.md");
-    const glueContent = `# Jolly Agent Guidance
-
-Jolly has been initialized in this project. The following Saleor agent skills are available:
-
-${installedSkills.map((s) => `- \`${s}\``).join("\n")}
-
-To begin setup, run: \`npx @saleor/jolly start\`
-
-For live store data access, configure mcp-graphql with your Saleor GraphQL endpoint and app token.
-`;
-    writeFileSync(gluePath, glueContent);
-
-    // Ensure .gitignore exists
-    const gitignorePath = join(cwd, ".gitignore");
-    const existingGi = existsSync(gitignorePath) ? readFileSync(gitignorePath, "utf8") : "";
-    if (!existingGi.split("\n").some((l) => l.trim() === ".env")) {
-      const prefix = existingGi.length > 0 && !existingGi.endsWith("\n") ? "\n" : "";
-      writeFileSync(gitignorePath, `${existingGi}${prefix}.env\n`);
+  // ── Install the default skill set on disk (idempotent) ───────────────
+  const checks: Check[] = [];
+  try {
+    for (const name of DEFAULT_SKILLS) {
+      const skillDir = join(skillsRoot, name);
+      mkdirSync(skillDir, { recursive: true });
+      const skillFile = join(skillDir, "SKILL.md");
+      if (!existsSync(skillFile)) {
+        writeFileSync(
+          skillFile,
+          `# ${name}\n\nSaleor agent skill \`${name}\`, installed by \`jolly init\`.\n`,
+        );
+      }
     }
-
-    output(
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`jolly init: skill installation failed: ${message}\n`);
+    errorExit(
       buildEnvelope("init", {
-        status: "success",
-        summary: "Jolly initialized. Installed 5 Saleor agent skills and wrote glue files.",
-        data: {
-          existing: false,
-          initialized: true,
-          installedSkills,
-          updated: true,
-        },
-        checks: [
-          { id: "init-status", status: "pass" as CheckStatus, description: "Skills installed" },
-          { id: "skills-saleor-storefront", status: "pass" as CheckStatus },
-          { id: "skills-saleor-configurator", status: "pass" as CheckStatus },
-          { id: "skills-storefront-builder", status: "pass" as CheckStatus },
-          { id: "skills-saleor-core", status: "pass" as CheckStatus },
-          { id: "skills-saleor-app", status: "pass" as CheckStatus },
-        ],
-        nextSteps: [
-          { description: "Run jolly start to begin setting up your storefront" },
-        ],
+        status: "error",
+        summary: `Skill installation failed: ${message}`,
+        data: { existing: existingInit, initialized: false },
+        errors: [{ code: "SKILL_INSTALL_FAILED", message }],
       }),
     );
   }
+
+  // ── Verify on disk: report only what actually exists, never the
+  //    pre-computed name list (feature 007 Rule "Init boundaries") ───────
+  const skills: Array<{ name: string; path: string; verified: true }> = [];
+  const missing: string[] = [];
+  for (const name of DEFAULT_SKILLS) {
+    const relPath = join(".jolly", "skills", name, "SKILL.md");
+    if (existsSync(join(cwd, relPath))) {
+      skills.push({ name, path: relPath, verified: true });
+      checks.push({ id: `skills-${name}`, status: "pass" as CheckStatus, description: `Verified on disk at ${relPath}` });
+    } else {
+      missing.push(name);
+      checks.push({ id: `skills-${name}`, status: "fail" as CheckStatus, description: `Not found on disk at ${relPath}` });
+    }
+  }
+  if (missing.length > 0) {
+    process.stderr.write(
+      `jolly init: skill verification failed for: ${missing.join(", ")}\n`,
+    );
+    errorExit(
+      buildEnvelope("init", {
+        status: "error",
+        summary: `Skill verification failed: ${missing.join(", ")} not found on disk after install.`,
+        data: { existing: existingInit, initialized: false, skills, missingSkills: missing },
+        checks,
+        errors: [{ code: "SKILL_VERIFY_FAILED", message: `Skills not found on disk after install: ${missing.join(", ")}` }],
+      }),
+    );
+  }
+  const installedSkills = skills.map((s) => s.name);
+
+  // Marker file recording what this run actually verified.
+  writeFileSync(
+    join(jollyDir, "init.json"),
+    JSON.stringify({ initialized: true, version: "0.1.0", installedSkills }, null, 2),
+  );
+
+  // ── Merge (never replace) .mcp.json: configure mcp-graphql ───────────
+  const mcpAction = mergeMcpJson(join(cwd, ".mcp.json"));
+  checks.push({
+    id: "init-mcp-json",
+    status: (mcpAction === "skipped" ? "warning" : "pass") as CheckStatus,
+    description:
+      mcpAction === "skipped"
+        ? ".mcp.json exists but could not be parsed as JSON; left untouched (never silently overwrite)"
+        : `.mcp.json ${mcpAction}: mcp-graphql server entry "saleor-graphql" (env var references only, no secrets)`,
+  });
+
+  // ── Merge (never replace) AGENTS.md: insert/update the Jolly section ─
+  const agentsAction = mergeAgentsMd(join(cwd, "AGENTS.md"));
+  checks.push({
+    id: "init-agents-md",
+    status: "pass" as CheckStatus,
+    description: `AGENTS.md ${agentsAction}: Jolly section merged, user-authored content preserved`,
+  });
+
+  // ── Ensure .env is git-ignored ────────────────────────────────────────
+  const gitignorePath = join(cwd, ".gitignore");
+  const existingGi = existsSync(gitignorePath) ? readFileSync(gitignorePath, "utf8") : "";
+  if (!existingGi.split("\n").some((l) => l.trim() === ".env")) {
+    const prefix = existingGi.length > 0 && !existingGi.endsWith("\n") ? "\n" : "";
+    writeFileSync(gitignorePath, `${existingGi}${prefix}.env\n`);
+  }
+
+  checks.unshift({
+    id: "init-status",
+    status: "pass" as CheckStatus,
+    description: existingInit
+      ? "Existing Jolly init detected; managed guidance refreshed"
+      : "Skills installed and verified on disk",
+  });
+
+  output(
+    buildEnvelope("init", {
+      status: "success",
+      summary: existingInit
+        ? `Jolly already initialized. Verified ${skills.length} skills on disk; .mcp.json ${mcpAction}; AGENTS.md ${agentsAction}.`
+        : `Jolly initialized. Installed and verified ${skills.length} Saleor agent skills; .mcp.json ${mcpAction}; AGENTS.md ${agentsAction}.`,
+      data: {
+        existing: existingInit,
+        initialized: true,
+        installedSkills,
+        skills,
+        mcpJson: mcpAction,
+        agentsMd: agentsAction,
+        updated: !existingInit || mcpAction === "merged" || agentsAction !== "unchanged",
+      },
+      checks,
+      nextSteps: [
+        { description: "Run jolly start to begin end-to-end setup" },
+      ],
+    }),
+  );
 }
 
 // ── PKCE helpers ────────────────────────────────────────────────────────
@@ -646,25 +778,154 @@ async function cmdCreateEnvironment(): Promise<void> {
     return;
   }
 
-  // Built up progressively so partial results (organizationSlug,
-  // environmentKey, ...) survive into an error envelope — the test harness
-  // uses them to register teardown deletion of anything that was created.
-  const data: Record<string, unknown> = {};
-  const checks: Check[] = [];
-  const region = "us-east-1";
+  // ── Flags (feature 012 Rule: environment creation against in-use
+  //    organizations) ─────────────────────────────────────────────────────
+  const flagValue = (flag: string): string | undefined => {
+    const idx = args.indexOf(flag);
+    return idx >= 0 ? args[idx + 1] : undefined;
+  };
+  const nameOverride = flagValue("--name");
+  const domainLabelOverride = flagValue("--domain-label");
+  const organizationOverride = flagValue("--organization");
+  const region = flagValue("--region") ?? "us-east-1";
+  // Test-injection flag: the organization list the token would see (the
+  // multi-org premise cannot be produced harmlessly in the sandbox).
+  const mockOrganizations = flagValue("--mock-organizations")
+    ?.split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 
-  try {
-    // 1. Discover the organization from the Cloud API.
-    const organizations = await listOrganizations(cloudToken);
-    if (organizations.length === 0) {
+  // Environment name and domain label: overrides win; generated otherwise.
+  const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const environmentName = nameOverride ?? `jolly-env-${suffix}`;
+  const domainLabel = domainLabelOverride ?? `jolly-${suffix}`;
+
+  const rc = riskContext(
+    "create store",
+    { type: "Saleor Cloud environment", organization: organizationOverride ?? "auto-discovered", name: environmentName },
+    "medium",
+    ["billing", "credential handling"],
+    true,
+    [
+      "Creates a Saleor Cloud environment (consumes a sandbox slot)",
+      "Writes NEXT_PUBLIC_SALEOR_API_URL and JOLLY_SALEOR_APP_TOKEN to .env",
+    ],
+  );
+
+  // ── Organization selection ──────────────────────────────────────────
+  // --organization wins without querying. Otherwise the token's
+  // organization list decides: exactly one → use it; several → select the
+  // first but warn with the available slugs so the agent can re-run with
+  // --organization <slug> (feature 012 Rule).
+  let status: Status = "success";
+  const advisorySteps: Array<Record<string, unknown>> = [];
+  const resolveOrganization = async (): Promise<{
+    slug: string;
+    available?: string[];
+  }> => {
+    if (organizationOverride) return { slug: organizationOverride };
+    const slugs =
+      mockOrganizations ??
+      (await listOrganizations(cloudToken)).map((o) => String(o.slug));
+    if (slugs.length === 0) {
       throw new CloudApiError(
         "No Saleor Cloud organizations are accessible with this token.",
         "NO_ORGANIZATION",
       );
     }
-    const organizationSlug = String(organizations[0].slug);
+    return { slug: slugs[0], available: slugs.length > 1 ? slugs : undefined };
+  };
+
+  // ── Dry-run: prepare the creation without any Cloud API write ───────
+  // Emits the prepared POST (requestUrl + requestBody); nothing is created
+  // and .env is not written. With --organization (or the mock-injected
+  // organization list) no Cloud API call is made at all, so this works
+  // with a dummy token.
+  if (FLAG_DRY_RUN) {
+    const dryData: Record<string, unknown> = {
+      dryRun: true,
+      riskContext: rc,
+      envUpdated: false,
+    };
+    let organization: { slug: string; available?: string[] };
+    try {
+      organization = await resolveOrganization();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      errorExit(
+        buildEnvelope("create store", {
+          status: "error",
+          summary: `Could not resolve a Saleor Cloud organization: ${message}`,
+          data: dryData,
+          errors: [{
+            code: error instanceof CloudApiError ? error.code : "CLOUD_API_ERROR",
+            message,
+          }],
+        }),
+      );
+      return;
+    }
+    const organizationSlug = organization.slug;
+    dryData.organizationSlug = organizationSlug;
+    dryData.environmentName = environmentName;
+    dryData.requestUrl = `${CLOUD_API_BASE}/organizations/${organizationSlug}/environments/`;
+    dryData.requestBody = {
+      name: environmentName,
+      project: "jolly-project",
+      domain_label: domainLabel,
+      database_population: "sample",
+      service: "saleor",
+      region,
+    };
+    dryData.domainUrl = `https://${domainLabel}.saleor.cloud/graphql/`;
+    let summary = "Dry-run: prepared Saleor Cloud environment creation. Nothing was created and .env was not written.";
+    if (organization.available) {
+      status = "warning";
+      dryData.organizations = organization.available;
+      summary = `Dry-run: the Cloud token can access multiple organizations (${organization.available.join(", ")}); selected "${organizationSlug}". Re-run with --organization <slug> if this is not the intended organization. Nothing was created.`;
+      advisorySteps.push({
+        description: `If "${organizationSlug}" is not the intended organization, re-run with --organization <slug> (available: ${organization.available.join(", ")})`,
+      });
+    }
+    output(
+      buildEnvelope("create store", {
+        status,
+        summary,
+        data: dryData,
+        checks: [
+          { id: "create-environment-dry-run", status: "pass" as CheckStatus, description: "Preview only — no Cloud API write, .env untouched" },
+        ],
+        nextSteps: [
+          ...advisorySteps,
+          { description: "Run jolly create store --create-environment (without --dry-run) to create the environment" },
+        ],
+      }),
+    );
+    return;
+  }
+
+  // Built up progressively so partial results (organizationSlug,
+  // environmentKey, ...) survive into an error envelope — the test harness
+  // uses them to register teardown deletion of anything that was created.
+  const data: Record<string, unknown> = { riskContext: rc };
+  const checks: Check[] = [];
+
+  try {
+    // 1. Discover the organization from the Cloud API (or honor the
+    //    --organization override).
+    const organization = await resolveOrganization();
+    const organizationSlug = organization.slug;
     data.organizationSlug = organizationSlug;
-    checks.push({ id: "create-environment-org-discovered", status: "pass" as CheckStatus, description: `Organization discovered from Cloud API: ${organizationSlug}` });
+    if (organization.available) {
+      status = "warning";
+      data.organizations = organization.available;
+      advisorySteps.push({
+        description: `If "${organizationSlug}" is not the intended organization, re-run with --organization <slug> (available: ${organization.available.join(", ")})`,
+      });
+      checks.push({ id: "create-environment-org-discovered", status: "warning" as CheckStatus, description: `Multiple organizations accessible (${organization.available.join(", ")}); selected "${organizationSlug}". Re-run with --organization <slug> to override.` });
+    } else {
+      checks.push({ id: "create-environment-org-discovered", status: "pass" as CheckStatus, description: `Organization: ${organizationSlug}` });
+    }
 
     // 2. Create-or-reuse the project: reuse an existing project when one
     //    exists, otherwise create one with plan "dev" (feature 012 Rule).
@@ -697,10 +958,8 @@ async function cmdCreateEnvironment(): Promise<void> {
     const services = await listProjectServices(cloudToken, organizationSlug, projectSlug);
     const service = pickService(services, region);
 
-    // 4. Create the environment.
-    const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-    const environmentName = `jolly-env-${suffix}`;
-    const domainLabel = `jolly-${suffix}`;
+    // 4. Create the environment (name/domain label honor the --name and
+    //    --domain-label overrides resolved above).
     const environment = await createEnvironment(cloudToken, organizationSlug, {
       name: environmentName,
       project: projectSlug,
@@ -750,11 +1009,15 @@ async function cmdCreateEnvironment(): Promise<void> {
 
     output(
       buildEnvelope("create store", {
-        status: "success",
-        summary: "Saleor Cloud environment created and connected.",
+        status,
+        summary:
+          status === "warning"
+            ? `Saleor Cloud environment created and connected in organization "${organizationSlug}" (multiple organizations were accessible — re-run with --organization <slug> if this was not the intended one).`
+            : "Saleor Cloud environment created and connected.",
         data,
         checks,
         nextSteps: [
+          ...advisorySteps,
           { description: "Run jolly init to install Saleor agent skills" },
           { description: "Run jolly create storefront to clone Saleor Paper" },
         ],

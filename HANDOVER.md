@@ -10,19 +10,79 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
-## Current state (2026-06-12, second Captain session of the day)
+## Current state (2026-06-12, QM session after the second Captain session)
+
+All green at this QM commit: typecheck clean, unit 51/51, `@logic` 52/52,
+full BDD 78 scenarios (70 passed, 8 skipped, 0 failed), 0 undefined. The 8
+skips are all Vercel/Stripe-gated (underivable credentials): the
+FULL_END_TO_END scenarios (001 `jolly start`, 014 start-runs-doctor, 022
+resume/agree-on-state) plus the vercel/stripe-dependent 002/005/014
+scenarios. Teardown verified: the organization has zero environments after
+the run.
+
+This session delivered the whole worklist from the previous handover:
+
+- **Self-provisioning harness (features 023 + 012)** — `features/support/`
+  gained `cloud.ts` (shared Cloud API helpers: list/delete/leftover
+  detection) and `provision.ts` (lazy once-per-run shared environment,
+  created through the CLI itself with `--name`/`--domain-label` =
+  `jolly-test-<runId>-shared`, derives `NEXT_PUBLIC_SALEOR_API_URL` +
+  `JOLLY_SALEOR_APP_TOKEN` into `process.env`, AfterAll teardown).
+  `sandbox.ts` gained `classifyCredentials`/`DERIVABLE_GROUPS` (endpoint and
+  app token derivable when the Cloud token is present); the `@sandbox`
+  Before hook (900s timeout) skips only on underivable creds, leftover
+  jolly-test environments, or `ENVIRONMENT_LIMIT_REACHED`; any other
+  provisioning failure fails loudly. Verified live: the shared environment
+  was provisioned, used by the endpoint scenarios (skips fell 24 → 8), and
+  deleted by AfterAll.
+- **012 steps reworked + Crew-implemented** — sandbox env-creation scenario
+  now runs `--create-environment --name <ns> --domain-label <ns>` with
+  leftover-check Given, namespace assertion, and teardown-registration
+  assertion. New @logic scenarios pass: `--region`/`--organization`
+  overrides via `--dry-run` (no Cloud API write; works with a dummy token)
+  and the multi-org warning (`--mock-organizations` injection flag). Crew
+  implemented the flags, the dry-run path (`requestUrl`/`requestBody`), and
+  the multi-org `warning` envelope in `cmdCreateEnvironment`.
+- **007 steps + Crew-implemented** — `jolly init` now reports
+  `data.skills` `{name, path, verified}` checked on disk (fail loudly with
+  stderr + non-zero exit on install/verify failure), merges `.mcp.json`
+  (adds a `saleor-graphql` mcp-graphql entry, user entries survive,
+  unparseable files left untouched with a warning check) and merges
+  `AGENTS.md` via `<!-- jolly:begin/end -->` markers.
+- **001 steps regenerated lean** — only the @sandbox "Jolly start completes
+  successfully" scenario; pins that the final envelope carries key URLs,
+  automatic doctor results as `data.doctor.checks`, customization nextSteps,
+  and no secrets.
+
+**Safety incident, resolved:** the first @logic run of the new 012 override
+scenarios created two real environments — the CLI ignored `--dry-run` on the
+`--create-environment` path (unimplemented) and unknown flags are silently
+ignored, while Bun had loaded the real `.env` token. Both environments were
+deleted the same hour. The steps were hardened so this cannot recur: the
+@logic create-environment runs force a dummy `JOLLY_SALEOR_CLOUD_TOKEN` via
+the runCli env override, so even a CLI without `--dry-run` support cannot
+reach the real account. Lesson for future QM step-writing: any @logic step
+that exercises a side-effecting command path must inject dummy credentials,
+not rely on `--dry-run` being implemented.
+
+## Known latent worklist (blocked on Vercel/Stripe credentials)
+
+The regenerated 001 steps pin `jolly start --json` emitting
+`data.doctor.checks` (automatic doctor run) and key URLs; `cmdStart` in
+`src/index.ts` is still a stage-status stub that emits neither, and the
+e2e flow (storefront clone, Vercel deploy, Stripe config) is unbuilt. The
+scenario skips locally (Vercel/Stripe underivable), so there is no failing
+target to dispatch yet — first credentialed CI run will surface it. Same for
+the other FULL_END_TO_END scenarios.
+
+## Previous baseline (for context)
 
 Baseline at the previous QM commit (`5273b44`): typecheck clean, unit 44/44,
 `@logic` 58/58, BDD 84 scenarios (74 passed, 10 skipped, 0 failed), 0 undefined.
-The 012 `--validate` / `--infer-cloud` / app-token-configurator contract is
-implemented; sandbox teardown was hardened (300s After-hook timeout, pre-run
-snapshot catch-all diff teardown, retrying environment DELETE).
-
 Three Captain passes followed: the self-provisioning spec change (next
 section), a finalization pass committing further spec additions, and an
-ownership change pulling the homepage out of the spec/test loop entirely. The
-dry-run worklist now shows 78 scenarios, 6 undefined / 24 undefined steps;
-typecheck clean; `test:logic` has 0 failures (only undefined + skips).
+ownership change pulling the homepage out of the spec/test loop entirely —
+all now covered, as described above.
 
 ## Ownership change this session: homepage is a Captain-owned asset
 
@@ -99,25 +159,13 @@ derived" + Rule "Credentials and gating"), feature 012's Rule
 - Teardown deletes whatever the run created, registered before creation begins —
   the hardened machinery from `5273b44` stays.
 
-QM worklist notes:
-
-- `bunx cucumber-js --dry-run` shows the undefined steps: the 012
-  create-environment rework, the two new 012 region/organization scenarios, the
-  three new 007 merge/verified-on-disk steps, and the 001 sandbox scenario
-  whose steps file was deleted (regenerate it lean); the old create-environment
-  steps in `012-...steps.ts` are superseded — rework that section.
-- The harness work is the bigger piece: suite-level provisioning (likely a
-  lazy BeforeAll-style fixture in `features/support/` that creates the shared
-  environment on first need, exports the derived `JOLLY_*`/`NEXT_PUBLIC_*`
-  values, and registers suite-end teardown), plus reworking the credential
-  gating in `hooks.ts`/`sandbox.ts` (`SANDBOX_REQUIREMENTS` currently treats
-  `saleorEndpoint`/`saleorAppToken` as skip conditions — they become derivable
-  from `saleorCloud`).
-- Expect credentialed runs without a configured endpoint to take minutes
-  (environment creation + app token); that cost is accepted by the customer.
-- Crew Mate impact: `src/index.ts` `cmdCreateEnvironment` does not yet accept
-  `--name`/`--domain-label`; it generates `jolly-env-<suffix>` /
-  `jolly-<suffix>` itself (around src/index.ts:700).
+QM worklist notes — **all delivered this session** (see Current state):
+undefined steps are at 0, the provisioning harness is live in
+`features/support/{cloud,provision,sandbox,hooks}.ts`, and
+`cmdCreateEnvironment` accepts `--name`/`--domain-label`/`--region`/
+`--organization`/`--dry-run`/`--mock-organizations`. Credentialed runs
+without a configured endpoint take minutes (one shared environment per run);
+that cost is accepted by the customer — the full BDD run is ~4.5 minutes.
 
 ## Account state
 
@@ -127,15 +175,11 @@ request on 2026-06-12 — including the former live instance
 standing order is rescinded). The organization is **empty**: all sandbox slots
 are free, and there is no live Saleor instance.
 
-Consequences:
-
-- `@sandbox` scenarios needing `NEXT_PUBLIC_SALEOR_API_URL` /
-  `JOLLY_SALEOR_APP_TOKEN` skip (24 skips vs the previous 10) — skip-not-fail
-  verified after the deletion: 59 passed, 24 skipped, 0 failed, 1 undefined
-  (the expected feature 012 QM worklist).
-- Endpoint coverage returns automatically once the self-provisioning harness
-  work (below) lands: the suite will create its own per-run environment from
-  `JOLLY_SALEOR_CLOUD_TOKEN`. No manual instance creation is needed.
+Consequences (updated this QM session): the self-provisioning harness now
+restores endpoint coverage automatically — the suite creates its own per-run
+environment from `JOLLY_SALEOR_CLOUD_TOKEN` and deletes it after the run.
+Skips are down to the 8 Vercel/Stripe-gated scenarios. No manual instance
+creation is needed; the organization stays empty between runs.
 
 ## Credentials (`.env`, Bun auto-loads it)
 

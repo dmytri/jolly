@@ -1,10 +1,27 @@
 // Step definitions for feature 007: Jolly init for local agent setup.
+//
+// CLI contract pinned by these steps (for Crew Mates):
+//   jolly init
+//     - data.skills: one entry per skill actually verified on disk —
+//       { name, path, verified: true } where path exists after the run.
+//       Output reflects disk state, never pre-computed names (feature 007
+//       Rule "Init boundaries").
+//     - An existing .mcp.json is MERGED, never replaced: the Jolly MCP
+//       server entry (saleor/graphql) is added to the existing servers
+//       object; user-authored entries survive.
+//     - An existing AGENTS.md (or agent glue file) is MERGED, never
+//       replaced: a Jolly section is inserted or updated; user-authored
+//       content survives.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
 import type { JollyWorld } from "../support/world.ts";
+
+/** User-authored content seeded before init runs; it must survive merging. */
+const USER_MCP_SERVER = "user-custom-server";
+const USER_AGENTS_NOTE = "User-authored notes that must survive jolly init.";
 
 // ── Background ───────────────────────────────────────────────────────────
 
@@ -62,6 +79,43 @@ Then(
 );
 
 Then(
+  "Jolly should report each skill as actually verified on disk, not unconditionally claim success",
+  function (this: JollyWorld) {
+    // The envelope must report what EXISTS, not what was attempted: every
+    // skill it claims carries a path, was verified, and that path is really
+    // on disk after the run (feature 007 Rule "Init boundaries").
+    const skills = this.envelope.data.skills as
+      | Array<Record<string, unknown>>
+      | undefined;
+    assert.ok(
+      Array.isArray(skills) && skills.length > 0,
+      `envelope.data.skills should report the verified-on-disk skills: ${JSON.stringify(this.envelope.data)}`,
+    );
+    for (const skill of skills!) {
+      assert.ok(
+        typeof skill.name === "string" && (skill.name as string).length > 0,
+        `skill entry missing name: ${JSON.stringify(skill)}`,
+      );
+      assert.equal(
+        skill.verified,
+        true,
+        `skill "${skill.name}" must be reported as verified on disk: ${JSON.stringify(skill)}`,
+      );
+      assert.ok(
+        typeof skill.path === "string" && (skill.path as string).length > 0,
+        `skill "${skill.name}" must report the on-disk path that was verified`,
+      );
+      const path = skill.path as string;
+      const resolved = isAbsolute(path) ? path : join(this.projectDir, path);
+      assert.ok(
+        existsSync(resolved),
+        `skill "${skill.name}" was reported verified but "${resolved}" does not exist on disk`,
+      );
+    }
+  },
+);
+
+Then(
   "Jolly should write agent-specific glue files or instructions for supported environments",
   function (this: JollyWorld) {
     // Contract.
@@ -105,6 +159,20 @@ Then("Jolly should not store secrets", function (this: JollyWorld) {
 Given(
   "`jolly init` has already been run in a temp project directory",
   function (this: JollyWorld) {
+    // Seed user-authored files BEFORE the first init: the merge-not-replace
+    // steps below verify they survive both the first run and the rerun.
+    writeFileSync(
+      join(this.projectDir, ".mcp.json"),
+      JSON.stringify(
+        { mcpServers: { [USER_MCP_SERVER]: { command: "my-tool", args: [] } } },
+        null,
+        2,
+      ),
+    );
+    writeFileSync(
+      join(this.projectDir, "AGENTS.md"),
+      `# My Project\n\n${USER_AGENTS_NOTE}\n`,
+    );
     this.runCli(["init"]);
     assert.equal(this.envelope.status, "success");
   },
@@ -143,6 +211,52 @@ Then(
   "it should avoid overwriting unrelated user-authored instructions without approval",
   function (this: JollyWorld) {
     // Contract.
+  },
+);
+
+Then(
+  "it should merge, not replace, any existing .mcp.json, adding the Jolly MCP server entry to the existing servers object rather than writing a fresh object",
+  function (this: JollyWorld) {
+    const mcpPath = join(this.projectDir, ".mcp.json");
+    assert.ok(existsSync(mcpPath), ".mcp.json should still exist after init");
+    const parsed = JSON.parse(readFileSync(mcpPath, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    const servers = parsed.mcpServers as Record<string, unknown> | undefined;
+    assert.ok(
+      servers && typeof servers === "object",
+      `.mcp.json should keep its mcpServers object: ${JSON.stringify(parsed)}`,
+    );
+    assert.ok(
+      USER_MCP_SERVER in servers!,
+      `the user-authored "${USER_MCP_SERVER}" entry must survive the merge: ${JSON.stringify(servers)}`,
+    );
+    const jollyEntries = Object.keys(servers!).filter(
+      (key) => key !== USER_MCP_SERVER && /saleor|graphql|jolly/i.test(key),
+    );
+    assert.ok(
+      jollyEntries.length > 0,
+      `init should add the Jolly MCP server entry alongside the user's: ${JSON.stringify(Object.keys(servers!))}`,
+    );
+  },
+);
+
+Then(
+  "it should merge, not replace, any existing AGENTS.md or agent glue file, inserting or updating the Jolly section without removing user-authored content",
+  function (this: JollyWorld) {
+    const agentsPath = join(this.projectDir, "AGENTS.md");
+    assert.ok(existsSync(agentsPath), "AGENTS.md should still exist after init");
+    const content = readFileSync(agentsPath, "utf8");
+    assert.ok(
+      content.includes(USER_AGENTS_NOTE),
+      `user-authored AGENTS.md content must survive the merge:\n${content}`,
+    );
+    assert.match(
+      content,
+      /jolly/i,
+      `init should insert or update a Jolly section in AGENTS.md:\n${content}`,
+    );
   },
 );
 

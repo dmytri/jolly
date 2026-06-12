@@ -13,10 +13,15 @@
 // and report anything it could not remove by its namespaced identifier
 // (feature 023 "Harmless by design"). Teardown failures are reported, never
 // swallowed silently — the scenario fails so leaked resources are visible.
-import { After, Before } from "@cucumber/cucumber";
+import { After, AfterAll, Before } from "@cucumber/cucumber";
 import type { ITestCaseHookParameter } from "@cucumber/cucumber";
 import { missingLoginKnobs, resolveBrowserTier } from "./browser.ts";
-import { missingCredentials, requiredGroups } from "./sandbox.ts";
+import {
+  derivedSecrets,
+  ensureSharedEnvironment,
+  teardownSharedEnvironment,
+} from "./provision.ts";
+import { classifyCredentials, requiredGroups } from "./sandbox.ts";
 import type { JollyWorld } from "./world.ts";
 
 /**
@@ -47,19 +52,33 @@ Before({ tags: "@requires-browser" }, function (this: JollyWorld) {
   this.notes[BROWSER_TIER_NOTE] = tier;
 });
 
-// 2 — @sandbox credential gate: skip (never fail) when the runtime JOLLY_*
-// configuration the scenario needs is absent.
+// 2 — @sandbox credential gate (feature 023): skip (never fail) only when
+// credentials are absent AND cannot be derived — the Cloud token itself, or
+// Vercel/Stripe. A missing Saleor endpoint/app token with the Cloud token
+// present is DERIVED instead: the harness provisions one shared per-run
+// jolly-test environment on first need and exports the values for the whole
+// run. Provisioning creates a real environment, so the timeout is generous.
 Before(
-  { tags: "@sandbox" },
-  function (this: JollyWorld, hook: ITestCaseHookParameter) {
+  { tags: "@sandbox", timeout: 900_000 },
+  async function (this: JollyWorld, hook: ITestCaseHookParameter) {
     const scenarioName = hook.pickle.name;
-    const missing = missingCredentials(requiredGroups(scenarioName));
-    if (missing.length > 0) {
+    const gate = classifyCredentials(requiredGroups(scenarioName));
+    if (gate.missing.length > 0) {
       this.attach(
-        `Skipped: missing required credentials ${missing.join(", ")}`,
+        `Skipped: missing required credentials ${gate.missing.join(", ")}`,
         "text/plain",
       );
       return "skipped";
+    }
+    if (gate.derivable.length > 0) {
+      const outcome = await ensureSharedEnvironment();
+      if (outcome.status === "skip") {
+        this.attach(`Skipped: ${outcome.reason}`, "text/plain");
+        return "skipped";
+      }
+      // The derived app token entered process.env after this world snapshot
+      // took its secrets; track it so output-safety assertions cover it.
+      for (const secret of derivedSecrets()) this.trackSecret(secret);
     }
   },
 );
@@ -78,6 +97,21 @@ After({ timeout: 300_000 }, async function (this: JollyWorld) {
     this.attach(`Teardown could not remove:\n${report}`, "text/plain");
     throw new Error(
       `teardown could not remove ${failures.length} resource(s):\n${report}`,
+    );
+  }
+});
+
+// Run-end teardown of the shared provisioned environment (features 023 +
+// 012: deleted right after the run; a test run never permanently consumes a
+// sandbox slot). Same long timeout and same loud-failure rule as After.
+AfterAll({ timeout: 300_000 }, async function () {
+  const failures = await teardownSharedEnvironment();
+  if (failures.length > 0) {
+    const report = failures
+      .map((failure) => `- ${failure.description}: ${failure.error}`)
+      .join("\n");
+    throw new Error(
+      `shared-environment teardown could not remove ${failures.length} resource(s):\n${report}`,
     );
   }
 });
