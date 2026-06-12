@@ -24,10 +24,19 @@ Feature: Test architecture and sandbox-first strategy
     And there should be no parallel test-only credential namespace such as `JOLLY_TEST_*`
     And whether those credentials point at a dedicated test account or a real store is the customer's choice, invisible to Jolly and to the tests
 
-  Scenario: Sandbox tests skip cleanly when credentials are absent
-    Given the required `JOLLY_*` credentials are not present
+  Scenario: Sandbox tests provision missing Saleor endpoints instead of skipping
+    Given a sandbox scenario needs a Saleor endpoint or app token that is not configured
+    And `JOLLY_SALEOR_CLOUD_TOKEN` is present
     When the sandbox test suite runs
-    Then sandbox-tagged tests should be reported as skipped, not failed
+    Then the harness should provision one shared Saleor Cloud environment for the run, carrying the per-run `jolly-test` namespace
+    And it should derive `NEXT_PUBLIC_SALEOR_API_URL` and `JOLLY_SALEOR_APP_TOKEN` from that environment for the whole run
+    And it should tear the provisioned environment down when the run ends, per feature 012's self-cleaning rules
+    And the scenarios should run rather than skip
+
+  Scenario: Sandbox tests skip cleanly only when credentials cannot be derived
+    Given required credentials are absent and cannot be derived, such as a missing `JOLLY_SALEOR_CLOUD_TOKEN` or absent Vercel or Stripe credentials
+    When the sandbox test suite runs
+    Then those sandbox-tagged tests should be reported as skipped, not failed
     And logic-tier tests should still run and pass
     And the skip reason should state which credentials are missing
 
@@ -63,7 +72,8 @@ Feature: Test architecture and sandbox-first strategy
   Rule: Credentials and gating
     - Tests use the same runtime `JOLLY_*` environment variable names as Jolly itself, identical across dev, test, and production; there is no test-only credential namespace.
     - The vendor accounts behind those variables are expected to be dedicated test accounts, but that is the customer's choice to make and to set; Jolly and the tests do not know or check which kind they are.
-    - When required `JOLLY_*` credentials are absent, `@sandbox` tests are skipped, not failed, with a clear reason.
+    - When a needed Saleor endpoint or app token is not configured but `JOLLY_SALEOR_CLOUD_TOKEN` is present, the harness provisions a shared per-run environment (feature 012's namespacing and self-cleaning rules) and derives the missing values from it, rather than skipping.
+    - `@sandbox` tests are skipped, not failed, with a clear reason only when the needed credentials are absent and cannot be derived: `JOLLY_SALEOR_CLOUD_TOKEN` itself, or third-party Vercel/Stripe credentials. Capacity-limit rejections such as feature 012's `ENVIRONMENT_LIMIT_REACHED` remain environmental skips.
     - Credentials are never printed and never committed; `.env` and credentials stay Git-ignored.
     - Harness-internal knobs (artifact path overrides, per-run id, runtime selection) are not Jolly settings: they use a `HARNESS_*` prefix and must not use `JOLLY_*` names.
 

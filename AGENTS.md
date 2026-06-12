@@ -180,21 +180,22 @@ Quartermaster and Crew Mate may read `assets/**` but must not edit or delete it.
 - Two test tiers:
   - Logic tier — pure local behavior (output-envelope shaping, flag parsing, URL normalization, risk-context construction). No accounts; always runs. Tagged `@logic`.
   - Sandbox tier — behavior that touches Saleor Cloud, Configurator, Vercel, or Stripe. Real accounts; tagged `@sandbox`.
-- **One configuration everywhere:** tests read the same runtime `JOLLY_*` environment variables Jolly itself uses — identical names across dev, test, and production. There is no test-only credential namespace (no `JOLLY_TEST_*`). The accounts behind them are expected to be dedicated test accounts, but that is the customer's choice to make and set; Jolly and the tests never know or check which kind they are. When required `JOLLY_*` credentials are absent, `@sandbox` tests are skipped (not failed) with a clear reason so the suite still runs locally; CI provides the credentials for full coverage. Harness-internal knobs (artifact path overrides, per-run id, runtime selection) are not Jolly settings and use a `HARNESS_*` prefix.
+- **One configuration everywhere:** tests read the same runtime `JOLLY_*` environment variables Jolly itself uses — identical names across dev, test, and production. There is no test-only credential namespace (no `JOLLY_TEST_*`). The accounts behind them are expected to be dedicated test accounts, but that is the customer's choice to make and set; Jolly and the tests never know or check which kind they are. When a needed Saleor endpoint or app token is not configured but `JOLLY_SALEOR_CLOUD_TOKEN` is present, the harness **provisions** a shared per-run environment and derives the missing values rather than skipping; `@sandbox` tests are skipped (not failed, with a clear reason) only when the needed credentials cannot be derived — the Cloud token itself, or Vercel/Stripe credentials. Harness-internal knobs (artifact path overrides, per-run id, runtime selection) are not Jolly settings and use a `HARNESS_*` prefix.
 - **Environmental skips beyond credentials:** when a sandbox run is prevented by the
   account's capacity rather than Jolly's behavior — e.g. the Cloud API rejects environment
   creation with the feature 012 `ENVIRONMENT_LIMIT_REACHED` condition — the scenario is
   skipped with a clear reason, not failed. Premises the harness cannot produce harmlessly
   (it never deletes pre-existing resources to manufacture a precondition) are treated the
   same way.
-- **Environment creation is opt-in:** the feature 012 environment-creation scenario runs
-  only when expressly requested via `HARNESS_ENV_CREATE`; default runs skip it (sandbox
-  capacity is scarce). When opted in, the created environment carries the per-run
-  `jolly-test` namespace as its name and domain label (via `--name`/`--domain-label`),
-  leftover `jolly-test` environments from previous runs block creation (interactive
-  approval may delete them; otherwise skip naming the leftover), and teardown deletes the
-  created environment right after the run. The harness never deletes an environment it
-  cannot positively identify as test-created.
+- **Self-provisioned endpoints:** when `JOLLY_SALEOR_CLOUD_TOKEN` is present and a needed
+  Saleor endpoint or app token is not configured, the harness provisions one shared
+  environment per run instead of skipping (feature 023), and the feature 012
+  environment-creation scenario runs whenever the Cloud token is present. Every
+  test-created environment carries the per-run `jolly-test` namespace as its name and
+  domain label (via `--name`/`--domain-label`); leftover `jolly-test` environments from
+  previous runs block creation (interactive approval may delete them; otherwise skip
+  naming the leftover); teardown deletes the created environment right after the run. The
+  harness never deletes an environment it cannot positively identify as test-created.
 - **Harmless by design:** sandbox tests must be safe to run against any store, including production. They never name-check or refuse a target. They never modify or delete resources the run did not create (read-only, non-mutating queries of pre-existing resources are allowed only where a spec requires verifying live access, as feature 019 does); created resources carry a unique per-run namespace and stay unpublished/inactive where the platform allows; shared-setting changes are allowed only when additive and reverted in teardown (for example trusted origins); payment flows use test card numbers only, so live payment credentials at worst yield a declined card. Teardown is idempotent and best-effort, reporting anything it could not remove; tests stay safe to re-run (leaning on feature 022).
 - Layout: step definitions in `features/step_definitions/<feature-slug>.steps.ts`; shared hooks/world/sandbox setup/teardown/credential-gating in `features/support/`; logic-tier unit tests in `tests/`. Each `.feature` maps to a step-definition file of the same slug. The QM creates and maintains the Cucumber configuration and `test` scripts as part of the harness.
 - DOM-level checks (homepage, storefront rendering) use happy-dom; prefer happy-dom for DOM behavior and do not duplicate it in lower-level tests.

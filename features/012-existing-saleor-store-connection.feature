@@ -91,7 +91,6 @@ Feature: Existing Saleor store connection
   @sandbox
   Scenario: Jolly creates a Saleor Cloud environment
     Given the agent has a Saleor Cloud token authenticated via JOLLY_SALEOR_CLOUD_TOKEN
-    And environment creation was expressly requested via HARNESS_ENV_CREATE
     And no leftover jolly-test environment remains from a previous run
     When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier
     Then Jolly should discover the organization from the Cloud API
@@ -124,13 +123,14 @@ Feature: Existing Saleor store connection
       environmental skip (like absent credentials), not a failure: the account's capacity,
       not Jolly's behavior, is what prevented the run.
 
-  Rule: Environment-creation test runs are opt-in, namespaced, and self-cleaning
-    - The environment-creation sandbox scenario runs only when expressly requested via the
-      harness knob `HARNESS_ENV_CREATE` (a `HARNESS_*` knob, never `JOLLY_*`); otherwise it
-      is skipped with a clear reason. Environment creation consumes scarce sandbox capacity
-      and is never exercised by a default test run.
-    - When opted in, the harness creates the environment under the per-run `jolly-test`
-      namespace (feature 023), passing it as the environment name and domain label via the
+  Rule: Environment-creation test runs are namespaced and self-cleaning
+    - Whenever a sandbox run needs a Saleor endpoint or app token that is not configured
+      and `JOLLY_SALEOR_CLOUD_TOKEN` is present, the harness provisions one shared
+      environment for the run rather than skipping (feature 023). The dedicated
+      environment-creation scenario likewise runs whenever the Cloud token is present;
+      skips remain only for missing underived credentials and capacity limits.
+    - The harness creates environments under the per-run `jolly-test` namespace
+      (feature 023), passing it as the environment name and domain label via the
       `--name`/`--domain-label` overrides, so every test-created environment is identifiable
       as such.
     - Before creating, the harness checks for leftover `jolly-test`-namespaced environments

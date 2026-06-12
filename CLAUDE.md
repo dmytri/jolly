@@ -75,9 +75,12 @@ Two tiers, sandbox over mocks:
 - **Sandbox tier** (`@sandbox`): behavior touching Saleor Cloud, Configurator, Vercel, or
   Stripe, against real accounts via the **same runtime `JOLLY_*` env vars Jolly itself uses**
   — no test-only credential namespace. Whether those point at dedicated test accounts is the
-  customer's choice; Jolly and the tests never know or check. When creds are absent the
-  scenario is **skipped, not failed** (`features/support/hooks.ts`), so the suite always runs
-  locally; CI supplies creds. Use mocks only for conditions a sandbox cannot produce.
+  customer's choice; Jolly and the tests never know or check. When a Saleor endpoint or app
+  token is missing but `JOLLY_SALEOR_CLOUD_TOKEN` is present, the harness **provisions** a
+  shared per-run `jolly-test` environment (torn down after the run) rather than skipping;
+  scenarios are **skipped, not failed** only when creds cannot be derived (no Cloud token, or
+  Vercel/Stripe), so the suite always runs locally; CI supplies creds. Use mocks only for
+  conditions a sandbox cannot produce.
 
 Sandbox tests are **harmless by design** — safe against any store, production included: never
 modify or delete resources the run didn't create (read-only queries of pre-existing resources
