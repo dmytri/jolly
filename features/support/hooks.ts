@@ -65,7 +65,10 @@ Before(
 );
 
 // Teardown: LIFO best-effort cleanup of everything the scenario created.
-After(async function (this: JollyWorld) {
+// Explicit timeout: cleanup talks to live APIs (environment deletion can be
+// slow or briefly blocked by provisioning tasks) and must never be cut off
+// by the 5s hook default — a cut-off teardown is how sandbox slots leak.
+After({ timeout: 300_000 }, async function (this: JollyWorld) {
   if (this.cleanup.size === 0) return;
   const failures = await this.cleanup.runAll();
   if (failures.length > 0) {

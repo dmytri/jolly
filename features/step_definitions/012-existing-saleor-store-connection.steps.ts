@@ -706,12 +706,94 @@ Then(
 // Must work against organizations that already have projects and
 // environments. ENVIRONMENT_LIMIT_REACHED is an environmental skip. The
 // created environment's deletion is registered in teardown so a run never
-// permanently consumes a sandbox slot.
+// permanently consumes a sandbox slot — including when the CLI times out or
+// crashes after creation but before emitting an envelope: a catch-all diff
+// teardown is registered BEFORE the CLI runs, deleting any jolly-env-*
+// environment that did not exist in the pre-run snapshot.
+
+/** Every environment visible to the token, across all organizations. */
+async function listAllEnvironments(
+  token: string,
+): Promise<Array<{ org: string; key: string; name: string }>> {
+  const orgsResponse = await fetch(`${CLOUD_API}/organizations/`, {
+    headers: { Authorization: `Token ${token}` },
+  });
+  if (!orgsResponse.ok) {
+    throw new Error(`GET organizations returned HTTP ${orgsResponse.status}`);
+  }
+  const orgs = (await orgsResponse.json()) as Array<{ slug: string }>;
+  const all: Array<{ org: string; key: string; name: string }> = [];
+  for (const org of orgs) {
+    const envsResponse = await fetch(
+      `${CLOUD_API}/organizations/${org.slug}/environments/`,
+      { headers: { Authorization: `Token ${token}` } },
+    );
+    if (!envsResponse.ok) {
+      throw new Error(
+        `GET environments for ${org.slug} returned HTTP ${envsResponse.status}`,
+      );
+    }
+    const envs = (await envsResponse.json()) as Array<{
+      key: string;
+      name: string;
+    }>;
+    for (const env of envs) {
+      all.push({ org: org.slug, key: String(env.key), name: String(env.name) });
+    }
+  }
+  return all;
+}
+
+/**
+ * Idempotent environment deletion: 404 = already gone. The platform can
+ * reject deletion while provisioning tasks still block the environment, so
+ * retry briefly — a creation that timed out mid-poll must still be removable.
+ */
+async function deleteEnvironment(
+  token: string,
+  org: string,
+  key: string,
+): Promise<void> {
+  const maxAttempts = 6;
+  for (let attempt = 1; ; attempt++) {
+    const response = await fetch(
+      `${CLOUD_API}/organizations/${org}/environments/${key}/`,
+      { method: "DELETE", headers: { Authorization: `Token ${token}` } },
+    );
+    if (response.ok || response.status === 404) return;
+    if (attempt >= maxAttempts) {
+      throw new Error(`DELETE environment returned HTTP ${response.status}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 15_000));
+  }
+}
 
 When(
   "the agent runs `jolly create store --create-environment --json`",
   { timeout: 600_000 },
-  function (this: JollyWorld) {
+  async function (this: JollyWorld) {
+    // Catch-all teardown, registered before the CLI can create anything: if
+    // the run dies without an envelope (timeout, crash), the diff against
+    // this snapshot still finds and deletes whatever it created. Only
+    // jolly-env-* environments absent from the snapshot are touched — never
+    // a pre-existing resource.
+    const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
+    if (cloudToken) {
+      const snapshot = new Set(
+        (await listAllEnvironments(cloudToken)).map((env) => env.key),
+      );
+      this.cleanup.register(
+        "Saleor Cloud environments created by this run (catch-all diff vs pre-run snapshot)",
+        async () => {
+          for (const env of await listAllEnvironments(cloudToken)) {
+            if (!snapshot.has(env.key) && env.name.startsWith("jolly-env-")) {
+              await deleteEnvironment(cloudToken, env.org, env.key);
+            }
+          }
+        },
+      );
+    }
+
     this.runCli(["create", "store", "--create-environment", "--json"], {
       timeoutMs: 540_000,
     });
@@ -733,34 +815,20 @@ When(
       return "skipped";
     }
 
-    // Register teardown for whatever was created, before any assertion can
-    // fail: a test run must never permanently consume a sandbox slot.
+    // Precise teardown for the reported environment, registered before any
+    // assertion can fail (LIFO: runs before the catch-all diff, which then
+    // finds nothing left to remove).
     const created = envelope.data as Record<string, unknown>;
     const organizationSlug = created.organizationSlug;
     const environmentKey = created.environmentKey;
-    const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
     if (
       typeof organizationSlug === "string" &&
       typeof environmentKey === "string" &&
-      token
+      cloudToken
     ) {
       this.cleanup.register(
         `Saleor Cloud environment ${organizationSlug}/${environmentKey}`,
-        async () => {
-          const response = await fetch(
-            `${CLOUD_API}/organizations/${organizationSlug}/environments/${environmentKey}/`,
-            {
-              method: "DELETE",
-              headers: { Authorization: `Token ${token}` },
-            },
-          );
-          // 404 = already gone — teardown is idempotent.
-          if (!response.ok && response.status !== 404) {
-            throw new Error(
-              `DELETE environment returned HTTP ${response.status}`,
-            );
-          }
-        },
+        () => deleteEnvironment(cloudToken, organizationSlug, environmentKey),
       );
     }
   },

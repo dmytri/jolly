@@ -795,6 +795,108 @@ async function cmdCreateEnvironment(): Promise<void> {
   }
 }
 
+// ── Endpoint validation (--validate) ─────────────────────────────────────
+// Live introspection-style GraphQL validation: POST a minimal query and
+// require a JSON GraphQL response. Network failures (DNS, refused
+// connections) are caught and reported, never thrown (feature 012).
+
+interface EndpointValidation {
+  ok: boolean;
+  code: string;
+  message: string;
+}
+
+async function validateGraphqlEndpoint(url: string): Promise<EndpointValidation> {
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "{ __typename }" }),
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      code: "ENDPOINT_UNREACHABLE",
+      message: `The Saleor GraphQL endpoint could not be reached (${message}). Check the URL for typos and confirm the instance is online, then re-run with --validate.`,
+    };
+  }
+  if (!response.ok) {
+    return {
+      ok: false,
+      code: "ENDPOINT_NOT_GRAPHQL",
+      message: `The endpoint responded with HTTP ${response.status} instead of a GraphQL result. Use the Saleor GraphQL endpoint (https://<store>.saleor.cloud/graphql/), then re-run with --validate.`,
+    };
+  }
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return {
+      ok: false,
+      code: "ENDPOINT_NOT_GRAPHQL",
+      message: "The endpoint returned a non-JSON response to a GraphQL query, so it does not look like a GraphQL endpoint. Use the Saleor GraphQL endpoint (https://<store>.saleor.cloud/graphql/), then re-run with --validate.",
+    };
+  }
+  const result = body as Record<string, unknown> | null;
+  const data = result?.data as Record<string, unknown> | undefined;
+  if (typeof data?.__typename !== "string" && !Array.isArray(result?.errors)) {
+    return {
+      ok: false,
+      code: "ENDPOINT_NOT_GRAPHQL",
+      message: "The endpoint returned JSON without a GraphQL data/errors shape. Use the Saleor GraphQL endpoint (https://<store>.saleor.cloud/graphql/), then re-run with --validate.",
+    };
+  }
+  return { ok: true, code: "OK", message: "Live GraphQL validation succeeded." };
+}
+
+// ── Cloud context inference (--infer-cloud) ──────────────────────────────
+// Query the Cloud API for the account's organizations and their
+// environments, then match the endpoint host to an environment domain.
+// requiresSelection is true only when no unambiguous match exists.
+
+async function inferCloudContext(
+  cloudToken: string,
+  endpointUrl: string,
+): Promise<Record<string, unknown>> {
+  const endpointHost = new URL(endpointUrl).host.toLowerCase();
+  const hostOf = (domain: string): string =>
+    domain.replace(/^https?:\/\//, "").replace(/\/.*$/, "").toLowerCase();
+
+  const organizations = await listOrganizations(cloudToken);
+  const environments: Array<Record<string, unknown>> = [];
+  for (const organization of organizations) {
+    const organizationSlug = String(organization.slug);
+    for (const environment of await listEnvironments(cloudToken, organizationSlug)) {
+      environments.push({
+        organizationSlug,
+        key: environment.key !== undefined ? String(environment.key) : undefined,
+        name: environment.name !== undefined ? String(environment.name) : undefined,
+        domain: environment.domain !== undefined ? String(environment.domain) : undefined,
+      });
+    }
+  }
+
+  const matches = environments.filter(
+    (e) => typeof e.domain === "string" && hostOf(e.domain as string) === endpointHost,
+  );
+  const matched = matches.length === 1;
+  return {
+    organizations: organizations.map((organization) => ({
+      slug: String(organization.slug),
+      name: organization.name !== undefined ? String(organization.name) : undefined,
+    })),
+    environments,
+    matched,
+    matchedDomain: matched ? matches[0].domain : undefined,
+    organizationSlug: matched ? matches[0].organizationSlug : undefined,
+    environmentKey: matched ? matches[0].key : undefined,
+    requiresSelection: !matched,
+  };
+}
+
 // ── Command: create store ────────────────────────────────────────────────
 
 async function cmdCreateStore(): Promise<void> {
@@ -824,7 +926,7 @@ async function cmdCreateStore(): Promise<void> {
   const existingUrl = existing["NEXT_PUBLIC_SALEOR_API_URL"];
 
   // Detect collision: existing .env with unrelated user content
-  const jollyManaged = ["NEXT_PUBLIC_SALEOR_API_URL", "JOLLY_STRIPE_PUBLISHABLE_KEY", "JOLLY_STRIPE_SECRET_KEY", "JOLLY_SALEOR_CLOUD_TOKEN", "JOLLY_SALEOR_APP_TOKEN"];
+  const jollyManaged = ["NEXT_PUBLIC_SALEOR_API_URL", "JOLLY_STRIPE_PUBLISHABLE_KEY", "JOLLY_STRIPE_SECRET_KEY", "JOLLY_SALEOR_CLOUD_TOKEN", "JOLLY_SALEOR_APP_TOKEN", "JOLLY_SALEOR_ORGANIZATION"];
   const hasUnrelatedKeys = Object.keys(existing).some((k) => !jollyManaged.includes(k));
 
   if (FLAG_DRY_RUN) {
@@ -872,13 +974,90 @@ async function cmdCreateStore(): Promise<void> {
 
   const url = normalized.endpoint;
 
+  // Checks/data contributed by --validate / --infer-cloud, merged into
+  // whichever envelope this command emits below.
+  const extraChecks: Check[] = [];
+  const extraData: Record<string, unknown> = {};
+
+  // ── Live endpoint validation (--validate) ────────────────────────────
+  // Runs before anything is written: a failed validation leaves .env
+  // untouched (feature 012 — do not proceed to storefront configuration
+  // until connectivity is verified).
+  if (args.includes("--validate")) {
+    const validation = await validateGraphqlEndpoint(url);
+    if (!validation.ok) {
+      errorExit(
+        buildEnvelope("create store", {
+          status: "error",
+          summary: "Endpoint validation failed. Nothing was written to .env.",
+          data: { url, envUpdated: false },
+          checks: [
+            { id: "create-store-validate-endpoint", status: "fail" as CheckStatus, description: validation.message },
+          ],
+          errors: [{
+            code: validation.code,
+            message: validation.message,
+            remediation: "Verify the Saleor GraphQL endpoint URL (https://<store>.saleor.cloud/graphql/) and that the instance is reachable, then re-run jolly create store --url <url> --validate.",
+          }],
+        }),
+      );
+    }
+    extraChecks.push({ id: "create-store-validate-endpoint", status: "pass" as CheckStatus, description: "Live introspection-style GraphQL validation succeeded" });
+  }
+
+  // ── Saleor Cloud context inference (--infer-cloud) ───────────────────
+  if (args.includes("--infer-cloud")) {
+    const cloudToken =
+      process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ??
+      existing["JOLLY_SALEOR_CLOUD_TOKEN"];
+    if (!cloudToken) {
+      errorExit(
+        buildEnvelope("create store", {
+          status: "error",
+          summary: "Saleor Cloud token is required for --infer-cloud. Set JOLLY_SALEOR_CLOUD_TOKEN or run jolly login first.",
+          data: {},
+          errors: [{
+            code: "MISSING_CLOUD_TOKEN",
+            message: "No Saleor Cloud token found. Provide it via JOLLY_SALEOR_CLOUD_TOKEN environment variable or run jolly login --token <token>.",
+          }],
+        }),
+      );
+    }
+    try {
+      const cloudContext = await inferCloudContext(cloudToken!, url);
+      extraData.cloudContext = cloudContext;
+      extraChecks.push({
+        id: "create-store-infer-cloud",
+        status: "pass" as CheckStatus,
+        description: cloudContext.matched === true
+          ? `Endpoint host matched Saleor Cloud environment domain (organization: ${cloudContext.organizationSlug})`
+          : "No unambiguous Saleor Cloud environment match; selection required",
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      errorExit(
+        buildEnvelope("create store", {
+          status: "error",
+          summary: "Could not query Saleor Cloud organizations and environments.",
+          data: {},
+          errors: [{
+            code: error instanceof CloudApiError ? error.code : "CLOUD_API_ERROR",
+            message,
+            remediation: "Check that JOLLY_SALEOR_CLOUD_TOKEN is valid (jolly auth status), then re-run jolly create store --url <url> --infer-cloud.",
+          }],
+        }),
+      );
+    }
+  }
+
   if (existingUrl === url) {
     output(
       buildEnvelope("create store", {
         status: "success",
         summary: "Store already configured. Saleor URL is already set in .env.",
-        data: { existing: true, url, envUpdated: false },
+        data: { ...extraData, existing: true, url, envUpdated: false },
         checks: [
+          ...extraChecks,
           { id: "create-store-existing", status: "pass" as CheckStatus, description: "NEXT_PUBLIC_SALEOR_API_URL already configured" },
         ],
       }),
@@ -983,8 +1162,9 @@ async function cmdCreateStore(): Promise<void> {
       buildEnvelope("create store", {
         status: "warning",
         summary: "Warning: .env already contains values not managed by Jolly. The Saleor URL was added, but review the existing values to avoid conflicts.",
-        data: { ...cloudApiData, existing: false, url, envUpdated: true, collision: true },
+        data: { ...cloudApiData, ...extraData, existing: false, url, envUpdated: true, collision: true },
         checks: [
+          ...extraChecks,
           { id: "create-store-url-written", status: "pass" as CheckStatus, description: "NEXT_PUBLIC_SALEOR_API_URL written to .env" },
           { id: "create-store-collision", status: "warning" as CheckStatus, description: ".env contains existing user values (preserved)" },
         ],
@@ -1001,8 +1181,9 @@ async function cmdCreateStore(): Promise<void> {
     buildEnvelope("create store", {
       status: "success",
       summary: "Saleor store connected. URL written to .env.",
-      data: { ...cloudApiData, existing: false, url, envUpdated: true },
+      data: { ...cloudApiData, ...extraData, existing: false, url, envUpdated: true },
       checks: [
+        ...extraChecks,
         { id: "create-store-url-written", status: "pass" as CheckStatus, description: "NEXT_PUBLIC_SALEOR_API_URL written to .env" },
       ],
       nextSteps: [
@@ -1505,6 +1686,7 @@ function cmdCreateAppToken(): void {
       ],
       nextSteps: [
         { description: "Verify the token with jolly auth status" },
+        { description: "Run saleor/configurator introspect with JOLLY_SALEOR_APP_TOKEN to discover channels, catalog structure, menus, and configuration" },
       ],
     }),
   );
