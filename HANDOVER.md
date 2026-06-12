@@ -55,22 +55,33 @@ not yet accept `--name`/`--domain-label`; it generates `jolly-env-<suffix>` /
 
 ## Account state
 
-The leaked `jolly-env-mq9xbafzoovm` was deleted by the Captain on 2026-06-12
-(customer-approved); **one sandbox slot is free**. Never delete
-`jolly-mq9ol7f2.saleor.cloud` (key `pFVKHJdY`) — the live instance.
+All environments in `dmytris-organization-1` were deleted at the customer's
+request on 2026-06-12 — including the former live instance
+`jolly-mq9ol7f2.saleor.cloud` (explicitly confirmed; the earlier "never delete"
+standing order is rescinded). The organization is **empty**: all sandbox slots
+are free, and there is no live Saleor instance.
+
+Consequences:
+
+- `@sandbox` scenarios needing `NEXT_PUBLIC_SALEOR_API_URL` /
+  `JOLLY_SALEOR_APP_TOKEN` skip (24 skips vs the previous 10) — skip-not-fail
+  verified after the deletion: 59 passed, 24 skipped, 0 failed, 1 undefined
+  (the expected feature 012 QM worklist).
+- To restore endpoint coverage, create a fresh environment (e.g. via
+  `jolly create store --create-environment` once the feature 012 rework lands,
+  or the Cloud dashboard) and write the new `NEXT_PUBLIC_SALEOR_API_URL` and
+  `JOLLY_SALEOR_APP_TOKEN` to `.env`.
 
 ## Credentials (`.env`, Bun auto-loads it)
 
 ```
-JOLLY_SALEOR_CLOUD_TOKEN   (Saleor Cloud auth, dmytris-organization-1)
-NEXT_PUBLIC_SALEOR_API_URL = https://jolly-mq9ol7f2.saleor.cloud/graphql/  (live instance — never delete)
-JOLLY_SALEOR_APP_TOKEN     (app token for that instance)
-JOLLY_SALEOR_ORGANIZATION  (non-secret auth context, written by jolly login)
+JOLLY_SALEOR_CLOUD_TOKEN   (Saleor Cloud auth, dmytris-organization-1 — the only var present)
 ```
 
-Vercel/Stripe credentials are absent locally; those `@sandbox` scenarios skip.
-`HARNESS_ENV_CREATE` is intentionally unset by default — set it only for an
-expressly requested environment-creation run.
+`NEXT_PUBLIC_SALEOR_API_URL` and `JOLLY_SALEOR_APP_TOKEN` were removed with the
+instance they belonged to. Vercel/Stripe credentials are absent locally; those
+`@sandbox` scenarios skip. `HARNESS_ENV_CREATE` is intentionally unset by
+default — set it only for an expressly requested environment-creation run.
 
 ## Running the suite
 
