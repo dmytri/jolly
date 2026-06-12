@@ -73,7 +73,10 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompt
 - No Jolly-owned auth, licensing, telemetry, quotas, paid feature gating, or usage controls in v1.
 - Post-setup storefront customization belongs to the customer's own agent and workflow. Jolly supports the iteration phase via `jolly doctor`, `jolly upgrade`, and mcp-graphql config for live store access.
 - `jolly start` is optional convenience orchestration; every stage must also be available as composable commands the agent can call independently.
-- Canonical homepage/setup-guide URL is deferred; use a placeholder until decided.
+- Canonical homepage URL: **https://jolly.cool** (customer decision, 2026-06-12). The
+  agent setup guide is **https://jolly.cool/setup** (served from `homepage/setup.md`
+  via a rewrite in `homepage/vercel.json`). The homepage deploys to Vercel from the
+  `homepage/` directory (Captain-owned; project link in `homepage/.vercel`).
 - Project-local `.jolly/` artifacts and persistent report files are deferred until CLI design.
 
 ## CLI Output Contract
