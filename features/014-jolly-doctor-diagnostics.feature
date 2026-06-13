@@ -73,6 +73,8 @@ Feature: Jolly doctor diagnostics
     - `jolly doctor --quiet` should reduce nonessential output.
     - Doctor should distinguish between pass, warning, fail, skipped, and unknown checks.
     - Doctor should suggest concrete next commands or manual steps.
+    - Doctor is the agent's recovery oracle during skill-driven setup: when a step fails or is incomplete, the relevant check should tell the agent what is wrong and the concrete next action (a command to run, a CLI to authenticate, a value to provide), so the agent can self-correct and resume via the Jolly skill.
+    - Doctor's checks should reflect end-to-end state produced by the agent's official-CLI steps (cloned storefront, configured store, deployment) — see feature 022 — so a re-run after agent work shows real progress, not just Jolly's own plumbing.
     - Doctor should be diagnostics-only in v1.
     - Doctor should not make local or remote changes in v1.
     - Per feature 020's "No fabricated success", doctor reports `pass` only for a check it actually performed and confirmed; checks it could not run are `skipped` or `unknown`, never `pass`.

@@ -80,10 +80,29 @@ QM worklist (the path to MVP, in order):
    harness runs the CLI steps the Jolly skill prescribes, as a proxy for the agent), and how
    to validate the Jolly skill's correctness. This is the main open testing question.
 
-Open Captain items: finish authoring `assets/jolly-skill/SKILL.md` against verified current
-upstream CLI flows (Vercel CLI, `@saleor/configurator`, Paper); confirm the `npx skills add`
-ref/registry for distributing the Jolly skill; remove the stale `JOLLY_VERCEL_TOKEN` from
-`.env`.
+Trust + frictionless handoff (later same-day Captain pass): captured the "trustworthy
+first-step handoff" principle (AGENTS.md + feature 001) — the pasted setup must not trip a
+security-conscious agent's alarms (named inspectable `npx @dk/jolly`, clear provenance, exact
+hosts, secrets only to their own services, agent-decided approvals, no fabrication) while
+staying frictionless to a live store. Trust rests on npm + git, **not** npm provenance
+attestation (don't require/claim it). `homepage/setup.md` rewritten to the skill-driven model
+(hosts split into "Jolly contacts" vs "the CLIs you run contact"; retired commands removed).
+
+Gap-closure pass (MVP-bounded, do not over-engineer): three gaps that made "friction-free"
+contingent are now specced — (1) feature 022: resume spans the agent↔Jolly boundary; Jolly
+detects agent-produced state (cloned storefront, configured store, deployment) so the playbook
+resumes without redoing — detection stays simple for v1; (2) feature 014: `jolly doctor` is the
+agent's recovery oracle (actionable next-step on any fail) and reflects agent-produced state;
+(3) AGENTS.md: the Jolly-skill MVP bar is the happy path running end-to-end (paste → live store
+with test-mode payment) with doctor for recovery — edge cases iterate later.
+
+Open Captain items: finish authoring `assets/jolly-skill/SKILL.md` to the MVP bar against
+verified current upstream CLI flows (Vercel CLI, `@saleor/configurator`, Paper) — the skill
+carries the smoothness; confirm the `npx skills add` ref/registry for distributing it. (The
+stale `JOLLY_VERCEL_TOKEN` was already removed from `.env`.)
+
+Guiding intent (customer, 2026-06-13): get to a clean end-to-end MVP we can really use, then
+iterate — do not premature-optimize or chase every edge case.
 
 ## Previous state (2026-06-12, QM session: honest-auth coverage + Crew rewrite, all green)
 

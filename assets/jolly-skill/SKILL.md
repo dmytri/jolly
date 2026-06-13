@@ -74,6 +74,14 @@ customer's policies — Jolly never hardcodes the decision. Parse `--json` outpu
     connectivity, storefront env, deployment reachability, and that checkout reaches the Stripe
     test payment step. Report the live URL, the doctor results, and any remaining manual steps.
 
+## If a step fails or you're unsure
+
+Run `npx @dk/jolly doctor` — it tells you what is wrong and the concrete next action (a
+command to run, a CLI to authenticate, a value to ask your human for). Fix that, then
+continue. Re-running `jolly start` is safe: Jolly detects what you (and it) already did —
+the cloned storefront, the configured store, the deployment — and resumes from the first
+outstanding step rather than redoing work. Never treat a failed command as success.
+
 ## Honesty
 
 Never claim a step succeeded that you did not actually perform and confirm. If a CLI is missing
