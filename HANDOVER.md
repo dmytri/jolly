@@ -10,6 +10,35 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
+## TL;DR for the Quartermaster (2026-06-13)
+
+Jolly was re-architected this session to a **skill-driven thin CLI** and the disposable
+code was reset. Derive your worklist from the committed specs, not from old src (it's gone).
+Current tree: typecheck clean; `bunx cucumber-js --dry-run` = **83 scenarios, all undefined**
+(your worklist); 20 feature files parse; `src/lib/` + `features/support/` kept.
+
+Worklist, in order:
+
+1. **Crew rebuilds `src/index.ts`** as the thin surface — `login`/`logout`/`auth status`,
+   `init`, `start` (bootstrap + emit playbook), `doctor`, `upgrade`, `skills`, and `create`
+   with `store`/`app-token`/`stripe` only. Honest behavior is the contract (no fabrication;
+   unbuilt paths error with a stable code). Jolly never shells out to Vercel/configurator.
+   Reuse `src/lib/`.
+2. **Regenerate step defs + logic tests** against current specs (all 83 undefined). Carry the
+   012-incident safety lesson: any `@logic` step on a side-effecting path forces dummy creds
+   for all groups + an unroutable `.invalid` Cloud API base.
+3. **Fix harness gating** in `features/support/sandbox.ts`: retire `vercel: ["JOLLY_VERCEL_TOKEN"]`;
+   deployment `@sandbox` gates on `npx vercel whoami` (exit 0), not a Jolly env var. Strip
+   `JOLLY_VERCEL_TOKEN` from tests/step-defs as you regenerate.
+4. **Scenario cleanup**: the agent-journey `@sandbox` scenarios in 002/003/004/005 describe the
+   *agent's* CLI actions (clone/configure/deploy) — not Jolly behavior, not cucumber-testable.
+   Keep only Jolly-observable assertions (e.g. `jolly doctor` detects the deployment); don't
+   build a harness that "plays the agent" for v1.
+
+Not QM's job (Captain/customer): finish the Jolly skill content (`assets/skills/jolly/SKILL.md`,
+Captain-owned, untested); confirm the `npx skills add` ref; reset the Vercel project root dir to
+`assets/homepage/`. Detail and rationale below.
+
 ## Current state (2026-06-13, Captain re-architecture: skill-driven thin CLI + clean code reset)
 
 This session pivoted Jolly's architecture and reset the disposable code so QM/Crew
@@ -58,7 +87,7 @@ features 001, 002, 003, 004, 005, 006, 007, 008, 009, 020. New Captain-owned ass
 - **Kept:** `src/lib/` (`cloud-api.ts`, `env-file.ts`, `saleor-url.ts` — reusable plumbing
   the thin CLI will build on; `provision.ts` imports `env-file.ts`) and `features/support/`
   (the harness charter, feature 023 — world, hooks, sandbox, cloud, provision, envelope,
-  saleor-graphql, browser). Verified: typecheck clean; `bunx cucumber-js --dry-run` = 82
+  saleor-graphql, browser). Verified: typecheck clean; `bunx cucumber-js --dry-run` = 83
   scenarios, all undefined (the clean worklist); 20 feature files parse.
 
 QM worklist (the path to MVP, in order):
