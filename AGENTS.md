@@ -85,6 +85,46 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompt
   `homepage/` directory (Captain-owned; project link in `homepage/.vercel`).
 - Project-local `.jolly/` artifacts and persistent report files are deferred until CLI design.
 
+## MVP and Launch Definition
+
+Launch bar (decision 2026-06-13): the MVP is the **full honest end-to-end** — the
+customer's agent goes from the homepage prompt to a **real, deployed, working storefront**,
+with every claim verified and nothing fabricated. The acceptance bar mirrors feature 002's
+"V1 operational readiness": the deployed URL works, product browsing works against Saleor
+Cloud data, cart works, and checkout progresses to the Stripe test payment step.
+
+The end-to-end stages, each of which must do **real** work and report only verified results
+(no fabrication — see the integrity rule below):
+
+1. **Auth** — `jolly login` / `auth status`. *Built and sandbox-verified.*
+2. **Store/environment** — `jolly create store` / `create environment`. *Built and sandbox-verified.*
+3. **Storefront** — `jolly create storefront`: real clone of `saleor/storefront` (Paper) from
+   `main`, strip upstream `.git`, fresh `git init`, `pnpm` install, lightweight validation
+   (feature 002/003). *Currently fabricated — must be built.*
+4. **Recipe** — `jolly create recipe`: real Jolly starter recipe written into the cloned
+   storefront repo and applied via the Configurator safe workflow (feature 004).
+   *Currently fabricated — must be built.*
+5. **Deployment** — `jolly create deployment` / `deploy`: real Vercel project + deploy via
+   `api.vercel.com`, env vars configured, Saleor trusted origins updated, deployed URL
+   reported (feature 002). *Currently fabricated — must be built.*
+6. **Stripe** — `jolly create stripe` (keys to `.env`, *built*) plus Saleor Stripe
+   configuration and checkout-readiness verification (feature 005). *Saleor-side config must be built.*
+7. **Orchestration** — `jolly start`: real, resumable orchestration of stages 1–6 ending with
+   an automatic `jolly doctor` run (features 001/022). *Currently a simulation stub — must be built.*
+
+**Integrity rule (decision 2026-06-13):** until each real stage lands, its command **errors
+honestly** (stable `errors[].code`, e.g. a not-implemented or unmet-precondition code) and
+never reports a cloned/configured/deployed/verified result it did not produce. This applies
+feature 020's "No fabricated success" to the create subcommands (feature 008), `jolly start`
+(feature 001), and `jolly doctor` (feature 014). The honest-error behavior is testable at the
+`@logic` tier without credentials; the real-work behavior is verified at the `@sandbox` tier.
+
+**Launch credentials (in scope as of 2026-06-13):** alongside `JOLLY_SALEOR_CLOUD_TOKEN`, the
+end-to-end build and its `@sandbox` verification use `JOLLY_VERCEL_TOKEN` (Vercel) and
+`JOLLY_STRIPE_PUBLISHABLE_KEY` / `JOLLY_STRIPE_SECRET_KEY` (Stripe **test mode** only). These
+are the established names already used by the harness gating and step definitions; populating
+them unblocks the deploy and payment `@sandbox` scenarios that previously skipped.
+
 ## CLI Output Contract
 
 - Every command shares one structured output envelope so agents parse all commands identically. See feature `020-cli-output-contract`.

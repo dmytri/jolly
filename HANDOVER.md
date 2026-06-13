@@ -10,7 +10,90 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
-## Current state (2026-06-12, QM session: honest-auth coverage + Crew rewrite, all green)
+## Current state (2026-06-13, Captain pass: MVP launch definition + honesty stopgap)
+
+Customer goal this session: **get to MVP and launch.** Captain audited the
+end-to-end implementation against the product vision and found the back half
+of the flow **fabricating success** — a direct violation of feature 020's "No
+fabricated success" contract that the green suite never caught because the
+relevant `@sandbox` scenarios skip on absent Vercel/Stripe credentials.
+
+Fabricating implementations found in `src/index.ts` (all claim success/`pass`
+while doing no real work):
+
+- `cmdCreateStorefront` (~2175) — reports `cloned: true` / "Paper template
+  prepared" with no clone, no directory, no `.git` strip, no `git init`.
+- `create deployment` / `deploy` inline blocks (~2417 and the top-level
+  `deploy` case ~2440) — report "Vercel deployment configured" with no
+  `api.vercel.com` call.
+- `create recipe` inline block (~2404) — reports "Recipe ready" at a path
+  never written.
+- `cmdStart` real path (~2062) — code comment literally says "Simulate
+  running stages"; orchestrates nothing and returns envelope status
+  `success` for an incomplete flow.
+- `cmdDoctor` storefront group (~1795) — returns `pass` for `storefront-env`
+  and `storefront-node` unconditionally, checking nothing.
+
+Customer decisions (captured in `AGENTS.md` → "MVP and Launch Definition"):
+
+1. **MVP launch bar = full honest end-to-end** — homepage prompt to a real,
+   deployed, working storefront (deployed URL works, browsing works against
+   Saleor Cloud, cart works, checkout reaches the Stripe test payment step;
+   mirrors feature 002's operational-readiness rule). Seven stages, each must
+   do real work and report only verified results.
+2. **Honesty stopgap first** — until each real stage lands, its command must
+   error honestly (stable `errors[].code`) and never fabricate. Specced this
+   pass; testable at `@logic` without credentials.
+3. **Credentials now in scope** — the customer is adding `JOLLY_VERCEL_TOKEN`
+   and `JOLLY_STRIPE_PUBLISHABLE_KEY` / `JOLLY_STRIPE_SECRET_KEY` (Stripe test
+   mode) to `.env`. These are the names the harness gating
+   (`features/support/sandbox.ts`) and step defs already use; populating them
+   makes the deploy/Stripe `@sandbox` scenarios run instead of skip.
+
+Spec changes this pass (committed by Captain):
+
+- **008** — new Rule "No fabricated create results" + three `@logic` scenarios
+  (create storefront / create deployment+deploy / create recipe) that assert
+  no success/`pass`/cloned/configured claim without the real resource, and an
+  honest `error` + stable code when the work cannot be performed.
+- **001** — new `@logic` scenario "Jolly start does not fabricate stage
+  completion or success" (no stage reported done that wasn't performed; not
+  `success` for an incomplete flow; no fabricated URLs/verification).
+- **014** — new `@logic` scenario "Doctor reports pass only for checks it
+  actually performed" + a Doctor-principles bullet binding doctor to 020's
+  no-fabrication rule.
+- **AGENTS.md** — new "MVP and Launch Definition" section (launch bar, seven
+  staged checklist with built/fabricated status, integrity rule, launch
+  credential names).
+
+QM worklist (this is the path to MVP):
+
+1. **Honesty stopgap (no creds needed, do first).** 5 new undefined scenarios
+   (3×008, 1×001, 1×014; 25 undefined steps via `bunx cucumber-js --dry-run`).
+   Write step defs and dispatch Crew to convert the five fabricating code
+   paths above into honest errors / honest check statuses. **Apply the
+   012-incident safety lesson**: any `@logic` step exercising a side-effecting
+   command path must force dummy credentials for all groups and an unroutable
+   `.invalid` Cloud API base, so a CLI that ignores flags cannot reach a real
+   account. After this, the published-CLI fabrication is gone and the contract
+   is enforced.
+2. **Real build (now unblocked by creds).** With Vercel/Stripe creds present,
+   the previously-skipping `@sandbox` scenarios in 002 (storefront clone,
+   Vercel deploy), 003 (Paper/Configurator integration), 004 (recipe apply),
+   005 (Saleor Stripe config + checkout readiness), and 014 (deployment/Stripe
+   doctor) become live failing targets. Dispatch Crew per stage to build the
+   real implementations against them. End state: the full 002 operational-
+   readiness bar passes.
+3. **`jolly start` real orchestration** — once stages 3–6 are real, rebuild
+   `cmdStart` to actually run them, resumable per 022, ending with an
+   automatic `jolly doctor` (001/014).
+
+Note: feature 002's new-store/connect/storefront/deploy scenarios and 004/005
+are already detailed and build-ready (Paper stack notes in 003, Configurator
+commands + Vercel approach captured); no new behavior spec is needed to start
+the real build — only credentials and Crew dispatch.
+
+## Previous state (2026-06-12, QM session: honest-auth coverage + Crew rewrite, all green)
 
 All green at this QM commit: typecheck clean, unit 61/61 (two new
 enforcement suites), full BDD 80 scenarios (72 passed, 8 skipped, 0 failed),

@@ -15,6 +15,15 @@ Feature: Agent-first Jolly onboarding and CLI
     And it should avoid printing secret values
 
   @logic
+  Scenario: Jolly start does not fabricate stage completion or success
+    Given the agent runs `jolly start` in a fresh project directory with no real service credentials
+    When `jolly start` runs without `--dry-run`
+    Then it must not report any stage as completed that it did not actually perform
+    And stages that were not performed must be reported as skipped, failed, or pending — never as passed
+    And it must not report overall envelope status "success" for an end-to-end flow it did not complete
+    And it must not print fabricated URLs or verification results
+
+  @logic
   Scenario: Jolly start --dry-run previews the plan without side effects
     Given the agent runs Jolly in a fresh project directory
     When the agent runs `jolly start --dry-run --json`

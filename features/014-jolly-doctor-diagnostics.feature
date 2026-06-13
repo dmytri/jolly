@@ -50,6 +50,14 @@ Feature: Jolly doctor diagnostics
     And it should include doctor results in the final `jolly start` output
 
   @logic
+  Scenario: Doctor reports pass only for checks it actually performed
+    Given a project directory with no Paper storefront present
+    When the agent runs `jolly doctor storefront --json`
+    Then it must not report "pass" for storefront checks it could not perform
+    And checks for an absent storefront should be "fail", "skipped", or "unknown"
+    And the summary must not claim storefront readiness that was not verified
+
+  @logic
   Scenario: Agent runs targeted doctor checks
     Given the agent needs to diagnose a specific area
     When it invokes a named `jolly doctor` check group
@@ -67,4 +75,5 @@ Feature: Jolly doctor diagnostics
     - Doctor should suggest concrete next commands or manual steps.
     - Doctor should be diagnostics-only in v1.
     - Doctor should not make local or remote changes in v1.
+    - Per feature 020's "No fabricated success", doctor reports `pass` only for a check it actually performed and confirmed; checks it could not run are `skipped` or `unknown`, never `pass`.
 
