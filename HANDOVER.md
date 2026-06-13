@@ -10,7 +10,58 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
-## Bug — published CLI broken via npx (2026-06-13): ship compiled JS, not raw .ts
+## CURRENT (2026-06-13): 0.2.1 SHIPPED (npx fixed); next QM job — drop Bun → native Node/npm
+
+**npx bug is FIXED and published.** `@dk/jolly@0.2.1` is live on npm and verified: a real
+`npx @dk/jolly@0.2.1` on a genuine-Node-only PATH (no Bun) runs and prints the envelope, exit 0.
+The fix shipped compiled JS (`dist/index.js` via the build), `bin/jolly` imports it, and the
+feature 006 npx scenario was regenerated to pack+install the tarball and run the **installed**
+bin (QM). The bug-and-worklist section below is now **RESOLVED** — kept only as history.
+
+**Decision (customer, 2026-06-13): drop Bun, go native Node.js >= 23 + npm.** Rationale: the npx
+break shipped green because dev ran on Bun while prod runs on Node — the test harness runs under
+`bun --bun`, where Bun masquerades as `node` and strips TypeScript, so the "runs on Node alone"
+check falsely passed. `src/` has **zero** Bun-specific code; Bun's only footprint is the test
+runner, the build, and the npm scripts. Going native gives **dev/prod parity** and removes that
+entire bug class. Build tool chosen: **esbuild**. This is the NEXT release (e.g. `0.3.0`), not
+0.2.1 (already shipped).
+
+**Specs already updated this Captain pass** (committed): AGENTS.md (Project Stack → Node/npm +
+esbuild; Package scripts; QM discovery commands; Testing Strategy), CLAUDE.md (Commands block),
+feature 023 (charter: `node --test`, Node-native scripts), feature 006 (dropped the "Bun is the
+dev env" rule; published-CLI-is-Node guarantees unchanged), README (Development block).
+
+**QM migration worklist (drop Bun → native; needs a fresh QM session):**
+1. **Unit tests** — port `tests/*.test.ts` from `bun:test` to `node:test` + `node:assert` (6
+   files, ~61 `expect()` calls). Coverage/intent unchanged; only the runner+matchers change. Run
+   via `node --test`. (Do NOT delete the tests — port them; Captain preserved them deliberately.)
+2. **package.json** (QM harness + Crew for the build tool):
+   - scripts → native: `test` = `node --test`; `test:bdd`/`test:logic`/`test:sandbox` =
+     `cucumber-js [-p logic|sandbox]`; `typecheck` = `tsc --noEmit`; `dev` =
+     `node --watch src/index.ts`; `start` = `node src/index.ts`.
+   - `build`/`prepack`/`prepublishOnly` → esbuild:
+     `esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js`.
+   - devDependencies: remove `@types/bun`; add `esbuild`. Keep cucumber, happy-dom, typescript,
+     @types/node.
+3. **Harness runtime default** — `features/support/world.ts` (+ provision.ts/sandbox.ts):
+   default `HARNESS_CLI_RUNTIME` `"bun"` → `"node"`; `runCli`/`runCliAsync` spawn
+   `node src/index.ts` (Node >= 23 strips types for these project files). Keep the `HARNESS_*`
+   override knob.
+4. **cucumber.js** — update the Bun-referencing header comment; confirm cucumber loads the TS
+   step defs/support under Node >= 23 (native type stripping; this was the documented fallback).
+5. **feature 006 step def** — `findGenuineNode()` exists to defeat the `bun --bun` node-shim;
+   once the harness runs under native Node, `process.execPath` is genuine Node and it can be
+   simplified (or left — still correct). QM's call; keep both 006 scenarios green.
+6. **Lockfile** — `git rm` the tracked `bun.lock`; track `package-lock.json` (it is currently
+   git-ignored — un-ignore it); regenerate with `npm install`.
+7. **Verify all green with Bun OFF the PATH:** `npm run typecheck`, `npm test`,
+   `npm run test:bdd` (or `-p logic`), `npx cucumber-js --dry-run` = 0 undefined, and the build
+   smoke `node dist/index.js auth status --json`.
+
+Acceptance bar: the whole suite + build run on a machine with Bun uninstalled. The feature 006
+npx scenario gets simpler/more honest under native Node (the masking can't recur).
+
+## RESOLVED (2026-06-13): published CLI broken via npx — ship compiled JS, not raw .ts
 
 **`@dk/jolly@0.2.0` (and `0.1.11`) are broken when installed from npm.** `npx @dk/jolly …`
 dies with `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING` — Node's native TypeScript type

@@ -40,10 +40,12 @@ Read `AGENTS.md` for Jolly-specific constraints and `HANDOVER.md` for current st
 
 ## Development
 
+Requires Node.js >= 23 + npm.
+
 ```bash
-bun install
-bun test
-bun run test:logic
-bun run test:bdd
-bun run typecheck
+npm install
+npm test
+npm run test:logic
+npm run test:bdd
+npm run typecheck
 ```

@@ -43,32 +43,31 @@ Session rule:
 
 ## Commands
 
-Dev runtime/package manager is **Bun** (dev environment only); TypeScript, ES modules. Step
-definitions and support code are TypeScript loaded directly (Bun runs TS natively; Node ≥23
-strips types on import).
-
-Package scripts are **Bun-native** (feature 023); Node ≥23 is the dev-script fallback runtime.
-The **published CLI is a Node program** (feature 006): `bin/jolly` runs under Node ≥23 and
-never requires Bun — Bun is never a customer-facing requirement.
+Dev/CI runtime/package manager is **Node.js ≥23 + npm** (decision 2026-06-13: dropped Bun for
+dev/prod parity); TypeScript, ES modules. Step definitions, support code, and `src/` are loaded
+directly via Node ≥23's native type stripping (project files are not under `node_modules`). The
+**published CLI is a Node program** (feature 006): `bin/jolly` imports the esbuild-built
+`dist/index.js` and never requires Bun. Bun is no longer used anywhere in the project.
 
 ```bash
-bun install            # dev deps (cucumber, happy-dom, typescript, @types/node)
-bun test               # logic-tier unit tests on tests/**/*.test.ts
-bun run test:bdd       # full BDD suite (cucumber-js); excludes @meta
-bun run test:logic     # cucumber-js -p logic  → @logic scenarios only
-bun run test:sandbox   # cucumber-js -p sandbox → @sandbox scenarios only
-bun run typecheck      # tsc --noEmit
-bun run start          # run the CLI
-bun run dev            # run the CLI in watch mode
+npm install            # dev deps (cucumber, happy-dom, typescript, esbuild, @types/node)
+npm test               # logic-tier unit tests via `node --test` on tests/**/*.test.ts
+npm run test:bdd       # full BDD suite (cucumber-js); excludes @meta
+npm run test:logic     # cucumber-js -p logic  → @logic scenarios only
+npm run test:sandbox   # cucumber-js -p sandbox → @sandbox scenarios only
+npm run typecheck      # tsc --noEmit
+npm run build          # esbuild src/ → dist/index.js (the published bundle)
+npm start              # run the CLI (node src/index.ts)
+npm run dev            # run the CLI in watch mode (node --watch src/index.ts)
 ```
 
 Run a single feature or scenario:
 
 ```bash
-bunx cucumber-js features/020-cli-output-contract.feature        # one feature file
-bunx cucumber-js features/020-cli-output-contract.feature:10     # one scenario by line number
-bunx cucumber-js --dry-run                                       # list UNDEFINED scenarios (the worklist)
-bun test tests/sandbox.test.ts                                   # one logic-tier test file
+npx cucumber-js features/020-cli-output-contract.feature        # one feature file
+npx cucumber-js features/020-cli-output-contract.feature:10     # one scenario by line number
+npx cucumber-js --dry-run                                       # list UNDEFINED scenarios (the worklist)
+node --test tests/sandbox.test.ts                               # one logic-tier test file
 ```
 
 ## Test architecture (feature 023)

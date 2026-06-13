@@ -13,7 +13,7 @@ Feature: Test architecture and sandbox-first strategy
   Scenario: Logic tests run without any accounts
     Given a behavior is pure local logic such as output-envelope shaping, flag parsing, URL normalization, or risk-context construction
     When the test runs
-    Then it should run with the project's `test` script (Bun-native: `bun test`) without requiring any sandbox account or credentials
+    Then it should run with the project's `test` script (Node-native: `node --test`) without requiring any sandbox account or credentials
     And it should always run, including locally and in CI
 
   Scenario: Sandbox tests use real accounts through the runtime configuration
@@ -65,7 +65,7 @@ Feature: Test architecture and sandbox-first strategy
     And mocks should not replace sandbox coverage of the normal path
 
   Rule: Test tiers
-    - Logic tier: pure local behavior, no accounts, always runs via the `test` script (`bun test`); tagged `@logic`.
+    - Logic tier: pure local behavior, no accounts, always runs via the `test` script (`node --test`); tagged `@logic`.
     - Sandbox tier: real Saleor Cloud, Configurator, Vercel, and Stripe accounts via the runtime `JOLLY_*` configuration — expected to be dedicated test accounts, by the customer's choice; tagged `@sandbox`.
     - Prefer the sandbox tier over mocks; use mocks only for conditions a sandbox cannot reasonably produce.
 
@@ -90,8 +90,8 @@ Feature: Test architecture and sandbox-first strategy
     - Feature files live in `features/`.
     - Step definitions live in `features/step_definitions/<feature-slug>.steps.ts`.
     - Shared hooks, world, sandbox setup/teardown, and credential gating live in `features/support/`.
-    - Logic-tier unit tests live in `tests/` and run via `bun test`, separate from the Cucumber suite.
-    - Package scripts are Bun-native (`bun test`, Bun-invoked cucumber-js and tsc); Node >= 23 remains a documented fallback runtime, never the script default.
+    - Logic-tier unit tests live in `tests/` and run via `node --test` (using `node:test` + `node:assert`), separate from the Cucumber suite.
+    - Package scripts are Node-native (decision 2026-06-13, dropped Bun): `node --test` for units, Cucumber.js and `tsc` run under Node, and the published bundle built with esbuild. Node >= 23's native type stripping loads the TypeScript sources directly (project files, not under `node_modules`); Bun is no longer used anywhere.
     - Each `.feature` maps to a step-definition file of the same slug; every required step has executable coverage.
     - The QM owns creating and maintaining this harness, including the Cucumber configuration and test scripts.
 

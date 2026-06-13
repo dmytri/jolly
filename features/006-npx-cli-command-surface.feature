@@ -35,8 +35,10 @@ Feature: Npx-first Jolly CLI command surface
       only what exists and can be run.
     - The published Jolly CLI is a Node.js program (decision 2026-06-12): the
       launcher (`bin/jolly`) runs under Node.js >= 23 and never invokes or
-      requires Bun. Bun is the project's development/test environment only, never
-      a customer-facing requirement.
+      requires Bun. The project's dev and CI runtime is also Node.js >= 23 + npm
+      (decision 2026-06-13: Bun was dropped for dev/prod parity — running dev on
+      Bun while shipping Node is exactly what masked the 0.1.11/0.2.0 npx break);
+      Bun is not a requirement anywhere.
     - The published package ships **pre-built JavaScript** compiled from `src/`,
       and the launcher loads that build — not raw TypeScript (correction
       2026-06-13). Node's native type stripping is disabled for files under

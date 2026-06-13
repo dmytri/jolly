@@ -38,16 +38,29 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompt
 
 ## Project Stack
 
-- Development runtime/package manager: Bun (dev environment only — never a customer-facing requirement)
-- Published CLI runtime: Node.js >= 23 running a **pre-built JS bundle** compiled from `src/` (correction 2026-06-13: NOT raw-`.ts` type stripping — Node disables that under `node_modules`, so an npm-installed CLI must run plain JS); the `bin/jolly` launcher runs under Node and never invokes or requires Bun (decision 2026-06-12, feature 006)
+- Development & CI runtime/package manager: **Node.js >= 23 + npm** (decision 2026-06-13:
+  dropped Bun). The published CLI was always Node; making dev/CI Node too gives **dev/prod
+  parity** and removes the runtime divergence that hid the 0.1.11/0.2.0 npx breakage — the test
+  harness ran under `bun --bun`, where Bun masquerades as `node` and strips TypeScript, so the
+  "runs on Node alone" check falsely passed while `npx @dk/jolly` was actually broken. Node >= 23
+  runs the TypeScript dev/test sources directly via native type stripping (project files are not
+  under `node_modules`); the published artifact is compiled JS (next bullet). Bun is no longer a
+  dependency, requirement, or fallback anywhere in the project.
+- Published CLI runtime: Node.js >= 23 running a **pre-built JS bundle** compiled from `src/`
+  (correction 2026-06-13: NOT raw-`.ts` type stripping — Node disables that under `node_modules`,
+  so an npm-installed CLI must run plain JS). The bundle is produced by **esbuild**
+  (`esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js`, the
+  `build`/`prepack`/`prepublishOnly` scripts); the `bin/jolly` launcher imports `../dist/index.js`
+  and never invokes or requires Bun (decision 2026-06-12, feature 006)
 - Language: TypeScript
 - Module system: ES modules
 - Entry point: `src/index.ts`
 - CLI distribution target: executable via `npx` with package `@dk/jolly` — the only package name, everywhere (decision 2026-06-12); never mention any `@saleor/...` package, not even as "future/official" — `package.json` `engines` declares the Node requirement and must not require Bun
 - Thin CLI surface (decision 2026-06-13): the deterministic-plumbing commands only — `login`, `logout`, `auth status`, `init`, `start`, `doctor`, `upgrade`, `skills`, and `create store` / `create app-token` (Saleor Cloud API) plus `create stripe` (writes Stripe keys to `.env`). The tool-wrapping subcommands `create deployment`, `deploy`, `create recipe`, and `create storefront` are **retired** — the agent runs those CLIs itself, guided by the Jolly skill (see Product Vision and feature 008)
-- Package scripts:
-  - `bun run start` runs the app
-  - `bun run dev` runs the app in watch mode
+- Package scripts (Node-native, decision 2026-06-13):
+  - `npm start` runs the app (`node src/index.ts`)
+  - `npm run dev` runs the app in watch mode (`node --watch src/index.ts`)
+  - `npm run build` compiles `src/` to `dist/index.js` via esbuild (the published bundle)
 
 ## Product Vision
 
@@ -297,10 +310,10 @@ Jolly-specific role notes:
 
 - Read `HANDOVER.md` for current state before deriving work.
 - Derive the worklist from verification status:
-  - `bunx cucumber-js --dry-run`
-  - `bun run test:bdd`
-  - `bun test`
-  - `bun run typecheck`
+  - `npx cucumber-js --dry-run`
+  - `npm run test:bdd`
+  - `npm test` (logic-tier units via `node --test`)
+  - `npm run typecheck`
 - Step definitions live in `features/step_definitions/<feature-slug>.steps.ts`.
 - Shared hooks/world/sandbox setup live in `features/support/`.
 - Logic-tier unit tests live in `tests/`.
@@ -351,7 +364,7 @@ pinning, install steps); no junk, no duplication.
 
 ## Testing Strategy
 
-- Package scripts are Bun-native: logic-tier runner is `bun test`; BDD layer is Cucumber.js invoked through Bun (`bun run test:bdd`). Node >= 23 remains a documented fallback runtime for the dev scripts (it strips types on import), never the script default. The published CLI itself targets Node (see Project Stack); tests must cover that the launcher works without Bun. See features `023-test-architecture` and `006`.
+- Package scripts are Node-native (decision 2026-06-13, dropped Bun): the logic-tier runner is `node --test` (using `node:test` + `node:assert`); the BDD layer is Cucumber.js run under Node (`npm run test:bdd` → `cucumber-js`), with TypeScript step definitions and support code loaded via Node >= 23's native type stripping (project files, not under `node_modules`). The published bundle is built with esbuild (`npm run build` → `dist/index.js`). The published CLI targets Node (see Project Stack); the feature 006 npx scenario covers that the *installed* bin runs on Node alone. See features `023-test-architecture` and `006`.
 - Feature `023-test-architecture` is the harness charter — already satisfied by `features/support/` and `tests/sandbox.test.ts`. It is tagged `@meta` and excluded from the BDD worklist; do not write Cucumber step definitions for it.
 - **Sandbox over mocks:** tests exercise real accounts (Saleor Cloud, Configurator, Vercel, Stripe) rather than mocks. Avoid mocks unless a condition cannot reasonably be produced in a sandbox (for example injected failures or unavailable-capability branches).
 - Two test tiers:
