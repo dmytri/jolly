@@ -93,6 +93,21 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompt
   a Git-based install only for a skill not available that way (e.g. Paper's embedded skill,
   which arrives with the cloned storefront).
 - **Zero unnecessary friction:** The path from copying the Jolly homepage prompt to a working deployed storefront requires only the human actions that cannot be automated — new account creation, browser OAuth consent, and providing secret values. Everything else Jolly and the agent handle automatically using safe defaults.
+- **Trustworthy first-step handoff (decision 2026-06-13):** The setup instructions the customer
+  pastes into their agent (homepage copy box → jolly.cool/setup → the Jolly skill) must read as
+  trustworthy to a security-conscious agent and never trip its safety alarms. That means: no
+  `curl | bash` or unexplained code; a named, inspectable package (`npx @dk/jolly`); explicit
+  provenance and non-affiliation; the exact hosts contacted and that secrets go only to their
+  own services; the agent stays in control and decides approvals (features 010/021); and Jolly
+  makes no fabricated claims (020). The copy box points the agent at an inspectable URL rather
+  than asking it to run anything blind. Trust rests on **npm and git being trustworthy
+  distribution channels** (a named package on npm, source on github) — Jolly does **not** use
+  npm provenance attestation and specs/docs must not require or claim it (decision 2026-06-13).
+  **Both halves are first-class:** the same handoff must
+  also be smooth and frictionless from paste to a live store with working test-mode payment —
+  minimal human steps, safe defaults, no unnecessary confirmations, the Jolly skill carrying the
+  agent through. Trust is what lets the agent proceed confidently; frictionlessness is what makes
+  it worth proceeding. Neither is sacrificed for the other.
 - **Architectural complement:** Jolly is complementary to the Saleor MCP server (mcp.saleor.app). The MCP server is read-only and provides live store data access — products, orders, and customers — for an already-configured store. Jolly handles setup automation, local project scaffolding, deployment orchestration, skill management, and diagnostics. As part of `jolly init`, Jolly configures a local mcp-graphql server against the customer's own store endpoint and informs the agent that mcp.saleor.app exists for later use — Jolly itself never connects to mcp.saleor.app.
 
 ## V1 Scope and Boundaries

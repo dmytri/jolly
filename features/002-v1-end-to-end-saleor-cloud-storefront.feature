@@ -65,7 +65,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And it should use Paper's expected package manager, `pnpm`, for the cloned storefront
     And it should install Paper storefront dependencies automatically by default
     And it should run lightweight validation by default
-    And it should provide `--full-validation` on relevant commands including `jolly create storefront`, `jolly start`, and `jolly doctor storefront` for full Paper validation such as generate, typecheck, build, or tests where feasible
+    And `jolly doctor storefront --full-validation` should run full Paper validation such as generate, typecheck, build, or tests where feasible; the agent also runs Paper's own `pnpm` validation directly per the Jolly skill
     And it should provide actionable guidance if `pnpm` is missing
     And it should optionally install `pnpm` where possible when the agent/customer allows it
     And it should preserve Paper's intended architecture and default presentation rather than rewriting or re-theming it unnecessarily
