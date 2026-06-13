@@ -6,12 +6,12 @@ Feature: Jolly Configurator starter recipe
   @sandbox
   Scenario: Agent prepares the starter recipe
     Given the customer has created or selected a Saleor Cloud environment
-    When Jolly prepares the initial store configuration
-    Then it should use a Jolly-specific starter recipe
+    When the agent prepares the initial store configuration, guided by the Jolly skill
+    Then it should use the Jolly-authored starter recipe that Jolly ships
     And the recipe should be optimized for Paper's required storefront features
-    And the recipe should be written into the cloned storefront repository
+    And the agent should write the recipe into the cloned storefront repository
     And the recipe should be reviewable before deployment
-    And the recipe should be deployed through the safe Configurator workflow
+    And the agent should deploy it through `@saleor/configurator`'s safe workflow — Jolly never shells out to the configurator itself
     And the Saleor app token used for deployment should have all available permissions in v1
 
   @sandbox

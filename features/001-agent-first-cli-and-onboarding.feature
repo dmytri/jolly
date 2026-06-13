@@ -4,23 +4,25 @@ Feature: Agent-first Jolly onboarding and CLI
   So that my agent can scaffold, inspect, and operate a Saleor storefront project effectively
 
   @sandbox
-  Scenario: Jolly start completes successfully
-    Given `jolly start` has completed the end-to-end setup flow
-    When Jolly prints the final success output
+  Scenario: Jolly start bootstraps and hands the agent the playbook
+    Given `jolly start` has installed skills, written `.mcp.json`, scaffolded, and run doctor
+    When Jolly prints its output
     Then it should include a concise human-readable summary
     And it should include machine-readable JSON or report data for the customer's agent on stdout
-    And it should include key URLs and status values
-    And it should include final verification results from an automatic `jolly doctor` run
-    And it should include next-step guidance for customizing the storefront with the customer's own agent and workflow
+    And it should include the ordered Jolly-skill playbook of the steps the agent should run next, with the official CLIs they use
+    And it should include verification results from the automatic `jolly doctor` run
+    And it should include next-step guidance for the customer's agent to drive the storefront, recipe, and deployment steps
     And it should avoid printing secret values
+    And it should not claim a deployed storefront or any stage it did not itself perform
 
   @logic
   Scenario: Jolly start does not fabricate stage completion or success
     Given the agent runs `jolly start` in a fresh project directory with no real service credentials
     When `jolly start` runs without `--dry-run`
-    Then it must not report any stage as completed that it did not actually perform
-    And stages that were not performed must be reported as skipped, failed, or pending — never as passed
-    And it must not report overall envelope status "success" for an end-to-end flow it did not complete
+    Then it must report only the bootstrap work it actually performed (skills, scaffold, doctor) plus the playbook for the agent
+    And it must not report any stage as completed that it did not actually perform
+    And stages it did not perform must be reported as pending steps for the agent — never as passed
+    And it must not report overall envelope status "success" for an end-to-end flow that has not completed
     And it must not print fabricated URLs or verification results
 
   @logic
@@ -52,14 +54,16 @@ Feature: Agent-first Jolly onboarding and CLI
       contacted, repos cloned — marks the envelope as a dry run, carries feature 021
       riskContexts for side-effecting stages, and changes nothing. Its output must be
       programmatically distinguishable from real execution progress.
-    - `jolly start` should run `jolly doctor` automatically at the end for final verification.
+    - `jolly start` bootstraps setup (install skills, write `.mcp.json`, scaffold, acquire auth as needed) and emits the ordered Jolly-skill playbook; the customer's agent then runs the official CLIs (`npx vercel`, `@saleor/configurator`, `git`, `pnpm`) per the playbook. Jolly never shells out to those CLIs.
+    - `jolly start` should run `jolly doctor` automatically for verification of the bootstrap and, when re-run, of the agent's progress.
     - Final `jolly start` success output should include a concise summary, structured stdout data/report, key URLs/statuses, final doctor verification results, next-step agent guidance, and no secret values.
     - `jolly start` should be hybrid: agent-friendly by default, with a human-friendly interactive mode available.
     - Jolly should make full use of subcommands, including `init`, `create`, and `start` concepts.
     - Agent instructions and skills are part of the product experience, not afterthought documentation.
-    - Skill management is fully automated by the Jolly CLI — `jolly start` installs ALL Saleor agent skills automatically. There is no separate optional skill-install step for the agent.
-    - The full default skill set is `saleor-storefront`, `saleor-configurator`, `storefront-builder`, `saleor-core`, `saleor-app`, plus Paper's embedded `saleor-paper-storefront` skill when a storefront exists.
-    - `jolly start` installs all skills as part of the setup flow. The standalone `jolly skills install` and `jolly skills update` commands remain available for post-setup maintenance.
+    - Skill management is fully automated by the Jolly CLI — `jolly start` installs ALL skills automatically. There is no separate optional skill-install step for the agent.
+    - The skills Jolly installs are the **Jolly skill** (the end-to-end playbook teaching the agent to drive the official CLIs) plus the Saleor agent-skills `saleor-storefront`, `saleor-configurator`, `storefront-builder`, `saleor-core`, `saleor-app`, plus Paper's embedded `saleor-paper-storefront` skill when a storefront exists.
+    - All skills are installed via `npx skills add <ref>`, falling back to a Git-based install only for a skill not available that way (such as Paper's embedded skill, which arrives with the cloned storefront).
+    - `jolly start` installs all skills as part of the bootstrap. The standalone `jolly skills install` and `jolly skills update` commands remain available for post-setup maintenance.
     - Skill installation should use standard project-local locations where possible, plus agent-specific glue/instructions for supported environments.
     - Setup instructions should support generic agents plus Zed, Claude Code, Cursor, OpenCode, and Pi.dev first.
 

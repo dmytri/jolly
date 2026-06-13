@@ -119,11 +119,20 @@ DOM checks (storefront) use happy-dom; the homepage has no test coverage (Captai
   `pass` checks only for operations actually performed and confirmed; unverified storage
   says exactly "stored, not verified"; unimplemented paths error honestly. Jolly's code
   sends requests only to the allowlisted first-party hosts (auth.saleor.io,
-  cloud.saleor.io, *.saleor.cloud, api.vercel.com, api.stripe.com, github.com,
-  127.0.0.1); secrets go only to their own service. mcp.saleor.app is informational only
-  (agent guidance — Jolly never contacts it; `.mcp.json` configures local mcp-graphql
-  against the customer's own endpoint). `id.saleor.online` and `api.saleor.cloud` are
-  retired hosts — never use them. Cloud API base: `JOLLY_SALEOR_CLOUD_API_URL` override.
+  cloud.saleor.io, *.saleor.cloud, api.stripe.com, github.com, 127.0.0.1); secrets go only
+  to their own service. **api.vercel.com is NOT in this list (decision 2026-06-13)** — Vercel
+  is reached only by the Vercel CLI the agent runs, never by Jolly's code, and there is no
+  `JOLLY_VERCEL_TOKEN`. mcp.saleor.app is informational only (agent guidance — Jolly never
+  contacts it; `.mcp.json` configures local mcp-graphql against the customer's own endpoint).
+  `id.saleor.online` and `api.saleor.cloud` are retired hosts — never use them. Cloud API
+  base: `JOLLY_SALEOR_CLOUD_API_URL` override.
+- **Skill-driven, thin CLI (decision 2026-06-13):** Jolly does not replace the agent. It
+  installs a **Jolly skill** (the end-to-end playbook) plus the Saleor agent-skills via
+  `npx skills add`, does deterministic plumbing (`login`, `create store`/`app-token`/`stripe`,
+  `init`, `start`, `doctor`), and emits a playbook. The **customer's agent runs the official
+  CLIs** (`npx vercel`, `@saleor/configurator`, `git`, `pnpm`); Jolly never shells out to
+  Vercel or configurator. `create deployment`, `deploy`, `create recipe`, `create storefront`
+  are **retired** subcommands. See AGENTS.md "Skill-driven, thin CLI" and features 006/008.
 
 ## Secrets & environment
 
@@ -137,7 +146,9 @@ values; ensure `.env` is ignored before writing to it.
 
 Saleor Cloud only (no self-hosted). Storefront baseline: `saleor/storefront` Paper template
 (Next.js App Router, Tailwind, pnpm); deploy to Vercel; payments via Stripe (test mode for
-first-run). Use `saleor/configurator` for config-as-code. Jolly is complementary to the
-read-only Saleor MCP server (`mcp.saleor.app`) and configures mcp-graphql during `jolly init`.
-Treat `saleor/cli` as **deprecated reference only** — never depend on, shell out to, or
-require it. Re-check upstream Saleor repos at implementation time; their flows change.
+first-run). The **customer's agent** runs `git`, `@saleor/configurator` (config-as-code), the
+Vercel CLI, and `pnpm` — guided by the Jolly skill; Jolly never shells out to configurator or
+the Vercel CLI (decision 2026-06-13). Jolly is complementary to the read-only Saleor MCP server
+(`mcp.saleor.app`) and configures mcp-graphql during `jolly init`. Treat `saleor/cli` as
+**deprecated reference only** — never depend on, shell out to, or require it. Re-check upstream
+Saleor repos at implementation time; their flows change.

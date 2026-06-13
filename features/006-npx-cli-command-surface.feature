@@ -14,13 +14,15 @@ Feature: Npx-first Jolly CLI command surface
   Scenario: Agent starts the guided setup flow
     Given the customer wants the end-to-end guided Saleor storefront setup
     When the agent invokes the primary guided command
-    Then `jolly start` should be available as optional convenience orchestration for the full end-to-end flow
-    And the agent may instead invoke individual composable subcommands for each stage
+    Then `jolly start` should bootstrap setup (install the Jolly skill and Saleor skills, scaffold, run doctor) and emit the ordered playbook for the agent to execute
+    And the agent then drives the official CLIs (Vercel CLI, `@saleor/configurator`, `git`, `pnpm`) per the Jolly skill, calling Jolly's thin helpers for plumbing
     And the output should follow Jolly's hybrid human-readable plus machine-readable format
 
-  Rule: CLI distribution principles
-    - Jolly should make full use of subcommands rather than overloading one command.
-    - `init`, `create`, `start`, `skills`, `deploy`, `doctor`, `upgrade`, `login`, `logout`, and `auth status` are expected command concepts.
+  Rule: Thin command surface (decision 2026-06-13)
+    - Jolly is a thin CLI: it provides deterministic plumbing and installs the Jolly skill; it never shells out to the Vercel CLI or `@saleor/configurator`, and never wraps a CLI the agent should run.
+    - The full command surface is `login`, `logout`, `auth status`, `init`, `start`, `doctor`, `upgrade`, `skills`, and `create` with subcommands `store`, `app-token`, and `stripe` only.
+    - The tool-wrapping subcommands `create deployment`, `deploy`, `create recipe`, and `create storefront` are retired (decision 2026-06-13): the customer's agent runs the Vercel CLI, `@saleor/configurator`, and `git` itself, guided by the Jolly skill (see feature 008).
+    - All skills (the Jolly skill and the Saleor agent-skills) are installed via `npx skills add <ref>`, falling back to a Git-based install only for a skill not available that way.
     - All CLI commands should support `--json`.
     - All CLI commands should support `--quiet`.
     - All CLI commands should support `--yes` / `-y` to skip Jolly prompts where the agent environment allows.

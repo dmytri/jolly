@@ -32,8 +32,8 @@ Feature: Saleor source repositories and integration boundaries
   Scenario: Use Saleor Configurator directly for store configuration
     Given Jolly needs to inspect, plan, or apply Saleor store configuration
     When the agent has a Saleor Cloud GraphQL URL and app token
-    Then Jolly CLI and/or Jolly skills should use `saleor/configurator` directly where appropriate
-    And they should prefer configurator's safe workflow of validate, diff, plan, and deploy
+    Then the customer's agent should run `saleor/configurator` directly, guided by the Jolly skill — Jolly itself never shells out to it
+    And it should prefer configurator's safe workflow of validate, diff, plan, and deploy
     And they should parse structured output when available
     And they should require human approval before applying destructive or write operations
 
@@ -105,6 +105,7 @@ Feature: Saleor source repositories and integration boundaries
     - Legacy Vercel login used a Saleor CLI Vercel integration OAuth flow; Jolly should validate modern Vercel setup separately.
 
   Rule: Jolly integration principles
-    - Default to cloning `saleor/storefront` from `main` unless the customer explicitly chooses another ref.
-    - Use the deprecated CLI only as research evidence for flows that are not otherwise documented.
+    - The customer's agent runs the official tools — `git` (cloning `saleor/storefront` from `main` unless the customer chooses another ref), `@saleor/configurator`, `pnpm`, and the Vercel CLI — guided by the Jolly skill. Jolly never shells out to `@saleor/configurator` or the Vercel CLI (decision 2026-06-13).
+    - All skills (the Jolly skill and the Saleor agent-skills) are installed via `npx skills add <ref>`, falling back to a Git-based install only for a skill not available that way (such as Paper's embedded skill, which arrives with the cloned storefront).
+    - Use the deprecated `saleor/cli` only as research evidence for flows that are not otherwise documented; never invoke it.
     - Preserve upstream agent instructions and skills rather than duplicating all Saleor knowledge inside Jolly.

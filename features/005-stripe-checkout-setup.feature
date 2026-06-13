@@ -38,13 +38,13 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     And the output should not be written to .env
 
   @sandbox
-  Scenario: Jolly configures Saleor for Stripe
+  Scenario: Agent configures Saleor for Stripe
     Given Stripe credentials are available in .env
-    When Jolly proceeds with Stripe configuration
+    When the agent configures Saleor's Stripe integration via `@saleor/configurator`, guided by the Jolly skill
     Then it should use Saleor-supported Stripe payment setup paths where available
-    And it should not implement a custom payment backend inside Jolly
+    And Jolly should not implement a custom payment backend
+    And Jolly's only Stripe role is writing the test keys to `.env` (`jolly create stripe`); the Saleor-side configuration is the agent's via the configurator
     And the customer's agent should decide whether approval is needed before modifying remote payment configuration
-    And Jolly remote/action commands involved in payment setup should support --dry-run
 
   @sandbox
   Scenario: Agent verifies checkout readiness

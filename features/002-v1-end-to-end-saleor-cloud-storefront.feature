@@ -7,7 +7,9 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     Given Vercel is the first deployment target
     And Saleor's official `saleor/storefront` Paper template is the first storefront baseline
     And Jolly should create the storefront by cloning or otherwise directly using `saleor/storefront` from the `main` branch by default
-    And `saleor/configurator` should be used directly by Jolly CLI and/or skills where appropriate
+    And the customer's own agent performs the CLI steps (clone, configure, deploy), guided by the Jolly skill that Jolly installs
+    And Jolly's role is the thin plumbing (auth, store/app-token via the Cloud API, secret writing, `.mcp.json`, skill install) plus `jolly doctor` verification — Jolly never shells out to the Vercel CLI or `@saleor/configurator`
+    And `@saleor/configurator` is run by the agent directly for store configuration and recipes
     And the Saleor MCP server at mcp.saleor.app provides read-only access to live store data such as products, orders, and customers after setup is complete
     And the setup path must minimize human intervention to new account creation, browser OAuth consent, and providing secret values
 
@@ -69,22 +71,25 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And it should preserve Paper's intended architecture and default presentation rather than rewriting or re-theming it unnecessarily
 
   @sandbox
-  Scenario: Agent deploys to Vercel
+  Scenario: Agent deploys to Vercel via the official Vercel CLI
     Given the storefront is ready for deployment
-    When the agent guides Vercel deployment
-    Then it should ask whether the customer already has a Vercel account
-    And it should branch between existing Vercel account setup and new Vercel account registration guidance
-    And it should identify required Vercel account/project steps
-    And it should ask whether the customer wants Git repository setup when Git-based deployment is useful
-    And GitHub should be the default Git provider
-    And other Git providers are deferred to v2
-    And it should support GitHub repository creation/configuration where needed for Vercel
-    And it should use Vercel CLI/API automation where possible
-    And it should fall back to guided Vercel Git import flow when automation is unavailable or inappropriate
-    And it should configure required environment variables in Vercel
-    And it should verify that the deployed storefront can reach Saleor Cloud
-    And it should automatically update Saleor allowed/trusted origins for the deployed storefront URL where APIs allow
-    And it should report the deployed URL and any remaining manual steps
+    When the agent deploys to Vercel following the Jolly skill
+    Then the agent should deploy exclusively through the official Vercel CLI (`npx vercel`)
+    And the agent should authenticate only via the Vercel CLI's own `vercel login` session
+    And when the Vercel CLI is not authenticated, the Jolly skill should direct the human to run `npx vercel login` and resume afterward
+    And Jolly's own code should send no request to api.vercel.com and hold no Vercel token
+    And the agent should not fall back to any other deployment mechanism such as a guided Git import flow
+    And the agent should configure required environment variables on the Vercel project through the Vercel CLI
+    And `jolly doctor` should verify that the deployed storefront can reach Saleor Cloud
+    And the agent should update Saleor allowed/trusted origins for the deployed storefront URL where APIs allow
+    And the deployed URL and any remaining manual steps should be reported
+
+  Rule: Deployment tooling (decision 2026-06-13)
+    - Vercel deployment is performed by the customer's agent using the official Vercel CLI (`npx vercel`), guided by the Jolly skill; neither Jolly nor anyone reimplements Vercel deployment against api.vercel.com.
+    - Jolly never shells out to the Vercel CLI and holds no Vercel credential. The only Vercel authentication is the Vercel CLI's own `vercel login` session; there is no `JOLLY_VERCEL_TOKEN`.
+    - New Vercel account signup and login are the human browser steps; the Jolly skill directs the human to `npx vercel login` and the agent resumes afterward.
+    - GitHub remains the default Git provider for optional source-control setup; other providers are deferred to v2. Git setup is convenience, not the deployment mechanism — deployment is always the Vercel CLI.
+    - See feature 008 Rule "Thin surface — the agent runs the official CLIs, Jolly does not" and feature 020's amended "First-party hosts only".
 
   Rule: V1 operational readiness
     - The deployed storefront URL must work.

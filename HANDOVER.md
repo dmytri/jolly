@@ -10,88 +10,80 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
-## Current state (2026-06-13, Captain pass: MVP launch definition + honesty stopgap)
+## Current state (2026-06-13, Captain re-architecture: skill-driven thin CLI + clean code reset)
 
-Customer goal this session: **get to MVP and launch.** Captain audited the
-end-to-end implementation against the product vision and found the back half
-of the flow **fabricating success** — a direct violation of feature 020's "No
-fabricated success" contract that the green suite never caught because the
-relevant `@sandbox` scenarios skip on absent Vercel/Stripe credentials.
+This session pivoted Jolly's architecture and reset the disposable code so QM/Crew
+rebuild from current specs. Read the new specs, not the old src — the old src is gone.
 
-Fabricating implementations found in `src/index.ts` (all claim success/`pass`
-while doing no real work):
+**How we got here.** The customer wanted to get to MVP. A Captain audit found the back
+half of the end-to-end (`create storefront`/`deployment`/`recipe`, `start`, `doctor
+storefront`) was **fabricating success** while doing no real work — the green suite missed
+it because those `@sandbox` scenarios skipped without creds. While fixing that, the customer
+made three architecture decisions that supersede the "Jolly orchestrates the deploy" model:
 
-- `cmdCreateStorefront` (~2175) — reports `cloned: true` / "Paper template
-  prepared" with no clone, no directory, no `.git` strip, no `git init`.
-- `create deployment` / `deploy` inline blocks (~2417 and the top-level
-  `deploy` case ~2440) — report "Vercel deployment configured" with no
-  `api.vercel.com` call.
-- `create recipe` inline block (~2404) — reports "Recipe ready" at a path
-  never written.
-- `cmdStart` real path (~2062) — code comment literally says "Simulate
-  running stages"; orchestrates nothing and returns envelope status
-  `success` for an incomplete flow.
-- `cmdDoctor` storefront group (~1795) — returns `pass` for `storefront-env`
-  and `storefront-node` unconditionally, checking nothing.
+1. **Use official CLIs, never reimplement** — where an official CLI exists (Vercel CLI,
+   `@saleor/configurator`), it is used exclusively; no raw-API reimplementation, no
+   token-passing variant, no fallback.
+2. **Skill-driven, thin CLI — the agent runs the tools, not Jolly** — Jolly does not replace
+   the agent. It installs a **Jolly skill** (the end-to-end playbook) + the Saleor skills,
+   does deterministic plumbing, and emits a playbook; the **customer's agent** runs
+   `npx vercel`, `@saleor/configurator`, `git`, `pnpm`. Jolly never shells out to those CLIs.
+3. **Install skills via `npx skills add`** — for every skill, falling back to Git only when a
+   skill isn't available that way (e.g. Paper's embedded skill).
 
-Customer decisions (captured in `AGENTS.md` → "MVP and Launch Definition"):
+**Credential finding (live-checked):** the `JOLLY_VERCEL_TOKEN` previously in `.env` is
+**invalid** (api.vercel.com returns 403); the customer's `vercel login` CLI session *is*
+valid. Under the new model there is **no `JOLLY_VERCEL_TOKEN`** at all — Vercel auth lives
+only in the Vercel CLI session. The stale value should be removed from `.env`.
 
-1. **MVP launch bar = full honest end-to-end** — homepage prompt to a real,
-   deployed, working storefront (deployed URL works, browsing works against
-   Saleor Cloud, cart works, checkout reaches the Stripe test payment step;
-   mirrors feature 002's operational-readiness rule). Seven stages, each must
-   do real work and report only verified results.
-2. **Honesty stopgap first** — until each real stage lands, its command must
-   error honestly (stable `errors[].code`) and never fabricate. Specced this
-   pass; testable at `@logic` without credentials.
-3. **Credentials now in scope** — the customer is adding `JOLLY_VERCEL_TOKEN`
-   and `JOLLY_STRIPE_PUBLISHABLE_KEY` / `JOLLY_STRIPE_SECRET_KEY` (Stripe test
-   mode) to `.env`. These are the names the harness gating
-   (`features/support/sandbox.ts`) and step defs already use; populating them
-   makes the deploy/Stripe `@sandbox` scenarios run instead of skip.
+**New thin command surface** (feature 006/008): `login`, `logout`, `auth status`, `init`,
+`start`, `doctor`, `upgrade`, `skills`, and `create store` / `create app-token` / `create
+stripe`. The tool-wrapping subcommands `create deployment`, `deploy`, `create recipe`,
+`create storefront` are **retired** — the agent runs those CLIs itself per the Jolly skill.
+`jolly start` = bootstrap (install skills, `.mcp.json`, scaffold, doctor) + emit the playbook,
+NOT an orchestrator that deploys.
 
-Spec changes this pass (committed by Captain):
+**Specs updated this pass (all committed):** AGENTS.md (new "Skill-driven, thin CLI"
+principle, `npx skills add` principle, the Jolly skill, MVP/Launch Definition rewritten to
+9 agent-driven stages, Network Boundaries — api.vercel.com removed from Jolly's allowlist,
+thin command surface, Vercel-gating note); CLAUDE.md (pinned contracts + Saleor boundaries);
+features 001, 002, 003, 004, 005, 006, 007, 008, 009, 020. New Captain-owned asset
+`assets/jolly-skill/SKILL.md` (first-draft end-to-end playbook).
 
-- **008** — new Rule "No fabricated create results" + three `@logic` scenarios
-  (create storefront / create deployment+deploy / create recipe) that assert
-  no success/`pass`/cloned/configured claim without the real resource, and an
-  honest `error` + stable code when the work cannot be performed.
-- **001** — new `@logic` scenario "Jolly start does not fabricate stage
-  completion or success" (no stage reported done that wasn't performed; not
-  `success` for an incomplete flow; no fabricated URLs/verification).
-- **014** — new `@logic` scenario "Doctor reports pass only for checks it
-  actually performed" + a Doctor-principles bullet binding doctor to 020's
-  no-fabrication rule.
-- **AGENTS.md** — new "MVP and Launch Definition" section (launch bar, seven
-  staged checklist with built/fabricated status, integrity rule, launch
-  credential names).
+**Code reset (Captain deleted disposable artifacts invalidated by the spec change):**
+- `src/index.ts` — DELETED (the old fat CLI: retired commands, simulation `start`,
+  fabricating doctor/storefront/deployment/recipe). Crew rebuilds the thin CLI from specs.
+- `features/step_definitions/*.steps.ts` — ALL DELETED (derived from specs; QM regenerates).
+- `tests/*.test.ts` — ALL DELETED (logic-tier units pinning old behavior; QM regenerates).
+- **Kept:** `src/lib/` (`cloud-api.ts`, `env-file.ts`, `saleor-url.ts` — reusable plumbing
+  the thin CLI will build on; `provision.ts` imports `env-file.ts`) and `features/support/`
+  (the harness charter, feature 023 — world, hooks, sandbox, cloud, provision, envelope,
+  saleor-graphql, browser). Verified: typecheck clean; `bunx cucumber-js --dry-run` = 82
+  scenarios, all undefined (the clean worklist); 20 feature files parse.
 
-QM worklist (this is the path to MVP):
+QM worklist (the path to MVP, in order):
 
-1. **Honesty stopgap (no creds needed, do first).** 5 new undefined scenarios
-   (3×008, 1×001, 1×014; 25 undefined steps via `bunx cucumber-js --dry-run`).
-   Write step defs and dispatch Crew to convert the five fabricating code
-   paths above into honest errors / honest check statuses. **Apply the
-   012-incident safety lesson**: any `@logic` step exercising a side-effecting
-   command path must force dummy credentials for all groups and an unroutable
-   `.invalid` Cloud API base, so a CLI that ignores flags cannot reach a real
-   account. After this, the published-CLI fabrication is gone and the contract
-   is enforced.
-2. **Real build (now unblocked by creds).** With Vercel/Stripe creds present,
-   the previously-skipping `@sandbox` scenarios in 002 (storefront clone,
-   Vercel deploy), 003 (Paper/Configurator integration), 004 (recipe apply),
-   005 (Saleor Stripe config + checkout readiness), and 014 (deployment/Stripe
-   doctor) become live failing targets. Dispatch Crew per stage to build the
-   real implementations against them. End state: the full 002 operational-
-   readiness bar passes.
-3. **`jolly start` real orchestration** — once stages 3–6 are real, rebuild
-   `cmdStart` to actually run them, resumable per 022, ending with an
-   automatic `jolly doctor` (001/014).
+1. **Rebuild the thin CLI (Crew).** From the updated specs, build `src/index.ts` as the thin
+   surface above. Honest behavior is the contract: Jolly's commands report success/`pass`
+   only for work performed and confirmed; unbuilt/unperformable paths error honestly (stable
+   `errors[].code`); `jolly start` reports bootstrap + playbook, never a deploy it didn't do.
+2. **Regenerate step defs + logic tests (QM).** All 82 scenarios are undefined — regenerate
+   step defs against current specs, plus the logic-tier units. **Carry forward the
+   012-incident safety lesson**: any `@logic` step exercising a side-effecting command path
+   forces dummy creds for all groups + an unroutable `.invalid` Cloud API base.
+3. **Update harness gating (QM).** `features/support/sandbox.ts` still gates `vercel:
+   ["JOLLY_VERCEL_TOKEN"]` — retire that; deployment `@sandbox` steps gate on the Vercel CLI
+   session (`npx vercel whoami` exit 0), not a Jolly env var. Remove `JOLLY_VERCEL_TOKEN`
+   references from `tests`/step-defs as they're regenerated.
+4. **Agent-driven e2e testing (QM design needed).** The deploy/configurator/clone stages are
+   now agent behavior, not Jolly commands — decide how `@sandbox` verifies them (likely the
+   harness runs the CLI steps the Jolly skill prescribes, as a proxy for the agent), and how
+   to validate the Jolly skill's correctness. This is the main open testing question.
 
-Note: feature 002's new-store/connect/storefront/deploy scenarios and 004/005
-are already detailed and build-ready (Paper stack notes in 003, Configurator
-commands + Vercel approach captured); no new behavior spec is needed to start
-the real build — only credentials and Crew dispatch.
+Open Captain items: finish authoring `assets/jolly-skill/SKILL.md` against verified current
+upstream CLI flows (Vercel CLI, `@saleor/configurator`, Paper); confirm the `npx skills add`
+ref/registry for distributing the Jolly skill; remove the stale `JOLLY_VERCEL_TOKEN` from
+`.env`.
 
 ## Previous state (2026-06-12, QM session: honest-auth coverage + Crew rewrite, all green)
 

@@ -6,8 +6,10 @@ Feature: Agent skill installation targets
   @logic
   Scenario: Jolly installs skills in standard project-local locations where possible
     Given the agent invokes `jolly skills install`
-    When Jolly installs the default Saleor skill set
-    Then it should prefer standard project-local skill locations supported by the underlying skills tooling
+    When Jolly installs the default skill set
+    Then it should install the Jolly skill and the Saleor agent-skills via `npx skills add <ref>`
+    And it should fall back to a Git-based install only for a skill not available via `npx skills add`
+    And it should prefer standard project-local skill locations supported by the underlying skills tooling
     And it should avoid inventing a separate Jolly-only skill store unless required
     And it should record or report installed versions using standard skills lock/metadata files where possible
 
@@ -21,6 +23,8 @@ Feature: Agent skill installation targets
     And Jolly should avoid overwriting unrelated user-authored instructions without approval
 
   Rule: Installation strategy
+    - Install skills via `npx skills add <ref>`; fall back to a Git-based install only for a skill not available that way (decision 2026-06-13).
+    - The default set is the Jolly skill plus the Saleor agent-skills; the Jolly skill is the end-to-end playbook that teaches the agent to drive the official CLIs.
     - Use standard project-local skills where possible.
     - Add agent-specific glue/instructions for Zed, Claude Code, Cursor, OpenCode, Pi.dev, and generic agents.
     - Keep version management centralized through Jolly CLI commands.

@@ -4,7 +4,7 @@ Feature: Jolly init for local agent setup
   So that `jolly start` (or a future re-initialization) can rely on skills being present
 
   Background:
-    Given skill installation is fully automated — `jolly start` installs all Saleor agent skills automatically
+    Given skill installation is fully automated — `jolly start` installs the Jolly skill and all Saleor agent skills automatically via `npx skills add`
     And the agent never runs `jolly init` or `jolly skills install` as an explicit separate step
     And `jolly init` remains available as a standalone command for repo re-initialization and maintenance
 
@@ -12,9 +12,10 @@ Feature: Jolly init for local agent setup
   Scenario: Agent initializes Jolly guidance locally
     Given the agent can run Jolly via `npx`
     When the agent invokes `jolly init`
-    Then Jolly should install or check the full default Saleor skill set
-    And the default skill set should include `saleor-storefront`, `saleor-configurator`, `storefront-builder`, `saleor-core`, and `saleor-app`
-    And it should include Paper's embedded `saleor-paper-storefront` skill when a storefront exists
+    Then Jolly should install or check the full default skill set via `npx skills add`
+    And the default skill set should include the Jolly skill plus `saleor-storefront`, `saleor-configurator`, `storefront-builder`, `saleor-core`, and `saleor-app`
+    And the Jolly skill should be the end-to-end playbook that teaches the agent to drive the official CLIs
+    And it should include Paper's embedded `saleor-paper-storefront` skill (Git-installed with the cloned storefront) when a storefront exists
     And Jolly should report each skill as actually verified on disk, not unconditionally claim success
     And Jolly should write agent-specific glue files or instructions for supported environments
     And the glue files should actually exist on disk under standard project-local skill locations
@@ -46,6 +47,7 @@ Feature: Jolly init for local agent setup
     - `jolly init` is automatically invoked by `jolly start` as part of the setup flow. The agent never runs it as an explicit step.
     - `jolly init` is available standalone for repo re-initialization and maintenance.
     - `jolly init` may call or share logic with `jolly skills install`.
+    - Skills are installed via `npx skills add <ref>` (the Jolly skill and the Saleor agent-skills), falling back to a Git-based install only for a skill not available that way (such as Paper's embedded skill).
     - `jolly init` should not perform Saleor Cloud authentication, registration, configuration deployment, storefront creation, or Vercel deployment.
     - `jolly init` should not store secrets.
     - Jolly must never silently overwrite an existing .mcp.json or AGENTS.md. Merge, never replace.

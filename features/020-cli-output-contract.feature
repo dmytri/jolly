@@ -83,17 +83,26 @@ Feature: Jolly CLI output contract
     - `--dry-run` previews show the real request the command would send — same host, same
       path, real resolved identifiers — and never claim the previewed work happened.
 
-  Rule: First-party hosts only (decision 2026-06-12)
+  Rule: First-party hosts only (decision 2026-06-12, amended 2026-06-13)
     - Jolly's code sends network requests only to these hosts: auth.saleor.io (Keycloak
       OAuth, realm saleor-cloud), cloud.saleor.io (Saleor Cloud API and token page), the
-      customer's own *.saleor.cloud environment domains, api.vercel.com (deployment),
-      api.stripe.com (payments), github.com (cloning saleor/storefront and skills), and
-      127.0.0.1 (local OAuth callback). "Hosts Jolly contacts" stays exactly equal to
-      the hosts appearing in Jolly's request-sending code.
+      customer's own *.saleor.cloud environment domains, api.stripe.com (payments),
+      github.com (cloning saleor/storefront and skills), and 127.0.0.1 (local OAuth
+      callback). "Hosts Jolly contacts" stays exactly equal to the hosts appearing in
+      Jolly's request-sending code.
+    - api.vercel.com is NOT in this allowlist (amended 2026-06-13): Vercel is reached only
+      by the official Vercel CLI (`npx vercel`) that Jolly delegates to, never by Jolly's
+      own request-sending code (see feature 008 Rule "Official CLIs only, no reimplementation").
     - Secrets travel only to their own service: Saleor tokens only to auth.saleor.io,
-      cloud.saleor.io, or the customer's *.saleor.cloud domains; the Vercel token only to
-      api.vercel.com; Stripe keys only to api.stripe.com. No secret is ever sent to
-      github.com or any host not on this list.
+      cloud.saleor.io, or the customer's *.saleor.cloud domains; Stripe keys only to
+      api.stripe.com. No secret is ever sent to github.com or any host not on this list.
+      Jolly holds no Vercel token at all — Vercel auth lives in the Vercel CLI's own
+      `vercel login` session.
+    - Delegated official CLIs (the Vercel CLI, `@saleor/configurator`) are a distinct
+      category from Jolly's own request code: Jolly invokes them and they contact their
+      own services under their own auth. This delegation to current, official tooling is
+      not a violation of this rule, and is separate from the ban on the deprecated
+      saleor/cli (which Jolly must never invoke).
     - Informational mentions are not contacts: Jolly may name other Saleor properties in
       output or docs as guidance for the customer's agent — for example the read-only
       MCP server mcp.saleor.app, which the agent may choose to use later — but Jolly
