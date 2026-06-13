@@ -1,6 +1,6 @@
 {
   "name": "@dk/jolly",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Ahoy, agent. Go build a Saleor storefront.",
   "type": "module",
   "bin": {
@@ -28,6 +28,7 @@
     "test:bdd": "cucumber-js",
     "test:logic": "cucumber-js -p logic",
     "test:sandbox": "cucumber-js -p sandbox",
+    "test:eval": "cucumber-js -p eval",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

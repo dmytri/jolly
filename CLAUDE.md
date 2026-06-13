@@ -52,9 +52,10 @@ directly via Node ≥23's native type stripping (project files are not under `no
 ```bash
 npm install            # dev deps (cucumber, happy-dom, typescript, esbuild, @types/node)
 npm test               # logic-tier unit tests via `node --test` on tests/**/*.test.ts
-npm run test:bdd       # full BDD suite (cucumber-js); excludes @meta
+npm run test:bdd       # full BDD suite (cucumber-js); excludes @meta and @eval
 npm run test:logic     # cucumber-js -p logic  → @logic scenarios only
 npm run test:sandbox   # cucumber-js -p sandbox → @sandbox scenarios only
+npm run test:eval      # cucumber-js -p eval → @eval skill-affordance eval (opt-in, feature 025)
 npm run typecheck      # tsc --noEmit
 npm run build          # esbuild src/ → dist/index.js (the published bundle)
 npm start              # run the CLI (node src/index.ts)

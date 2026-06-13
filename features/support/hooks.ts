@@ -16,6 +16,7 @@
 import { After, AfterAll, Before } from "@cucumber/cucumber";
 import type { ITestCaseHookParameter } from "@cucumber/cucumber";
 import { missingLoginKnobs, resolveBrowserTier } from "./browser.ts";
+import { ensureCliBundle, evalGate } from "./eval.ts";
 import {
   derivedSecrets,
   ensureSharedEnvironment,
@@ -97,6 +98,24 @@ Before(
     }
   },
 );
+
+// 3 — @eval gate (feature 025): skip — never fail — when the baseline-agent
+// runner or the model key (HARNESS_OPENROUTER_API_KEY) is absent, exactly like
+// @sandbox credential gating. The eval is opt-in and never gates normal CI.
+// When it can run, ensure the published-shape CLI bundle (dist/index.js) the
+// shimmed `bin/jolly` imports is built; a build failure is a clean skip.
+Before({ tags: "@eval", timeout: 180_000 }, function (this: JollyWorld) {
+  const gate = evalGate();
+  if (!gate.ok) {
+    this.attach(`Skipped: ${gate.reason}`, "text/plain");
+    return "skipped";
+  }
+  const buildError = ensureCliBundle();
+  if (buildError) {
+    this.attach(`Skipped: ${buildError}`, "text/plain");
+    return "skipped";
+  }
+});
 
 // Teardown: LIFO best-effort cleanup of everything the scenario created.
 // Explicit timeout: cleanup talks to live APIs (environment deletion can be

@@ -10,7 +10,57 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
-## CURRENT (2026-06-13): pull the skill-behavior affordance eval forward — feature 025 (NEEDS FRESH QM SESSION)
+## DONE (2026-06-13, QM session): feature 025 @eval tier wired and live-verified — UNCOMMITTED
+
+The skill-behavior affordance eval (feature 025) is **built, executable, and verified by a
+real baseline-agent run.** It is an opt-in `@eval` tier, OFF the default worklist, never a
+green/red gate. Nothing was routed to Crew — Jolly's commands already satisfy the eval; the
+live run surfaced no CLI gap.
+
+What landed this session (QM-owned):
+- **`features/support/eval.ts`** — the eval harness: `evalGate()` (skip-not-fail when the
+  bundled `pi` runner or `HARNESS_OPENROUTER_API_KEY` is absent), `ensureCliBundle()` (builds
+  the published-shape `dist/index.js` the shimmed `bin/jolly` imports; build failure = clean
+  skip), `setupEvalContext()` (per-run temp workspace + throwaway `$HOME`, the real Captain
+  skill copied to `.claude/skills/jolly/` plus the default skill set seeded so `jolly init`
+  verifies offline like the 007 steps, a forced-safe seeded `.env` = dummy `JOLLY_*` +
+  `.invalid` Cloud API base, LIFO teardown registered), a **Node PATH-shim tracer** that wraps
+  `jolly` and `npx @dk/jolly` to log argv + stdout/exit to a JSONL trace then exec the real
+  `bin/jolly`, `runBaselineAgent()` (runs `pi -p <task> --provider openrouter --model
+  $HARNESS_EVAL_MODEL --skill <jolly>` under fake `$HOME`/shimmed PATH, `OPENROUTER_API_KEY`
+  from the harness key, real `JOLLY_*` overridden with dummies), and trace/envelope parse helpers.
+- **`features/step_definitions/025-agent-skill-affordance-eval.steps.ts`** — asserts the four
+  affordances: (a) the agent invoked only documented Jolly commands incl. ≥1 substantive
+  setup/diagnostic; (b) the feature-007 artifacts exist (installed Jolly skill, merged
+  `.mcp.json` w/ `saleor-graphql`, scaffolded `.env`, marker-merged `AGENTS.md`) and **no**
+  `jolly.config.ts`; (c) a `jolly doctor`/`start` invocation emitted the feature-020 envelope;
+  (d) no real cloud resource/deploy (no real `*.saleor.cloud` in `.env`, no created
+  resource/deploy keys in any traced envelope unless status=error). When-step timeout 15 min;
+  no global `setDefaultTimeout` (scoped per step so the rest of the suite is unaffected).
+- **`features/support/hooks.ts`** — a third Before hook on `@eval`: gate-skip when runner/key
+  absent, else ensure the CLI bundle is built (skip on build failure). `@logic`/`@sandbox` untouched.
+- **`cucumber.js`** — default profile now `not @meta and not @eval`; added the `eval` profile
+  (exported as `eval` via alias, since `eval` is a reserved identifier).
+- **`package.json`** — `test:eval` script (`cucumber-js -p eval`). **`CLAUDE.md`** — commands
+  block: "excludes @meta" → "excludes @meta and @eval" + a `test:eval` line.
+
+Verification (all green): `tsc --noEmit` clean; `npm test` (units) **43/43**; `npm run
+test:logic` **52/52**; default `cucumber-js --dry-run` **83 scenarios, 0 undefined** (feature
+025 left the default worklist exactly as predicted); `-p eval --dry-run` **1 scenario, 0
+undefined**; `@eval` with the key absent **skips cleanly** (1 skipped, 0 failures, gate
+short-circuits before any build). **Live run** (`npm run test:eval`, staged `.env` creds,
+`deepseek/deepseek-v4-flash` via OpenRouter): **1 scenario / 11 steps passed in ~4 min**, the
+baseline agent drove the real skill+CLI to the documented artifacts; teardown left no temp
+workspace or fake `$HOME` behind, and the real `$HOME`/`.env` were never touched (forced-safe
+isolation held).
+
+**Open:** working tree is GREEN but **UNCOMMITTED** — new files `features/support/eval.ts` +
+`features/step_definitions/025-…steps.ts`; modified `cucumber.js`, `package.json`, `CLAUDE.md`,
+`features/support/hooks.ts`, `HANDOVER.md`. (`dist/index.js` is a git-ignored build artifact —
+do not stage.) Commit is a Captain/customer action. Local `.env` carries the eval creds so the
+eval runs on this VM; CI without `HARNESS_OPENROUTER_API_KEY` skips cleanly.
+
+## CURRENT (2026-06-13): pull the skill-behavior affordance eval forward — feature 025 (DONE — see above)
 
 **Decision (customer, 2026-06-13):** un-defer the skill-behavior evaluation. The Jolly skill
 itself stays Captain/human-owned and untested *as content*, and Captain authors the eval's

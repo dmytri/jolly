@@ -10,12 +10,19 @@ const common = {
 };
 
 // Default: the product worklist. Excludes @meta (the test-architecture spec,
-// feature 023, which describes the harness rather than product behavior).
-// @sandbox scenarios self-skip when the runtime JOLLY_* credentials they need
-// are absent (see features/support/hooks.ts) — there is no test-only
-// credential namespace.
-export default { ...common, tags: "not @meta" };
+// feature 023, which describes the harness rather than product behavior) and
+// @eval (the opt-in skill-behavior affordance evaluation, feature 025, which
+// drives a live baseline agent — non-deterministic, credentialed, slow, and
+// never a green/red gate). @sandbox scenarios self-skip when the runtime JOLLY_*
+// credentials they need are absent (see features/support/hooks.ts) — there is
+// no test-only credential namespace; @eval self-skips without its model key.
+export default { ...common, tags: "not @meta and not @eval" };
 
-// Targeted profiles: `cucumber-js -p logic` / `-p sandbox`.
+// Targeted profiles: `cucumber-js -p logic` / `-p sandbox` / `-p eval`.
 export const logic = { ...common, tags: "@logic" };
 export const sandbox = { ...common, tags: "@sandbox" };
+
+// The eval profile runs ONLY the opt-in @eval tier (feature 025). `eval` is a
+// reserved identifier, so it is exported under that name via an alias.
+const evalProfile = { ...common, tags: "@eval" };
+export { evalProfile as eval };
