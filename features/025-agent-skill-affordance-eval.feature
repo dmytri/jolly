@@ -30,13 +30,17 @@ Feature: Agent skill affordance evaluation
 
   Rule: Driven by a baseline agent, skip-not-fail when unavailable
     - The eval drives a BASELINE coding agent — the bundled `pi` agent
-      (`@earendil-works/pi-coding-agent`) with a cheap model — over the
-      documented skill and CLI in a clean workspace. The point is a generic
+      (`@earendil-works/pi-coding-agent`, run as `npx pi --model <model>`) — over
+      the documented skill and CLI in a clean workspace. The point is a generic
       agent with no Jolly-specific priming beyond the installed skill.
-    - The baseline agent runner and its model credential are selected by
-      `HARNESS_*` knobs only (never `JOLLY_*`), since they are harness config,
-      not Jolly settings.
-    - When the runner or its model credential is absent, the scenario is
+    - The agent runs under a FAKE, throwaway `$HOME` (a per-run temp directory),
+      so `pi`'s own config, state, and credentials are isolated to the run, leave
+      no trace in the real home, and the run is reproducible.
+    - Harness-only `HARNESS_*` knobs (never `JOLLY_*`) configure it:
+      `HARNESS_OPENROUTER_API_KEY` (the OpenRouter model API key, provided into
+      the agent's env as whatever `pi`/OpenRouter reads) and `HARNESS_EVAL_MODEL`
+      (the model, e.g. `deepseek/deepseek-v4-flash`).
+    - When the runner or `HARNESS_OPENROUTER_API_KEY` is absent, the scenario is
       SKIPPED with a clear reason, never failed — exactly like `@sandbox`
       credential gating. Logic-tier tests are unaffected.
 
@@ -51,8 +55,8 @@ Feature: Agent skill affordance evaluation
       validate readiness with `--dry-run` previews and `jolly doctor`. A
       live-store eval (real provisioning + deploy) is a future, explicitly
       credentialed `@eval` extension — not this scenario.
-    - The workspace and anything created in it are removed in teardown; the eval
-      never touches resources outside its workspace.
+    - The per-run workspace and the fake `$HOME` (and anything created in them)
+      are removed in teardown; the eval never touches resources outside them.
 
   Rule: Assert affordances and real artifacts, never fabricated outcomes
     - Affordance is observed two ways: (1) the agent actually INVOKED Jolly's
@@ -67,6 +71,7 @@ Feature: Agent skill affordance evaluation
 
   Scenario: A baseline agent uses the Jolly skill to set up a project
     Given a fresh per-run temporary workspace with the Jolly skill and CLI available
+    And the baseline agent runs under a throwaway `$HOME` so its own config and credentials stay isolated
     And the agent is run with forced safe credentials so no real cloud resources can be created
     And Jolly's CLI invocations in the workspace are traced
     When a baseline agent is given the task:

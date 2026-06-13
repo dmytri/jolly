@@ -44,13 +44,20 @@ regression. It leaves the default worklist once `@eval` is excluded.
    local artifacts exist (installed skill, merged `.mcp.json`, scaffolded `.env`, marker-merged
    `AGENTS.md`) — NOT `jolly.config.ts`; (c) `jolly doctor`/`start` emitted the feature-020
    envelope; (d) no real cloud resource created / nothing deployed.
-2. **Eval harness (support)** — run the baseline `pi` agent over the workspace; a PATH-shim command
-   tracer (wrap `jolly` and `npx @dk/jolly` to log argv then exec the real binary, on a
-   workspace-scoped PATH); a per-run namespaced temp workspace seeded with the skill + safe creds
-   (dummy `JOLLY_*` + `.invalid` base, no real `.env` leakage); teardown. Harness-only knobs use
-   `HARNESS_*` (e.g. agent/model selection); reuse the `sandbox.ts` gating patterns.
-3. **Gating** — a `@eval` Before hook that SKIPS-not-fails (clear reason) when the agent runner or
-   its model credential is absent. `@logic`/`@sandbox` unaffected.
+2. **Eval harness (support)** — run the baseline agent as `npx pi --model $HARNESS_EVAL_MODEL`
+   under a FAKE per-run `$HOME` (throwaway temp dir, so pi's config/state/creds are isolated),
+   with `HARNESS_OPENROUTER_API_KEY` provided into the agent env as whatever `pi`/OpenRouter reads
+   (verify pi's actual var at impl time). A PATH-shim command tracer (wrap `jolly` and
+   `npx @dk/jolly` to log argv then exec the real binary, on a workspace-scoped PATH); a per-run
+   namespaced temp workspace seeded with the skill + safe creds (dummy `JOLLY_*` + `.invalid` Cloud
+   API base, no real `.env` leakage into the agent); teardown removes workspace + fake HOME. Reuse
+   the `sandbox.ts` gating patterns.
+3. **Gating** — a `@eval` Before hook that SKIPS-not-fails (clear reason) when the runner or
+   `HARNESS_OPENROUTER_API_KEY` is absent. `@logic`/`@sandbox` unaffected.
+   - **Local creds already staged:** the Git-ignored `.env` now carries
+     `HARNESS_OPENROUTER_API_KEY` and `HARNESS_EVAL_MODEL=deepseek/deepseek-v4-flash`, so the eval
+     can run on this machine; CI without the key skips cleanly. (`features/support/dotenv.ts` loads
+     `.env`, so these reach `process.env`.)
 4. **cucumber.js + scripts** — exclude `@eval` from the default profile (`not @meta and not @eval`);
    add an `eval` profile (`@eval`) and a `test:eval` script. Update the CLAUDE.md commands-block
    comment ("excludes @meta" → "excludes @meta and @eval") once wired.
