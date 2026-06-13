@@ -1,0 +1,307 @@
+# Jolly starter recipe — a @saleor/configurator config that turns a freshly
+# created Saleor Cloud environment into a working, browsable, checkout-ready
+# storefront for the Paper template. Playful pirate-themed demo catalog, single
+# US / USD / English market (v1).
+#
+# This file ships with the Jolly skill. The agent copies it into the cloned
+# storefront repo (keep it version-controlled and reviewable) and applies it
+# with the official Configurator safe workflow — Jolly never runs Configurator:
+#
+#   npx @saleor/configurator diff   --url "$NEXT_PUBLIC_SALEOR_API_URL" \
+#       --token "$JOLLY_SALEOR_APP_TOKEN" --config saleor-config.yml
+#   npx @saleor/configurator deploy --url "$NEXT_PUBLIC_SALEOR_API_URL" \
+#       --token "$JOLLY_SALEOR_APP_TOKEN" --config saleor-config.yml --fail-on-breaking
+#
+# Then point the Paper storefront at this channel: NEXT_PUBLIC_DEFAULT_CHANNEL=us
+#
+# Customize freely — rename the shop, swap in your own catalog. If Configurator
+# rejects a field, re-check its current example.yml schema; the tool owns the
+# specifics, this recipe owns the starting point.
+
+shop:
+  defaultMailSenderName: "Jolly Roger Outfitters"
+  displayGrossPrices: true
+  trackInventoryByDefault: false        # demo catalog sells without stock counts
+  defaultWeightUnit: KG
+
+# Single US / USD market. CHARGE flow so test-mode Stripe captures immediately.
+channels:
+  - name: United States
+    slug: us
+    currencyCode: USD
+    defaultCountry: US
+    isActive: true
+    settings:
+      automaticallyConfirmAllNewOrders: true
+      markAsPaidStrategy: TRANSACTION_FLOW
+      defaultTransactionFlowStrategy: CHARGE
+    taxConfiguration:
+      taxCalculationStrategy: FLAT_RATES
+      chargeTaxes: false
+      displayGrossPrices: true
+      pricesEnteredWithTax: true
+
+# One simple shippable product type — no custom attributes to keep the happy
+# path robust. Add attributes/variants later when you customize.
+productTypes:
+  - name: Pirate Goods
+    isShippingRequired: true
+
+categories:
+  - name: Weapons
+    slug: weapons
+  - name: Navigation
+    slug: navigation
+  - name: Apparel
+    slug: apparel
+  - name: Treasure
+    slug: treasure
+  - name: Ship Supplies
+    slug: ship-supplies
+
+warehouses:
+  - name: Port Royal Warehouse
+    slug: port-royal
+    email: quartermaster@jolly.example
+    isPrivate: false
+    clickAndCollectOption: DISABLED
+    address:
+      streetAddress1: "1 Mallory Square"
+      city: Key West
+      postalCode: "33040"
+      country: US
+      countryArea: FL
+      companyName: "Jolly Roger Outfitters"
+
+# A default US shipping zone so checkout can reach the payment step.
+shippingZones:
+  - name: United States
+    description: "Shipping within the United States"
+    default: true
+    countries:
+      - US
+    warehouses:
+      - port-royal
+    channels:
+      - us
+    shippingMethods:
+      - name: Standard Shipping
+        type: PRICE
+        minimumDeliveryDays: 3
+        maximumDeliveryDays: 7
+        channelListings:
+          - channel: us
+            price: 5.00
+            minimumOrderPrice: 0
+      - name: Free Shipping
+        type: PRICE
+        minimumDeliveryDays: 5
+        maximumDeliveryDays: 10
+        channelListings:
+          - channel: us
+            price: 0
+            minimumOrderPrice: 50
+
+# Pirate catalog — single-variant products, each published and priced in USD so
+# Paper can list, cart, and check them out immediately.
+products:
+  - name: "Cutlass"
+    slug: cutlass
+    description: "A trusty curved blade, forged for close-quarters boarding actions."
+    productType: Pirate Goods
+    category: weapons
+    channelListings:
+      - channel: us
+        isPublished: true
+        visibleInListings: true
+        isAvailableForPurchase: true
+    variants:
+      - name: Default
+        sku: CUTLASS-001
+        channelListings:
+          - channel: us
+            price: 89.00
+
+  - name: "Flintlock Pistol"
+    slug: flintlock-pistol
+    description: "One shot, one chance — make it count, then swing the cutlass."
+    productType: Pirate Goods
+    category: weapons
+    channelListings:
+      - channel: us
+        isPublished: true
+        visibleInListings: true
+        isAvailableForPurchase: true
+    variants:
+      - name: Default
+        sku: FLINTLOCK-001
+        channelListings:
+          - channel: us
+            price: 149.00
+
+  - name: "Brass Spyglass"
+    slug: brass-spyglass
+    description: "Spot the king's frigates — and the merchantmen — long before they spot you."
+    productType: Pirate Goods
+    category: navigation
+    channelListings:
+      - channel: us
+        isPublished: true
+        visibleInListings: true
+        isAvailableForPurchase: true
+    variants:
+      - name: Default
+        sku: SPYGLASS-001
+        channelListings:
+          - channel: us
+            price: 59.00
+
+  - name: "Pirate's Compass"
+    slug: pirates-compass
+    description: "Points not north, but toward what your heart wants most. Usually rum."
+    productType: Pirate Goods
+    category: navigation
+    channelListings:
+      - channel: us
+        isPublished: true
+        visibleInListings: true
+        isAvailableForPurchase: true
+    variants:
+      - name: Default
+        sku: COMPASS-001
+        channelListings:
+          - channel: us
+            price: 39.00
+
+  - name: "Tricorne Hat"
+    slug: tricorne-hat
+    description: "Three corners of pure intimidation. Feather not included."
+    productType: Pirate Goods
+    category: apparel
+    channelListings:
+      - channel: us
+        isPublished: true
+        visibleInListings: true
+        isAvailableForPurchase: true
+    variants:
+      - name: Default
+        sku: TRICORNE-001
+        channelListings:
+          - channel: us
+            price: 45.00
+
+  - name: "Leather Eyepatch"
+    slug: leather-eyepatch
+    description: "Keeps one eye dark-adapted for going below decks. Also: very dashing."
+    productType: Pirate Goods
+    category: apparel
+    channelListings:
+      - channel: us
+        isPublished: true
+        visibleInListings: true
+        isAvailableForPurchase: true
+    variants:
+      - name: Default
+        sku: EYEPATCH-001
+        channelListings:
+          - channel: us
+            price: 12.00
+
+  - name: "Treasure Map (Authentic Replica)"
+    slug: treasure-map
+    description: "X marks the spot. We make no guarantees about what's under the X."
+    productType: Pirate Goods
+    category: treasure
+    channelListings:
+      - channel: us
+        isPublished: true
+        visibleInListings: true
+        isAvailableForPurchase: true
+    variants:
+      - name: Default
+        sku: MAP-001
+        channelListings:
+          - channel: us
+            price: 25.00
+
+  - name: "Pieces of Eight (Coin Set)"
+    slug: pieces-of-eight
+    description: "A handful of gleaming doubloons. Spend them, bury them, bite them to check."
+    productType: Pirate Goods
+    category: treasure
+    channelListings:
+      - channel: us
+        isPublished: true
+        visibleInListings: true
+        isAvailableForPurchase: true
+    variants:
+      - name: Default
+        sku: COINS-001
+        channelListings:
+          - channel: us
+            price: 30.00
+
+  - name: "Oak Rum Barrel"
+    slug: oak-rum-barrel
+    description: "Provisions for a long voyage. The most important supply on any ship."
+    productType: Pirate Goods
+    category: ship-supplies
+    channelListings:
+      - channel: us
+        isPublished: true
+        visibleInListings: true
+        isAvailableForPurchase: true
+    variants:
+      - name: Default
+        sku: RUMBARREL-001
+        channelListings:
+          - channel: us
+            price: 120.00
+
+  - name: "Jolly Roger Flag"
+    slug: jolly-roger-flag
+    description: "Run it up the mast and watch the prices — and the prizes — surrender."
+    productType: Pirate Goods
+    category: ship-supplies
+    channelListings:
+      - channel: us
+        isPublished: true
+        visibleInListings: true
+        isAvailableForPurchase: true
+    variants:
+      - name: Default
+        sku: FLAG-001
+        channelListings:
+          - channel: us
+            price: 35.00
+
+# A featured collection for Paper's storefront merchandising.
+collections:
+  - name: "Crew Favorites"
+    slug: crew-favorites
+    description: "What every well-equipped pirate carries aboard."
+    products:
+      - cutlass
+      - brass-spyglass
+      - tricorne-hat
+      - jolly-roger-flag
+    channelListings:
+      - channelSlug: us
+        isPublished: true
+
+menus:
+  - name: Main Navigation
+    slug: main-nav
+    items:
+      - name: Weapons
+        category: weapons
+      - name: Navigation
+        category: navigation
+      - name: Apparel
+        category: apparel
+      - name: Treasure
+        category: treasure
+      - name: Ship Supplies
+        category: ship-supplies
+      - name: Crew Favorites
+        collection: crew-favorites

@@ -40,10 +40,10 @@ Feature: Stripe checkout setup for the Jolly starter storefront
   @sandbox
   Scenario: Agent configures Saleor for Stripe
     Given Stripe credentials are available in .env
-    When the agent configures Saleor's Stripe integration via `@saleor/configurator`, guided by the Jolly skill
-    Then it should use Saleor-supported Stripe payment setup paths where available
+    When the agent configures Saleor's Stripe app, guided by the Jolly skill
+    Then it should use the Saleor-supported Stripe app (Dashboard Extensions) mapped to the storefront channel
     And Jolly should not implement a custom payment backend
-    And Jolly's only Stripe role is writing the test keys to `.env` (`jolly create stripe`); the Saleor-side configuration is the agent's via the configurator
+    And Jolly's only Stripe role is writing the test keys to `.env` (`jolly create stripe`); the Saleor-side Stripe app configuration is the agent's
     And the customer's agent should decide whether approval is needed before modifying remote payment configuration
 
   @sandbox
@@ -58,11 +58,18 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     - v1 uses Stripe test mode only; live mode requires an explicit customer choice and is out of v1 scope.
     - The customer provides exactly 2 values: Stripe publishable key and secret key from the Stripe Dashboard.
     - Jolly writes both to .env and ensures .env is ignored by Git.
-    - Jolly does not build payment processing; it configures Saleor's existing Stripe integration.
+    - Jolly does not build payment processing; the agent configures Saleor's Stripe app, and
+      Jolly only writes the two test keys to `.env`.
     - Stripe live mode is explicitly out of v1 scope.
     - Payment credentials are secrets and must not be printed.
 
-  Rule: Open questions
-    - What exact Saleor Cloud Stripe app/plugin path should be used at implementation time?
-    - What webhook configuration is required for a deployed Paper storefront on Vercel?
-    - Should Jolly automate webhook endpoint registration with Stripe where possible?
+  Rule: Stripe app path (resolved 2026-06-13)
+    - The Saleor-supported path is the Stripe app, configured in the Saleor Dashboard →
+      Extensions with the publishable key and a Stripe secret/restricted key, and mapped to the
+      storefront's channel (the starter recipe's `us` channel). `@saleor/configurator` manages
+      catalog and channels only; it does not configure payments.
+    - The Stripe app registers and removes its own Stripe webhooks when a configuration is
+      created or deleted — Jolly does not automate Stripe webhook endpoint registration.
+    - Jolly's only Stripe role is writing the two test keys to `.env`; installing and configuring
+      the Stripe app is the agent's step, guided by the Jolly skill. `jolly doctor` verifies that
+      checkout can progress to the Stripe test payment step.

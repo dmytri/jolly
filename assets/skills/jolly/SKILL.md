@@ -46,26 +46,37 @@ customer's policies — Jolly never hardcodes the decision. Parse `--json` outpu
 4. **App token** — run `jolly create app-token` to acquire a Saleor app token (all permissions
    in v1) for configuration.
 
-5. **Storefront** — clone the Paper template yourself: `git clone` `saleor/storefront` (the
-   `main` branch) into `./storefront`, remove the upstream `.git`, run `git init`, and
-   `pnpm install`. Validate the local Node version against Paper's requirement; if incompatible,
-   tell the human (don't switch Node yourself). Set Paper's required env (e.g.
-   `NEXT_PUBLIC_SALEOR_API_URL`, `NEXT_PUBLIC_DEFAULT_CHANNEL`).
+5. **Storefront** — clone the Paper template yourself:
+   `git clone https://github.com/saleor/storefront.git ./storefront` (the `main` branch),
+   remove the upstream `.git`, run `git init`, `cp .env.example .env`, and `pnpm install`. If the
+   local Node version is incompatible with Paper, tell the human (don't switch Node yourself). In
+   the storefront's `.env`, set `NEXT_PUBLIC_SALEOR_API_URL` to your store's GraphQL endpoint and
+   `NEXT_PUBLIC_DEFAULT_CHANNEL=us` (the channel the starter recipe creates).
 
-6. **Configure the store** — apply the Jolly starter recipe (a pirate-themed demo catalog, US/
-   USD/English, Stripe-ready checkout) using `@saleor/configurator`'s safe workflow
-   (validate → diff → plan → deploy), passing the Saleor URL and app token. Show the diff/plan
-   and seek approval before deploying writes.
+6. **Configure the store** — the Jolly starter recipe ships with this skill as `recipe.yml`
+   (alongside this `SKILL.md`): a pirate-themed US/USD/English catalog with shipping and the `us`
+   channel Paper points at. Copy it into the storefront repo as `saleor-config.yml` (keep it
+   version-controlled and reviewable), then apply it with `@saleor/configurator`'s safe
+   workflow — `diff` to preview, then `deploy` — passing
+   `--url "$NEXT_PUBLIC_SALEOR_API_URL" --token "$JOLLY_SALEOR_APP_TOKEN" --config saleor-config.yml`
+   (or set `SALEOR_URL`/`SALEOR_TOKEN`). Add `--fail-on-breaking` on `deploy`. Show the diff and
+   seek the customer's approval before deploying writes. Jolly never runs the configurator; you do.
 
-7. **Stripe (test mode)** — ask the human for the Stripe publishable and secret keys from the
-   Stripe Dashboard test mode; run `jolly create stripe --publishable-key … --secret-key …` to
-   write them to `.env` (never printed). Configure Saleor's Stripe integration via
-   `@saleor/configurator`.
+7. **Stripe (test mode)** — ask the human for the Stripe **publishable key** and a Stripe
+   **secret (or restricted) key** from the Stripe Dashboard in test mode; run
+   `jolly create stripe --publishable-key … --secret-key …` to write them to `.env` (never
+   printed). Then configure Saleor's **Stripe app** — the Saleor-supported payment path, *not*
+   the configurator (which manages catalog only): in the Saleor Dashboard → Extensions, install
+   or open the Stripe app, add a configuration with those keys, and **map it to the `us`
+   channel**. The Stripe app registers its own Stripe webhooks automatically. Guide the human
+   through the Dashboard step where it needs their click.
 
 8. **Deploy to Vercel** — deploy with the official Vercel CLI: `npx vercel`. Authentication is
    the Vercel CLI's own `vercel login` session — if `npx vercel whoami` fails, pause and have
-   the human run `npx vercel login` (browser), then resume. Set the project's env vars with the
-   Vercel CLI, deploy, and capture the deployed URL. Do not use any other deployment mechanism.
+   the human run `npx vercel login` (browser), then resume. Set the project's env vars
+   (`NEXT_PUBLIC_SALEOR_API_URL`, `NEXT_PUBLIC_DEFAULT_CHANNEL=us`) with the Vercel CLI
+   (`npx vercel env add …`), deploy to production (`npx vercel --prod`), and capture the deployed
+   URL. Do not use any other deployment mechanism.
 
 9. **Wire trusted origins** — update Saleor's allowed/trusted origins to include the deployed
    storefront URL.

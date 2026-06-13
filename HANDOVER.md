@@ -10,6 +10,64 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
+## Captain pass (2026-06-13): MVP starter recipe + Stripe path + skill distribution
+
+The CLI/test suite is green (below). This pass closed the biggest MVP hole in the *skill* and
+corrected the playbook to verified upstream flows. One bounded QM follow-up results.
+
+What landed (Captain-owned):
+
+1. **Authored the missing starter recipe** — `assets/skills/jolly/recipe.yml` (Captain asset,
+   not test-covered). Feature 004 promised a Jolly-shipped recipe with "actual pirate-themed
+   sample products by default," but no recipe file existed — the agent would have had to invent
+   the whole `@saleor/configurator` schema, the likeliest place "paste → live store" breaks. The
+   recipe is a complete, lean, YAML-valid configurator config (shop, one `us`/USD channel, a
+   `Pirate Goods` type, 5 categories, a warehouse, a default US shipping zone so checkout reaches
+   payment, 10 published USD-priced products, a featured collection, a nav menu). Schema follows
+   the current upstream `example.yml`; quality is validated by real use, not cucumber.
+2. **Corrected the playbook to verified upstream** (`SKILL.md`, `setup.md`): configurator is
+   `diff` → `deploy` (not "validate → diff → plan → deploy"), with `--url/--token` (or
+   `SALEOR_URL/SALEOR_TOKEN`) and `--fail-on-breaking`; Paper setup is `cp .env.example .env` +
+   `NEXT_PUBLIC_DEFAULT_CHANNEL=us`; the recipe ships with the skill and is copied into the
+   storefront as `saleor-config.yml`.
+3. **Resolved the Stripe path (was an open question in 005).** Saleor's Stripe is the **Stripe
+   app** (Dashboard → Extensions, configured with the keys and **mapped to the `us` channel**;
+   the app auto-creates its webhooks) — **not** `@saleor/configurator`, which manages catalog
+   only (confirmed against its full schema). Updated: feature 005 (the "Agent configures Saleor
+   for Stripe" @sandbox scenario + a new "Stripe app path" rule replacing the open questions),
+   AGENTS.md MVP stage 8, feature 004 (a "Recipe artifact" rule naming `recipe.yml`), and the
+   `SKILL.md`/`setup.md` Stripe steps.
+4. **Pinned skill distribution (open item resolved).** Verified the `npx skills` tool
+   (vercel-labs/skills): a bare `owner/repo` ref searches standard roots (`skills/`,
+   `.claude/skills/`, …) one level deep and only falls back to a recursive scan if none are
+   found. Our skill lives at `assets/skills/jolly/`; live `npx skills add . --list` finds exactly
+   one skill (`jolly`) via that fallback, so `dmytri/jolly` resolves today. We made it
+   deterministic **without restructuring** (customer chose "pin explicit ref, no move" over
+   moving the project or the skill to a root `skills/`): the Jolly skill now ships bundled in the
+   package (`package.json` `files` gains `assets/skills/`) and `init`/`start` install it from the
+   bundled copy; the canonical remote ref is the explicit subpath
+   `…/tree/main/assets/skills/jolly`. Captured in AGENTS.md (skill-install principle), feature
+   007 (new "Jolly skill source" rule), and `package.json`.
+   - **Recommended (non-blocking) Crew refinement:** `jolly init` currently installs the Jolly
+     skill via the GitHub `npx skills add` ref and verifies it on disk (007 `@logic` passes);
+     refine it to resolve the **bundled copy** from Jolly's own module path so the install is
+     offline and push-independent. No test change required — 007 asserts on-disk presence, not
+     the ref — so this is an implementation hardening, not a failing target.
+
+**Bounded QM follow-up (the only test impact):** the feature 005 spec edit orphaned **3 steps**
+in the `@sandbox` scenario *"Agent configures Saleor for Stripe"* → `bunx cucumber-js --dry-run`
+now shows **1 undefined scenario / 3 undefined steps**. Regenerate that scenario's steps in
+`features/step_definitions/005-stripe-checkout-setup.steps.ts` following the agent-journey
+cleanup pattern: assert only Jolly-observable contribution (Jolly's role = the test keys are in
+`.env` via `jolly create stripe`); the Stripe-app configuration is the agent's narrative — do not
+build a harness that "plays the agent." It is `@sandbox` (skips locally). The changed step texts:
+- `When the agent configures Saleor's Stripe app, guided by the Jolly skill`
+- `Then it should use the Saleor-supported Stripe app (Dashboard Extensions) mapped to the storefront channel`
+- `And Jolly's only Stripe role is writing the test keys to \`.env\` (\`jolly create stripe\`); the Saleor-side Stripe app configuration is the agent's`
+
+Untouched and still green: typecheck clean, units 43/43, `@logic` 52/52. Feature 004's change is
+a Rule only (no step impact). `assets/**` stays Captain-owned/untested.
+
 ## TL;DR for the next session (2026-06-13, QM rebuild complete — ALL GREEN)
 
 The thin-CLI rebuild is done and verified end to end. Last full credentialed run:

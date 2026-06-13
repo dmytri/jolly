@@ -53,3 +53,15 @@ Feature: Jolly init for local agent setup
     - Jolly must never silently overwrite an existing .mcp.json or AGENTS.md. Merge, never replace.
     - Skill installation output must reflect what was actually verified on disk, not pre-computed names. If a clone or install step fails, surface stderr and exit non-zero.
     - Exact per-agent instruction file targets remain open.
+
+  Rule: Jolly skill source (resolved 2026-06-13)
+    - The Jolly skill ships bundled inside the published `@dk/jolly` package (`assets/skills/` is
+      listed in the package `files`); `jolly init`/`start` install it from that bundled copy,
+      resolved relative to Jolly's own module path — so installing the Jolly skill needs no
+      network and does not depend on the skill being pushed to GitHub.
+    - The canonical remote equivalent, for a direct or manual install, is the explicit subpath
+      ref `npx skills add https://github.com/dmytri/jolly/tree/main/assets/skills/jolly`. The
+      bare `npx skills add dmytri/jolly` also resolves (the repo exposes exactly one skill), but
+      the explicit ref is preferred for determinism.
+    - The Saleor agent-skills are installed from their own `npx skills add` refs. The Jolly skill
+      stays under `assets/` (Shipshape rule) and is not moved to a top-level `skills/` directory.

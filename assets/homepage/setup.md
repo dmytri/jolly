@@ -94,8 +94,8 @@ carries you through, calling Jolly's helpers for plumbing and the official CLIs 
 | 2 | Provision the store | `npx @dk/jolly create store [--create-environment]` | paste Cloud token if asked |
 | 3 | App token | `npx @dk/jolly create app-token` | |
 | 4 | Clone Paper | `git clone` saleor/storefront (`main`), strip `.git`, `pnpm install` | |
-| 5 | Configure the store | `@saleor/configurator` (validate → diff → plan → deploy) with the Jolly starter recipe | approve writes |
-| 6 | Stripe (test mode) | `npx @dk/jolly create stripe --publishable-key … --secret-key …`, then configure Saleor's Stripe via `@saleor/configurator` | paste Stripe keys |
+| 5 | Configure the store | `@saleor/configurator` (diff → deploy) with the Jolly starter recipe (ships with the skill) | approve writes |
+| 6 | Stripe (test mode) | `npx @dk/jolly create stripe --publishable-key … --secret-key …`, then configure Saleor's Stripe app (Dashboard) on the `us` channel | paste Stripe keys |
 | 7 | Deploy | `npx vercel` (its own `vercel login` session) + set Vercel env vars | `vercel login` consent |
 | 8 | Verify | `npx @dk/jolly doctor` — store, storefront, deploy, checkout-to-Stripe-test | |
 

@@ -35,3 +35,13 @@ Feature: Jolly Configurator starter recipe
     - Provide the channel, product model, navigation, sample catalog, shipping, Stripe-ready checkout assumptions, and other configuration required for a working end-to-end storefront.
     - Keep the recipe version-controlled and reviewable in the cloned storefront repository.
 
+  Rule: Recipe artifact (resolved 2026-06-13)
+    - The starter recipe ships with the Jolly skill as `assets/skills/jolly/recipe.yml`, a
+      `@saleor/configurator` config: shop settings, the `us` channel, a `Pirate Goods` product
+      type, categories, a warehouse, a default US shipping zone, published USD-priced pirate
+      products, a featured collection, and a navigation menu.
+    - The agent copies it into the cloned storefront (e.g. `saleor-config.yml`) and applies it
+      with the configurator safe workflow — `diff` to preview, then `deploy` with
+      `--fail-on-breaking` — passing the store URL and app token; Jolly never runs the configurator.
+    - The recipe's `us` channel slug is the storefront's `NEXT_PUBLIC_DEFAULT_CHANNEL`.
+

@@ -9,6 +9,7 @@
   "files": [
     "bin/",
     "src/",
+    "assets/skills/",
     "README.md"
   ],
   "publishConfig": {

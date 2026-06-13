@@ -91,7 +91,14 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompt
 - **Install skills via `npx skills add` (decision 2026-06-13):** Jolly installs every skill —
   the Jolly skill and the Saleor agent-skills — through `npx skills add <ref>`, falling back to
   a Git-based install only for a skill not available that way (e.g. Paper's embedded skill,
-  which arrives with the cloned storefront).
+  which arrives with the cloned storefront). The **Jolly skill** specifically ships bundled in
+  the `@dk/jolly` package (`assets/skills/` is in the package `files`) and is installed from that
+  bundled copy by `init`/`start` (resolved relative to Jolly's own module path) — no network, no
+  dependency on the skill being pushed to GitHub. Its canonical remote ref, for direct installs,
+  is the explicit subpath `npx skills add https://github.com/dmytri/jolly/tree/main/assets/skills/jolly`
+  (the bare `dmytri/jolly` also resolves to the single skill, but the explicit ref is preferred).
+  The skill stays under `assets/` (Shipshape rule); the repo root is not restructured for it
+  (decision 2026-06-13).
 - **Zero unnecessary friction:** The path from copying the Jolly homepage prompt to a working deployed storefront requires only the human actions that cannot be automated — new account creation, browser OAuth consent, and providing secret values. Everything else Jolly and the agent handle automatically using safe defaults.
 - **Trustworthy first-step handoff (decision 2026-06-13):** The setup instructions the customer
   pastes into their agent (homepage copy box → jolly.cool/setup → the Jolly skill) must read as
@@ -159,8 +166,9 @@ verified results (no fabrication — see the integrity rule below):
    own `vercel login` session, sets Vercel env vars, and updates Saleor trusted origins, per the
    skill (feature 002). No Jolly Vercel token, no `api.vercel.com` in Jolly's code.
 8. **Stripe** — `jolly create stripe` writes test keys to `.env` (*built*); the agent configures
-   Saleor's Stripe integration via `@saleor/configurator` and verifies checkout readiness with
-   `jolly doctor` (feature 005).
+   the Saleor Stripe app (Dashboard Extensions), mapped to the storefront channel, and verifies
+   checkout readiness with `jolly doctor` (feature 005). `@saleor/configurator` manages catalog
+   and channels only — it does not configure payments.
 9. **Verify** — `jolly doctor` confirms operational readiness (feature 014).
 
 **Integrity rule (decision 2026-06-13):** Jolly's own commands report success and `pass` checks
@@ -308,12 +316,15 @@ contents:
   `setup.md`, `vercel.json`), served at https://jolly.cool. Captain/human-authored, not
   specified in `.feature` files, not covered by tests; the Captain edits it in place. Vercel
   deploys the site from `assets/homepage/` (project link in `assets/homepage/.vercel`).
-- **`assets/skills/jolly/SKILL.md`** — the **Jolly skill**: the Captain-authored end-to-end
-  playbook that teaches the customer's agent to drive the official CLIs plus Jolly's thin
-  helpers. It is the deliverable Jolly installs (via `npx skills add`); its exact CLI
-  invocations are verified against current upstream at implementation time. (This is the
-  product skill Jolly ships to customers — distinct from `.claude/skills/`, the Shipshape
-  roles for working on this repo, which is git-ignored.)
+- **`assets/skills/jolly/`** — the **Jolly skill** the deliverable Jolly installs (via `npx
+  skills add`): `SKILL.md`, the Captain-authored end-to-end playbook that teaches the customer's
+  agent to drive the official CLIs plus Jolly's thin helpers, and `recipe.yml`, the Jolly starter
+  recipe (a `@saleor/configurator` config — pirate-themed US/USD/English catalog, shipping, and
+  the `us` channel Paper points at) that the agent copies into the cloned storefront and applies
+  with the configurator (feature 004). Exact CLI invocations and the configurator schema are
+  verified against current upstream at implementation time. (This is the product skill Jolly
+  ships to customers — distinct from `.claude/skills/`, the Shipshape roles for working on this
+  repo, which is git-ignored.)
 
 **Ownership and testing (decision 2026-06-13):** everything under `assets/` is Captain/human-owned
 and **not covered by the BDD suite** — including the Jolly skill's content and the homepage. Their
