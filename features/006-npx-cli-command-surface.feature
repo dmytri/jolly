@@ -34,9 +34,21 @@ Feature: Npx-first Jolly CLI command surface
       output, or docs — not as runnable, not as "future/official"; docs describe
       only what exists and can be run.
     - The published Jolly CLI is a Node.js program (decision 2026-06-12): the
-      launcher (`bin/jolly`) runs under Node.js >= 23 (native type stripping) and
-      never invokes or requires Bun. Bun is the project's development/test
-      environment only, never a customer-facing requirement.
+      launcher (`bin/jolly`) runs under Node.js >= 23 and never invokes or
+      requires Bun. Bun is the project's development/test environment only, never
+      a customer-facing requirement.
+    - The published package ships **pre-built JavaScript** compiled from `src/`,
+      and the launcher loads that build — not raw TypeScript (correction
+      2026-06-13). Node's native type stripping is disabled for files under
+      `node_modules`, so an npm-installed `npx @dk/jolly` cannot strip types and
+      must run plain JavaScript. A build step produces the bundle before publish;
+      the package's `files` ship the build output (not raw `.ts`).
+    - The "Npx execution does not require Bun" scenario must exercise the package
+      **as actually installed** — `npm pack` the tarball, install it into a
+      temporary `node_modules`, and run the installed `jolly` bin — because
+      running the launcher from the source tree (where `src/` is not under
+      `node_modules`) gives a false pass and hid exactly this failure
+      (lesson 2026-06-13: `0.1.11`/`0.2.0` published broken for `npx`).
     - The published package's `engines` field must declare the Node.js requirement
       and must not require Bun.
     - On a Node.js older than the minimum, the launcher should fail with a clear

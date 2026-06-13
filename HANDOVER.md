@@ -10,6 +10,42 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
+## Bug — published CLI broken via npx (2026-06-13): ship compiled JS, not raw .ts
+
+**`@dk/jolly@0.2.0` (and `0.1.11`) are broken when installed from npm.** `npx @dk/jolly …`
+dies with `ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING` — Node's native TypeScript type
+stripping is **disabled for files under `node_modules`**, and `bin/jolly` imports raw
+`src/index.ts`. Works from the repo tree, fails as an installed package (the real `npx` path).
+Left live-but-unfixed per customer (nobody depends on it yet; **no deprecation**). Fix forward to
+`0.2.1`. Found by a manual pack-and-run smoke test of the published tarball.
+
+**Root cause is a spec defect, now corrected (Captain, this pass):** feature 006 said the launcher
+"runs under Node >= 23 (native type stripping)" and the `@logic` "Npx execution does not require
+Bun" scenario runs `bin/jolly` **from the repo tree** (where `src/` is not under `node_modules`) —
+a false pass that hid this. Corrected in **feature 006** (ship pre-built JS; the npx scenario must
+`npm pack` → install into a temp `node_modules` → run the installed bin) and **AGENTS.md** Project
+Stack (pre-built JS bundle, not type stripping).
+
+**Validated fix approach (Captain probed it, then reverted — Crew implements properly):**
+- Build with Bun (dev-only tool, plain-JS output): `bun build src/index.ts --target node --outfile
+  dist/index.js` → one 64 KB Node-ESM bundle (4 modules; `src/lib/*` inlined). Confirmed
+  `node dist/index.js auth status --json` runs under plain Node, no Bun, no type stripping.
+- `bin/jolly`: import `../dist/index.js` (keep the Node-version guard; drop the
+  `ERR_UNKNOWN_FILE_EXTENSION`/`--experimental-strip-types` fallback — irrelevant once it's JS).
+- `package.json`: add a `build` script (the `bun build` above) + `prepublishOnly`/`prepack` so a
+  publish can't ship without building; change `files` to ship `dist/` (+ `bin/`, `assets/skills/`,
+  `README`) instead of `src/`. (`dist/` should be git-ignored; it's a build artifact.)
+
+**Worklist (proper Shipshape flow — needs a fresh QM session):**
+1. **QM** — regenerate the feature 006 `@logic` "Npx execution does not require Bun" scenario to
+   pack + install the tarball into a temp `node_modules` and run the **installed** `jolly` bin
+   (asserting the envelope on stdout, exit 0, Node-only PATH). It must **fail** against today's
+   `src/.ts` launcher (proving the bug), then dispatch Crew.
+2. **Crew** — implement the build approach above until that test is green; `bun run typecheck`,
+   units, and full BDD stay green.
+3. **Publish `0.2.1`** (npm authed as `dk`; `prepublishOnly` builds): bump, commit, tag, push,
+   `npm publish`, then re-run the installed-tarball smoke test against the live `0.2.1`.
+
 ## Captain acceptance run (2026-06-13): stages 1–4 live-verified; a real store exists; Stripe OAuth parked
 
 First real end-to-end attempt of the MVP happy path, by hand, against the live account — to find

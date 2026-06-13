@@ -39,7 +39,7 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompt
 ## Project Stack
 
 - Development runtime/package manager: Bun (dev environment only — never a customer-facing requirement)
-- Published CLI runtime: Node.js >= 23 (native type stripping); the `bin/jolly` launcher runs under Node and never invokes or requires Bun (decision 2026-06-12, feature 006)
+- Published CLI runtime: Node.js >= 23 running a **pre-built JS bundle** compiled from `src/` (correction 2026-06-13: NOT raw-`.ts` type stripping — Node disables that under `node_modules`, so an npm-installed CLI must run plain JS); the `bin/jolly` launcher runs under Node and never invokes or requires Bun (decision 2026-06-12, feature 006)
 - Language: TypeScript
 - Module system: ES modules
 - Entry point: `src/index.ts`
