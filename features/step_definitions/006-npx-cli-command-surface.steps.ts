@@ -1,28 +1,63 @@
 // Feature 006 — Npx-first Jolly CLI command surface.
 //
-// @logic scenario "Npx execution does not require Bun": run the published
-// launcher `bin/jolly` directly (shebang and all, exactly as npx would) on a
-// PATH that holds only a `node` symlink — after asserting Bun is not
-// resolvable on it — and require the standard envelope back on stdout with
-// exit 0. This proves the Node launcher never needs Bun (decision 2026-06-12).
+// @logic scenario "Npx execution does not require Bun": exercise the package
+// AS PUBLISHED — `npm pack` the tarball, install it into a throwaway
+// `node_modules`, and run the INSTALLED `jolly` bin on a PATH that holds only a
+// `node` symlink (Bun unresolvable). Require the standard envelope on stdout
+// with exit 0. Running `bin/jolly` from the source tree (where `src/` is not
+// under `node_modules`) is a false pass that hid the npx breakage of
+// 0.1.11/0.2.0 (feature 006 Rule; correction 2026-06-13: the package must ship
+// pre-built JS, since Node disables type stripping under `node_modules`).
 //
 // @logic scenario "Agent starts the guided setup flow": `jolly start`
 // bootstraps and emits the ordered playbook in Jolly's hybrid (human +
 // machine-readable) format.
 //
-// Safety (the "012 incident"): the launcher run builds its environment from
-// scratch (no .env leakage) and forces dummy credentials for all groups plus
-// an unroutable `.invalid` Cloud API base, so a side-effecting path can never
-// reach a real account.
+// Safety (the "012 incident"): the installed-bin run builds its environment
+// from scratch (no .env leakage) and forces dummy credentials for all groups
+// plus an unroutable `.invalid` Cloud API base, so a side-effecting path can
+// never reach a real account.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, symlinkSync } from "node:fs";
+import { existsSync, readdirSync, symlinkSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { findEnvelope } from "../support/envelope.ts";
 import { logicSafeEnv } from "../support/logic-env.ts";
 import { REPO_ROOT } from "../support/world.ts";
 import type { JollyWorld } from "../support/world.ts";
+
+/**
+ * Scan PATH for a genuine Node.js >= 23 binary, skipping Bun (and Bun shims
+ * named `node`, which `bun --bun` injects at the front of PATH). Returns the
+ * absolute path of the first match, or null if only Bun is resolvable.
+ */
+function findGenuineNode(): string | null {
+  const dirs = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
+  for (const dir of dirs) {
+    const candidate = join(dir, "node");
+    if (!existsSync(candidate)) continue;
+    const ident = spawnSync(
+      candidate,
+      [
+        "-e",
+        "process.stdout.write(JSON.stringify({bun:process.versions.bun??null,node:process.versions.node}))",
+      ],
+      { encoding: "utf8" },
+    );
+    if (ident.status !== 0) continue;
+    let versions: { bun: string | null; node: string | null };
+    try {
+      versions = JSON.parse(ident.stdout || "{}");
+    } catch {
+      continue;
+    }
+    if (versions.bun === null && Number(String(versions.node).split(".")[0]) >= 23) {
+      return candidate;
+    }
+  }
+  return null;
+}
 
 // --- Scenario: Npx execution does not require Bun --------------------------
 
@@ -30,9 +65,22 @@ Given(
   "a machine with Node.js available but no Bun on the PATH",
   function (this: JollyWorld) {
     // Build a clean PATH holding ONLY a `node` symlink — no `bun` resolvable.
+    //
+    // The `node` must be a GENUINE Node binary, not `process.execPath`: under
+    // the `bun x --bun` test harness `process.execPath` is Bun, and `--bun`
+    // even injects a Bun shim named `node` at the front of PATH. A Bun
+    // masquerading as `node` strips `.ts` happily — which silently masked the
+    // npx breakage this scenario exists to catch. So scan every PATH entry for
+    // a `node` that reports NO `process.versions.bun` at the required major
+    // version, skipping Bun shims.
+    const realNode = findGenuineNode();
+    assert.ok(
+      realNode,
+      "this scenario requires a genuine Node.js >= 23 binary on PATH (only Bun was found)",
+    );
+
     const binDir = this.newTempDir("node-only-bin");
-    const nodePath = process.execPath; // the running Node binary
-    symlinkSync(nodePath, join(binDir, "node"));
+    symlinkSync(realNode!, join(binDir, "node"));
     this.notes.nodeOnlyPath = binDir;
 
     // Assert Bun is not resolvable on this PATH (uses `command -v bun`).
@@ -50,32 +98,87 @@ Given(
 
 When(
   "the agent runs `jolly start --dry-run --json` through the published launcher",
+  { timeout: 240_000 },
   function (this: JollyWorld) {
     const binDir = String(this.notes.nodeOnlyPath);
-    const launcher = join(REPO_ROOT, "bin", "jolly");
-    assert.ok(existsSync(launcher), "bin/jolly launcher must exist");
 
-    // Run the launcher exactly as a shell would: via its own shebang
-    // (`#!/usr/bin/env node`). `env` resolves `node` from our node-only PATH.
-    // Build the child env from scratch (no inherited .env), forcing logic-safe
-    // dummy creds + unroutable Cloud API base.
-    const safe = logicSafeEnv();
-    const childEnv: Record<string, string> = { PATH: binDir };
-    for (const [k, v] of Object.entries(safe)) if (v !== undefined) childEnv[k] = v;
-    // `env` itself must be locatable; keep the directory holding `/usr/bin/env`
-    // on PATH so the shebang resolves, without adding any bun-bearing dir.
+    // The full (inherited) env for the build/install steps: npm and node must
+    // be resolvable, and so must Bun if the package's build step (prepack)
+    // needs it. Only the FINAL installed-bin run uses the node-only PATH.
+    const fullEnv: Record<string, string> = {};
+    for (const [k, v] of Object.entries(process.env)) {
+      if (v !== undefined) fullEnv[k] = v;
+    }
+
+    // 1. Pack the package exactly as `npm publish` would (runs prepack/prepare,
+    //    so once a build step exists it runs here and ships its output). The
+    //    tarball is whatever `files` declares — this is what `npx @dk/jolly`
+    //    actually downloads and runs.
+    const packDir = this.newTempDir("pack");
+    const pack = spawnSync("npm", ["pack", "--pack-destination", packDir], {
+      cwd: REPO_ROOT,
+      env: fullEnv,
+      encoding: "utf8",
+      timeout: 180_000,
+    });
+    assert.equal(pack.status, 0, `npm pack must succeed; stderr:\n${pack.stderr}`);
+    const tarball = readdirSync(packDir).find((f) => f.endsWith(".tgz"));
+    assert.ok(tarball, "npm pack must produce a .tgz tarball");
+
+    // 2. Install the tarball into a throwaway prefix — its files now live UNDER
+    //    `node_modules`, the real npx path that disables Node type stripping.
+    //    `--offline --ignore-scripts`: the package has no runtime deps, so the
+    //    install never touches the network.
+    const installRoot = this.newTempDir("install");
+    const install = spawnSync(
+      "npm",
+      [
+        "install",
+        join(packDir, tarball!),
+        "--prefix",
+        installRoot,
+        "--no-save",
+        "--no-package-lock",
+        "--no-audit",
+        "--no-fund",
+        "--offline",
+        "--ignore-scripts",
+      ],
+      { cwd: installRoot, env: fullEnv, encoding: "utf8", timeout: 180_000 },
+    );
+    assert.equal(
+      install.status,
+      0,
+      `npm install of the packed tarball must succeed; stderr:\n${install.stderr}`,
+    );
+    const installedBin = join(installRoot, "node_modules", ".bin", "jolly");
+    assert.ok(
+      existsSync(installedBin),
+      "the installed package must expose a `jolly` bin",
+    );
+
+    // 3. Run the INSTALLED bin on the node-only PATH (Bun unresolvable, asserted
+    //    in the Given) via its own `#!/usr/bin/env node` shebang. Env built from
+    //    scratch + logic-safe dummy creds + unroutable Cloud API base, so a
+    //    side-effecting path can never reach a real account ("012 incident").
+    //    Keep the directory holding `env` on PATH so the shebang resolves,
+    //    without adding any Bun-bearing dir.
     const envBin = spawnSync("sh", ["-c", "command -v env"], { encoding: "utf8" });
     const envDir = dirname((envBin.stdout ?? "/usr/bin/env").trim() || "/usr/bin/env");
-    childEnv.PATH = `${binDir}${delimiter}${envDir}`;
+    const safe = logicSafeEnv();
+    const childEnv: Record<string, string> = {
+      PATH: `${binDir}${delimiter}${envDir}`,
+    };
+    for (const [k, v] of Object.entries(safe)) if (v !== undefined) childEnv[k] = v;
 
-    const result = spawnSync(launcher, ["start", "--dry-run", "--json"], {
+    const result = spawnSync(installedBin, ["start", "--dry-run", "--json"], {
       cwd: this.projectDir,
       env: childEnv,
       encoding: "utf8",
       timeout: 120_000,
     });
     if (result.error) {
-      throw new Error(`failed to run bin/jolly launcher: ${result.error.message}`);
+      throw new Error(`failed to run the installed jolly bin: ${result.error.message}`);
     }
     this.notes.launcherStdout = result.stdout ?? "";
     this.notes.launcherStderr = result.stderr ?? "";

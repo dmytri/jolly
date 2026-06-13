@@ -8,7 +8,7 @@
   },
   "files": [
     "bin/",
-    "src/",
+    "dist/",
     "assets/skills/",
     "README.md"
   ],
@@ -19,6 +19,9 @@
     "node": ">=23.0.0"
   },
   "scripts": {
+    "build": "bun build src/index.ts --target node --outfile dist/index.js",
+    "prepack": "bun build src/index.ts --target node --outfile dist/index.js",
+    "prepublishOnly": "bun build src/index.ts --target node --outfile dist/index.js",
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
     "test": "bun test tests/",

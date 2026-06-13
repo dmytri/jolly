@@ -2,9 +2,13 @@
 "use strict";
 
 // Jolly CLI launcher (feature 006, decision 2026-06-12): the published Jolly
-// CLI is a Node.js program. This launcher runs `src/index.ts` under
-// Node.js >= 23 via native type stripping and never invokes or requires Bun
-// (Bun is the project's development environment only).
+// CLI is a Node.js program. This launcher runs the pre-built JavaScript bundle
+// (`dist/index.js`, compiled from `src/`) under Node.js >= 23 and never invokes
+// or requires Bun (Bun is the project's development/build environment only).
+//
+// The published package ships compiled JS, not raw TypeScript: Node's native
+// type stripping is disabled for files under `node_modules`, so an installed
+// `npx @dk/jolly` must run plain JavaScript (correction 2026-06-13).
 //
 // Deliberately plain CommonJS-compatible JavaScript so that an old Node can
 // parse it and reach the version guard below instead of dying with a raw
@@ -26,24 +30,6 @@ if (!(nodeMajor >= MIN_NODE_MAJOR)) {
   process.exit(1);
 }
 
-import("../src/index.ts").catch(function (error) {
-  if (error && error.code === "ERR_UNKNOWN_FILE_EXTENSION") {
-    // Node >= 23 but before 23.6: type stripping exists behind a flag rather
-    // than by default. Re-run the entry point with the flag enabled.
-    rerunWithStripTypes();
-    return;
-  }
+import("../dist/index.js").catch(function (error) {
   throw error;
 });
-
-function rerunWithStripTypes() {
-  var path = require("node:path");
-  var spawnSync = require("node:child_process").spawnSync;
-  var entry = path.join(__dirname, "..", "src", "index.ts");
-  var result = spawnSync(
-    process.execPath,
-    ["--experimental-strip-types", entry].concat(process.argv.slice(2)),
-    { stdio: "inherit" },
-  );
-  process.exit(result.status === null ? 1 : result.status);
-}
