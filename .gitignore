@@ -4,3 +4,4 @@ bun.lockb
 package-lock.json
 .claude/skills
 .agents/skills
+.pi/skills
