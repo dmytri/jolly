@@ -10,6 +10,58 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
+## Captain acceptance run (2026-06-13): stages 1–4 live-verified; a real store exists; Stripe OAuth parked
+
+First real end-to-end attempt of the MVP happy path, by hand, against the live account — to find
+out whether "are we at MVP" is true. Stages 1–4 (Jolly's own plumbing) **pass for real**; the
+agent-driven half (5–10) is still unverified. No code/spec/test changes this pass.
+
+- **A real, billable Saleor Cloud environment now exists:** `jolly-store` (key `FotDY4VH`) in
+  `dmytris-organization-1` — the org is **no longer empty**. Created via
+  `jolly create store --create-environment` (project reused, env created + verified via task
+  status). `.env` now carries `NEXT_PUBLIC_SALEOR_API_URL=https://jolly-store.saleor.cloud/graphql/`
+  and `JOLLY_SALEOR_APP_TOKEN`. Live-verified: anon shop query returns "Saleor e-commerce"/US;
+  app-token query returns 29 sample products and channels `default-channel` (USD) + `channel-pln`
+  (PLN). **It persists and bills until deleted** — delete it when done if not continuing.
+- **Real observation for stage 6:** the sample DB ships `default-channel`/`channel-pln`, **not**
+  the `us` channel Paper + the recipe expect — confirming the recipe step (creating `us`) is
+  load-bearing, not optional.
+- **Vercel CLI is authenticated** on this VM (`npx vercel whoami` → `dmytri`) — the deploy half
+  is NOT credential-blocked. (Corrects the earlier assumption that Vercel auth was missing.)
+- **`pnpm` is missing** on this VM (a tool, not a credential — installable via corepack/npm).
+- **Only true missing credential: the two Stripe test keys** (`pk_test_…`/`sk_test_…`).
+
+**Decision — Stripe via official CLI OAuth (ADOPTED 2026-06-13, customer):** the Jolly skill now
+makes the official Stripe CLI's browser OAuth login the **primary** way the agent gets test keys,
+for "0 friction to wow"; manual Dashboard-key paste stays a supported fallback. Captured in
+AGENTS.md (MVP stage 8 + the official-CLI delegation list), feature 005 (new Rule "Stripe keys via
+official CLI OAuth"), and `assets/skills/jolly/SKILL.md` stage 7.
+
+Empirical findings behind the decision: `npx @stripe/cli` (official; `stripe-cli` redirects to
+`@stripe/cli`). `stripe login` is a real browser OAuth with an agent-friendly `--non-interactive`
+(returns `browser_url`+`verification_code`+`next_step`) / `--complete <poll-url>` split; the
+`--complete` poll window is **too short for a human click-and-approve**, so the skill/agent must
+wrap it in a retry loop (3× single-shot timeouts, then succeeded under a loop). Completed once
+against account *"Dmytri Kleiner Informatik sandbox"*: the saved config (`~/.config/stripe/config.toml`)
+holds **both** keys — `test_mode_pub_key` (`pk_test_…`) and `test_mode_api_key` (a standard
+**`sk_test_`**, not a restricted `rk_test_`), each with `test_mode_key_expires_at` ~90 days out.
+So unknown (a) is **resolved** (publishable key present) and the secret is a standard key (softens
+permission worry). The CLI **cannot create a Stripe account** — signup stays a human step. The
+**ephemeral 90-day key** is the accepted tradeoff: the skill warns the agent and trusts it to swap
+in durable Dashboard keys before expiry.
+
+**Still open (gates "adopt-on-green"):** unknown (b) — confirm Saleor's Stripe app actually
+**accepts the CLI-issued `sk_test_` key** and that its permissions reach checkout. Verify in the
+acceptance run (it's a Saleor Dashboard step OAuth can't remove, so "0 friction" is really
+"minimal friction" capped by the Stripe-app install + channel mapping). **QM note:** the feature
+005 change is a **Rule only** — `jolly create stripe`'s interface and all Jolly-observable steps
+are unchanged, so **no step-def regeneration is required** (verify with `--dry-run` = 0 undefined).
+
+**To resume the acceptance run:** get Stripe test keys via `npx @stripe/cli login` (primary, OAuth
+— or paste durable Dashboard keys), install `pnpm`, then drive skill stages 5–10 (clone Paper →
+apply `recipe.yml` → Stripe app + channel map → `npx vercel --prod` → wire trusted origins →
+`jolly doctor`). The Stripe-app step is where unknown (b) gets verified.
+
 ## Captain pass (2026-06-13): MVP starter recipe + Stripe path + skill distribution
 
 The CLI/test suite is green (below). This pass closed the biggest MVP hole in the *skill* and

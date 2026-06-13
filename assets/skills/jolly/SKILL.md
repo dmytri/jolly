@@ -62,14 +62,29 @@ customer's policies — Jolly never hardcodes the decision. Parse `--json` outpu
    (or set `SALEOR_URL`/`SALEOR_TOKEN`). Add `--fail-on-breaking` on `deploy`. Show the diff and
    seek the customer's approval before deploying writes. Jolly never runs the configurator; you do.
 
-7. **Stripe (test mode)** — ask the human for the Stripe **publishable key** and a Stripe
-   **secret (or restricted) key** from the Stripe Dashboard in test mode; run
-   `jolly create stripe --publishable-key … --secret-key …` to write them to `.env` (never
-   printed). Then configure Saleor's **Stripe app** — the Saleor-supported payment path, *not*
-   the configurator (which manages catalog only): in the Saleor Dashboard → Extensions, install
-   or open the Stripe app, add a configuration with those keys, and **map it to the `us`
-   channel**. The Stripe app registers its own Stripe webhooks automatically. Guide the human
-   through the Dashboard step where it needs their click.
+7. **Stripe (test mode)** — get the test keys the fast way, via the official Stripe CLI's
+   browser OAuth login (no hunting through the Dashboard):
+   - Run `npx @stripe/cli login` — it prints a URL; have the human open it and approve in the
+     browser (one click). If they have no Stripe account, send them to
+     https://dashboard.stripe.com/register first (test mode works immediately after signup —
+     no business details needed). The CLI cannot create the account; that signup is the human's.
+   - Read the test-mode keys from the CLI config (`npx @stripe/cli config --list` /
+     `~/.config/stripe/config.toml`): `test_mode_pub_key` (`pk_test_…`) and `test_mode_api_key`
+     (`sk_test_…`). Pass them to `jolly create stripe --publishable-key … --secret-key …`, which
+     writes them to `.env` (never printed). Jolly never runs the Stripe CLI itself — you do.
+   - **These CLI-issued keys are test-mode and expire (~90 days — see `test_mode_key_expires_at`).**
+     That is the right tradeoff to get started fast, but the expiry is yours to handle: before it
+     hits, generate durable keys in the Stripe Dashboard (Developers → API keys), re-run
+     `jolly create stripe`, and update the Saleor Stripe app config. Flag the expiry date to the
+     human now and own the follow-up — do not let checkout silently break at the 90-day mark.
+   - Durable-from-the-start alternative: if the human prefers, skip the CLI and paste standard
+     Dashboard keys straight into `jolly create stripe`. Live mode (out of v1 scope) always uses
+     Dashboard keys.
+   Then configure Saleor's **Stripe app** — the Saleor-supported payment path, *not* the
+   configurator (which manages catalog only): in the Saleor Dashboard → Extensions, install or
+   open the Stripe app, add a configuration with those keys, and **map it to the `us` channel**.
+   The Stripe app registers its own Stripe webhooks automatically. This Dashboard step needs the
+   human's click — guide them through it.
 
 8. **Deploy to Vercel** — deploy with the official Vercel CLI: `npx vercel`. Authentication is
    the Vercel CLI's own `vercel login` session — if `npx vercel whoami` fails, pause and have

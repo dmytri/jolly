@@ -81,7 +81,10 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompt
   - **The customer's agent, guided by the Jolly skill, runs the official CLIs:** Vercel
     deployment via the **Vercel CLI** (`npx vercel`, authenticated by its own `vercel login`
     session); Saleor store configuration and recipes via **`@saleor/configurator`**; storefront
-    creation via **`git`** + `saleor/storefront`; dependency install via **`pnpm`**.
+    creation via **`git`** + `saleor/storefront`; dependency install via **`pnpm`**; Stripe
+    test-key acquisition via the official **Stripe CLI** (`npx @stripe/cli login`, browser OAuth —
+    keys are ephemeral test-mode, and the agent swaps them for durable Dashboard keys before the
+    ~90-day expiry; decision 2026-06-13).
   - There is **no `JOLLY_VERCEL_TOKEN`**, no Vercel API calls in Jolly's code, and no Jolly
     subcommand wrapping a CLI an agent should run (`create deployment`, `deploy`, `create
     recipe`, `create storefront` are retired — see feature 008).
@@ -165,10 +168,15 @@ verified results (no fabrication — see the integrity rule below):
 7. **Deployment (agent)** — the agent deploys with the **Vercel CLI** (`npx vercel`) under its
    own `vercel login` session, sets Vercel env vars, and updates Saleor trusted origins, per the
    skill (feature 002). No Jolly Vercel token, no `api.vercel.com` in Jolly's code.
-8. **Stripe** — `jolly create stripe` writes test keys to `.env` (*built*); the agent configures
-   the Saleor Stripe app (Dashboard Extensions), mapped to the storefront channel, and verifies
-   checkout readiness with `jolly doctor` (feature 005). `@saleor/configurator` manages catalog
-   and channels only — it does not configure payments.
+8. **Stripe** — for 0-friction first-run, the agent obtains test keys via the official **Stripe
+   CLI** OAuth login (`npx @stripe/cli login`) and passes them to `jolly create stripe`, which
+   writes them to `.env` (*built*). These CLI keys are test-mode and expire (~90 days); the skill
+   warns the agent to swap in durable Dashboard keys before expiry, and pasting Dashboard keys is
+   the always-supported alternative. The agent then configures the Saleor Stripe app (Dashboard
+   Extensions), mapped to the storefront channel, and verifies checkout readiness with
+   `jolly doctor` (feature 005). `@saleor/configurator` manages catalog and channels only — it
+   does not configure payments. (Decision 2026-06-13; Saleor's acceptance of the CLI-issued
+   `sk_test_` key is to be confirmed in the acceptance run — adopt-on-green.)
 9. **Verify** — `jolly doctor` confirms operational readiness (feature 014).
 
 **Integrity rule (decision 2026-06-13):** Jolly's own commands report success and `pass` checks

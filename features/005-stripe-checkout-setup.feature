@@ -73,3 +73,21 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     - Jolly's only Stripe role is writing the two test keys to `.env`; installing and configuring
       the Stripe app is the agent's step, guided by the Jolly skill. `jolly doctor` verifies that
       checkout can progress to the Stripe test payment step.
+
+  Rule: Stripe keys via official CLI OAuth (decision 2026-06-13)
+    - To minimize first-run friction ("0 friction to wow"), the primary way the agent obtains the
+      two test keys is the official Stripe CLI's browser OAuth login (`npx @stripe/cli login`),
+      reading `test_mode_pub_key`/`test_mode_api_key` from the CLI config and passing them to
+      `jolly create stripe`. Jolly never runs the Stripe CLI itself — the agent does, guided by
+      the Jolly skill (same delegation model as the Vercel CLI; the Stripe CLI cannot create a
+      Stripe account, so signup stays a human step).
+    - CLI-issued keys are test-mode and expire (~90 days; `test_mode_key_expires_at`). The skill
+      warns the agent and trusts it to replace them with durable Dashboard keys (re-run
+      `jolly create stripe`, update the Saleor Stripe app) before expiry. v1 accepts this
+      "fast to start, agent owns the 90-day follow-up" tradeoff.
+    - Pasting standard Dashboard keys stays a fully supported path (durable from the start; and
+      required for live mode, which is out of v1 scope). `jolly create stripe`'s interface is
+      unchanged either way — it writes the two values to `.env`; how the agent obtained them is
+      the skill's concern, not Jolly's behavior (so this rule adds no new Jolly-observable steps).
+    - Open validation (acceptance run): confirm Saleor's Stripe app accepts the CLI-issued
+      `sk_test_` key and that its permissions suffice for checkout. Adopt-on-green.
