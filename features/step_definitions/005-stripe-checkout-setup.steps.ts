@@ -216,30 +216,33 @@ Then("the output should not be written to .env", function (this: JollyWorld) {
 
 // --- Scenario: Agent configures Saleor for Stripe (@sandbox) ----------------
 //
-// This is agent-journey narrative: the AGENT runs @saleor/configurator to wire
-// Saleor's Stripe integration — that is not Jolly's code and not cucumber-
-// testable here. The only Jolly-observable contract is the boundary itself:
-// Jolly writes the two keys and stops; configuration is the agent's. These
-// steps assert that boundary against Jolly's own output rather than executing
-// the configurator. (Gated by SANDBOX_REQUIREMENTS["Agent configures Saleor
-// for Stripe"] is absent → default-all credentials → skips locally.)
+// This is agent-journey narrative: the AGENT installs and configures Saleor's
+// Stripe app (Dashboard → Extensions) and maps it to the storefront channel —
+// that is not Jolly's code and not cucumber-testable here. The only
+// Jolly-observable contract is the boundary itself: Jolly writes the two keys
+// and stops; the Stripe-app configuration is the agent's. These steps assert
+// that boundary against Jolly's own output rather than playing the agent.
+// (Gated by SANDBOX_REQUIREMENTS["Agent configures Saleor for Stripe"] is
+// absent → default-all credentials → skips locally.)
 
 Given("Stripe credentials are available in .env", function (this: JollyWorld) {
   this.notes.sandboxStripe = true;
 });
 
 When(
-  "the agent configures Saleor's Stripe integration via `@saleor\\/configurator`, guided by the Jolly skill",
+  "the agent configures Saleor's Stripe app, guided by the Jolly skill",
   function (this: JollyWorld) {
-    // No-op: running the configurator is the agent's job, not Jolly's, and not
-    // something the harness "plays". Jolly's role is verified via doctor below.
+    // No-op: installing/configuring the Stripe app (Dashboard → Extensions) is
+    // the agent's job, not Jolly's, and not something the harness "plays".
+    // Jolly's role is verified via the create stripe boundary asserted below.
   },
 );
 
 Then(
-  "it should use Saleor-supported Stripe payment setup paths where available",
+  "it should use the Saleor-supported Stripe app \\(Dashboard Extensions) mapped to the storefront channel",
   function () {
-    // Capability of the agent + Saleor, not Jolly behavior — narrative no-op.
+    // Capability of the agent + Saleor (the Stripe app mapped to the recipe's
+    // `us` channel), not Jolly behavior — narrative no-op.
   },
 );
 
@@ -256,7 +259,7 @@ Then("Jolly should not implement a custom payment backend", function (this: Joll
 });
 
 Then(
-  "Jolly's only Stripe role is writing the test keys to `.env` \\(`jolly create stripe`); the Saleor-side configuration is the agent's via the configurator",
+  "Jolly's only Stripe role is writing the test keys to `.env` \\(`jolly create stripe`); the Saleor-side Stripe app configuration is the agent's",
   function (this: JollyWorld) {
     // Reaffirm the boundary from the create stripe riskContext side effects.
     this.runCli(
