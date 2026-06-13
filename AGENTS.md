@@ -310,6 +310,15 @@ not edit it. Distribution/registry ref for `npx skills add` is an implementation
 (`skills/` here is the product skill Jolly ships to customers — distinct from `.claude/skills/`,
 which holds the Shipshape roles for working on this repo.)
 
+**Ownership and testing (decision 2026-06-13):** the skill's *content* is Captain/human-owned
+and **not covered by the BDD suite** — exactly like `homepage/` (not specified by `.feature`,
+not tested). Its quality is an editorial concern validated by real use. The **CLI plumbing is
+QM/Crew-owned and tested** — that is the deterministic, sandbox-verifiable surface. The clean
+seam: QM tests that Jolly *installs* the skill correctly (`jolly init` verifies it on disk,
+feature 007); QM does **not** test whether the skill's guidance yields a working store — that's
+real-use validation, not cucumber. Behavioral testing of the skill (e.g. running an agent over
+it with a cheap model via `npx`) is a possible later iteration, explicitly deferred — not v1.
+
 The entire `homepage/` directory (`index.html`, styles, `setup.md`, `vercel.json` —
 everything served at https://jolly.cool) is itself a Captain-owned asset:
 Captain/human-authored, not specified in `.feature` files, not covered by tests, and never
@@ -349,7 +358,7 @@ pinning, install steps); no junk, no duplication.
   harness never deletes an environment it cannot positively identify as test-created.
 - **Harmless by design:** sandbox tests must be safe to run against any store, including production. They never name-check or refuse a target. They never modify or delete resources the run did not create (read-only, non-mutating queries of pre-existing resources are allowed only where a spec requires verifying live access, as feature 019 does); created resources carry a unique per-run namespace and stay unpublished/inactive where the platform allows; shared-setting changes are allowed only when additive and reverted in teardown (for example trusted origins); payment flows use test card numbers only, so live payment credentials at worst yield a declined card. Teardown is idempotent and best-effort, reporting anything it could not remove; tests stay safe to re-run (leaning on feature 022).
 - Layout: step definitions in `features/step_definitions/<feature-slug>.steps.ts`; shared hooks/world/sandbox setup/teardown/credential-gating in `features/support/`; logic-tier unit tests in `tests/`. Each `.feature` maps to a step-definition file of the same slug. The QM creates and maintains the Cucumber configuration and `test` scripts as part of the harness.
-- DOM-level checks (storefront rendering) use happy-dom; prefer happy-dom for DOM behavior and do not duplicate it in lower-level tests. The homepage is a Captain-owned asset with no test coverage.
+- DOM-level checks (storefront rendering) use happy-dom; prefer happy-dom for DOM behavior and do not duplicate it in lower-level tests. The homepage (`homepage/`) and the Jolly skill content (`skills/jolly/SKILL.md`) are Captain-owned assets with no test coverage; QM/Crew test only Jolly's CLI behavior, including that `jolly init` installs the skill correctly (feature 007) — not the skill's guidance itself. The `.feature` files specify and test JOLLY's behavior; steps describing the agent's own CLI actions (clone/configure/deploy) are narrative context for the skill, and QM should assert only Jolly's observable contribution (e.g. `jolly doctor` detecting the deployment), not execute the agent's steps.
 - Security, authentication, and usage-control behavior must always have enforcement-level tests so enforcement does not depend on frontend behavior.
 
 ## Secret and Environment Handling

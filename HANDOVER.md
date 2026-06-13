@@ -75,10 +75,18 @@ QM worklist (the path to MVP, in order):
    ["JOLLY_VERCEL_TOKEN"]` — retire that; deployment `@sandbox` steps gate on the Vercel CLI
    session (`npx vercel whoami` exit 0), not a Jolly env var. Remove `JOLLY_VERCEL_TOKEN`
    references from `tests`/step-defs as they're regenerated.
-4. **Agent-driven e2e testing (QM design needed).** The deploy/configurator/clone stages are
-   now agent behavior, not Jolly commands — decide how `@sandbox` verifies them (likely the
-   harness runs the CLI steps the Jolly skill prescribes, as a proxy for the agent), and how
-   to validate the Jolly skill's correctness. This is the main open testing question.
+4. **Skill vs CLI ownership — RESOLVED (decision 2026-06-13).** The Jolly skill content
+   (`skills/jolly/SKILL.md`) is Captain/human-owned and NOT test-covered, exactly like
+   `homepage/`; its quality is validated by real use, not cucumber. QM/Crew own and test only
+   Jolly's CLI behavior. The seam: QM tests that `jolly init` installs the skill on disk
+   (feature 007), NOT whether the skill's guidance yields a working store. Behavioral skill
+   testing (agent + cheap model via `npx`) is explicitly deferred, not v1.
+   - **Scenario cleanup (bounded QM/Captain task):** the agent-journey `@sandbox` scenarios in
+     002/003/004/005 describe the agent's own CLI actions (clone/configure/deploy), which are
+     not Jolly behavior and so not cucumber-testable. When regenerating step defs, keep only
+     Jolly-observable assertions (e.g. `jolly doctor` detects the cloned storefront/deployment);
+     the agent-journey narrative lives in the skill. Don't build a harness that "plays the
+     agent" for v1.
 
 Trust + frictionless handoff (later same-day Captain pass): captured the "trustworthy
 first-step handoff" principle (AGENTS.md + feature 001) — the pasted setup must not trip a
