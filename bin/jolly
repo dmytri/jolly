@@ -4,7 +4,8 @@
 // Jolly CLI launcher (feature 006, decision 2026-06-12): the published Jolly
 // CLI is a Node.js program. This launcher runs the pre-built JavaScript bundle
 // (`dist/index.js`, compiled from `src/`) under Node.js >= 23 and never invokes
-// or requires Bun (Bun is the project's development/build environment only).
+// or requires Bun. (Bun was dropped project-wide on 2026-06-13: dev, test, CI,
+// and the build all run on native Node >= 23 + npm.)
 //
 // The published package ships compiled JS, not raw TypeScript: Node's native
 // type stripping is disabled for files under `node_modules`, so an installed

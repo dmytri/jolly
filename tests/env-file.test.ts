@@ -5,7 +5,8 @@
 //
 // Pinned harness seam: src/lib/env-file.ts exports
 //   writeEnvValues(projectDir, values) and loadEnvValues(projectDir).
-import { describe, expect, test } from "bun:test";
+import { describe, test } from "node:test";
+import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,11 +20,11 @@ describe("writeEnvValues", () => {
   test("ensures .env is Git-ignored before writing secrets", () => {
     const dir = tempProject();
     writeEnvValues(dir, { JOLLY_STRIPE_SECRET_KEY: "sk_test_123" });
-    expect(existsSync(join(dir, ".gitignore"))).toBe(true);
+    assert.strictEqual(existsSync(join(dir, ".gitignore")), true);
     const ignored = readFileSync(join(dir, ".gitignore"), "utf8")
       .split("\n")
       .map((line) => line.trim());
-    expect(ignored).toContain(".env");
+    assert.ok(ignored.includes(".env"));
   });
 
   test("does not duplicate an existing .env ignore entry", () => {
@@ -31,8 +32,8 @@ describe("writeEnvValues", () => {
     writeFileSync(join(dir, ".gitignore"), "node_modules\n.env\n");
     writeEnvValues(dir, { JOLLY_SALEOR_APP_TOKEN: "tok" });
     const content = readFileSync(join(dir, ".gitignore"), "utf8");
-    expect(content.split("\n").filter((l) => l.trim() === ".env")).toHaveLength(1);
-    expect(content).toContain("node_modules");
+    assert.strictEqual(content.split("\n").filter((l) => l.trim() === ".env").length, 1);
+    assert.ok(content.includes("node_modules"));
   });
 
   test("merges values, preserving unrelated lines and comments", () => {
@@ -46,30 +47,30 @@ describe("writeEnvValues", () => {
       JOLLY_VERCEL_TOKEN: "vt",
     });
     const content = readFileSync(join(dir, ".env"), "utf8");
-    expect(content).toContain("# storefront");
-    expect(content).toContain("OTHER=keep");
-    expect(content).toContain("NEXT_PUBLIC_SALEOR_API_URL=https://y/graphql/");
-    expect(content).not.toContain("https://x/graphql/");
-    expect(loaded.JOLLY_VERCEL_TOKEN).toBe("vt");
-    expect(loaded.OTHER).toBe("keep");
+    assert.ok(content.includes("# storefront"));
+    assert.ok(content.includes("OTHER=keep"));
+    assert.ok(content.includes("NEXT_PUBLIC_SALEOR_API_URL=https://y/graphql/"));
+    assert.ok(!content.includes("https://x/graphql/"));
+    assert.strictEqual(loaded.JOLLY_VERCEL_TOKEN, "vt");
+    assert.strictEqual(loaded.OTHER, "keep");
   });
 
   test("returns the full post-update value map for the current command flow", () => {
     const dir = tempProject();
     writeEnvValues(dir, { A: "1" });
     const loaded = writeEnvValues(dir, { B: "2" });
-    expect(loaded).toEqual({ A: "1", B: "2" });
+    assert.deepStrictEqual(loaded, { A: "1", B: "2" });
   });
 });
 
 describe("loadEnvValues", () => {
   test("returns an empty record when .env is absent", () => {
-    expect(loadEnvValues(tempProject())).toEqual({});
+    assert.deepStrictEqual(loadEnvValues(tempProject()), {});
   });
 
   test("parses export-prefixed and spaced assignments", () => {
     const dir = tempProject();
     writeFileSync(join(dir, ".env"), "export JOLLY_SALEOR_CLOUD_TOKEN = abc\n");
-    expect(loadEnvValues(dir).JOLLY_SALEOR_CLOUD_TOKEN).toBe("abc");
+    assert.strictEqual(loadEnvValues(dir).JOLLY_SALEOR_CLOUD_TOKEN, "abc");
   });
 });

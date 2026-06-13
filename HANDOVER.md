@@ -10,56 +10,46 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
-## CURRENT (2026-06-13): 0.2.1 SHIPPED (npx fixed); next QM job — drop Bun → native Node/npm
+## CURRENT (2026-06-13): Bun → native Node ≥23 + npm migration COMPLETE — ALL GREEN
 
-**npx bug is FIXED and published.** `@dk/jolly@0.2.1` is live on npm and verified: a real
-`npx @dk/jolly@0.2.1` on a genuine-Node-only PATH (no Bun) runs and prints the envelope, exit 0.
-The fix shipped compiled JS (`dist/index.js` via the build), `bin/jolly` imports it, and the
-feature 006 npx scenario was regenerated to pack+install the tarball and run the **installed**
-bin (QM). The bug-and-worklist section below is now **RESOLVED** — kept only as history.
+**The Bun-drop migration is done and verified with Bun OFF the PATH.** Dev/test/CI now run on
+native Node ≥23 + npm; the published CLI was already Node. `src/` had zero Bun-specific *code*, so
+no production logic changed — this was harness/config/test/docs only. Verified (Bun uninstalled
+from PATH): `npm run typecheck` clean; `npm test` (`node --test`) **43/43**; `npx cucumber-js
+--dry-run` **0 undefined** (83 defined); `npm run test:logic` **52/52**; build smoke
+`node dist/index.js auth status --json` emits the envelope. The feature 006 "Npx execution does
+not require Bun" scenario passes natively (packs the tarball via esbuild prepack, installs under
+`node_modules`, runs the installed bin on a Node-only PATH) — the exact regression that masked the
+0.1.11/0.2.0 npx break, now caught honestly.
 
-**Decision (customer, 2026-06-13): drop Bun, go native Node.js >= 23 + npm.** Rationale: the npx
-break shipped green because dev ran on Bun while prod runs on Node — the test harness runs under
-`bun --bun`, where Bun masquerades as `node` and strips TypeScript, so the "runs on Node alone"
-check falsely passed. `src/` has **zero** Bun-specific code; Bun's only footprint is the test
-runner, the build, and the npm scripts. Going native gives **dev/prod parity** and removes that
-entire bug class. Build tool chosen: **esbuild**. This is the NEXT release (e.g. `0.3.0`), not
-0.2.1 (already shipped).
+**What landed (QM migration, this pass):**
+- Unit tests ported `bun:test` → `node:test` + `node:assert` (all 6 files; intent/coverage
+  unchanged). `honesty.test.ts` spawns the CLI via `process.execPath` (genuine Node).
+- `package.json`: native scripts (`node --test "tests/**/*.test.ts"`, `node src/index.ts`,
+  `cucumber-js`, `tsc`); `build`/`prepack`/`prepublishOnly` → esbuild; devDeps −`@types/bun`,
+  +`esbuild`. `tsconfig.json` `types` → `["node"]`.
+- Harness runtime default `"bun"` → `"node"` (`world.ts`, `provision.ts`; `sandbox.ts` comment).
+  The `HARNESS_CLI_RUNTIME` override knob is kept.
+- `cucumber.js` header de-Bunned (confirmed cucumber loads the TS step defs/support under Node ≥23).
+- feature 006 step def `findGenuineNode()` left as-is (still correct; both 006 scenarios green).
+- Lockfile: `bun.lock` untracked + removed; `package-lock.json` un-ignored and regenerated.
+- **`.env` loading parity (new harness file):** Bun auto-loaded `.env`; Node does not. Added
+  `features/support/dotenv.ts` — loads the repo `.env` via Jolly's own `loadEnvValues`, filling
+  only *unset* keys so CI's exported creds always win. Without it, local credentialed `@sandbox`
+  runs would silently skip — the same divergence-masking failure this migration exists to kill.
+  @logic stays safe regardless (it overrides via `logicSafeEnv`).
+- Stale doc comments brought in line with the decision (Captain): `src/index.ts` runtime header
+  and `bin/jolly` launcher header no longer claim "run by Bun in dev/test".
 
-**Specs already updated this Captain pass** (committed): AGENTS.md (Project Stack → Node/npm +
-esbuild; Package scripts; QM discovery commands; Testing Strategy), CLAUDE.md (Commands block),
-feature 023 (charter: `node --test`, Node-native scripts), feature 006 (dropped the "Bun is the
-dev env" rule; published-CLI-is-Node guarantees unchanged), README (Development block).
+**Open / next:**
+- Working tree is green but **UNCOMMITTED.** Stage the edits, the `bun.lock` deletion, and the
+  now-tracked `package-lock.json`, then commit. This migration is the next release — **`0.3.0`**,
+  not 0.2.1 (already shipped). Republish is a Captain/customer action after commit.
+- Full credentialed `@sandbox` / `test:bdd` was **not** run locally — with a real `.env` present
+  it would provision billable Saleor environments. Deferred to CI / a customer-authorized run; the
+  sandbox CLI-spawn path is the same one `@logic` exercised 52× under Node, so risk is low.
 
-**QM migration worklist (drop Bun → native; needs a fresh QM session):**
-1. **Unit tests** — port `tests/*.test.ts` from `bun:test` to `node:test` + `node:assert` (6
-   files, ~61 `expect()` calls). Coverage/intent unchanged; only the runner+matchers change. Run
-   via `node --test`. (Do NOT delete the tests — port them; Captain preserved them deliberately.)
-2. **package.json** (QM harness + Crew for the build tool):
-   - scripts → native: `test` = `node --test`; `test:bdd`/`test:logic`/`test:sandbox` =
-     `cucumber-js [-p logic|sandbox]`; `typecheck` = `tsc --noEmit`; `dev` =
-     `node --watch src/index.ts`; `start` = `node src/index.ts`.
-   - `build`/`prepack`/`prepublishOnly` → esbuild:
-     `esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js`.
-   - devDependencies: remove `@types/bun`; add `esbuild`. Keep cucumber, happy-dom, typescript,
-     @types/node.
-3. **Harness runtime default** — `features/support/world.ts` (+ provision.ts/sandbox.ts):
-   default `HARNESS_CLI_RUNTIME` `"bun"` → `"node"`; `runCli`/`runCliAsync` spawn
-   `node src/index.ts` (Node >= 23 strips types for these project files). Keep the `HARNESS_*`
-   override knob.
-4. **cucumber.js** — update the Bun-referencing header comment; confirm cucumber loads the TS
-   step defs/support under Node >= 23 (native type stripping; this was the documented fallback).
-5. **feature 006 step def** — `findGenuineNode()` exists to defeat the `bun --bun` node-shim;
-   once the harness runs under native Node, `process.execPath` is genuine Node and it can be
-   simplified (or left — still correct). QM's call; keep both 006 scenarios green.
-6. **Lockfile** — `git rm` the tracked `bun.lock`; track `package-lock.json` (it is currently
-   git-ignored — un-ignore it); regenerate with `npm install`.
-7. **Verify all green with Bun OFF the PATH:** `npm run typecheck`, `npm test`,
-   `npm run test:bdd` (or `-p logic`), `npx cucumber-js --dry-run` = 0 undefined, and the build
-   smoke `node dist/index.js auth status --json`.
-
-Acceptance bar: the whole suite + build run on a machine with Bun uninstalled. The feature 006
-npx scenario gets simpler/more honest under native Node (the masking can't recur).
+(History below — the now-resolved npx-break worklist — kept for context.)
 
 ## RESOLVED (2026-06-13): published CLI broken via npx — ship compiled JS, not raw .ts
 

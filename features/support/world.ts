@@ -86,13 +86,14 @@ export class JollyWorld extends World {
   }
 
   /**
-   * Invoke the Jolly CLI. Default runtime is Bun; HARNESS_CLI_RUNTIME selects
-   * the documented Node >= 23 fallback. Runs in the scenario's temp project
-   * directory unless overridden, with the test process environment passed
-   * through (the same runtime JOLLY_* configuration Jolly itself uses).
+   * Invoke the Jolly CLI. Default runtime is native Node >= 23 (which strips
+   * types for these project files); HARNESS_CLI_RUNTIME overrides it. Runs in
+   * the scenario's temp project directory unless overridden, with the test
+   * process environment passed through (the same runtime JOLLY_* configuration
+   * Jolly itself uses).
    */
   runCli(args: string[], options: RunCliOptions = {}): CliResult {
-    const runtime = process.env.HARNESS_CLI_RUNTIME ?? "bun";
+    const runtime = process.env.HARNESS_CLI_RUNTIME ?? "node";
     const cwd = options.cwd ?? this.projectDir;
     const env: Record<string, string> = {};
     for (const [key, value] of Object.entries({ ...process.env, ...options.env })) {
@@ -132,7 +133,7 @@ export class JollyWorld extends World {
    * runtime, env handling, and result bookkeeping as runCli.
    */
   async runCliAsync(args: string[], options: RunCliOptions = {}): Promise<CliResult> {
-    const runtime = process.env.HARNESS_CLI_RUNTIME ?? "bun";
+    const runtime = process.env.HARNESS_CLI_RUNTIME ?? "node";
     const cwd = options.cwd ?? this.projectDir;
     const env: Record<string, string> = {};
     for (const [key, value] of Object.entries({ ...process.env, ...options.env })) {

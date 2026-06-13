@@ -14,9 +14,9 @@
 // referenced by name, never printed. Side-effecting actions carry a feature
 // 021 riskContext inside the envelope, identical for --dry-run and real runs.
 //
-// Runtime: ES module TypeScript, run directly by Bun in dev/test and by
-// Node >= 23 (native type stripping) in production via bin/jolly. Only Node
-// built-ins and the project's own src/lib/ helpers are used.
+// Runtime: ES module TypeScript, run directly under native Node >= 23 (which
+// strips types) in dev/test, and as a pre-built JS bundle via bin/jolly in
+// production. Only Node built-ins and the project's own src/lib/ helpers are used.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

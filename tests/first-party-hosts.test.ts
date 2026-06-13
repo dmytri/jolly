@@ -13,7 +13,8 @@
 //
 // Scope: the Crew-owned program (src/, bin/) plus package.json. assets/ is
 // Captain-owned and outside test coverage.
-import { describe, expect, test } from "bun:test";
+import { describe, test } from "node:test";
+import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,15 +55,15 @@ function occurrences(needle: string | RegExp): string[] {
 
 describe("first-party hosts only (feature 020 rule)", () => {
   test("the retired host id.saleor.online appears nowhere", () => {
-    expect(occurrences("id.saleor.online")).toEqual([]);
+    assert.deepStrictEqual(occurrences("id.saleor.online"), []);
   });
 
   test("the retired host api.saleor.cloud appears nowhere", () => {
-    expect(occurrences("api.saleor.cloud")).toEqual([]);
+    assert.deepStrictEqual(occurrences("api.saleor.cloud"), []);
   });
 
   test("api.vercel.com is not in Jolly's own code (Vercel is agent-run, 2026-06-13)", () => {
-    expect(occurrences("api.vercel.com")).toEqual([]);
+    assert.deepStrictEqual(occurrences("api.vercel.com"), []);
   });
 });
 
@@ -72,17 +73,17 @@ describe("package naming (feature 006 rule)", () => {
     // agent runs (playbook guidance). Any @saleor/ token that is NOT
     // configurator — in particular an @saleor/jolly package — is banned.
     const offending = occurrences(/@saleor\/(?!configurator)/);
-    expect(offending).toEqual([]);
+    assert.deepStrictEqual(offending, []);
   });
 
   test("@saleor/jolly is never mentioned, not even as future/official", () => {
-    expect(occurrences("@saleor/jolly")).toEqual([]);
+    assert.deepStrictEqual(occurrences("@saleor/jolly"), []);
   });
 
   test("the only package name is @dk/jolly", () => {
     const pkg = JSON.parse(
       readFileSync(join(REPO_ROOT, "package.json"), "utf8"),
     ) as { name?: string };
-    expect(pkg.name).toBe("@dk/jolly");
+    assert.strictEqual(pkg.name, "@dk/jolly");
   });
 });

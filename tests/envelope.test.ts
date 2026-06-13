@@ -1,7 +1,8 @@
 // Logic-tier units for the harness envelope/riskContext validators
 // (features 020 and 021): JSON extraction from mixed CLI output, envelope
 // shape, camelCase fields, doctor check vocabulary, and riskContext shape.
-import { describe, expect, test } from "bun:test";
+import { describe, test } from "node:test";
+import assert from "node:assert/strict";
 import {
   assertCamelCaseKeys,
   assertEnvelopeShape,
@@ -11,6 +12,18 @@ import {
   findRiskContexts,
   type Envelope,
 } from "../features/support/envelope.ts";
+
+/** Deep-equality membership check (node:assert has no toContainEqual). */
+function containsEqual(haystack: unknown[], needle: unknown): boolean {
+  return haystack.some((item) => {
+    try {
+      assert.deepStrictEqual(item, needle);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
 
 const validEnvelope: Envelope = {
   command: "doctor",
@@ -26,62 +39,65 @@ describe("extractJsonObjects", () => {
   test("finds the envelope inside mixed human-readable output", () => {
     const stdout = `Jolly doctor\n  ✓ cli ok\n${JSON.stringify(validEnvelope)}\nDone.\n`;
     const objects = extractJsonObjects(stdout);
-    expect(objects).toContainEqual(validEnvelope);
+    assert.ok(containsEqual(objects, validEnvelope));
   });
 
   test("handles braces inside JSON strings", () => {
     const tricky = { summary: 'use {"json": true} carefully', command: "x", status: "success" };
     const objects = extractJsonObjects(`note\n${JSON.stringify(tricky)}`);
-    expect(objects).toContainEqual(tricky);
+    assert.ok(containsEqual(objects, tricky));
   });
 
   test("ignores non-JSON brace blocks", () => {
-    expect(extractJsonObjects("if (x) { y(); }")).toEqual([]);
+    assert.deepStrictEqual(extractJsonObjects("if (x) { y(); }"), []);
   });
 
   test("findEnvelope returns undefined when no envelope is present", () => {
-    expect(findEnvelope("plain text only")).toBeUndefined();
+    assert.strictEqual(findEnvelope("plain text only"), undefined);
   });
 });
 
 describe("assertEnvelopeShape", () => {
   test("accepts a contract-compliant envelope", () => {
-    expect(() => assertEnvelopeShape(validEnvelope)).not.toThrow();
+    assert.doesNotThrow(() => assertEnvelopeShape(validEnvelope));
   });
 
   test("rejects an unknown status", () => {
-    expect(() =>
-      assertEnvelopeShape({ ...validEnvelope, status: "ok" }),
-    ).toThrow(/status/);
+    assert.throws(
+      () => assertEnvelopeShape({ ...validEnvelope, status: "ok" }),
+      /status/,
+    );
   });
 
   test("rejects snake_case field names", () => {
     const env = { ...validEnvelope, next_steps: [] } as unknown as Record<string, unknown>;
-    expect(() => assertEnvelopeShape(env)).toThrow(/camelCase/);
+    assert.throws(() => assertEnvelopeShape(env), /camelCase/);
   });
 
   test("rejects checks outside the doctor vocabulary", () => {
-    expect(() =>
-      assertEnvelopeShape({
-        ...validEnvelope,
-        checks: [{ id: "x", status: "green" }],
-      }),
-    ).toThrow(/pass\|warning\|fail\|skipped\|unknown/);
+    assert.throws(
+      () =>
+        assertEnvelopeShape({
+          ...validEnvelope,
+          checks: [{ id: "x", status: "green" }],
+        }),
+      /pass\|warning\|fail\|skipped\|unknown/,
+    );
   });
 
   test("rejects errors without a stable code", () => {
-    expect(() =>
-      assertEnvelopeShape({
-        ...validEnvelope,
-        errors: [{ message: "boom" }],
-      }),
-    ).toThrow(/code/);
+    assert.throws(
+      () =>
+        assertEnvelopeShape({
+          ...validEnvelope,
+          errors: [{ message: "boom" }],
+        }),
+      /code/,
+    );
   });
 
   test("camelCase checker flags kebab-case keys", () => {
-    expect(() => assertCamelCaseKeys({ "risk-level": 1 }, "test")).toThrow(
-      /camelCase/,
-    );
+    assert.throws(() => assertCamelCaseKeys({ "risk-level": 1 }, "test"), /camelCase/);
   });
 });
 
@@ -97,19 +113,21 @@ describe("riskContext (feature 021)", () => {
   };
 
   test("accepts a contract-compliant riskContext", () => {
-    expect(() => assertRiskContextShape(validRiskContext)).not.toThrow();
+    assert.doesNotThrow(() => assertRiskContextShape(validRiskContext));
   });
 
   test("rejects categories outside the feature 010 high-risk list", () => {
-    expect(() =>
-      assertRiskContextShape({ ...validRiskContext, categories: ["misc"] }),
-    ).toThrow(/high-risk list/);
+    assert.throws(
+      () => assertRiskContextShape({ ...validRiskContext, categories: ["misc"] }),
+      /high-risk list/,
+    );
   });
 
   test("rejects a riskLevel outside low|medium|high", () => {
-    expect(() =>
-      assertRiskContextShape({ ...validRiskContext, riskLevel: "extreme" }),
-    ).toThrow(/riskLevel/);
+    assert.throws(
+      () => assertRiskContextShape({ ...validRiskContext, riskLevel: "extreme" }),
+      /riskLevel/,
+    );
   });
 
   test("findRiskContexts locates riskContext inside data and checks", () => {
@@ -120,10 +138,10 @@ describe("riskContext (feature 021)", () => {
         { id: "x", status: "pass", riskContext: validRiskContext } as never,
       ],
     };
-    expect(findRiskContexts(env)).toHaveLength(2);
+    assert.strictEqual(findRiskContexts(env).length, 2);
   });
 
   test("findRiskContexts finds nothing in a plain envelope", () => {
-    expect(findRiskContexts(validEnvelope)).toHaveLength(0);
+    assert.strictEqual(findRiskContexts(validEnvelope).length, 0);
   });
 });

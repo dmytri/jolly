@@ -114,7 +114,7 @@ async function provisionSharedEnvironment(): Promise<ProvisionOutcome> {
   });
 
   const name = sharedEnvironmentName();
-  const runtime = process.env.HARNESS_CLI_RUNTIME ?? "bun";
+  const runtime = process.env.HARNESS_CLI_RUNTIME ?? "node";
   const spawned = spawnSync(
     runtime,
     [

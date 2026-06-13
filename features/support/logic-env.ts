@@ -4,9 +4,10 @@
 // dummy credentials for every group and an unroutable Cloud API base, so that
 // a CLI which ignores `--dry-run` (or has an unimplemented preview path) can
 // never reach a real account. We force this by OVERRIDING the real runtime
-// JOLLY_* variables (Bun auto-loads `.env`, so the real Cloud token is present
-// in process.env) with obviously-fake values and pointing every Saleor host at
-// a `.invalid` TLD, which is guaranteed never to resolve (RFC 6761).
+// JOLLY_* variables (the harness loads `.env` into process.env — see
+// support/dotenv.ts — so the real Cloud token may be present) with
+// obviously-fake values and pointing every Saleor host at a `.invalid` TLD,
+// which is guaranteed never to resolve (RFC 6761).
 //
 // These overrides are merged over process.env by world.runCli, so they win.
 

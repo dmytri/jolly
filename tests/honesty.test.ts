@@ -6,7 +6,8 @@
 // Every run forces an unroutable .invalid Cloud API base and a from-scratch
 // environment (no .env leakage, no credentials), so the CLI under test can
 // never reach a real account — the 012-incident lesson applied to units.
-import { describe, expect, test } from "bun:test";
+import { describe, test } from "node:test";
+import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,7 +22,9 @@ const UNREACHABLE_API = "https://jolly-honesty-test.invalid/platform/api";
 function runCli(args: string[]): { envelope: Envelope; stdout: string; stderr: string } {
   const cwd = mkdtempSync(join(tmpdir(), "jolly-honesty-"));
   try {
-    const spawned = spawnSync("bun", [CLI_ENTRY, ...args], {
+    // Run the CLI under the genuine Node binary executing the test (Node >= 23
+    // strips types for these project files). process.execPath is the real node.
+    const spawned = spawnSync(process.execPath, [CLI_ENTRY, ...args], {
       cwd,
       encoding: "utf8",
       timeout: 30_000,
@@ -34,10 +37,10 @@ function runCli(args: string[]): { envelope: Envelope; stdout: string; stderr: s
         JOLLY_SALEOR_CLOUD_API_URL: UNREACHABLE_API,
       },
     });
-    expect(spawned.error).toBeUndefined();
+    assert.strictEqual(spawned.error, undefined);
     const stdout = spawned.stdout ?? "";
     const envelope = findEnvelope(stdout);
-    expect(envelope).toBeDefined();
+    assert.notStrictEqual(envelope, undefined);
     return { envelope: envelope!, stdout, stderr: spawned.stderr ?? "" };
   } finally {
     rmSync(cwd, { recursive: true, force: true });
@@ -49,16 +52,17 @@ function expectNoFabricatedSuccess(envelope: Envelope): void {
   for (const check of envelope.checks) {
     const text = `${check.id} ${String(check.description ?? "")}`;
     if (/verif|valid|authenticat|connect/i.test(text)) {
-      expect(`${check.id}=${check.status}`).not.toMatch(/=pass$/);
+      assert.doesNotMatch(`${check.id}=${check.status}`, /=pass$/);
     }
   }
-  expect(envelope.data.authenticated).not.toBe(true);
-  expect(envelope.data.valid).not.toBe(true);
+  assert.notStrictEqual(envelope.data.authenticated, true);
+  assert.notStrictEqual(envelope.data.valid, true);
 }
 
 describe("junk input never yields success language (feature 020 rule)", () => {
   test(
     "a junk token with an unreachable Cloud API is never reported verified",
+    { timeout: 35_000 },
     () => {
       const { envelope } = runCli([
         "login",
@@ -68,40 +72,41 @@ describe("junk input never yields success language (feature 020 rule)", () => {
       ]);
       // Verification did not happen: warning ("stored, not verified") or an
       // honest error are acceptable; success is fabricated.
-      expect(envelope.status).not.toBe("success");
+      assert.notStrictEqual(envelope.status, "success");
       expectNoFabricatedSuccess(envelope);
     },
-    35_000,
   );
 
   test(
     "junk store URLs error honestly instead of being accepted",
+    { timeout: 70_000 },
     () => {
       for (const junk of ["this is not a url", "ftp://nope.example/store"]) {
         const { envelope } = runCli(["create", "store", "--url", junk, "--json"]);
-        expect(envelope.status).toBe("error");
+        assert.strictEqual(envelope.status, "error");
         expectNoFabricatedSuccess(envelope);
       }
     },
-    70_000,
   );
 
   test(
     "auth status from an empty project never claims authentication",
+    { timeout: 35_000 },
     () => {
       const { envelope } = runCli(["auth", "status", "--json"]);
       // No .env, no credentials: status must report configuration only and
       // must never claim authenticated/verified from a file read.
       expectNoFabricatedSuccess(envelope);
-      expect(JSON.stringify(envelope)).not.toMatch(
+      assert.doesNotMatch(
+        JSON.stringify(envelope),
         /\b(authenticated|logged in|verified)\b/i,
       );
     },
-    35_000,
   );
 
   test(
     "the browser OAuth --dry-run preview claims no exchange, verification, or login",
+    { timeout: 35_000 },
     () => {
       const { envelope } = runCli(["login", "--browser", "--dry-run", "--json"]);
       // A pure preview: it shows the request material but must never claim the
@@ -110,13 +115,13 @@ describe("junk input never yields success language (feature 020 rule)", () => {
       for (const check of envelope.checks) {
         const text = `${check.id} ${String(check.description ?? "")}`;
         if (/exchang/i.test(text)) {
-          expect(`${check.id}=${check.status}`).not.toMatch(/=pass$/);
+          assert.doesNotMatch(`${check.id}=${check.status}`, /=pass$/);
         }
       }
-      expect(JSON.stringify(envelope)).not.toMatch(
+      assert.doesNotMatch(
+        JSON.stringify(envelope),
         /\b(exchanged|succeeded|authenticated|logged in)\b/i,
       );
     },
-    35_000,
   );
 });

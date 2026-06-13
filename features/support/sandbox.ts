@@ -5,8 +5,8 @@
 //
 // Harness-internal knobs use a HARNESS_* prefix, never JOLLY_*:
 //   HARNESS_RUN_ID       — override the generated per-run identifier
-//   HARNESS_CLI_RUNTIME  — runtime used to invoke the CLI (default "bun";
-//                          Node >= 23 is the documented fallback)
+//   HARNESS_CLI_RUNTIME  — runtime used to invoke the CLI (default "node",
+//                          native Node >= 23 with type stripping)
 //
 // Vercel is NOT a Jolly credential (decision 2026-06-13): deployment is
 // agent-run via the Vercel CLI under its own `vercel login` session, so there
