@@ -298,14 +298,17 @@ Jolly-specific role notes:
 
 Jolly follows Shipshape's `assets/` policy.
 
-Use root `assets/` for durable human/Captain-authored source material such as approved copy, brand context, style direction, mockups, reference data, and approved fixture-like examples.
+Use root `assets/` for durable human/Captain-authored **source material** such as approved copy, brand context, style direction, mockups, reference data, and approved fixture-like examples. It is currently empty (holds only `.gitkeep`).
 
-The **Jolly skill** lives at `assets/jolly-skill/SKILL.md` (decision 2026-06-13): the
-Captain-authored end-to-end playbook that teaches the customer's agent to drive the official
-CLIs plus Jolly's thin helpers. It is the source of truth Jolly installs (via `npx skills add`);
-its exact CLI invocations are verified against current upstream at implementation time. It is a
-Captain-owned asset — QM/Crew may read it but not edit it. Distribution/registry ref for
-`npx skills add` is an implementation detail to confirm.
+The **Jolly skill** lives at `skills/jolly/SKILL.md` (decision 2026-06-13): the Captain-authored
+end-to-end playbook that teaches the customer's agent to drive the official CLIs plus Jolly's
+thin helpers. Like `homepage/`, it is a **shipped Captain-owned artifact** — not a source asset
+in `assets/` but the actual deliverable Jolly installs (via `npx skills add`), in its own
+top-level `skills/` directory matching the `skills/<name>/SKILL.md` convention. Its exact CLI
+invocations are verified against current upstream at implementation time. QM/Crew may read it but
+not edit it. Distribution/registry ref for `npx skills add` is an implementation detail to confirm.
+(`skills/` here is the product skill Jolly ships to customers — distinct from `.claude/skills/`,
+which holds the Shipshape roles for working on this repo.)
 
 The entire `homepage/` directory (`index.html`, styles, `setup.md`, `vercel.json` —
 everything served at https://jolly.cool) is itself a Captain-owned asset:
@@ -314,7 +317,7 @@ worked on by Quartermaster or Crew Mate. The Captain edits it in place. The form
 `assets/homepage/*` design sources (copy, style, context, setup-guide draft) were retired
 on 2026-06-12 once the homepage was built and live — they remain in git history.
 
-Quartermaster and Crew Mate may read `assets/**` and `homepage/**` but must not edit or delete them.
+Quartermaster and Crew Mate may read `assets/**`, `homepage/**`, and `skills/**` (the Jolly skill) but must not edit or delete them.
 
 Homepage/setup-guide copy principle (customer, 2026-06-12): less is more — say only
 what the reader needs; do not mention what is assumed or absent (e.g. version

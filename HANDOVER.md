@@ -48,7 +48,7 @@ principle, `npx skills add` principle, the Jolly skill, MVP/Launch Definition re
 9 agent-driven stages, Network Boundaries — api.vercel.com removed from Jolly's allowlist,
 thin command surface, Vercel-gating note); CLAUDE.md (pinned contracts + Saleor boundaries);
 features 001, 002, 003, 004, 005, 006, 007, 008, 009, 020. New Captain-owned asset
-`assets/jolly-skill/SKILL.md` (first-draft end-to-end playbook).
+`skills/jolly/SKILL.md` (first-draft end-to-end playbook).
 
 **Code reset (Captain deleted disposable artifacts invalidated by the spec change):**
 - `src/index.ts` — DELETED (the old fat CLI: retired commands, simulation `start`,
@@ -96,7 +96,7 @@ agent's recovery oracle (actionable next-step on any fail) and reflects agent-pr
 (3) AGENTS.md: the Jolly-skill MVP bar is the happy path running end-to-end (paste → live store
 with test-mode payment) with doctor for recovery — edge cases iterate later.
 
-Open Captain items: finish authoring `assets/jolly-skill/SKILL.md` to the MVP bar against
+Open Captain items: finish authoring `skills/jolly/SKILL.md` to the MVP bar against
 verified current upstream CLI flows (Vercel CLI, `@saleor/configurator`, Paper) — the skill
 carries the smoothness; confirm the `npx skills add` ref/registry for distributing it. (The
 stale `JOLLY_VERCEL_TOKEN` was already removed from `.env`.)
