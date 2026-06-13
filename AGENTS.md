@@ -123,9 +123,11 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompt
 - Post-setup storefront customization belongs to the customer's own agent and workflow. Jolly supports the iteration phase via `jolly doctor`, `jolly upgrade`, and mcp-graphql config for live store access.
 - `jolly start` is optional convenience orchestration; every stage must also be available as composable commands the agent can call independently.
 - Canonical homepage URL: **https://jolly.cool** (customer decision, 2026-06-12). The
-  agent setup guide is **https://jolly.cool/setup** (served from `homepage/setup.md`
-  via a rewrite in `homepage/vercel.json`). The homepage deploys to Vercel from the
-  `homepage/` directory (Captain-owned; project link in `homepage/.vercel`).
+  agent setup guide is **https://jolly.cool/setup** (served from `assets/homepage/setup.md`
+  via a rewrite in `assets/homepage/vercel.json`). The homepage deploys to Vercel from the
+  `assets/homepage/` directory (Captain-owned; project link in `assets/homepage/.vercel`).
+  Vercel's project **root directory** setting must point at `assets/homepage/` (moved there
+  2026-06-13; update it before the next deploy).
 - Project-local `.jolly/` artifacts and persistent report files are deferred until CLI design.
 
 ## MVP and Launch Definition
@@ -291,42 +293,38 @@ Jolly-specific role notes:
 ### Crew Mate
 
 - CLI implementation lives under `src/`.
-- `homepage/` is a Captain-owned asset — out of Crew Mate scope entirely.
+- `assets/**` (including `assets/homepage/` and `assets/skills/jolly/`) is Captain-owned — out of Crew Mate scope entirely.
 - Implement the minimal production/application change needed to satisfy committed specs and tests.
 
 ## Durable Assets
 
-Jolly follows Shipshape's `assets/` policy.
+Jolly follows Shipshape's `assets/` policy: **all durable Captain/human-owned content lives
+under `assets/`** — there are no other Captain-owned top-level folders (decision 2026-06-13).
+`assets/` holds both source material (approved copy, brand context, style direction, mockups,
+reference data, fixture-like examples) and shipped Captain-authored artifacts. Its current
+contents:
 
-Use root `assets/` for durable human/Captain-authored **source material** such as approved copy, brand context, style direction, mockups, reference data, and approved fixture-like examples. It is currently empty (holds only `.gitkeep`).
+- **`assets/homepage/`** — the deployable homepage + agent setup guide (`index.html`,
+  `setup.md`, `vercel.json`), served at https://jolly.cool. Captain/human-authored, not
+  specified in `.feature` files, not covered by tests; the Captain edits it in place. Vercel
+  deploys the site from `assets/homepage/` (project link in `assets/homepage/.vercel`).
+- **`assets/skills/jolly/SKILL.md`** — the **Jolly skill**: the Captain-authored end-to-end
+  playbook that teaches the customer's agent to drive the official CLIs plus Jolly's thin
+  helpers. It is the deliverable Jolly installs (via `npx skills add`); its exact CLI
+  invocations are verified against current upstream at implementation time. (This is the
+  product skill Jolly ships to customers — distinct from `.claude/skills/`, the Shipshape
+  roles for working on this repo, which is git-ignored.)
 
-The **Jolly skill** lives at `skills/jolly/SKILL.md` (decision 2026-06-13): the Captain-authored
-end-to-end playbook that teaches the customer's agent to drive the official CLIs plus Jolly's
-thin helpers. Like `homepage/`, it is a **shipped Captain-owned artifact** — not a source asset
-in `assets/` but the actual deliverable Jolly installs (via `npx skills add`), in its own
-top-level `skills/` directory matching the `skills/<name>/SKILL.md` convention. Its exact CLI
-invocations are verified against current upstream at implementation time. QM/Crew may read it but
-not edit it. Distribution/registry ref for `npx skills add` is an implementation detail to confirm.
-(`skills/` here is the product skill Jolly ships to customers — distinct from `.claude/skills/`,
-which holds the Shipshape roles for working on this repo.)
-
-**Ownership and testing (decision 2026-06-13):** the skill's *content* is Captain/human-owned
-and **not covered by the BDD suite** — exactly like `homepage/` (not specified by `.feature`,
-not tested). Its quality is an editorial concern validated by real use. The **CLI plumbing is
+**Ownership and testing (decision 2026-06-13):** everything under `assets/` is Captain/human-owned
+and **not covered by the BDD suite** — including the Jolly skill's content and the homepage. Their
+quality is an editorial concern validated by real use, not cucumber. The **CLI plumbing is
 QM/Crew-owned and tested** — that is the deterministic, sandbox-verifiable surface. The clean
 seam: QM tests that Jolly *installs* the skill correctly (`jolly init` verifies it on disk,
 feature 007); QM does **not** test whether the skill's guidance yields a working store — that's
-real-use validation, not cucumber. Behavioral testing of the skill (e.g. running an agent over
-it with a cheap model via `npx`) is a possible later iteration, explicitly deferred — not v1.
+real-use validation. Behavioral testing of the skill (e.g. running an agent over it with a cheap
+model via `npx`) is a possible later iteration, explicitly deferred — not v1.
 
-The entire `homepage/` directory (`index.html`, styles, `setup.md`, `vercel.json` —
-everything served at https://jolly.cool) is itself a Captain-owned asset:
-Captain/human-authored, not specified in `.feature` files, not covered by tests, and never
-worked on by Quartermaster or Crew Mate. The Captain edits it in place. The former
-`assets/homepage/*` design sources (copy, style, context, setup-guide draft) were retired
-on 2026-06-12 once the homepage was built and live — they remain in git history.
-
-Quartermaster and Crew Mate may read `assets/**`, `homepage/**`, and `skills/**` (the Jolly skill) but must not edit or delete them.
+Quartermaster and Crew Mate may read `assets/**` but must not edit or delete it.
 
 Homepage/setup-guide copy principle (customer, 2026-06-12): less is more — say only
 what the reader needs; do not mention what is assumed or absent (e.g. version
@@ -358,7 +356,7 @@ pinning, install steps); no junk, no duplication.
   harness never deletes an environment it cannot positively identify as test-created.
 - **Harmless by design:** sandbox tests must be safe to run against any store, including production. They never name-check or refuse a target. They never modify or delete resources the run did not create (read-only, non-mutating queries of pre-existing resources are allowed only where a spec requires verifying live access, as feature 019 does); created resources carry a unique per-run namespace and stay unpublished/inactive where the platform allows; shared-setting changes are allowed only when additive and reverted in teardown (for example trusted origins); payment flows use test card numbers only, so live payment credentials at worst yield a declined card. Teardown is idempotent and best-effort, reporting anything it could not remove; tests stay safe to re-run (leaning on feature 022).
 - Layout: step definitions in `features/step_definitions/<feature-slug>.steps.ts`; shared hooks/world/sandbox setup/teardown/credential-gating in `features/support/`; logic-tier unit tests in `tests/`. Each `.feature` maps to a step-definition file of the same slug. The QM creates and maintains the Cucumber configuration and `test` scripts as part of the harness.
-- DOM-level checks (storefront rendering) use happy-dom; prefer happy-dom for DOM behavior and do not duplicate it in lower-level tests. The homepage (`homepage/`) and the Jolly skill content (`skills/jolly/SKILL.md`) are Captain-owned assets with no test coverage; QM/Crew test only Jolly's CLI behavior, including that `jolly init` installs the skill correctly (feature 007) — not the skill's guidance itself. The `.feature` files specify and test JOLLY's behavior; steps describing the agent's own CLI actions (clone/configure/deploy) are narrative context for the skill, and QM should assert only Jolly's observable contribution (e.g. `jolly doctor` detecting the deployment), not execute the agent's steps.
+- DOM-level checks (storefront rendering) use happy-dom; prefer happy-dom for DOM behavior and do not duplicate it in lower-level tests. The homepage (`assets/homepage/`) and the Jolly skill content (`assets/skills/jolly/SKILL.md`) are Captain-owned assets with no test coverage; QM/Crew test only Jolly's CLI behavior, including that `jolly init` installs the skill correctly (feature 007) — not the skill's guidance itself. The `.feature` files specify and test JOLLY's behavior; steps describing the agent's own CLI actions (clone/configure/deploy) are narrative context for the skill, and QM should assert only Jolly's observable contribution (e.g. `jolly doctor` detecting the deployment), not execute the agent's steps.
 - Security, authentication, and usage-control behavior must always have enforcement-level tests so enforcement does not depend on frontend behavior.
 
 ## Secret and Environment Handling
@@ -386,7 +384,8 @@ The test harness is in place (see Testing Strategy): `cucumber.js`, `features/su
 (world, hooks, sandbox gating on runtime `JOLLY_*` credentials), one step-definition file
 per feature in `features/step_definitions/`, and `tests/` (logic-tier units).
 
-`src/index.ts` and `src/lib/` hold the Crew-Mate-built CLI; it is disposable and
-regenerated from the specs when they change. `homepage/` holds the homepage and agent
-setup guide as a Captain-owned asset (see Durable Assets) — it is not regenerated from
-specs and is out of QM/Crew scope.
+`src/lib/` holds reusable plumbing for the Crew-Mate-built CLI (`src/index.ts` is currently
+deleted pending the thin-CLI rebuild); the CLI is disposable and regenerated from the specs
+when they change. `assets/` holds all Captain-owned content — `assets/homepage/` (homepage +
+agent setup guide) and `assets/skills/jolly/` (the Jolly skill) — not regenerated from specs
+and out of QM/Crew scope (see Durable Assets).

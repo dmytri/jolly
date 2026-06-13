@@ -48,7 +48,7 @@ principle, `npx skills add` principle, the Jolly skill, MVP/Launch Definition re
 9 agent-driven stages, Network Boundaries — api.vercel.com removed from Jolly's allowlist,
 thin command surface, Vercel-gating note); CLAUDE.md (pinned contracts + Saleor boundaries);
 features 001, 002, 003, 004, 005, 006, 007, 008, 009, 020. New Captain-owned asset
-`skills/jolly/SKILL.md` (first-draft end-to-end playbook).
+`assets/skills/jolly/SKILL.md` (first-draft end-to-end playbook).
 
 **Code reset (Captain deleted disposable artifacts invalidated by the spec change):**
 - `src/index.ts` — DELETED (the old fat CLI: retired commands, simulation `start`,
@@ -76,8 +76,8 @@ QM worklist (the path to MVP, in order):
    session (`npx vercel whoami` exit 0), not a Jolly env var. Remove `JOLLY_VERCEL_TOKEN`
    references from `tests`/step-defs as they're regenerated.
 4. **Skill vs CLI ownership — RESOLVED (decision 2026-06-13).** The Jolly skill content
-   (`skills/jolly/SKILL.md`) is Captain/human-owned and NOT test-covered, exactly like
-   `homepage/`; its quality is validated by real use, not cucumber. QM/Crew own and test only
+   (`assets/skills/jolly/SKILL.md`) is Captain/human-owned and NOT test-covered, exactly like
+   the homepage; its quality is validated by real use, not cucumber. QM/Crew own and test only
    Jolly's CLI behavior. The seam: QM tests that `jolly init` installs the skill on disk
    (feature 007), NOT whether the skill's guidance yields a working store. Behavioral skill
    testing (agent + cheap model via `npx`) is explicitly deferred, not v1.
@@ -93,8 +93,15 @@ first-step handoff" principle (AGENTS.md + feature 001) — the pasted setup mus
 security-conscious agent's alarms (named inspectable `npx @dk/jolly`, clear provenance, exact
 hosts, secrets only to their own services, agent-decided approvals, no fabrication) while
 staying frictionless to a live store. Trust rests on npm + git, **not** npm provenance
-attestation (don't require/claim it). `homepage/setup.md` rewritten to the skill-driven model
-(hosts split into "Jolly contacts" vs "the CLIs you run contact"; retired commands removed).
+attestation (don't require/claim it). `assets/homepage/setup.md` rewritten to the skill-driven
+model (hosts split into "Jolly contacts" vs "the CLIs you run contact"; retired commands removed).
+
+Repo restructure (decision 2026-06-13, per Shipshape): **all Captain/human-owned content now
+lives under `assets/`** — no other Captain-owned top-level folders. Moved `homepage/` →
+`assets/homepage/` and the Jolly skill → `assets/skills/jolly/SKILL.md`. **Vercel action
+needed:** the homepage's Vercel project **root directory** must be reset to `assets/homepage/`
+before the next deploy (the `.vercel` project link moved with the files; the live site is
+unaffected until the next deploy). QM/Crew read `assets/**` but never edit it.
 
 Gap-closure pass (MVP-bounded, do not over-engineer): three gaps that made "friction-free"
 contingent are now specced — (1) feature 022: resume spans the agent↔Jolly boundary; Jolly
@@ -104,7 +111,7 @@ agent's recovery oracle (actionable next-step on any fail) and reflects agent-pr
 (3) AGENTS.md: the Jolly-skill MVP bar is the happy path running end-to-end (paste → live store
 with test-mode payment) with doctor for recovery — edge cases iterate later.
 
-Open Captain items: finish authoring `skills/jolly/SKILL.md` to the MVP bar against
+Open Captain items: finish authoring `assets/skills/jolly/SKILL.md` to the MVP bar against
 verified current upstream CLI flows (Vercel CLI, `@saleor/configurator`, Paper) — the skill
 carries the smoothness; confirm the `npx skills add` ref/registry for distributing it. (The
 stale `JOLLY_VERCEL_TOKEN` was already removed from `.env`.)
