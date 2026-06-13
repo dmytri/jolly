@@ -67,6 +67,7 @@ Feature: Test architecture and sandbox-first strategy
   Rule: Test tiers
     - Logic tier: pure local behavior, no accounts, always runs via the `test` script (`node --test`); tagged `@logic`.
     - Sandbox tier: real Saleor Cloud, Configurator, Vercel, and Stripe accounts via the runtime `JOLLY_*` configuration — expected to be dedicated test accounts, by the customer's choice; tagged `@sandbox`.
+    - Eval tier (feature 025): the opt-in skill-behavior affordance evaluation — a baseline agent driven over the real skill and CLI in a safe, bounded workspace. Tagged `@eval`; like `@meta` it is EXCLUDED from the default profile (`not @meta and not @eval`) and runs only via an explicit `eval` profile/command; skip-not-fail when its agent/model credential is absent. It never gates normal CI.
     - Prefer the sandbox tier over mocks; use mocks only for conditions a sandbox cannot reasonably produce.
 
   Rule: Credentials and gating

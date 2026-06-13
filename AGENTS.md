@@ -352,9 +352,17 @@ and **not covered by the BDD suite** — including the Jolly skill's content and
 quality is an editorial concern validated by real use, not cucumber. The **CLI plumbing is
 QM/Crew-owned and tested** — that is the deterministic, sandbox-verifiable surface. The clean
 seam: QM tests that Jolly *installs* the skill correctly (`jolly init` verifies it on disk,
-feature 007); QM does **not** test whether the skill's guidance yields a working store — that's
-real-use validation. Behavioral testing of the skill (e.g. running an agent over it with a cheap
-model via `npx`) is a possible later iteration, explicitly deferred — not v1.
+feature 007); QM does **not** test whether the skill's guidance yields a working *deployed* store —
+store-correctness stays real-use validation. **The skill's affordance — whether a baseline agent
+can discover and drive Jolly from the skill alone — is now covered by an opt-in evaluation tier
+(feature 025, decision 2026-06-13, pulling the previously-deferred eval forward).** A baseline
+agent (the bundled `pi` agent with a cheap model) is run over the real skill and CLI in a safe,
+bounded, per-run workspace with forced safe credentials, and the eval asserts *affordances* — the
+agent invoked Jolly's documented commands (PATH-shim trace) and the documented local artifacts
+appeared — never a working deployed store. It is tagged `@eval`, excluded from the default
+worklist, and skips cleanly when its agent/model credential is absent. The skill's editorial
+quality remains Captain-owned and otherwise untested; the eval (its `.feature` and scenarios)
+is Captain-authored, QM/Crew make it executable.
 
 Quartermaster and Crew Mate may read `assets/**` but must not edit or delete it.
 
@@ -367,9 +375,10 @@ pinning, install steps); no junk, no duplication.
 - Package scripts are Node-native (decision 2026-06-13, dropped Bun): the logic-tier runner is `node --test` (using `node:test` + `node:assert`); the BDD layer is Cucumber.js run under Node (`npm run test:bdd` → `cucumber-js`), with TypeScript step definitions and support code loaded via Node >= 23's native type stripping (project files, not under `node_modules`). The published bundle is built with esbuild (`npm run build` → `dist/index.js`). The published CLI targets Node (see Project Stack); the feature 006 npx scenario covers that the *installed* bin runs on Node alone. See features `023-test-architecture` and `006`.
 - Feature `023-test-architecture` is the harness charter — already satisfied by `features/support/` and `tests/sandbox.test.ts`. It is tagged `@meta` and excluded from the BDD worklist; do not write Cucumber step definitions for it.
 - **Sandbox over mocks:** tests exercise real accounts (Saleor Cloud, Configurator, Vercel, Stripe) rather than mocks. Avoid mocks unless a condition cannot reasonably be produced in a sandbox (for example injected failures or unavailable-capability branches).
-- Two test tiers:
+- Three test tiers:
   - Logic tier — pure local behavior (output-envelope shaping, flag parsing, URL normalization, risk-context construction). No accounts; always runs. Tagged `@logic`.
   - Sandbox tier — behavior that touches Saleor Cloud, Configurator, Vercel, or Stripe. Real accounts; tagged `@sandbox`.
+  - Eval tier — the skill-behavior affordance evaluation (feature 025): a baseline agent driven over the real skill + CLI in a safe, bounded workspace. Non-deterministic, credentialed, slow; tagged `@eval` and **excluded from the default worklist** (runs only via an explicit `eval` profile), skip-not-fail when its agent/model credential is absent. It is never a green/red gate.
 - **One configuration everywhere:** tests read the same runtime `JOLLY_*` environment variables Jolly itself uses — identical names across dev, test, and production. There is no test-only credential namespace (no `JOLLY_TEST_*`). The accounts behind them are expected to be dedicated test accounts, but that is the customer's choice to make and set; Jolly and the tests never know or check which kind they are. When a needed Saleor endpoint or app token is not configured but `JOLLY_SALEOR_CLOUD_TOKEN` is present, the harness **provisions** a shared per-run environment and derives the missing values rather than skipping; `@sandbox` tests are skipped (not failed, with a clear reason) only when the needed credentials cannot be derived — the Cloud token itself, or Stripe credentials. Vercel is not a Jolly credential (decision 2026-06-13): deployment is agent-run via the Vercel CLI, so any `@sandbox` step exercising deployment gates on the Vercel CLI being authenticated (`npx vercel whoami` exit 0), never on a Jolly env var; there is no `JOLLY_VERCEL_TOKEN`. Harness-internal knobs (artifact path overrides, per-run id, runtime selection) are not Jolly settings and use a `HARNESS_*` prefix.
 - **Environmental skips beyond credentials:** when a sandbox run is prevented by the
   account's capacity rather than Jolly's behavior — e.g. the Cloud API rejects environment

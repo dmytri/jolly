@@ -10,7 +10,59 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
-## CURRENT (2026-06-13): Bun → native Node ≥23 + npm migration COMPLETE — ALL GREEN
+## CURRENT (2026-06-13): pull the skill-behavior affordance eval forward — feature 025 (NEEDS FRESH QM SESSION)
+
+**Decision (customer, 2026-06-13):** un-defer the skill-behavior evaluation. The Jolly skill
+itself stays Captain/human-owned and untested *as content*, and Captain authors the eval's
+`.feature`/scenarios — but QM/Crew now **build the executable affordance test**. New spec:
+**feature 025 (`@eval`)**, an opt-in tier, EXCLUDED from the default worklist, never a green/red gate.
+
+**What it checks:** a baseline agent (the bundled `pi` agent, `@earendil-works/pi-coding-agent`,
+already a devDep, + a cheap model) is run over the REAL skill + CLI in a safe, bounded, per-run
+workspace, asserting AFFORDANCES — the agent invoked Jolly's documented commands (PATH-shim trace)
+and the documented local artifacts appeared — **not** a working deployed store. Affordance, not
+outcome, because a live agent is non-deterministic.
+
+**Safety is the hard constraint (read feature 025 Rules):** the agent runs with FORCED SAFE creds
+(dummy `JOLLY_*` + `.invalid` Cloud API base — the 012-incident discipline) in a namespaced temp
+workspace, so even a create/deploy command cannot reach a real account, create a billable resource,
+or deploy. The task is bounded to the no-irreversible-action subset (install skills, `jolly init`,
+validate with `--dry-run` + `jolly doctor`). Teardown removes the workspace.
+
+**Specs landed this Captain pass:** new `features/025-agent-skill-affordance-eval.feature`;
+AGENTS.md (Durable Assets ownership paragraph flipped deferred→feature 025; Testing Strategy now
+"three test tiers" incl. eval); CLAUDE.md (Test architecture → three tiers); feature 023 charter
+(Test tiers rule gains the eval tier).
+
+**Note:** until QM wires step 4, `npx cucumber-js --dry-run` shows feature 025 as the **one
+undefined scenario** in the default profile — that is the intended QM worklist marker, not a
+regression. It leaves the default worklist once `@eval` is excluded.
+
+**QM worklist (feature 025 — fresh session):**
+1. **Step defs** — `features/step_definitions/025-agent-skill-affordance-eval.steps.ts`. Assert:
+   (a) the agent invoked Jolly's documented CLI commands (from the shim trace); (b) the feature-007
+   local artifacts exist (installed skill, merged `.mcp.json`, scaffolded `.env`, marker-merged
+   `AGENTS.md`) — NOT `jolly.config.ts`; (c) `jolly doctor`/`start` emitted the feature-020
+   envelope; (d) no real cloud resource created / nothing deployed.
+2. **Eval harness (support)** — run the baseline `pi` agent over the workspace; a PATH-shim command
+   tracer (wrap `jolly` and `npx @dk/jolly` to log argv then exec the real binary, on a
+   workspace-scoped PATH); a per-run namespaced temp workspace seeded with the skill + safe creds
+   (dummy `JOLLY_*` + `.invalid` base, no real `.env` leakage); teardown. Harness-only knobs use
+   `HARNESS_*` (e.g. agent/model selection); reuse the `sandbox.ts` gating patterns.
+3. **Gating** — a `@eval` Before hook that SKIPS-not-fails (clear reason) when the agent runner or
+   its model credential is absent. `@logic`/`@sandbox` unaffected.
+4. **cucumber.js + scripts** — exclude `@eval` from the default profile (`not @meta and not @eval`);
+   add an `eval` profile (`@eval`) and a `test:eval` script. Update the CLAUDE.md commands-block
+   comment ("excludes @meta" → "excludes @meta and @eval") once wired.
+5. **Verify** — `@logic`/units/typecheck stay green; `@eval` skips cleanly with no model credential
+   present and is OFF the default worklist.
+
+**Crew:** likely none up front — Jolly's commands already exist. If the eval surfaces a real gap,
+route it: weak/missing *guidance* → Captain (the skill is Captain-owned); awkward/broken *CLI
+behavior* → Crew via a failing target. Don't have the harness "play the agent" — drive the real
+baseline agent.
+
+## DONE (2026-06-13, committed 5a87395): Bun → native Node ≥23 + npm migration — ALL GREEN
 
 **The Bun-drop migration is done and verified with Bun OFF the PATH.** Dev/test/CI now run on
 native Node ≥23 + npm; the published CLI was already Node. `src/` had zero Bun-specific *code*, so

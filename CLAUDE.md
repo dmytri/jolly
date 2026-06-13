@@ -72,7 +72,7 @@ node --test tests/sandbox.test.ts                               # one logic-tier
 
 ## Test architecture (feature 023)
 
-Two tiers, sandbox over mocks:
+Three tiers, sandbox over mocks:
 
 - **Logic tier** (`@logic`, `tests/` + `@logic` cucumber scenarios): pure local behavior —
   output-envelope shaping, flag parsing, URL normalization, risk-context construction. No
@@ -86,6 +86,13 @@ Two tiers, sandbox over mocks:
   scenarios are **skipped, not failed** only when creds cannot be derived (no Cloud token, or
   Vercel/Stripe), so the suite always runs locally; CI supplies creds. Use mocks only for
   conditions a sandbox cannot produce.
+- **Eval tier** (`@eval`, feature 025): the opt-in skill-behavior affordance evaluation — a
+  baseline agent (bundled `pi` + a cheap model) driven over the **real** Captain-owned skill and
+  CLI in a safe, bounded, per-run workspace with forced safe credentials. Asserts *affordances*
+  (the agent invoked Jolly's documented commands via a PATH-shim trace; the documented local
+  artifacts appeared), never a deployed store. Non-deterministic/credentialed/slow, so it is
+  **excluded from the default worklist** (`not @meta and not @eval`), runs only via an explicit
+  `eval` profile, and skips when its agent/model credential is absent. Never a green/red gate.
 
 Sandbox tests are **harmless by design** — safe against any store, production included: never
 modify or delete resources the run didn't create (read-only queries of pre-existing resources
