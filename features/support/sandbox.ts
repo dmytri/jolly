@@ -7,6 +7,13 @@
 //   HARNESS_RUN_ID       — override the generated per-run identifier
 //   HARNESS_CLI_RUNTIME  — runtime used to invoke the CLI (default "bun";
 //                          Node >= 23 is the documented fallback)
+//
+// Vercel is NOT a Jolly credential (decision 2026-06-13): deployment is
+// agent-run via the Vercel CLI under its own `vercel login` session, so there
+// is no JOLLY_VERCEL_TOKEN. Scenarios touching a Vercel deployment gate on the
+// Vercel CLI being authenticated (`npx vercel whoami` exit 0) — a capability,
+// not an env var (see requiresVercelCli / vercelCliAuthenticated below).
+import { spawnSync } from "node:child_process";
 
 /**
  * Runtime configuration groups. The variable names are the ones Jolly itself
@@ -18,7 +25,6 @@ export const CREDENTIAL_GROUPS = {
   saleorEndpoint: ["NEXT_PUBLIC_SALEOR_API_URL"],
   saleorAppToken: ["JOLLY_SALEOR_APP_TOKEN"],
   saleorCloud: ["JOLLY_SALEOR_CLOUD_TOKEN"],
-  vercel: ["JOLLY_VERCEL_TOKEN"],
   stripe: ["JOLLY_STRIPE_PUBLISHABLE_KEY", "JOLLY_STRIPE_SECRET_KEY"],
 } as const;
 
@@ -28,10 +34,11 @@ export const ALL_CREDENTIAL_GROUPS = Object.keys(
   CREDENTIAL_GROUPS,
 ) as CredentialGroup[];
 
+// The end-to-end credential set (Vercel is a separate CLI-session capability,
+// not a credential — scenarios in this set also appear in VERCEL_CLI_SCENARIOS).
 const FULL_END_TO_END: CredentialGroup[] = [
   "saleorEndpoint",
   "saleorAppToken",
-  "vercel",
   "stripe",
 ];
 
@@ -51,7 +58,7 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
     "saleorAppToken",
   ],
   "Agent creates a deployable storefront from Saleor Paper": ["saleorEndpoint"],
-  "Agent deploys to Vercel": ["saleorEndpoint", "vercel"],
+  "Agent deploys to Vercel via the official Vercel CLI": ["saleorEndpoint"],
   // 003-saleor-source-repositories-and-integration
   "Use Saleor Paper as the storefront baseline": ["saleorEndpoint"],
   "Use Saleor Configurator directly for store configuration": [
@@ -62,7 +69,7 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   "Agent prepares the starter recipe": ["saleorEndpoint", "saleorAppToken"],
   "Agent applies the starter recipe safely": ["saleorEndpoint", "saleorAppToken"],
   // 005-stripe-checkout-setup
-  "Jolly configures Saleor for Stripe": [
+  "Agent configures Saleor for Stripe": [
     "saleorEndpoint",
     "saleorAppToken",
     "stripe",
@@ -71,7 +78,6 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
     "saleorEndpoint",
     "saleorAppToken",
     "stripe",
-    "vercel",
   ],
   // 012-existing-saleor-store-connection
   "Jolly validates the GraphQL endpoint": ["saleorEndpoint"],
@@ -83,7 +89,7 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   // 014-jolly-doctor-diagnostics
   "Doctor checks Saleor connectivity": ["saleorEndpoint"],
   "Doctor checks storefront readiness": ["saleorEndpoint"],
-  "Doctor checks deployment and payment readiness": ["vercel", "stripe"],
+  "Doctor checks deployment and payment readiness": ["stripe"],
   "Jolly start runs doctor automatically": FULL_END_TO_END,
   // 018-jolly-auth-commands
   // The failed-exchange and invalid-token scenarios need only outbound
@@ -109,6 +115,46 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
 
 export function requiredGroups(scenarioName: string): CredentialGroup[] {
   return SANDBOX_REQUIREMENTS[scenarioName] ?? ALL_CREDENTIAL_GROUPS;
+}
+
+/**
+ * Scenarios that additionally need a Vercel deployment, hence an authenticated
+ * Vercel CLI session (`npx vercel whoami` exit 0). Vercel is not a Jolly
+ * credential — the agent runs the Vercel CLI under its own `vercel login`
+ * session (decision 2026-06-13) — so this is gated as a capability separate
+ * from the JOLLY_* credential groups.
+ */
+export const VERCEL_CLI_SCENARIOS: ReadonlySet<string> = new Set([
+  "Jolly start completes successfully",
+  "Agent deploys to Vercel via the official Vercel CLI",
+  "Agent verifies checkout readiness",
+  "Doctor checks deployment and payment readiness",
+  "Jolly start runs doctor automatically",
+  "Jolly start resumes from the first incomplete stage",
+  "Composed subcommands and start agree on state",
+]);
+
+export function requiresVercelCli(scenarioName: string): boolean {
+  return VERCEL_CLI_SCENARIOS.has(scenarioName);
+}
+
+/**
+ * Whether a Vercel CLI session is authenticated, the harness gate for
+ * deployment-touching @sandbox scenarios (decision 2026-06-13): `npx vercel
+ * whoami` exiting 0. No Jolly env var is involved. Best-effort and harmless —
+ * a read-only identity probe; any spawn failure reads as "not authenticated".
+ */
+export function vercelCliAuthenticated(): boolean {
+  try {
+    const result = spawnSync("npx", ["vercel", "whoami"], {
+      encoding: "utf8",
+      timeout: 60_000,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    return result.status === 0;
+  } catch {
+    return false;
+  }
 }
 
 /**

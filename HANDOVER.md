@@ -10,34 +10,51 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
-## TL;DR for the Quartermaster (2026-06-13)
+## TL;DR for the next session (2026-06-13, QM rebuild complete — ALL GREEN)
 
-Jolly was re-architected this session to a **skill-driven thin CLI** and the disposable
-code was reset. Derive your worklist from the committed specs, not from old src (it's gone).
-Current tree: typecheck clean; `bunx cucumber-js --dry-run` = **83 scenarios, all undefined**
-(your worklist); 20 feature files parse; `src/lib/` + `features/support/` kept.
+The thin-CLI rebuild is done and verified end to end. Last full credentialed run:
+typecheck clean; unit **43/43**; full BDD **83 scenarios — 73 passed, 10 skipped, 0 failed,
+0 undefined**; teardown verified (organization left with **0 environments**). The 10 skips are
+the credential/capability-gated scenarios that cannot run on this VM (Vercel CLI session,
+Stripe, full-end-to-end, browser tiers). The previous worklist (rebuild CLI, regenerate step
+defs + units, harness gating, scenario cleanup) is fully delivered.
 
-Worklist, in order:
+What landed this session:
 
-1. **Crew rebuilds `src/index.ts`** as the thin surface — `login`/`logout`/`auth status`,
-   `init`, `start` (bootstrap + emit playbook), `doctor`, `upgrade`, `skills`, and `create`
-   with `store`/`app-token`/`stripe` only. Honest behavior is the contract (no fabrication;
-   unbuilt paths error with a stable code). Jolly never shells out to Vercel/configurator.
-   Reuse `src/lib/`.
-2. **Regenerate step defs + logic tests** against current specs (all 83 undefined). Carry the
-   012-incident safety lesson: any `@logic` step on a side-effecting path forces dummy creds
-   for all groups + an unroutable `.invalid` Cloud API base.
-3. **Fix harness gating** in `features/support/sandbox.ts`: retire `vercel: ["JOLLY_VERCEL_TOKEN"]`;
-   deployment `@sandbox` gates on `npx vercel whoami` (exit 0), not a Jolly env var. Strip
-   `JOLLY_VERCEL_TOKEN` from tests/step-defs as you regenerate.
-4. **Scenario cleanup**: the agent-journey `@sandbox` scenarios in 002/003/004/005 describe the
-   *agent's* CLI actions (clone/configure/deploy) — not Jolly behavior, not cucumber-testable.
-   Keep only Jolly-observable assertions (e.g. `jolly doctor` detects the deployment); don't
-   build a harness that "plays the agent" for v1.
+1. **`src/index.ts` rebuilt** as the thin surface (Crew) — `login`/`logout`/`auth status`,
+   `init`, `start` (bootstrap + emit playbook, never a fabricated deploy), `doctor` (recovery
+   oracle), `upgrade`, `skills`, and `create store`/`app-token`/`stripe`. Built on `src/lib/`.
+   Honest behavior verified: no fabrication, unbuilt paths error with stable codes, `--dry-run`
+   is a true zero-write preview, riskContext on every side-effecting path. QM follow-ups folded
+   in: `create store --create-environment` now emits `data.organizationSlug`/`environmentKey`/
+   `environmentName` (the provisioning harness contract), and a **collision guard** on
+   `create store --url` (feature 022 — pauses with a riskContext instead of silently
+   overwriting a pre-existing endpoint; `--yes` is the agent's go-ahead).
+2. **All step defs + logic-tier units regenerated** (QM). 19 step files + `shared.steps.ts`
+   (cross-feature step registry to avoid ambiguity) + `tests/` (env-file, saleor-url, envelope,
+   node-launcher lib units; `first-party-hosts` + `honesty` enforcement sweeps — the latter
+   adapted: `@saleor/configurator` is now an ALLOWED CLI mention, only an `@saleor/jolly`-style
+   Jolly package is banned). 012-incident safety carried throughout (`logicSafeEnv()`).
+3. **Harness gating fixed** (`features/support/sandbox.ts`): `JOLLY_VERCEL_TOKEN` group retired;
+   deployment `@sandbox` gates on the Vercel CLI session (`npx vercel whoami`) via
+   `requiresVercelCli`/`VERCEL_CLI_SCENARIOS`. Two `SANDBOX_REQUIREMENTS`/`VERCEL_CLI_SCENARIOS`
+   keys corrected to match real scenario names ("Agent deploys to Vercel via the official Vercel
+   CLI", "Agent configures Saleor for Stripe").
+4. **Agent-journey scenario cleanup done** (002/003/004/005/019): those `@sandbox` scenarios now
+   assert only Jolly-observable contributions (doctor/skills/create); the agent's own
+   clone/configure/deploy actions are narrative no-ops (the skill carries them). No harness
+   "plays the agent."
+5. **Live-sandbox hardening** (012/019): live-API `@sandbox` steps carry explicit step timeouts
+   (the default 5s was too tight for real provisioning); the leftover-environment check now uses
+   the **run-level** namespace (`makeNamespace(this.runId)`), not the per-scenario one, so the
+   run's own shared/sibling envs aren't misread as leftovers; the collision-retry treats
+   `ENVIRONMENT_LIMIT_REACHED` as a clean skip (capacity, not a Jolly failure).
 
-Not QM's job (Captain/customer): finish the Jolly skill content (`assets/skills/jolly/SKILL.md`,
-Captain-owned, untested); confirm the `npx skills add` ref; reset the Vercel project root dir to
-`assets/homepage/`. Detail and rationale below.
+Open Captain/customer items (unchanged, not QM's job): finish `assets/skills/jolly/SKILL.md` to
+the MVP bar against verified upstream CLI flows; confirm the `npx skills add` ref/registry; reset
+the homepage Vercel project root directory to `assets/homepage/` before the next deploy. The
+`@requires-browser` native/Playwright OAuth callback flow stays unimplemented-but-honest
+(`BROWSER_LOGIN_UNAVAILABLE`); no failing target until a browser-capable runner exists.
 
 ## Current state (2026-06-13, Captain re-architecture: skill-driven thin CLI + clean code reset)
 

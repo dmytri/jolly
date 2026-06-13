@@ -21,7 +21,12 @@ import {
   ensureSharedEnvironment,
   teardownSharedEnvironment,
 } from "./provision.ts";
-import { classifyCredentials, requiredGroups } from "./sandbox.ts";
+import {
+  classifyCredentials,
+  requiredGroups,
+  requiresVercelCli,
+  vercelCliAuthenticated,
+} from "./sandbox.ts";
 import type { JollyWorld } from "./world.ts";
 
 /**
@@ -79,6 +84,16 @@ Before(
       // The derived app token entered process.env after this world snapshot
       // took its secrets; track it so output-safety assertions cover it.
       for (const secret of derivedSecrets()) this.trackSecret(secret);
+    }
+    // Vercel capability gate (decision 2026-06-13): deployment-touching
+    // scenarios need an authenticated Vercel CLI session, not a Jolly env var.
+    if (requiresVercelCli(scenarioName) && !vercelCliAuthenticated()) {
+      this.attach(
+        "Skipped: Vercel CLI is not authenticated (`npx vercel whoami` exited " +
+          "non-zero); run `vercel login` to enable deployment scenarios",
+        "text/plain",
+      );
+      return "skipped";
     }
   },
 );
