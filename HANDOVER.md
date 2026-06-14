@@ -10,38 +10,33 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
-## Current state (2026-06-14): all `jolly start` stages execute end-to-end — committed locally, NOT pushed
+## Current state (2026-06-14): code-complete chain shipped — MVP gate is now `@sandbox` real-world verification
 
-`jolly start` now performs the full mechanical chain itself — `create store` → configurator deploy →
-stock-seed → **storefront clone/install** → **Vercel deploy** — so the whole run is **runnable by a
-human in a plain shell**, the natural way to clear the irreducibly-interactive gates (account creation,
-browser OAuth, `vercel login`, `stripe login`) a non-TTY agent cannot pass. Human-run is a **backup**,
-not the headline: the homepage stays paste-first; when the agent can't clear a gate or a stage fails,
-Jolly's `nextSteps` and the skill tell it to ask the human to run `jolly start` in a shell, then start
-their agent to iterate (skills already on disk from `init`).
+The full `jolly start` chain (`create store` → configurator deploy → stock-seed → storefront
+clone/install → Vercel deploy → Stripe app install → `jolly doctor` verify) is **specified, built, and
+green at every deterministic tier** — typecheck clean, units 43/43, `test:logic` 69/69, default
+`cucumber-js --dry-run` 0 undefined, `eval` dry-run 0 undefined — and pushed to `origin/main` (785a664).
+**There is no code worklist left.** All deterministic proof, however, ran against hermetic `git`/`pnpm`/
+`vercel` PATH-shim fakes; **nothing has touched real services yet.**
 
-All deterministic tiers green: typecheck clean, units **43/43**, `test:logic` **69/69**, default
-`cucumber-js --dry-run` **0 undefined**, `eval` dry-run **0 undefined**. `@sandbox`/`@eval` are billable
-and NOT run locally — deferred to a creds-present/CI run.
+### QM task this session: run `@sandbox` and triage what breaks (the MVP gate)
 
-**What landed (this pass):**
-- **`src/index.ts`:** `runStorefrontStage()` spawns `git clone --branch main saleor/storefront` into
-  `storefront/`, strips `.git`, `git init`s a fresh repo, spawns `pnpm install`; idempotent (reuses an
-  already-prepared `storefront/`); honest exit-code reporting (never a fabricated `completed`).
-  `runDeployStage()` spawns `npx vercel` under the Vercel CLI's OWN session, surfaces Deployment
-  Protection, honest exit-code reporting — **no `JOLLY_VERCEL_TOKEN`, no `api.vercel.com` in Jolly's
-  code** (feature 020). Both stages' previews are enriched in the single `startPlan()` source (storefront
-  names the `main` branch; deploy states the no-Vercel-token / no-Vercel-API-request invariant in prose
-  with `networkHostsContacted` empty); feature-021 dry-run/real riskContext deep-equality preserved.
-  Wired into the `commandStart` `--yes` path (storefront like `stock`; deploy in the high-risk branch).
-  Added the human-run fallback `nextStep`.
-- **Tests:** 5 new feature-002 `@logic` step defs (storefront/deploy previews, two no-fabrication
-  guardrails, human-run fallback); new `features/support/storefront-cli-fake.ts` (hermetic offline
-  `git`/`pnpm`/`vercel` PATH shims); feature-004's shared "no real Saleor credentials" Given extended to
-  write those shims; feature-025 `@eval` precision fix (the no-`success` assertion now exempts `jolly
-  start --dry-run`, whose preview legitimately reports success).
+Per AGENTS.md "MVP and Launch Definition", MVP = the full honest end-to-end against reality. The chain
+has never run a real `@saleor/configurator deploy` on a blank store, a real `npx vercel` deploy yielding
+a reachable URL, the `appInstall` Stripe step, or the doctor checkout probe. **Credentials are present
+this run** (verified 2026-06-14): `.env` carries `JOLLY_SALEOR_CLOUD_TOKEN`, `JOLLY_SALEOR_APP_TOKEN`,
+`JOLLY_STRIPE_PUBLISHABLE_KEY/SECRET_KEY`, `NEXT_PUBLIC_SALEOR_API_URL`; the Vercel CLI is authed
+(`vercel whoami` → `dmytri`); eval creds (`HARNESS_EVAL_MODEL`, `HARNESS_OPENROUTER_API_KEY`) also
+present. So `@sandbox` will execute, not skip.
 
-**Remaining real-world verification (environmental, not a code blocker):** the positive storefront/deploy
-paths are sandbox-only — they truly pass on a creds-present + Vercel-authed VM (real clone+install,
-reachable deploy URL, idempotent re-run); locally and without creds they skip/block honestly. The
-configurator deploy positive path likewise needs a blank store. Confirm on CI / the acceptance store.
+QM steps:
+1. `npm run test:sandbox` — run the real-service tier. Expect real bugs the fakes couldn't surface.
+2. Triage each failure: a genuine Jolly-code defect → dispatch a Crew Mate against that one failing
+   target; an environmental skip (no blank store for the configurator deploy, capacity limits) → record
+   the reason, not a failure.
+3. Re-green and report. The configurator-deploy positive path specifically needs a **blank** store
+   (`database_population: null`) — without one it blocks honestly rather than passing.
+
+After `@sandbox` is green, the remaining MVP steps (Captain-owned, outbound): one real paste→live-store
+acceptance run, then version-bump + `npm run build` + `npm publish` so `npx @dk/jolly` ships the merged
+chain (npm currently at 0.5.3, which predates the storefront/deploy stages). Homepage jolly.cool is live.
