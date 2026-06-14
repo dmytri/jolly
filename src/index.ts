@@ -36,6 +36,9 @@ import {
   getEnvironment,
   extractDomainUrl,
   acquireAppToken,
+  seedRecipeStock,
+  DEFAULT_STOCK_QUANTITY,
+  RECIPE_WAREHOUSE_SLUG,
   CloudApiError,
   type CloudOrganization,
 } from "./lib/cloud-api.ts";
@@ -1980,6 +1983,28 @@ function startPlan(): PlanStage[] {
       },
     },
     {
+      stage: "stock",
+      effects: {
+        directoriesCreated: [],
+        filesWritten: [],
+        networkHostsContacted: ["cloud.saleor.io"],
+        repositoriesCloned: [],
+      },
+      riskContext: {
+        action:
+          "seed recipe stock via Saleor GraphQL productVariantStocksCreate",
+        target:
+          "Port Royal Warehouse (recipe warehouse) stock for every recipe product variant",
+        riskLevel: "high",
+        categories: ["production configuration changes"],
+        reversible: false,
+        sideEffects: [
+          "Sends Saleor GraphQL productVariantStocksCreate for each recipe variant, setting a default quantity of 100 in Port Royal Warehouse (configurator cannot set stock); updates in place when a stock entry already exists",
+        ],
+        dryRunAvailable: true,
+      },
+    },
+    {
       stage: "deploy",
       effects: {
         directoriesCreated: [],
@@ -2046,7 +2071,63 @@ interface StartStage {
   riskContext?: RiskContext;
 }
 
-function commandStart(args: ParsedArgs): Envelope {
+/**
+ * Genuinely perform the recipe stock-seeding stage (feature 004 Rule "Recipe
+ * products need seeded stock"). Resolves the store GraphQL endpoint and app
+ * token from .env/process.env (first-party Saleor host only — the same creds
+ * Jolly already manages), seeds a default quantity into the recipe warehouse
+ * for every variant, and pushes an honest `stock-seeded` check. Returns
+ * `completed` only when stock was actually seeded; `blocked` when there are no
+ * recipe variants/warehouse yet or the store is unreachable — never a
+ * fabricated completion. Wrapped so a network/DNS failure (e.g. the logic-tier
+ * unroutable base) resolves quickly to `blocked` rather than throwing.
+ */
+async function runStockStage(checks: Check[]): Promise<StageStatus> {
+  const values = loadEnvValues(projectDir());
+  const endpoint =
+    process.env["NEXT_PUBLIC_SALEOR_API_URL"] ?? values["NEXT_PUBLIC_SALEOR_API_URL"] ?? "";
+  const token =
+    process.env["JOLLY_SALEOR_APP_TOKEN"] ?? values["JOLLY_SALEOR_APP_TOKEN"] ?? "";
+
+  if (!endpoint || !token) {
+    checks.push({
+      id: "stock-seeded",
+      status: "skipped",
+      description:
+        "Cannot seed recipe stock: NEXT_PUBLIC_SALEOR_API_URL and/or JOLLY_SALEOR_APP_TOKEN are not configured.",
+      remediation: "Complete the store stage so the endpoint and app token are in .env, then re-run jolly start --yes.",
+    });
+    return "blocked";
+  }
+
+  try {
+    const result = await seedRecipeStock(endpoint, token, DEFAULT_STOCK_QUANTITY, RECIPE_WAREHOUSE_SLUG);
+    checks.push({
+      id: "stock-seeded",
+      status: "pass",
+      description: `Seeded ${DEFAULT_STOCK_QUANTITY} stock for ${result.seededCount} recipe variant(s) in ${RECIPE_WAREHOUSE_SLUG} via productVariantStocksCreate.`,
+    });
+    return "completed";
+  } catch (err) {
+    const code = err instanceof CloudApiError ? err.code : "STOCK_SEED_FAILED";
+    const reason =
+      code === "RECIPE_WAREHOUSE_NOT_FOUND" || code === "NO_RECIPE_VARIANTS"
+        ? "the starter recipe is not deployed yet (no recipe variants/warehouse to seed)"
+        : "the store could not be reached or the seeding request failed";
+    checks.push({
+      id: "stock-seeded",
+      status: "fail",
+      description: `Did not seed recipe stock: ${reason}.`,
+      remediation:
+        code === "RECIPE_WAREHOUSE_NOT_FOUND" || code === "NO_RECIPE_VARIANTS"
+          ? "Deploy the starter recipe with @saleor/configurator first, then re-run jolly start --yes."
+          : "Verify NEXT_PUBLIC_SALEOR_API_URL and JOLLY_SALEOR_APP_TOKEN reach the store, then re-run jolly start --yes.",
+    });
+    return "blocked";
+  }
+}
+
+async function commandStart(args: ParsedArgs): Promise<Envelope> {
   if (args.dryRun) return commandStartDryRun();
 
   const command = "start";
@@ -2109,6 +2190,17 @@ function commandStart(args: ParsedArgs): Envelope {
           reason: "Approve this high-risk stage before Jolly performs it.",
         };
       }
+    } else if (planStage.stage === "stock" && !gate) {
+      // The stock stage is the FIRST genuinely-executing `jolly start` stage
+      // (decision 2026-06-14, MVP sequencing): @saleor/configurator cannot make
+      // products buyable, so Jolly seeds real stock itself via Saleor GraphQL.
+      // It only EXECUTES when the run actually reaches it (gate unset — i.e.
+      // the high-risk stages before it were pre-approved with --yes); otherwise
+      // it stays pending behind the gate. Reported honestly: `completed` only
+      // when stock was actually seeded against real recipe variants; `blocked`
+      // (with an explaining check) when there are no variants/warehouse yet or
+      // the store is unreachable — never a fabricated completion.
+      status = await runStockStage(checks);
     } else {
       status = "pending";
     }

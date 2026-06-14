@@ -96,4 +96,15 @@ Feature: Jolly Configurator starter recipe
       021 `riskContext` (catalog data modification) and is idempotent and resumable (feature 022):
       re-running updates the quantities rather than creating duplicate stock entries.
     - The default quantity is a v1 constant; a configurable quantity is a post-MVP iteration.
+    - `jolly start` **performs** this seeding itself — it is Jolly's own Saleor GraphQL call, not a
+      spawned CLI — and reports it **honestly** (decision 2026-06-14, MVP sequencing). When the run
+      reaches the stock stage and the store holds the recipe's variants (the configurator deploy has
+      happened), Jolly executes `productVariantStocksCreate` for each variant and reports the stage
+      `completed` only when stock was actually seeded; if no recipe variants are present yet (recipe
+      not deployed), the stage is reported `pending`/`blocked` honestly, never a fabricated
+      `completed`. Because seeding is plain GraphQL with no interactive stdio, it is the **first
+      genuinely-executing `jolly start` stage**: the CLI-spawning stages (git/pnpm/configurator/
+      vercel) remain plan-and-gate and agent-driven via the Jolly skill until later iterations build
+      them. The full in-process orchestrator of features 001/002 stays the goal; it is built
+      incrementally, stock-seeding first.
 

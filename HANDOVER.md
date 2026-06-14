@@ -10,20 +10,97 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
-## HANDOFF (2026-06-14, Captain → QM): ONE focused iteration — implement recipe stock-seeding
+## DONE (2026-06-14, QM round 2 + Crew — stock-seeding GENUINELY EXECUTES): all logic green, UNCOMMITTED
 
-**Next role: QM in a FRESH/cleared session** (Captain→QM context firewall). Scope this iteration to
-**one thing: the stock-seeding cycle** below. Everything else this session is already committed and
-pushed; do not widen the iteration.
+The round-2 worklist below is **complete and verified** — `jolly start` now genuinely performs the
+recipe stock-seeding stage (no longer a dry-run-only plan entry). All deterministic tiers green:
+`tsc --noEmit` clean, units **43/43**, `npm run test:logic` **59/59**, default `--dry-run` **0
+undefined**. `@sandbox`/`test:bdd` NOT run locally (billable) — deferred to a creds-present/CI run.
 
-**The QM worklist (deterministic, ready):** make `jolly start` seed stock for recipe variants —
-feature **004**, the **2 undefined scenarios** (`npx cucumber-js --dry-run` → 11 undefined steps is
-the marker). Full detail in the "DECISION (customer): seed real stock" + "QM/Crew worklist" parts of
-the acceptance-run section below. In short: QM writes the step defs (the `@logic` "previews seeding
-stock" is the deterministic target; the `@sandbox` one skips without creds), then dispatches Crew to
-implement post-configurator-deploy stock seeding via Saleor GraphQL `productVariantStocksCreate`
-(default qty 100, recipe warehouse, idempotent, riskContext, dry-run preview). Verify: `@logic`/units/
-typecheck green, default dry-run back to 0 undefined.
+**What landed (QM+Crew, this session):**
+- **Crew — `jolly start` performs the seeding.** `src/lib/cloud-api.ts` gained `seedRecipeStock()`
+  (+ exported `RECIPE_WAREHOUSE_SLUG = "port-royal"` / `DEFAULT_STOCK_QUANTITY = 100`): resolves the
+  recipe warehouse by slug, queries every product variant, and sets stock 100 via
+  `productVariantStocksCreate` with a `productVariantStocksUpdate` fallback when an entry already
+  exists (idempotent update-in-place, feature 022); stable error codes `RECIPE_WAREHOUSE_NOT_FOUND`/
+  `NO_RECIPE_VARIANTS`. `src/index.ts`: `commandStart` is now `async`; new `runStockStage()` executes
+  seeding **only when the run reaches the `stock` stage** (gate unset — i.e. `--yes` pre-approved the
+  prior high-risk stages) and reports `completed` **only when stock was actually seeded**, else
+  `blocked` with an honest `stock-seeded` check — never fabricated. Fails fast against an unroutable
+  endpoint (no hang). Key design note: `stock` is deliberately **NOT** in `HIGH_RISK_STAGES` — that
+  array's `--yes` branch sets stages to `pending` (the CLI-spawning stages stay plan-and-gate), so the
+  one genuinely-executing stage needs its own branch. `--dry-run` and the single `startPlan()`
+  riskContext source are untouched (021 deep-equality preserved).
+- **QM — `@sandbox` scenario re-pointed.** `features/step_definitions/004-…steps.ts`: the "seeds
+  stock so the recipe catalog is buyable" `When` now keys on `data.stages` `stock.status ===
+  "completed"` (the genuinely-executing outcome) instead of the never-completing `recipe` stage. It
+  skips cleanly — premise not producible — when the recipe isn't deployed (no variants → Jolly reports
+  `blocked`/`pending` honestly); on a creds-present store **with the recipe deployed** it genuinely
+  verifies seeded stock + a non-`INSUFFICIENT_STOCK` `us` checkout + idempotent re-run.
+
+**UNCOMMITTED working tree** (committing is the Captain/customer action): `src/index.ts`,
+`src/lib/cloud-api.ts` (Crew), `features/step_definitions/004-…steps.ts` (QM) — plus the round-1 +
+prior-Captain edits already in the tree (`AGENTS.md`, `HANDOVER.md`, `assets/homepage/index.html`,
+`features/004-…feature`, `features/support/sandbox.ts`). This is a feature increment → next release
+is a **minor** bump (v0.6.0), built+published by the customer (`npm publish` needs auth).
+
+**Remaining real-world verification (environmental, not a code blocker):** the positive
+stock-seeding path is sandbox-only — it truly passes on a creds-present store **with the starter
+recipe already deployed**; locally and on recipe-less stores it skips. Confirm on CI / the acceptance
+store.
+
+**Next iteration candidates (Captain/customer to choose):** (a) the **"back to Stripe" track** —
+implement `jolly start`'s Stripe stage to `appInstall` the Stripe app (Cloud token + `stripe-v2`
+manifest, idempotent) + guided keys/`us`-channel Dashboard gate (deferred below); (b) build the next
+spawned-CLI stage (configurator deploy) as a genuinely-executing stage; (c) drive the live acceptance
+run's last human gate (Dashboard Stripe app + channel map) to close feature 002's checkout bar.
+
+---
+
+## HANDOFF (2026-06-14, Captain → QM): make stock-seeding GENUINELY EXECUTE (round 2) — COMPLETE, see DONE above
+
+**Next role: QM in a FRESH/cleared session** (Captain→QM context firewall).
+
+**What just happened (QM round 1 — DONE, uncommitted):** QM wrote the feature-004 step defs and Crew
+added a `stock` plan stage to `startPlan()`. The `@logic` "previews seeding stock" target is GREEN
+(typecheck clean, units 43/43, `test:logic` 59/59, dry-run 0 undefined). BUT QM correctly flagged a
+blocker: **`commandStart` does not execute any downstream stage.** Grep-confirmed — the only things
+`jolly start` actually spawns are `npx skills add` (init) and `stripe config --list`; there is no
+`git`/`pnpm`/`@saleor/configurator`/`npx vercel` and no `productVariantStocksCreate` anywhere in
+`src/`. So the new stock stage is only a **dry-run plan entry** — the acceptance-run zero-stock
+checkout block is *previewed* but not *fixed in code*, and the `@sandbox` "seeds stock so the catalog
+is buyable" scenario can never pass (its `jolly start --yes` Given never completes the recipe stage).
+
+**DECISION (customer, 2026-06-14) resolving the blocker:**
+- **Confirmed: `@saleor/configurator` cannot seed stock** (re-affirmed; verified live this same day —
+  v3.23 variant schema has no `stocks`/`trackInventory`, hardcodes `trackInventory:true`). So Jolly
+  seeds via Saleor GraphQL `productVariantStocksCreate` — already the spec'd approach. Not configurator.
+- **The full in-process orchestrator (jolly start spawns ALL the CLIs) stays the GOAL** — do **not**
+  revert the 001/002/021 orchestration specs to a playbook. We converge on it **incrementally**.
+- **MVP-first: make the stock-seeding the FIRST genuinely-executing `jolly start` stage** — it is
+  Jolly's own GraphQL (no CLI spawn, no interactive stdio), the cheapest real stage and the actual
+  acceptance-run fix. The CLI-spawning stages (git/pnpm/configurator/vercel) **stay agent-driven via
+  the Jolly skill** (the model that produced a live store) until later iterations build their spawning.
+- Captured in **feature 004** Rule "Recipe products need seeded stock" (new "jolly start performs it /
+  honest reporting" bullet) and **AGENTS.md** orchestration block ("MVP sequencing" sub-bullet).
+
+**The QM worklist (round 2):**
+1. **Crew — make `jolly start` actually PERFORM the stock seeding** (`src/index.ts`). When the run
+   reaches the `stock` stage and the store holds the recipe's variants (resolve the `port-royal`
+   warehouse + query the recipe channel's variants), execute `productVariantStocksCreate` (default 100,
+   update-in-place if a stock entry exists — idempotent, feature 022) via Jolly's existing Saleor
+   GraphQL plumbing + app token; first-party host only. Report the stage `completed` **only when stock
+   was actually seeded**; report `pending`/`blocked` honestly when no recipe variants exist yet (recipe
+   not deployed) — never fabricate (integrity rule). The dry-run preview riskContext must stay
+   deep-equal to the real-run stage's (021), so keep building it from the single `startPlan()` source.
+2. **QM — make the `@sandbox` "Jolly start seeds stock…" scenario actually verify execution.** Re-point
+   the step def off "the `recipe` stage is completed" (it never will be — `jolly start` doesn't deploy
+   the recipe) onto the **`stock` stage performing the seeding against the store's recipe variants**:
+   on a store that has the recipe deployed, assert the variants gain stock in `port-royal`, a `us`
+   checkout is not `INSUFFICIENT_STOCK`, and a re-run updates-in-place (no duplicate entries). It still
+   skips without creds; on a creds-present/CI store with the recipe deployed it must genuinely pass.
+3. **Verify** — `@logic`/units/typecheck green; default dry-run stays 0 undefined; on a creds-present
+   VM with the recipe deployed, the `@sandbox` stock scenario seeds and the `us` checkout clears.
 
 **Already DONE + committed this Captain session (context, not QM work):**
 - **Stripe `appInstall` works — and is now implemented-ready.** Corrected the earlier wrong "staff-only,

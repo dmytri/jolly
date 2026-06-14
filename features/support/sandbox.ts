@@ -69,6 +69,10 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   // 004-jolly-configurator-starter-recipe
   "Agent prepares the starter recipe": ["saleorEndpoint", "saleorAppToken"],
   "Agent applies the starter recipe safely": ["saleorEndpoint", "saleorAppToken"],
+  "Jolly start seeds stock so the recipe catalog is buyable": [
+    "saleorEndpoint",
+    "saleorAppToken",
+  ],
   // 005-stripe-checkout-setup
   "Agent configures Saleor for Stripe": [
     "saleorEndpoint",

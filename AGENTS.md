@@ -180,6 +180,20 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompt
   This applies to `jolly start` (feature 001/002); the retired `create deployment`/`deploy`/
   `create recipe`/`create storefront` are **not** revived as separate fat commands — the
   orchestration lives **inside `start`**, spawning the official CLIs.
+  - **MVP sequencing — the orchestrator is built incrementally; stock-seeding executes first
+    (decision 2026-06-14).** The full in-process orchestrator above is the **goal**, not a single
+    build: today `commandStart` does real bootstrap (init + doctor) then **plans and gates** the
+    downstream stages (it reports each stage's status + `riskContext` and pauses for approval) — it
+    does not yet spawn `git`/`pnpm`/`@saleor/configurator`/`npx vercel`. Those stages stay
+    **agent-driven via the Jolly skill** (the model that produced a live store in the 2026-06-14
+    acceptance run) until later iterations wire their real spawning. The **first stage made to
+    genuinely execute is the recipe stock-seeding** (feature 004), because it is Jolly's own Saleor
+    GraphQL call (`productVariantStocksCreate`) with no CLI spawn and no interactive stdio — the
+    cheapest real stage and the fix for the acceptance-run zero-stock checkout block. `jolly start`
+    performs it against the store's recipe variants, idempotently, reporting `completed` only when
+    stock was actually seeded and `pending`/`blocked` honestly when the recipe is not yet deployed.
+    We do **not** revert the orchestration specs to a pure playbook; we converge on them stage by
+    stage, honesty-first (no fabricated stage completion — integrity rule below).
 - **Install skills via `npx skills add` (decision 2026-06-13):** Jolly installs every skill —
   the Jolly skill and the Saleor agent-skills — through `npx skills add <ref>`, falling back to
   a Git-based install only for a skill not available that way (e.g. Paper's embedded skill,

@@ -538,6 +538,196 @@ export async function acquireAppToken(
   return authToken;
 }
 
+// ── Recipe stock seeding (feature 004 Rule "Recipe products need seeded stock")
+//
+// @saleor/configurator cannot make products buyable (its variant schema has no
+// `stocks`/`trackInventory`), so `jolly start`'s stock stage seeds real stock
+// itself via Saleor GraphQL — first-party host, the app token Jolly already
+// manages. For every product variant it sets a default quantity in the recipe
+// warehouse (resolved by slug) with `productVariantStocksCreate`, falling back
+// to `productVariantStocksUpdate` when a stock entry already exists, so a
+// re-run updates in place rather than creating a duplicate (idempotent —
+// feature 022).
+
+export const RECIPE_WAREHOUSE_SLUG = "port-royal";
+export const DEFAULT_STOCK_QUANTITY = 100;
+
+interface SeedStockResult {
+  warehouseId: string;
+  variantCount: number;
+  seededCount: number;
+}
+
+/** Resolve the recipe warehouse id by slug; undefined when it does not exist. */
+async function queryWarehouseId(
+  graphqlUrl: string,
+  token: string,
+  slug: string,
+): Promise<string | undefined> {
+  const data = await graphqlFetch(
+    graphqlUrl,
+    token,
+    `query Warehouses { warehouses(first: 100) { edges { node { id slug } } } }`,
+  );
+  const warehouses = data.warehouses as Record<string, unknown> | undefined;
+  const edges = (warehouses?.edges ?? []) as Array<Record<string, unknown>>;
+  const match = edges
+    .map((edge) => edge.node as { id: string; slug: string })
+    .find((node) => node.slug === slug);
+  return match?.id;
+}
+
+interface StockVariant {
+  id: string;
+  hasStockInWarehouse: boolean;
+}
+
+/** Query every product variant and whether it already has a stock entry in the
+ * recipe warehouse (so seeding can pick create vs. update). */
+async function queryVariantsForStock(
+  graphqlUrl: string,
+  token: string,
+  warehouseSlug: string,
+): Promise<StockVariant[]> {
+  const data = await graphqlFetch(
+    graphqlUrl,
+    token,
+    `query VariantsForStock {
+      productVariants(first: 100) {
+        edges { node { id stocks { warehouse { slug } } } }
+      }
+    }`,
+  );
+  const variants = data.productVariants as Record<string, unknown> | undefined;
+  const edges = (variants?.edges ?? []) as Array<Record<string, unknown>>;
+  return edges.map((edge) => {
+    const node = edge.node as {
+      id: string;
+      stocks?: Array<{ warehouse?: { slug?: string } }>;
+    };
+    const hasStockInWarehouse = (node.stocks ?? []).some(
+      (stock) => stock.warehouse?.slug === warehouseSlug,
+    );
+    return { id: node.id, hasStockInWarehouse };
+  });
+}
+
+/** Set a variant's stock in one warehouse, creating the entry or updating it in
+ * place when it already exists. Primary: productVariantStocksCreate; on a
+ * payload error (e.g. the entry already exists) falls back to
+ * productVariantStocksUpdate for that warehouse/variant. */
+async function setVariantStock(
+  graphqlUrl: string,
+  token: string,
+  variantId: string,
+  warehouseId: string,
+  quantity: number,
+  preferUpdate: boolean,
+): Promise<void> {
+  const stocks = [{ warehouse: warehouseId, quantity }];
+
+  const runCreate = async (): Promise<Array<Record<string, unknown>>> => {
+    const data = await graphqlFetch(
+      graphqlUrl,
+      token,
+      `mutation StocksCreate($variantId: ID!, $stocks: [StockInput!]!) {
+        productVariantStocksCreate(variantId: $variantId, stocks: $stocks) {
+          bulkStockErrors { code field index message }
+          errors { code field message }
+        }
+      }`,
+      { variantId, stocks },
+    );
+    const result = data.productVariantStocksCreate as Record<string, unknown> | undefined;
+    return [
+      ...((result?.bulkStockErrors ?? []) as Array<Record<string, unknown>>),
+      ...((result?.errors ?? []) as Array<Record<string, unknown>>),
+    ];
+  };
+
+  const runUpdate = async (): Promise<Array<Record<string, unknown>>> => {
+    const data = await graphqlFetch(
+      graphqlUrl,
+      token,
+      `mutation StocksUpdate($variantId: ID!, $stocks: [StockInput!]!) {
+        productVariantStocksUpdate(variantId: $variantId, stocks: $stocks) {
+          bulkStockErrors { code field index message }
+          errors { code field message }
+        }
+      }`,
+      { variantId, stocks },
+    );
+    const result = data.productVariantStocksUpdate as Record<string, unknown> | undefined;
+    return [
+      ...((result?.bulkStockErrors ?? []) as Array<Record<string, unknown>>),
+      ...((result?.errors ?? []) as Array<Record<string, unknown>>),
+    ];
+  };
+
+  if (preferUpdate) {
+    const updateErrors = await runUpdate();
+    if (updateErrors.length === 0) return;
+    // Fall through to create when the entry did not actually exist.
+  }
+
+  const createErrors = await runCreate();
+  if (createErrors.length === 0) return;
+
+  // The entry already exists (or create rejected it): update in place.
+  const updateErrors = await runUpdate();
+  if (updateErrors.length > 0) {
+    throw new CloudApiError(
+      `Failed to seed stock for variant ${variantId}: ${JSON.stringify(updateErrors)}`,
+      "STOCK_SEED_FAILED",
+    );
+  }
+}
+
+/**
+ * Seed the recipe warehouse stock for every product variant on the store.
+ * Resolves the recipe warehouse by slug, then sets `quantity` for each variant
+ * (create-or-update-in-place, idempotent). Throws RECIPE_WAREHOUSE_NOT_FOUND
+ * when the warehouse is absent and NO_RECIPE_VARIANTS when the store holds no
+ * variants — so the caller can report the stage honestly (blocked, not a
+ * fabricated completion) instead of claiming success.
+ */
+export async function seedRecipeStock(
+  graphqlUrl: string,
+  token: string,
+  quantity: number = DEFAULT_STOCK_QUANTITY,
+  warehouseSlug: string = RECIPE_WAREHOUSE_SLUG,
+): Promise<SeedStockResult> {
+  const warehouseId = await queryWarehouseId(graphqlUrl, token, warehouseSlug);
+  if (!warehouseId) {
+    throw new CloudApiError(
+      `Recipe warehouse "${warehouseSlug}" not found; the starter recipe is not deployed`,
+      "RECIPE_WAREHOUSE_NOT_FOUND",
+    );
+  }
+  const variants = await queryVariantsForStock(graphqlUrl, token, warehouseSlug);
+  if (variants.length === 0) {
+    throw new CloudApiError(
+      "No product variants found; the starter recipe is not deployed",
+      "NO_RECIPE_VARIANTS",
+    );
+  }
+  for (const variant of variants) {
+    await setVariantStock(
+      graphqlUrl,
+      token,
+      variant.id,
+      warehouseId,
+      quantity,
+      variant.hasStockInWarehouse,
+    );
+  }
+  return {
+    warehouseId,
+    variantCount: variants.length,
+    seededCount: variants.length,
+  };
+}
+
 async function withRetries<T>(
   fn: () => Promise<T>,
   attempts: number = 5,
