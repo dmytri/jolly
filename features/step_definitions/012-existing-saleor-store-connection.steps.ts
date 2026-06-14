@@ -442,11 +442,25 @@ Then("the default region should be {string}", function (this: JollyWorld, region
   assert.equal(envData(this)["region"], region);
 });
 
-Then("the default database template should be {string}", function (this: JollyWorld, template: string) {
-  const body = envData(this)["requestBody"] as Record<string, unknown>;
-  assert.equal(body["database_population"], template);
-  assert.equal(envData(this)["databaseTemplate"], template);
-});
+Then(
+  "the prepared request should create a blank environment with no sample data",
+  function (this: JollyWorld) {
+    const body = envData(this)["requestBody"] as Record<string, unknown>;
+    // Blank provisioning (decision 2026-06-14, finding #2): the env-create body
+    // sends database_population: null (the Saleor "blank" template) so the
+    // stage-6 recipe deploy stays additive — never "sample".
+    assert.ok(
+      "database_population" in body,
+      "request body must carry database_population",
+    );
+    assert.strictEqual(
+      body["database_population"],
+      null,
+      "a blank environment must send database_population: null, not sample data",
+    );
+    assert.equal(envData(this)["databaseTemplate"], "blank");
+  },
+);
 
 Then("no environment should be created", function (this: JollyWorld) {
   const harness = this.notes.harnessServer as HarnessServer | undefined;

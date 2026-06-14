@@ -871,7 +871,7 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
       name: effectiveName,
       project: effectiveName,
       domain_label: effectiveDomainLabel,
-      database_population: "sample",
+      database_population: null,
       service: "saleor",
       region,
     };
@@ -888,7 +888,7 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
         requestUrl: resolvedTarget,
         organization: selectedOrg,
         region,
-        databaseTemplate: "sample",
+        databaseTemplate: "blank",
         requestBody,
         riskContext: createStoreRiskContext(resolvedTarget),
       },
@@ -976,7 +976,7 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
         name: effectiveName,
         project: projectSlug,
         domain_label: effectiveDomainLabel,
-        database_population: "sample",
+        database_population: null,
         service,
         region,
       });

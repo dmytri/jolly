@@ -10,8 +10,9 @@
 // - Projects: POST /platform/api/organizations/{slug}/projects/ with body
 //   { name, plan: "dev", region }.
 // - Environments: POST /platform/api/organizations/{slug}/environments/ with
-//   body { name, project, domain_label, database_population: "sample",
-//   service, region: "us-east-1" }. Returns a task_id.
+//   body { name, project, domain_label, database_population: null (blank —
+//   no sample data, decision 2026-06-14), service, region: "us-east-1" }.
+//   Returns a task_id.
 // - Task status: GET /platform/api/service/task-status/{task_id} until
 //   status is "SUCCEEDED".
 // - The environment task result contains the domain URL
@@ -211,7 +212,7 @@ export async function createEnvironment(
     name: string;
     project: string;
     domain_label: string;
-    database_population: string;
+    database_population: string | null;
     service: string;
     region: string;
   },
