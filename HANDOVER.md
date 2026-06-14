@@ -63,6 +63,12 @@ only stages actually performed.
    `riskContext` + pause before each high-risk stage (`--yes` to pre-approve); resumable, skips
    satisfied stages; no fabrication. Keep the composable commands. Configurator deploy must handle
    the blank-vs-sample env (blank provisioning already shipped v0.5.2) and destructive-delete flags.
+   **Stripe stage (feature 005, automation split verified 2026-06-14):** Jolly installs the Stripe
+   app via Saleor GraphQL `appInstall` (HANDLE_PAYMENTS; verify the current manifest URL at impl
+   time; idempotent); the recipe already sets the channel payment flow; the keys + channel-config
+   mapping have NO public API, so `start` runs a precise guided walk-through (deep link + paste-here
+   instructions, keys by name) and waits, then verifies via `paymentGatewayInitialize`/checkout.
+   Configurator and the Cloud API cannot do any of this — checked.
 2. **QM — regenerate step defs** for the reframed scenarios in 001/002 and the **025 eval** (the 2
    new Then-steps: invoked `jolly start`; honest stop at a human/credential gate under safe creds).
    012-incident safety throughout.

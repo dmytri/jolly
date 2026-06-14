@@ -157,10 +157,16 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompt
   - **Composable commands stay.** Every stage `start` runs is still available as an independent
     command the agent can call and mediate itself (feature 008 surface, feature 022
     resumability); `start` chains them — it does not replace them.
-  - **Stripe enablement remains a Dashboard/human step** (Paper takes no Stripe keys; it reads
-    the publishable key from Saleor `paymentGatewayInitialize` at runtime, so the keys live in
-    Saleor's Dashboard Stripe app, not the storefront). `jolly create stripe` only imports the
-    test keys into `.env`; `start` announces-and-waits at the Dashboard Stripe step.
+  - **Stripe — Jolly automates what the APIs allow; the key entry is a guided gate** (verified
+    2026-06-14, feature 005). `@saleor/configurator` and the Cloud API cannot touch the Stripe
+    app; the Saleor GraphQL `appInstall` mutation CAN install it (HANDLE_PAYMENTS), but no public
+    API sets its keys or maps it to a channel — that lives in the app's Dashboard form. So the
+    `start` Stripe stage = (1) Jolly installs the app via `appInstall`; (2) the recipe sets the
+    channel payment flow; (3) Jolly runs a precise guided walk-through for the keys (deep link +
+    "paste this here, assign to the `us` channel", keys by name only) and waits; (4) Jolly probes
+    `paymentGatewayInitialize`/checkout to verify. Paper takes no Stripe keys (it reads the
+    publishable key from Saleor at runtime); `jolly create stripe` only imports the test keys into
+    `.env`.
   This applies to `jolly start` (feature 001/002); the retired `create deployment`/`deploy`/
   `create recipe`/`create storefront` are **not** revived as separate fat commands — the
   orchestration lives **inside `start`**, spawning the official CLIs.

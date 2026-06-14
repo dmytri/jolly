@@ -81,16 +81,40 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     - Stripe live mode is explicitly out of v1 scope.
     - Payment credentials are secrets and must not be printed.
 
-  Rule: Stripe app path (resolved 2026-06-13)
-    - The Saleor-supported path is the Stripe app, configured in the Saleor Dashboard →
-      Extensions with the publishable key and a Stripe secret/restricted key, and mapped to the
-      storefront's channel (the starter recipe's `us` channel). `@saleor/configurator` manages
-      catalog and channels only; it does not configure payments.
+  Rule: Stripe app path (resolved 2026-06-13; automation split clarified 2026-06-14)
+    - The Saleor-supported path is the Stripe app, configured with a publishable key and a Stripe
+      **restricted** key (with the app's required scopes), and mapped to the storefront's channel
+      (the starter recipe's `us` channel).
+    - What each API can and cannot do (verified 2026-06-14 against current Saleor docs + the
+      configurator source — this is the authority for the automation split):
+      - **`@saleor/configurator`: cannot.** It manages catalog/channels/settings only; its sole
+        payment field is the channel's `defaultTransactionFlowStrategy` (the recipe already sets
+        `CHARGE`). No app install, no payment/gateway config in its schema or source.
+      - **Saleor Cloud platform API: cannot.** It manages orgs/projects/environments; it exposes
+        no app/extension-install endpoint (the Dashboard "Extensions" one-click is sugar over the
+        Saleor GraphQL `appInstall`).
+      - **Saleor GraphQL API: installs the app, does not configure it.** `appInstall(manifestUrl,
+        appName, permissions: [HANDLE_PAYMENTS])` installs the Stripe app programmatically against
+        the customer's `*.saleor.cloud` endpoint. There is **no** public GraphQL mutation to set
+        the app's keys or assign a configuration to a channel — post-install GraphQL is limited to
+        `appActivate`/`appTokenCreate`. Key entry + channel-config mapping live in the Stripe
+        app's own Dashboard form (no documented/stable public API).
+    - Resulting division (this is the `jolly start` Stripe stage):
+      1. **Install — Jolly automates** the Stripe app install via GraphQL `appInstall` (verify the
+         current manifest URL at implementation time; idempotent — reuse an existing install).
+      2. **Channel payment flow — configurator/recipe** already sets it on the `us` channel.
+      3. **Keys + channel-config mapping — Jolly runs a guided walk-through** (the announce-and-wait
+         human gate, made precise): it pauses and emits, in the feature 020 envelope, the exact
+         deep link to the installed app's configuration page and step-by-step "paste this
+         publishable key here, this restricted key there, assign the config to the `us` channel"
+         instructions (keys referenced by name, never printed), then waits for the human to confirm.
+      4. **Verify — Jolly probes** `paymentGatewayInitialize` / a checkout to confirm the Stripe
+         test payment step is reachable before reporting the stage done (no fabrication).
     - The Stripe app registers and removes its own Stripe webhooks when a configuration is
       created or deleted — Jolly does not automate Stripe webhook endpoint registration.
-    - Jolly's only Stripe role is writing the two test keys to `.env`; installing and configuring
-      the Stripe app is the agent's step, guided by the Jolly skill. `jolly doctor` verifies that
-      checkout can progress to the Stripe test payment step.
+    - If a stable public API for setting the app's keys/channel ever ships, step 3 can be
+      automated too; until then it stays the guided human gate (do not build on the app's
+      undocumented internal config endpoint).
 
   Rule: Stripe keys via the official CLI OAuth, imported by Jolly (decision 2026-06-13; amended 2026-06-13)
     - The primary way the agent gets the two test keys is the official Stripe CLI's browser OAuth
