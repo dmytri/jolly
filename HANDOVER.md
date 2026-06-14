@@ -38,8 +38,24 @@ Two real Jolly defects the PATH-shim fakes had hidden, plus four test/harness ro
   instead of reading a clobbered envelope; the 022 detection scenarios assert via the documented
   `data.stages` contract and place the storefront artifact under `storefront/`.
 
-### Remaining MVP steps (Captain-owned, outbound)
+### Published: `@dk/jolly@0.6.0` is live on npm (`latest`)
 
-One real paste→live-store acceptance run, then version-bump + `npm run build` + `npm publish` so
-`npx @dk/jolly` ships the merged chain (npm currently at 0.5.3, which predates the storefront/deploy
-stages). Homepage jolly.cool is live.
+Version-bumped 0.5.3 → 0.6.0, published, and smoke-tested via `npx @dk/jolly@0.6.0` on a clean
+machine — the merged `jolly start` chain now ships. Tag `v0.6.0` is on `origin/main`. Homepage
+jolly.cool is live.
+
+### Remaining MVP steps
+
+- **Acceptance run (not yet done):** one real paste→live-store run to the feature 002 operational-
+  readiness bar (deployed URL works, browsing/cart work against Saleor Cloud, checkout reaches the
+  Stripe test payment step, `jolly doctor` checkout probe `pass`). The customer chose to publish
+  before this run; it remains the final honest end-to-end confirmation. Best run against a **fresh
+  blank** environment (the existing non-blank `jolly-store` makes the configurator-deploy positive
+  path block-honestly rather than deploy).
+
+### Known follow-up (optimization, not a defect)
+
+The npm tarball is ~17.9 MB because `assets/skills/jolly/images/` ships 12 pirate product PNGs
+(~1.5–2.2 MB each) the starter `recipe.yml` references. Functional and pre-existing (0.5.3 shipped
+them too), but heavy for an `npx`-first CLI. Trimming (compress, or host remotely and reference by
+URL in the recipe) is a Captain/assets decision for a future patch.
