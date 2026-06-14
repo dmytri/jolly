@@ -275,12 +275,33 @@ products:
           - channel: us
             price: 35.00
 
+  # Easter egg — the boat the project is named after. A jolly (or jolly-boat) is
+  # the little craft a ship carries to row the crew ashore and get the real work
+  # done. That is what this tool is: not the grand vessel, the one that gets you there.
+  - name: "The Jolly"
+    slug: the-jolly
+    description: "Every ship carries one: the small, trusty boat that rows the crew ashore to do the real work. Not the grand vessel — the one that actually gets you there. (Now you know where the name came from.)"
+    productType: Pirate Goods
+    category: ship-supplies
+    channelListings:
+      - channel: us
+        isPublished: true
+        visibleInListings: true
+        isAvailableForPurchase: true
+    variants:
+      - name: Default
+        sku: JOLLY-001
+        channelListings:
+          - channel: us
+            price: 1250.00
+
 # A featured collection for Paper's storefront merchandising.
 collections:
   - name: "Crew Favorites"
     slug: crew-favorites
     description: "What every well-equipped pirate carries aboard."
     products:
+      - the-jolly
       - cutlass
       - brass-spyglass
       - tricorne-hat
