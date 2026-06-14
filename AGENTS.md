@@ -2,7 +2,7 @@
 
 ## Required Shipshape Workflow
 
-This repository uses Shipshape for its three-role, spec-driven agent workflow.
+This repository uses Shipshape for its four-role, spec-driven agent workflow.
 
 Before doing substantive work, install or load Shipshape for your active agent runtime:
 
@@ -34,7 +34,7 @@ Substantive work means changing specs, tests, fixtures, harnesses, implementatio
 
 If Shipshape is not available and cannot be installed, stop and report that blocker before editing.
 
-Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompts locally in this repository. Shipshape owns the workflow. Jolly-specific project constraints live in this file.
+Do not recreate `/captain`, `/qm`, `/crew`, `/bosun`, `/clearrole`, or generic role prompts locally in this repository. Shipshape owns the workflow. Jolly-specific project constraints live in this file.
 
 ## Project Stack
 
@@ -192,8 +192,12 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompt
     cheapest real stage and the fix for the acceptance-run zero-stock checkout block. `jolly start`
     performs it against the store's recipe variants, idempotently, reporting `completed` only when
     stock was actually seeded and `pending`/`blocked` honestly when the recipe is not yet deployed.
-    We do **not** revert the orchestration specs to a pure playbook; we converge on them stage by
-    stage, honesty-first (no fabricated stage completion — integrity rule below).
+    The **second genuinely-executing stage is the Stripe app install** (feature 005): like
+    stock-seeding it is Jolly's own Saleor GraphQL call (`appInstall`, Cloud staff token + the
+    `stripe-v2` manifest, idempotent) with no CLI spawn or interactive stdio, gated for approval; the
+    keys + `us`-channel mapping stay the announce-and-wait human gate (no public API). We do **not**
+    revert the orchestration specs to a pure playbook; we converge on them stage by stage,
+    honesty-first (no fabricated stage completion — integrity rule below).
 - **Install skills via `npx skills add` (decision 2026-06-13):** Jolly installs every skill —
   the Jolly skill and the Saleor agent-skills — through `npx skills add <ref>`, falling back to
   a Git-based install only for a skill not available that way (e.g. Paper's embedded skill,
@@ -298,8 +302,10 @@ approval and interaction gates:
    to `.env` — the agent never handles the secret. Explicit `--publishable-key`/`--secret-key`
    flags override (durable Dashboard keys). These CLI keys are test-mode and expire (~90 days); the skill
    warns the agent to swap in durable Dashboard keys before expiry, and pasting Dashboard keys is
-   the always-supported alternative. The agent then configures the Saleor Stripe app (Dashboard
-   Extensions), mapped to the storefront channel, and verifies checkout readiness with
+   the always-supported alternative. `jolly start` installs the Saleor Stripe app itself via Saleor
+   GraphQL `appInstall` (Cloud staff token + `stripe-v2` manifest, idempotent — the second
+   genuinely-executing stage after stock-seeding); the keys + `us`-channel-configuration mapping stay
+   the guided Dashboard human gate (no public API), and checkout readiness is verified with
    `jolly doctor` (feature 005). `@saleor/configurator` manages catalog and channels only — it
    does not configure payments. (Decision 2026-06-13; Saleor's acceptance of the CLI-issued
    `sk_test_` key is to be confirmed in the acceptance run — adopt-on-green.)

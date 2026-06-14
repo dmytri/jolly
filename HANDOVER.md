@@ -10,6 +10,71 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
+## HANDOFF (2026-06-14, Captain → QM): make the Stripe app install the SECOND genuinely-executing `jolly start` stage
+
+**Next role: QM in a FRESH/cleared session** (Captain→QM context firewall).
+
+**The iteration:** converge the next stage onto the in-process orchestrator. Stock-seeding (feature 004)
+was the first genuinely-executing `jolly start` stage; the **Stripe app install** is the natural
+second — it is Jolly's own Saleor GraphQL `appInstall` (Cloud staff token + `stripe-v2` manifest), no
+CLI spawn, no interactive stdio (same shape as stock-seeding). The keys + `us`-channel mapping stay the
+announce-and-wait human gate (no public API). Decision/contracts are in **feature 005** new Rule
+"`jolly start` Stripe stage — Jolly installs the app, keys + channel map is a guided gate" and the
+existing "Stripe app path" rule; AGENTS.md "MVP sequencing" + MVP stage 8.
+
+**Gap today:** `startPlan()` (`src/index.ts`) stages are `init, auth, store, storefront, recipe, stock,
+deploy` — **there is no Stripe stage at all**, even though AGENTS.md lists it as MVP stage 8.
+`appInstall` exists nowhere in `src/` yet.
+
+**Specs landed this Captain pass (UNCOMMITTED):** feature 005 — 3 new scenarios (2 `@logic`, 1
+`@sandbox`) + the new Rule; AGENTS.md — MVP-sequencing sub-bullet + MVP stage 8. Default
+`cucumber-js --dry-run` now shows **3 undefined scenarios / 15 undefined steps** (feature 005) — the
+intended QM marker. typecheck/units untouched.
+
+**QM/Crew worklist (round 1):**
+1. **Crew — add the Stripe stage to `startPlan()`** (`src/index.ts`), running **after** `deploy`, with
+   a riskContext (categories incl. `payment setup` + `production configuration changes`; reversible —
+   app uninstall exists) whose preview names the real Saleor GraphQL `appInstall` request, the
+   `stripe-v2` manifest URL, Cloud-staff-token auth, and states the keys+`us`-channel mapping is a
+   guided human gate. Dry-run preview only (no mutation). Build the riskContext from one shared source
+   so `--dry-run` and the real run stay deep-equal (feature 021).
+2. **Crew — make the install GENUINELY EXECUTE.** Like `runStockStage()`, add a Stripe stage executor:
+   when the run reaches the stage (gate approved / `--yes`), call `appInstall(manifestUrl, "...",
+   [HANDLE_PAYMENTS])` against the store GraphQL endpoint using `JOLLY_SALEOR_CLOUD_TOKEN` (staff auth —
+   an app token gets `PermissionDenied`); manifest `https://stripe-v2.saleor.app/api/manifest`
+   (re-verify current URL at impl time). Idempotent (feature 022): detect the already-installed Stripe
+   app and reuse it — no duplicate install. Report the install `completed` only when `appInstall`
+   actually succeeded; then announce the keys+`us`-channel-mapping human gate (deep link + paste steps,
+   keys by name) and report that step `blocked` on the gate. **No fabrication** — never "Stripe
+   configured"/"checkout ready" from the install alone. First-party Saleor host only.
+   - Note the stage-gate mechanics: the genuinely-executing stock stage is NOT in `HIGH_RISK_STAGES`
+     (that array's `--yes` branch sets stages to `pending`); the Stripe **install** IS a high-risk
+     action (payment setup) that should gate AND then execute — decide whether it joins
+     `HIGH_RISK_STAGES` with its own execute-after-approval branch, or follows the stock pattern. Keep
+     the dry-run/real riskContext deep-equal either way.
+3. **QM — step defs** for the 3 new feature-005 scenarios. The 2 `@logic` ones are the deterministic
+   targets: dry-run plan surfaces the Stripe stage after deploy with the riskContext + `appInstall`/
+   manifest/Cloud-token preview and the guided-gate statement, no mutation; and honest reporting (no
+   fabricated "installed"/"checkout ready"; keys+channel step named as a pending human gate). 012-incident
+   safety (dummy `JOLLY_*` + `.invalid` Cloud base) on any side-effecting path. The `@sandbox` one
+   asserts Jolly-observable outcomes (app installed via `appInstall`; idempotent re-run reuses; the
+   keys+channel gate announced) and skips without the Cloud token.
+4. **Verify** — `@logic`/units/typecheck green; default dry-run back to **0 undefined**; on a
+   creds-present VM the `@sandbox` scenario installs the app and re-runs idempotently.
+
+**Scope guard (MVP-then-iterate):** this iteration is the **install** + the guided-gate announcement +
+honest reporting. The `paymentGatewayInitialize`/checkout verify probe and the live Dashboard
+keys-paste are NOT this iteration — they stay `jolly doctor`'s job / the acceptance run. Do not revert
+any orchestration spec to a playbook.
+
+**Deck hygiene (Bosun, before commit):** the working tree carries unrelated Shipshape four-role-upgrade
+noise — `AGENTS.md` "three-role"→"four-role" + `/bosun` added, `skills-lock.json` bosun skill, `.gitignore`
+`.pi/npm`, and an untracked `.pi/` (Pi shipshape install; `.pi/settings.json` is neither tracked nor
+ignored). These are tooling housekeeping, not spec work — Bosun should sort commit custody + decide
+whether to ignore `.pi/` wholesale.
+
+---
+
 ## DONE (2026-06-14, QM round 2 + Crew — stock-seeding GENUINELY EXECUTES): all logic green, UNCOMMITTED
 
 The round-2 worklist below is **complete and verified** — `jolly start` now genuinely performs the
