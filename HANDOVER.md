@@ -10,68 +10,96 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
-## HANDOFF (2026-06-14, Captain → QM): make the Stripe app install the SECOND genuinely-executing `jolly start` stage
+## HANDOFF (2026-06-14, Captain → QM): make `jolly doctor` genuinely PROBE checkout readiness (iteration 1 of "1 and 2")
 
 **Next role: QM in a FRESH/cleared session** (Captain→QM context firewall).
 
-**The iteration:** converge the next stage onto the in-process orchestrator. Stock-seeding (feature 004)
-was the first genuinely-executing `jolly start` stage; the **Stripe app install** is the natural
-second — it is Jolly's own Saleor GraphQL `appInstall` (Cloud staff token + `stripe-v2` manifest), no
-CLI spawn, no interactive stdio (same shape as stock-seeding). The keys + `us`-channel mapping stay the
-announce-and-wait human gate (no public API). Decision/contracts are in **feature 005** new Rule
-"`jolly start` Stripe stage — Jolly installs the app, keys + channel map is a guided gate" and the
-existing "Stripe app path" rule; AGENTS.md "MVP sequencing" + MVP stage 8.
+**The iteration (customer decision 2026-06-14, "1 and 2 but push first"):** the third convergence onto
+honest, genuinely-executing behavior — the **checkout-readiness verify probe**. Installing the Stripe
+app (done) + the keys/`us`-channel Dashboard gate are not self-verifying; the authoritative signal that
+checkout reaches the Stripe test payment step (the feature 002 acceptance bar) is whether a real `us`
+checkout is actually offered the Stripe payment gateway (no public read for the app's channel mapping —
+gateway availability at checkout is the only signal). Make `jolly doctor` perform that probe. Cheap:
+Jolly's own Saleor GraphQL, no CLI spawn, no interactive stdio.
 
-**Gap today:** `startPlan()` (`src/index.ts`) stages are `init, auth, store, storefront, recipe, stock,
-deploy` — **there is no Stripe stage at all**, even though AGENTS.md lists it as MVP stage 8.
-`appInstall` exists nowhere in `src/` yet.
+**Decision/contracts:** **feature 005** new Rule "Checkout-readiness verify probe — jolly doctor confirms
+the Stripe test payment step is reachable"; AGENTS.md MVP stage 9 + "MVP sequencing" (third convergence).
 
-**Specs landed this Captain pass (UNCOMMITTED):** feature 005 — 3 new scenarios (2 `@logic`, 1
-`@sandbox`) + the new Rule; AGENTS.md — MVP-sequencing sub-bullet + MVP stage 8. Default
-`cucumber-js --dry-run` now shows **3 undefined scenarios / 15 undefined steps** (feature 005) — the
-intended QM marker. typecheck/units untouched.
+**Gap today:** `jolly doctor stripe` (`src/index.ts` ~1717) only checks key PRESENCE (`.env` or Stripe CLI
+import). There is **no `paymentGatewayInitialize`/checkout probe** anywhere in `src/`. The existing 005
+`@sandbox` "Agent verifies checkout readiness" only asserts a `stripe-keys` check exists — it does not
+verify gateway availability.
 
-**QM/Crew worklist (round 1):**
-1. **Crew — add the Stripe stage to `startPlan()`** (`src/index.ts`), running **after** `deploy`, with
-   a riskContext (categories incl. `payment setup` + `production configuration changes`; reversible —
-   app uninstall exists) whose preview names the real Saleor GraphQL `appInstall` request, the
-   `stripe-v2` manifest URL, Cloud-staff-token auth, and states the keys+`us`-channel mapping is a
-   guided human gate. Dry-run preview only (no mutation). Build the riskContext from one shared source
-   so `--dry-run` and the real run stay deep-equal (feature 021).
-2. **Crew — make the install GENUINELY EXECUTE.** Like `runStockStage()`, add a Stripe stage executor:
-   when the run reaches the stage (gate approved / `--yes`), call `appInstall(manifestUrl, "...",
-   [HANDLE_PAYMENTS])` against the store GraphQL endpoint using `JOLLY_SALEOR_CLOUD_TOKEN` (staff auth —
-   an app token gets `PermissionDenied`); manifest `https://stripe-v2.saleor.app/api/manifest`
-   (re-verify current URL at impl time). Idempotent (feature 022): detect the already-installed Stripe
-   app and reuse it — no duplicate install. Report the install `completed` only when `appInstall`
-   actually succeeded; then announce the keys+`us`-channel-mapping human gate (deep link + paste steps,
-   keys by name) and report that step `blocked` on the gate. **No fabrication** — never "Stripe
-   configured"/"checkout ready" from the install alone. First-party Saleor host only.
-   - Note the stage-gate mechanics: the genuinely-executing stock stage is NOT in `HIGH_RISK_STAGES`
-     (that array's `--yes` branch sets stages to `pending`); the Stripe **install** IS a high-risk
-     action (payment setup) that should gate AND then execute — decide whether it joins
-     `HIGH_RISK_STAGES` with its own execute-after-approval branch, or follows the stock pattern. Keep
-     the dry-run/real riskContext deep-equal either way.
-3. **QM — step defs** for the 3 new feature-005 scenarios. The 2 `@logic` ones are the deterministic
-   targets: dry-run plan surfaces the Stripe stage after deploy with the riskContext + `appInstall`/
-   manifest/Cloud-token preview and the guided-gate statement, no mutation; and honest reporting (no
-   fabricated "installed"/"checkout ready"; keys+channel step named as a pending human gate). 012-incident
-   safety (dummy `JOLLY_*` + `.invalid` Cloud base) on any side-effecting path. The `@sandbox` one
-   asserts Jolly-observable outcomes (app installed via `appInstall`; idempotent re-run reuses; the
-   keys+channel gate announced) and skips without the Cloud token.
-4. **Verify** — `@logic`/units/typecheck green; default dry-run back to **0 undefined**; on a
-   creds-present VM the `@sandbox` scenario installs the app and re-runs idempotently.
+**Specs landed this Captain pass (committed by Bosun next):** feature 005 — 2 new scenarios (1 `@logic`,
+1 `@sandbox`) + the new Rule; AGENTS.md — MVP stage 9 + MVP-sequencing sub-bullet. Default
+`cucumber-js --dry-run` should now show **2 undefined scenarios** (feature 005) — the intended QM marker.
 
-**Scope guard (MVP-then-iterate):** this iteration is the **install** + the guided-gate announcement +
-honest reporting. The `paymentGatewayInitialize`/checkout verify probe and the live Dashboard
-keys-paste are NOT this iteration — they stay `jolly doctor`'s job / the acceptance run. Do not revert
-any orchestration spec to a playbook.
+**QM/Crew worklist (iteration 1):**
+1. **Crew — add the checkout-readiness probe to `jolly doctor`** (`src/index.ts`, the `wants("stripe")`
+   block, also in the default run). Resolve the store GraphQL endpoint + token (app token suffices for
+   `checkoutCreate`/`availablePaymentGateways`; reuse the existing doctor cred resolution). Create a
+   minimal test checkout in the recipe's `us` channel and read `availablePaymentGateways` (and/or
+   `paymentGatewayInitialize`); push a checkout-readiness check (pick a stable id, e.g.
+   `checkout-payment-gateway`). **Honest reporting:** `pass` ONLY when the Stripe gateway is actually
+   offered; `warning`/`fail` (naming the remaining keys+`us`-channel Dashboard step) when the store is
+   reachable but Stripe isn't offered; `skipped`/`unknown` when store/creds unavailable or the probe
+   can't run. Never a fabricated "checkout ready". **Harmless (feature 023):** namespace the test
+   checkout and DELETE it after the probe (`checkoutDelete`); read-only intent; test mode; capture no
+   payment. Fail fast against an unroutable endpoint (no hang).
+2. **QM — step defs** for the 2 new feature-005 scenarios. The `@logic` "does not fabricate checkout
+   readiness" is the deterministic target: under logicSafeEnv (dummy `JOLLY_*` + `.invalid` base) the
+   probe cannot reach a store, so the checkout-readiness check must be `skipped`/`unknown`/`fail` —
+   never `pass` — and the summary must not claim checkout ready. The `@sandbox` one asserts the real
+   probe (creates+deletes a `us` checkout; `pass` iff the Stripe gateway is offered; honest otherwise)
+   and skips without creds. Reuse the existing checkout create/delete + saleor-graphql harness patterns
+   from `features/step_definitions/004-…steps.ts`.
+3. **Verify** — `@logic`/units/typecheck green; default dry-run back to **0 undefined**; on a
+   creds-present store with the Stripe app fully configured the `@sandbox` probe passes, and on one
+   where the Dashboard mapping isn't done it reports not-ready honestly.
 
-**Deck hygiene (Bosun, before commit):** the working tree carries unrelated Shipshape four-role-upgrade
-noise — `AGENTS.md` "three-role"→"four-role" + `/bosun` added, `skills-lock.json` bosun skill, `.gitignore`
-`.pi/npm`, and an untracked `.pi/` (Pi shipshape install; `.pi/settings.json` is neither tracked nor
-ignored). These are tooling housekeeping, not spec work — Bosun should sort commit custody + decide
-whether to ignore `.pi/` wholesale.
+**Scope guard (MVP-then-iterate):** iteration 1 is the **doctor probe + honest reporting** only. Do NOT
+also build iteration 2 in this cycle.
+
+**AGREED-NEXT — iteration 2 (configurator-deploy executing stage), NOT this cycle:** make the
+`@saleor/configurator deploy` a genuinely-executing `jolly start` stage — Jolly spawns
+`npx @saleor/configurator deploy` (stdio passthrough, blank-vs-sample env, destructive-delete flags),
+gated for approval (the first spawned-CLI stage to converge). **Captain will fully Gherkin-spec it in a
+later pass**, re-verifying the configurator's current flags/behavior against upstream at that time (per
+"re-check upstream at implementation time"). Until then the recipe deploy stays agent-driven via the
+Jolly skill. Recorded in AGENTS.md "MVP sequencing".
+
+---
+
+## DONE (2026-06-14, Captain decision → QM+Crew+Bosun — Stripe app install is the SECOND executing stage): COMMITTED + PUSHED
+
+The Stripe app-install handoff is **complete, committed, and pushed**. `jolly start` now genuinely
+installs the Saleor Stripe app via Saleor GraphQL `appInstall` (second genuinely-executing stage after
+stock-seeding). Branch `feature/start-stock-seeding` pushed to `origin` (commit **b828e1d**;
+upstream now tracking). All deterministic tiers green: typecheck clean, units **43/43**, `test:logic`
+**61/61**, default `--dry-run` **0 undefined**. `@sandbox`/`test:bdd` NOT run locally (billable) —
+deferred to a creds-present/CI run.
+
+**What landed (commit b828e1d):**
+- **Crew — `src/lib/cloud-api.ts`:** `installStripeApp(graphqlUrl, cloudToken, manifestUrl?, appName?)`
+  + exports `STRIPE_APP_MANIFEST_URL` (`https://stripe-v2.saleor.app/api/manifest`) / `STRIPE_APP_NAME`.
+  Idempotent (queryGetApps reuse of any `/stripe/i` app), `appInstall(input:{appName,manifestUrl,
+  permissions:[HANDLE_PAYMENTS]})` via the Cloud STAFF token; errors → `CloudApiError`
+  (`STRIPE_APP_INSTALL_FAILED`); fails fast on an unroutable endpoint.
+- **Crew — `src/index.ts`:** a `stripe` plan stage after the Vercel deploy (riskContext: payment setup +
+  production configuration changes, reversible, naming appInstall/manifest/Cloud-staff-token + the
+  keys+`us`-channel guided gate); `runStripeStage()`; a `commandStart` loop branch that genuinely
+  installs when the stage is reached (`--yes`), reporting `completed` only on a real install; and a
+  keys+channel guided-gate nextStep (keys by name, status stays `warning` — no fabrication). `stripe`
+  is deliberately NOT in `HIGH_RISK_STAGES` (the store/recipe/deploy gates pause an un-`--yes` run
+  before it; with `--yes` it executes — same shape as the stock stage).
+- **QM — `features/step_definitions/005-…steps.ts` + `features/support/sandbox.ts`:** 3 new feature-005
+  step defs (2 `@logic` dry-run/no-fabrication targets, 1 `@sandbox` install + idempotent reuse + gate)
+  and the `@sandbox` credential gating (`saleorEndpoint` + `saleorCloud`).
+
+**Remaining real-world verification (environmental, not a code blocker):** the positive install path is
+sandbox-only — it truly passes on a creds-present store with the Cloud token; locally it skips. The
+keys + `us`-channel Dashboard mapping stays the human gate; iteration 1 (above) adds the doctor probe
+that verifies it was completed.
 
 ---
 

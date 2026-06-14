@@ -197,7 +197,17 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/bosun`, `/clearrole`, or generic r
     `stripe-v2` manifest, idempotent) with no CLI spawn or interactive stdio, gated for approval; the
     keys + `us`-channel mapping stay the announce-and-wait human gate (no public API). We do **not**
     revert the orchestration specs to a pure playbook; we converge on them stage by stage,
-    honesty-first (no fabricated stage completion — integrity rule below).
+    honesty-first (no fabricated stage completion — integrity rule below). The **third convergence is
+    the checkout-readiness verify probe** (feature 005 Rule "Checkout-readiness verify probe";
+    decision 2026-06-14): `jolly doctor` creates a harmless, reverted `us` test checkout and inspects
+    the available payment gateways to confirm the Stripe payment step is reachable — closing the
+    feature 002 acceptance bar in Jolly's own first-party-host code. It is cheap (Jolly's own Saleor
+    GraphQL, no CLI spawn). The **agreed-next (fourth) convergence is making the `@saleor/configurator`
+    deploy a genuinely-executing `jolly start` stage** — Jolly spawns `npx @saleor/configurator deploy`
+    (stdio passthrough, the blank-vs-sample env, destructive-delete flags), gated for approval — the
+    first spawned-CLI stage to converge. Its exact configurator flags/behavior are re-verified against
+    current upstream when it becomes the active iteration (per "re-check upstream at implementation
+    time"); until then the recipe deploy stays agent-driven via the Jolly skill.
 - **Install skills via `npx skills add` (decision 2026-06-13):** Jolly installs every skill —
   the Jolly skill and the Saleor agent-skills — through `npx skills add <ref>`, falling back to
   a Git-based install only for a skill not available that way (e.g. Paper's embedded skill,
@@ -309,7 +319,11 @@ approval and interaction gates:
    `jolly doctor` (feature 005). `@saleor/configurator` manages catalog and channels only — it
    does not configure payments. (Decision 2026-06-13; Saleor's acceptance of the CLI-issued
    `sk_test_` key is to be confirmed in the acceptance run — adopt-on-green.)
-9. **Verify** — `jolly doctor` confirms operational readiness (feature 014).
+9. **Verify** — `jolly doctor` confirms operational readiness (feature 014), including a
+   **checkout-readiness probe**: it creates a harmless, reverted test checkout in the recipe's `us`
+   channel and inspects the available payment gateways to confirm checkout can reach the Stripe test
+   payment step — reporting `pass` only when the Stripe gateway is actually offered, and honestly
+   `warning`/`fail`/`skipped` otherwise (feature 005 Rule "Checkout-readiness verify probe").
 
 **Integrity rule (decision 2026-06-13):** Jolly's own commands report success and `pass` checks
 only for work Jolly actually performed and confirmed; unbuilt or unperformable paths **error

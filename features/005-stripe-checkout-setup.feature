@@ -99,6 +99,24 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     And it should announce the guided gate to paste the keys and map the configuration to the `us` channel, referencing the keys by name only
     And it should report the stage honestly — installed where it installed, and blocked on the human gate for the keys and channel mapping
 
+  @logic
+  Scenario: Jolly doctor does not fabricate checkout readiness
+    Given Jolly cannot reach a real store in this run
+    When the agent runs `jolly doctor stripe` with no reachable store
+    Then a checkout-readiness check should be reported in the stripe group
+    And that check must not be "pass" unless the Stripe payment gateway was actually offered for a `us` checkout
+    And with no reachable store the checkout-readiness check should be "skipped", "unknown", or "fail", never "pass"
+    And the summary must not claim checkout is ready when it was not verified
+
+  @sandbox
+  Scenario: Jolly doctor verifies the Stripe payment gateway is reachable for checkout
+    Given a deployed store whose Stripe app is configured and mapped to the `us` channel
+    When `jolly doctor` probes checkout payment readiness
+    Then it should create a harmless, reverted test checkout in the `us` channel and inspect its available payment gateways
+    And the checkout-readiness check should pass only when the Stripe gateway is offered for that checkout
+    And it should report honestly when the Stripe gateway is not yet offered, naming the remaining keys-and-channel Dashboard step
+    And the probe should use Stripe test mode only and capture no payment
+
   Rule: Stripe setup principles
     - v1 uses Stripe test mode only; live mode requires an explicit customer choice and is out of v1 scope.
     - The customer provides exactly 2 values: Stripe publishable key and secret key from the Stripe Dashboard.
@@ -213,3 +231,27 @@ Feature: Stripe checkout setup for the Jolly starter storefront
       done — never a fabricated "Stripe configured" or "checkout ready". Final checkout readiness is
       confirmed by `jolly doctor` (and the optional `paymentGatewayInitialize`/checkout probe), not
       asserted by the install alone.
+
+  Rule: Checkout-readiness verify probe — jolly doctor confirms the Stripe test payment step is reachable (decision 2026-06-14)
+    - Installing the Stripe app (`jolly start`) and completing the keys + `us`-channel Dashboard gate
+      are necessary but not self-verifying. The closing signal is whether a real checkout in the
+      storefront's channel is actually offered the Stripe payment gateway — i.e. checkout can
+      progress to the Stripe test payment step (the feature 002 acceptance bar). There is no public
+      read for the app's channel-config mapping (see Rule "Stripe app path"), so gateway availability
+      at checkout is the authoritative signal that the mapping was completed.
+    - `jolly doctor` (the `stripe` group, included in the default run) performs this probe against the
+      store's Saleor GraphQL endpoint: it creates a minimal test checkout in the recipe's `us` channel
+      and inspects the available payment gateways (and/or `paymentGatewayInitialize`), reporting a
+      checkout-readiness check.
+    - Honest reporting (integrity rule): the checkout-readiness check is `pass` only when the Stripe
+      gateway is actually offered for that checkout; it is `warning`/`fail` when the store is reachable
+      but the Stripe gateway is not yet offered (the keys + `us`-channel Dashboard mapping is not done),
+      naming that remaining human step; and `skipped`/`unknown` when the store or credentials are
+      unavailable. It never reports a fabricated "checkout ready".
+    - The probe is harmless by design (feature 023): the test checkout it creates is namespaced and
+      deleted after the probe, it only reads gateway availability, it uses Stripe test mode only, and
+      it never captures a payment. This is a narrow, reverted exception to doctor's read-only default,
+      justified because gateway availability cannot be read without a checkout context.
+    - This closes the Stripe stage's step-4 verify (Rule "Stripe app path") and the feature 002
+      "checkout progresses to the Stripe test payment step" acceptance bar within Jolly's own
+      first-party-host code — no Vercel or Stripe-CLI dependency.
