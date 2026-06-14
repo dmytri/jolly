@@ -10,7 +10,7 @@ Stripe. The package is `@dk/jolly`; the homepage is https://jolly.cool.
 
 ## Agent workflow
 
-This repository uses [Shipshape](https://github.com/dmytri/shipshape) for its three-role, spec-driven agent workflow.
+This repository uses [Shipshape](https://github.com/dmytri/shipshape) for its four-role, spec-driven agent workflow.
 
 Before substantive agent work, install or load Shipshape:
 

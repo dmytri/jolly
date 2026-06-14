@@ -4,4 +4,4 @@ dist/
 bun.lockb
 .claude/skills
 .agents/skills
-.pi/skills
+.pi/
