@@ -166,9 +166,11 @@ Then(
   function (this: JollyWorld) {
     // start emits the ordered playbook and the pending downstream stages; it
     // never reports overall success for work it did not complete.
-    const data = this.envelope.data as { playbook?: unknown; pendingStages?: unknown };
+    const data = this.envelope.data as { playbook?: unknown; stages?: unknown };
     assert.ok(Array.isArray(data.playbook) && (data.playbook as unknown[]).length > 0, "start must emit the playbook");
-    assert.ok(Array.isArray(data.pendingStages), "start must list the outstanding stages");
+    // The stage list (each carrying its status) is how start surfaces the
+    // outstanding stages the agent should pick up rather than redoing.
+    assert.ok(Array.isArray(data.stages) && (data.stages as unknown[]).length > 0, "start must list its stages, outstanding ones included");
     assert.ok(this.envelope.nextSteps.length > 0, "start must point at the next outstanding steps");
   },
 );
@@ -181,9 +183,11 @@ Then(
 Given(
   "the agent has already cloned the storefront, configured the store, or deployed using the official CLIs",
   function (this: JollyWorld) {
-    // Observable artifact: a cloned storefront directory (package.json + src/app).
-    mkdirSync(join(this.projectDir, "src", "app"), { recursive: true });
-    writeFileSync(join(this.projectDir, "package.json"), "{}\n");
+    // Observable artifact: a cloned storefront directory. Paper is cloned into
+    // the `storefront/` subdirectory (the default storefront target), so the
+    // artifact lives there — not at the project root.
+    mkdirSync(join(this.projectDir, "storefront", "src", "app"), { recursive: true });
+    writeFileSync(join(this.projectDir, "storefront", "package.json"), "{}\n");
   },
 );
 

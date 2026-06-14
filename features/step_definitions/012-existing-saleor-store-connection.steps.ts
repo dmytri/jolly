@@ -501,6 +501,10 @@ Given(
     // Create the first environment carrying the namespaced domain label.
     const first = await this.runCliAsync(
       ["create", "store", "--create-environment", "--name", label, "--domain-label", label, "--json"],
+      // Real environment creation polls async job status and can exceed the
+      // 120s runCliAsync default; allow the full step budget so a slow Cloud
+      // provision yields its envelope rather than being SIGKILLed mid-create.
+      { timeoutMs: 540_000 },
     );
     assert.equal(first.envelope?.status, "success", "the first environment must be created");
   },
@@ -513,6 +517,7 @@ When(
     const label = String(this.notes.collisionLabel);
     await this.runCliAsync(
       ["create", "store", "--create-environment", "--name", label, "--domain-label", label, "--json"],
+      { timeoutMs: 540_000 },
     );
   },
 );
@@ -543,6 +548,7 @@ Then("it should retry the request with the corrected domain", { timeout: 540_000
   const corrected = `${this.namespace}-collide-2`;
   const retry = await this.runCliAsync(
     ["create", "store", "--create-environment", "--name", corrected, "--domain-label", corrected, "--json"],
+    { timeoutMs: 540_000 },
   );
   // Capacity is an environmental skip, not a Jolly failure (AGENTS.md Testing
   // Strategy): the org's sandbox limit may be reached after the shared env +
@@ -723,6 +729,7 @@ When(
     });
     await this.runCliAsync(
       ["create", "store", "--create-environment", "--name", name, "--domain-label", name, "--json"],
+      { timeoutMs: 540_000 },
     );
   },
 );

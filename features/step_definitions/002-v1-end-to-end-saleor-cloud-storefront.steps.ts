@@ -377,6 +377,9 @@ Then(
   function (this: JollyWorld) {
     // Jolly-observable: doctor's deployment check references the Vercel CLI and
     // is marked skipped (Jolly does not contact Vercel) — never a fabricated pass.
+    // Re-run doctor deployment here: the preceding Then ran `start --dry-run`,
+    // so the When step's envelope is no longer the current one.
+    this.runCli(["doctor", "deployment", "--json"]);
     const check = this.findCheck("deployment-status");
     assert.ok(check, "doctor must report a deployment-status check");
     assert.equal(check!.status, "skipped", "Jolly must not fabricate a deployment pass; it spawns the Vercel CLI");

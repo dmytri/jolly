@@ -264,11 +264,11 @@ interface SkillSpec {
 
 const DEFAULT_SKILLS: SkillSpec[] = [
   { id: "jolly", ref: "dmytri/jolly", description: "The Jolly end-to-end playbook" },
-  { id: "saleor-storefront", ref: "saleor/saleor-storefront", description: "Saleor storefront guidance" },
-  { id: "saleor-configurator", ref: "saleor/saleor-configurator", description: "Configuration-as-code guidance" },
-  { id: "storefront-builder", ref: "saleor/storefront-builder", description: "Storefront build guidance" },
-  { id: "saleor-core", ref: "saleor/saleor-core", description: "Saleor core concepts" },
-  { id: "saleor-app", ref: "saleor/saleor-app", description: "Saleor app development guidance" },
+  { id: "saleor-storefront", ref: "https://github.com/saleor/agent-skills/tree/main/skills/saleor-storefront", description: "Saleor storefront guidance" },
+  { id: "saleor-configurator", ref: "https://github.com/saleor/agent-skills/tree/main/skills/saleor-configurator", description: "Configuration-as-code guidance" },
+  { id: "storefront-builder", ref: "https://github.com/saleor/agent-skills/tree/main/skills/storefront-builder", description: "Storefront build guidance" },
+  { id: "saleor-core", ref: "https://github.com/saleor/agent-skills/tree/main/skills/saleor-core", description: "Saleor core concepts" },
+  { id: "saleor-app", ref: "https://github.com/saleor/agent-skills/tree/main/skills/saleor-app", description: "Saleor app development guidance" },
 ];
 
 // Universal project-local skill location `npx skills add` (no --agent) writes
@@ -1692,8 +1692,8 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
 
   if (wants("storefront")) {
     const storefrontPresent =
-      existsSync(join(projectDir(), "package.json")) &&
-      existsSync(join(projectDir(), "src", "app"));
+      existsSync(join(projectDir(), "storefront", "package.json")) &&
+      existsSync(join(projectDir(), "storefront", "src", "app"));
     // Without a verified Paper storefront, report fail/unknown — never pass.
     checks.push({
       id: "storefront-present",

@@ -15,16 +15,33 @@ export async function saleorGraphql(
   query: string,
   variables: Record<string, unknown> = {},
 ): Promise<GraphqlResult> {
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-  if (!response.ok && response.status !== 400) {
-    throw new Error(`Saleor GraphQL request failed: HTTP ${response.status}`);
+  // Bounded retry on connection-level failures (`TypeError: fetch failed`):
+  // sandbox verifications run against live Saleor Cloud, where a transient
+  // network blip is an environment condition, not a Jolly behavior, and must
+  // not flake the suite. HTTP-status rejections (auth, 5xx) are not retried.
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ query, variables }),
+      });
+      if (!response.ok && response.status !== 400) {
+        throw new Error(`Saleor GraphQL request failed: HTTP ${response.status}`);
+      }
+      return (await response.json()) as GraphqlResult;
+    } catch (error) {
+      lastError = error;
+      if (error instanceof TypeError && attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+        continue;
+      }
+      throw error;
+    }
   }
-  return (await response.json()) as GraphqlResult;
+  throw lastError;
 }
