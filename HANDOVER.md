@@ -36,13 +36,19 @@ just this one; it is a pure product gap, not a human gate.
 GraphQL (`productVariantUpdate`) immediately unblocked checkout — `checkoutCreate` in `us` now
 succeeds (total $59 USD, no stock error). The live store is now buyable.
 
-**Stripe (the remaining, documented human gate):** no Stripe app is installed (only "Jolly Setup"
-+ "SMTP"); checkout `availablePaymentGateways` shows the gift-card gateway only. So checkout reaches
-the **payment-selection step but Stripe is not offered**. Installing the Saleor Stripe app
-(`appInstall`, HANDLE_PAYMENTS) is automatable, but setting its keys and **mapping it to the `us`
-channel has no public API** — it is the Dashboard-only human step (feature 005). The feature-002
-acceptance bar ("checkout progresses to the Stripe test payment step") is therefore **not yet met**;
-the gap is now precisely (a) the buyability fix below and (b) the Stripe-app Dashboard config.
+**Stripe — app install IS automatable (corrected & verified live 2026-06-14):** an earlier note
+said Jolly couldn't install the app; that was wrong — it was tested with the *app* token. **The
+Cloud token (`JOLLY_SALEOR_CLOUD_TOKEN`) is staff auth on the store GraphQL** (`me.isStaff: true`,
+the same auth Jolly already uses for `appCreate`), and `appInstall` with it **succeeds** — the
+Stripe app (`saleor.app.payment.stripe`) is now installed on `jolly-store` (manifest
+`https://stripe-v2.saleor.app/api/manifest`; the older `stripe.saleor.app` is retired v1 and fails
+silently). So `jolly start`'s Stripe stage CAN install the app via `appInstall` (Cloud token) — only
+the **keys + `us`-channel mapping** have no public API and stay the Dashboard human gate. The
+feature-002 acceptance bar ("checkout progresses to the Stripe test payment step") is **not yet met**;
+the remaining gap is (a) the stock buyability fix below and (b) entering the Stripe app's keys +
+channel map in the Dashboard. **Broader:** the Cloud token = store-GraphQL staff auth means the
+customer's agent can manage apps/staff ops with it generally, not only in `jolly start`
+(AGENTS.md "The Cloud token is staff auth").
 
 **DECISION (customer, 2026-06-14): seed real stock.** `jolly start`'s recipe stage seeds a default
 quantity (100) for every recipe variant into the recipe warehouse via Saleor GraphQL

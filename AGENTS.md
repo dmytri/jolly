@@ -158,15 +158,25 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompt
     command the agent can call and mediate itself (feature 008 surface, feature 022
     resumability); `start` chains them — it does not replace them.
   - **Stripe — Jolly automates what the APIs allow; the key entry is a guided gate** (verified
-    2026-06-14, feature 005). `@saleor/configurator` and the Cloud API cannot touch the Stripe
-    app; the Saleor GraphQL `appInstall` mutation CAN install it (HANDLE_PAYMENTS), but no public
-    API sets its keys or maps it to a channel — that lives in the app's Dashboard form. So the
-    `start` Stripe stage = (1) Jolly installs the app via `appInstall`; (2) the recipe sets the
-    channel payment flow; (3) Jolly runs a precise guided walk-through for the keys (deep link +
-    "paste this here, assign to the `us` channel", keys by name only) and waits; (4) Jolly probes
-    `paymentGatewayInitialize`/checkout to verify. Paper takes no Stripe keys (it reads the
-    publishable key from Saleor at runtime); `jolly create stripe` only imports the test keys into
-    `.env`.
+    live 2026-06-14, feature 005). `@saleor/configurator` and the Cloud API cannot touch the Stripe
+    app; the Saleor GraphQL `appInstall` mutation CAN install it (HANDLE_PAYMENTS) — **using the
+    Cloud token as staff auth** (see the staff-auth note below; an app token gets `PermissionDenied`)
+    and manifest **`https://stripe-v2.saleor.app/api/manifest`** (the older `stripe.saleor.app` is
+    retired v1). No public API sets its keys or maps it to a channel — that lives in the app's
+    Dashboard form. So the `start` Stripe stage = (1) Jolly installs the app via `appInstall`
+    (verified working live — app `saleor.app.payment.stripe`); (2) the recipe sets the channel
+    payment flow; (3) Jolly runs a precise guided walk-through for the keys + `us`-channel mapping
+    (deep link + "paste this here, assign to the `us` channel", keys by name only) and waits;
+    (4) Jolly probes `paymentGatewayInitialize`/checkout to verify. Paper takes no Stripe keys (it
+    reads the publishable key from Saleor at runtime); `jolly create stripe` only imports the test
+    keys into `.env`.
+  - **The Cloud token is staff auth on the store GraphQL (verified 2026-06-14).** Saleor Cloud
+    accepts `JOLLY_SALEOR_CLOUD_TOKEN` as `Authorization: Bearer` on a `*.saleor.cloud/graphql/`
+    endpoint and resolves it to the environment's **staff superuser** (`me.isStaff: true`). This is
+    already how Jolly does `appCreate`/`appTokenCreate`, and it is what makes `appInstall` and other
+    staff-only mutations available. Consequence: the customer's agent can perform staff-level store
+    management (install/manage apps, etc.) with the Cloud token it already holds — not only inside
+    `jolly start`. (App tokens, `JOLLY_SALEOR_APP_TOKEN`, are NOT staff and cannot do these.)
   This applies to `jolly start` (feature 001/002); the retired `create deployment`/`deploy`/
   `create recipe`/`create storefront` are **not** revived as separate fat commands — the
   orchestration lives **inside `start`**, spawning the official CLIs.
