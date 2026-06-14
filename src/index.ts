@@ -1553,7 +1553,29 @@ function commandInit(_args: ParsedArgs): Envelope {
 
 // ─── doctor (feature 014) ─────────────────────────────────────────────────
 
-const DOCTOR_GROUPS = ["skills", "saleor", "storefront", "deployment", "stripe"] as const;
+const DOCTOR_GROUPS = ["skills", "init", "saleor", "storefront", "deployment", "stripe"] as const;
+
+// Read-only predicates for the init-bootstrap artifacts (feature 014 init group).
+// Doctor is diagnostics-only — these only read, never write (unlike mergeMcpJson/mergeAgentsMd).
+function mcpHasSaleorGraphql(): boolean {
+  const path = join(projectDir(), ".mcp.json");
+  if (!existsSync(path)) return false;
+  try {
+    const config = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    const servers = config["mcpServers"];
+    return Boolean(
+      servers && typeof servers === "object" && "saleor-graphql" in (servers as Record<string, unknown>),
+    );
+  } catch {
+    return false;
+  }
+}
+
+function agentsMdHasJollyMarker(): boolean {
+  const path = join(projectDir(), "AGENTS.md");
+  if (!existsSync(path)) return false;
+  return readFileSync(path, "utf8").includes("<!-- jolly:begin -->");
+}
 
 function commandDoctor(args: ParsedArgs): Envelope {
   const group = args.positionals[1];
@@ -1594,6 +1616,27 @@ function commandDoctor(args: ParsedArgs): Envelope {
         command: present ? undefined : "jolly init",
       });
     }
+  }
+
+  if (wants("init")) {
+    const mcpOk = mcpHasSaleorGraphql();
+    checks.push({
+      id: "mcp-config",
+      status: mcpOk ? "pass" : "fail",
+      description: mcpOk
+        ? ".mcp.json carries the saleor-graphql entry."
+        : "No .mcp.json with a saleor-graphql entry; run jolly init to merge it.",
+      command: mcpOk ? undefined : "jolly init",
+    });
+    const agentsOk = agentsMdHasJollyMarker();
+    checks.push({
+      id: "agents-md",
+      status: agentsOk ? "pass" : "fail",
+      description: agentsOk
+        ? "AGENTS.md carries the Jolly marker section."
+        : "AGENTS.md is missing or lacks the Jolly marker section; run jolly init to merge it.",
+      command: agentsOk ? undefined : "jolly init",
+    });
   }
 
   if (wants("saleor")) {

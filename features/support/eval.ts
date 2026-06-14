@@ -22,6 +22,13 @@
 //   HARNESS_EVAL_MODEL         — the model id (default deepseek/deepseek-v4-flash).
 //   HARNESS_EVAL_PROVIDER      — the pi provider (default openrouter).
 //   HARNESS_EVAL_TIMEOUT_MS    — overall agent run budget (default 600000).
+//   HARNESS_EVAL_TRANSCRIPT_DIR — opt-in: when set, a run's evidence (agent
+//                                stdout/stderr, the Jolly + Stripe-CLI traces,
+//                                the final workspace .env) is persisted under a
+//                                per-run namespaced subdir before teardown,
+//                                scrubbing HARNESS_OPENROUTER_API_KEY. Unset →
+//                                kept nowhere (the throwaway temp dir as today).
+//                                Observability only; never changes pass/fail.
 import { spawnSync } from "node:child_process";
 import {
   cpSync,
@@ -384,6 +391,52 @@ export function runBaselineAgent(ctx: EvalContext, task: string): AgentRun {
     durationMs,
     timedOut,
   };
+}
+
+/** The opt-in transcript directory, or undefined when the knob is unset. */
+export function evalTranscriptDir(): string | undefined {
+  const raw = process.env.HARNESS_EVAL_TRANSCRIPT_DIR;
+  return raw && raw.trim() !== "" ? raw.trim() : undefined;
+}
+
+/**
+ * Persist a run's evidence for after-the-fact understanding (feature 023's
+ * "Eval transcript keeping", opt-in). When HARNESS_EVAL_TRANSCRIPT_DIR is set,
+ * write — under a per-run namespaced subdir, before teardown — the agent's full
+ * stdout/stderr, the Jolly-invocation trace, the Stripe-CLI trace, and the final
+ * workspace `.env`, scrubbing HARNESS_OPENROUTER_API_KEY from the text. It is
+ * observability only: best-effort, and it never changes pass/fail (the agent
+ * still runs under forced-safe credentials). Returns the directory written to,
+ * or undefined when the knob is unset.
+ */
+export function persistEvalTranscript(
+  ctx: EvalContext,
+  run: AgentRun,
+  namespace: string,
+): string | undefined {
+  const baseDir = evalTranscriptDir();
+  if (baseDir === undefined) return undefined;
+  const outDir = join(baseDir, namespace);
+  mkdirSync(outDir, { recursive: true });
+
+  const apiKey = process.env.HARNESS_OPENROUTER_API_KEY;
+  const scrub = (text: string): string =>
+    apiKey && apiKey.length > 0 ? text.split(apiKey).join("[REDACTED]") : text;
+  const write = (name: string, text: string): void =>
+    writeFileSync(join(outDir, name), scrub(text));
+
+  write("agent.stdout.txt", run.stdout);
+  write("agent.stderr.txt", run.stderr);
+  for (const [name, path] of [
+    ["jolly-trace.jsonl", ctx.traceFile],
+    ["stripe-trace.jsonl", ctx.stripeTraceFile],
+  ] as const) {
+    if (existsSync(path)) write(name, readFileSync(path, "utf8"));
+  }
+  const envFile = join(ctx.workspace, ".env");
+  if (existsSync(envFile)) write("env", readFileSync(envFile, "utf8"));
+
+  return outDir;
 }
 
 export interface TraceRecord {

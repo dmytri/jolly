@@ -10,56 +10,42 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
-## CURRENT (2026-06-14, Captain): `jolly doctor` verifies bootstrap is done — feature 014 `init` group
+## CURRENT (2026-06-14, Captain — committed + released @dk/jolly v0.5.0): doctor `init` group + eval transcript keeping — DONE
 
-**Decision (customer, 2026-06-14):** `jolly doctor` must be able to verify "done." The `@eval`
-flakiness traces to a real gap: doctor has NO check for the init artifacts — it checks skills but
-ignores `.mcp.json` and the `AGENTS.md` marker — so the baseline agent could not machine-check
-whether bootstrap was done. It either skipped `jolly init` (assumed done) or overwrote `AGENTS.md`
-after, and doctor caught neither. Fix: a doctor `init` group that verifies the feature-007
-bootstrap artifacts, so "bootstrap done" is machine-checkable. (Operational "done" — storefront/
-deployment/stripe — is already doctor's job; this adds the missing bootstrap layer.)
+**Status: DELIVERED, committed, and released as `@dk/jolly` v0.5.0.** The two QM tasks from the
+prior worklist (doctor `init` group, feature 014; eval transcript keeping, feature 023) are
+complete; all tiers green — typecheck clean, units **43/43**, `@logic` **56/56** (incl. the 2 new
+014 scenarios), default dry-run **0 undefined**, eval dry-run **0 undefined**. The built bundle was
+smoke-tested: `jolly doctor init --json` on a clobbered/missing bootstrap returns `mcp-config` +
+`agents-md` `fail → jolly init`; present artifacts return `pass`.
 
-**Spec landed this Captain pass (feature 014, committed):** new `init` group; two `@logic`
-scenarios (missing/overwritten bootstrap → `mcp-config` + `agents-md` `fail` with next step `jolly
-init`; artifacts present → `pass`, bootstrap complete); the targeted-groups list gains `init`; a
-Rule bullet. Companion `SKILL.md` stage-1 edit already shipped (e67412b: run `jolly init` if
-artifacts absent; never overwrite the marker). Default dry-run now shows **3 undefined scenarios**
-(the 2 new + the groups-list step whose text changed) — the intended QM marker, not a regression.
+**What shipped (QM delivered, Captain committed + released):**
+- **doctor `init` group (feature 014).** `commandDoctor` (`src/index.ts`) gained `init` in
+  `DOCTOR_GROUPS` and a `wants("init")` block emitting `mcp-config` (pass iff `.mcp.json` carries
+  the `saleor-graphql` entry) and `agents-md` (pass iff `AGENTS.md` carries the `jolly:begin`
+  marker — NOT mere existence, so a clobbered `AGENTS.md` is `fail`), each `→ jolly init` when
+  failing. Read-only predicates (`mcpHasSaleorGraphql`/`agentsMdHasJollyMarker`) — doctor stays
+  diagnostics-only, never calls the mutating merge helpers. Default `jolly doctor` includes both.
+  Step defs: the 2 new 014 `@logic` scenarios + the targeted-groups step now lists `init`.
+- **eval transcript keeping (feature 023).** `features/support/eval.ts` gained the
+  `HARNESS_EVAL_TRANSCRIPT_DIR` knob (default unset → throwaway temp as before) and
+  `persistEvalTranscript()`, wired into the 025 When step: before teardown it writes, under a
+  per-run namespaced subdir, the agent stdout/stderr, the Jolly + Stripe-CLI traces, and the final
+  workspace `.env`, scrubbing `HARNESS_OPENROUTER_API_KEY`. Observability only — never gates.
 
-**QM worklist (fresh session):**
-1. **Crew — doctor `init` group.** `commandDoctor` (`src/index.ts` ~1556): add `init` to
-   `DOCTOR_GROUPS`; under `wants("init")` emit `mcp-config` (pass iff `.mcp.json` carries the
-   `saleor-graphql` server entry) and `agents-md` (pass iff `AGENTS.md` carries the `jolly:begin`
-   marker — NOT mere file existence, so a clobbered `AGENTS.md` is `fail`), each with command
-   `jolly init` when failing. Default `jolly doctor` (no group) includes them. Reuse the same
-   merge/marker helpers `cmdInit` uses (`mergeMcpJson`/`mergeAgentsMd` predicates).
-2. **QM — step defs** for the 2 new 014 scenarios + update the targeted-groups step text to include
-   `init`. Hermetic `@logic`: seed `.mcp.json` + marker `AGENTS.md` for the present case (mirror
-   007); a clobbered `AGENTS.md` (present, no marker) + no `.mcp.json` for the fail case. No network.
-3. **Verify:** `@logic`/units/typecheck green; default dry-run back to **0 undefined**.
+**Optional follow-on (still open, not required):** the 025 eval could assert bootstrap via
+`jolly doctor init` instead of poking files on disk — a single cleaner oracle — but that's a QM
+choice. Not scheduled.
 
-**Optional follow-on (not required):** the 025 eval could assert bootstrap via `jolly doctor init`
-instead of poking files on disk — a cleaner, single oracle — but that's a QM choice.
+**Open Captain track — the MVP acceptance run (unchanged, NOT QM's job):** drive the live stages
+6 (recipe → `@saleor/configurator`), 8 (`npx vercel --prod`), 9 (trusted origins), 10 (`jolly
+doctor`) against the live `jolly-store`, and verify Saleor's Stripe app accepts the CLI-issued
+`sk_test_` key (the last "adopt-on-green" unknown). See the acceptance-run sections below.
 
-**Plus — eval transcript keeping (QM, small task; specced in feature 023):** the `@eval` currently
-discards the baseline agent's behavior (per-run workspace + traces torn down; only a one-line
-summary reaches cucumber), so a run can't be understood after the fact. Implement the feature-023
-rule: a `HARNESS_EVAL_TRANSCRIPT_DIR` knob (default unset → temp as today) that, before teardown,
-persists under a per-run namespaced subdir the agent's full stdout/stderr (`AgentRun.stdout/stderr`),
-the Jolly trace (`ctx.traceFile`), the Stripe-CLI trace (`ctx.stripeTraceFile`), and the final
-workspace `.env`, scrubbing `HARNESS_OPENROUTER_API_KEY`. Observability only — never changes
-pass/fail. This is exactly the ad-hoc capture the Captain ran this session: a throwaway script
-reusing `setupEvalContext`/`runBaselineAgent`, copying the trace files + writing `run.stdout`
-before running the cleanup registry. Make it a first-class opt-in harness feature. (This session's
-sample transcript sits in the ephemeral `/tmp/jolly-eval-capture/` — not durable; the knob fixes
-that. pi runs in `-p` print mode, so captured stdout is its final summary, not step-by-step
-reasoning; a verbose pi mode is a later option if intermediate reasoning is wanted.)
-
-**Session boundary — next role is QM in a FRESH session.** Captain → Quartermaster requires a clear
-session (the QM context firewall): clear this session or start a new agent, then `/qm`. The two QM
-tasks above (doctor `init` group + eval transcript keeping) are both derivable from committed specs
-(features 014, 023) — no Captain chat context needed.
+**Session boundary — next role is QM in a FRESH session** *if* new spec work lands. Captain →
+Quartermaster requires a clear session (the QM context firewall): clear this session or start a new
+agent, then `/qm`. As of this release there is **no open QM worklist** — default dry-run is 0
+undefined.
 
 ## DONE (2026-06-14, Captain — committed): Jolly imports Stripe keys from the Stripe CLI session — features 005 + 025
 

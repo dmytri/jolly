@@ -14,7 +14,7 @@
 // locally; their bodies assert only Jolly's own observable contribution.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CHECK_STATUSES } from "../support/envelope.ts";
 import { logicSafeEnv } from "../support/logic-env.ts";
@@ -352,16 +352,137 @@ Then(
 );
 
 Then(
-  "supported v1 groups should include skills, saleor, storefront, deployment, and stripe",
+  "supported v1 groups should include skills, init, saleor, storefront, deployment, and stripe",
   function (this: JollyWorld) {
     // Each named group is accepted (no UNKNOWN_DOCTOR_GROUP) and yields an
     // envelope; an unknown group errors.
-    for (const group of ["skills", "saleor", "storefront", "deployment", "stripe"]) {
+    for (const group of ["skills", "init", "saleor", "storefront", "deployment", "stripe"]) {
       this.runCli(["doctor", group, "--json"], { env: logicSafeEnv() });
       assert.ok(
         !this.envelope.errors.some((e) => e.code === "UNKNOWN_DOCTOR_GROUP"),
         `"${group}" must be a supported doctor group`,
       );
     }
+  },
+);
+
+// ─── Scenario: Doctor flags a missing or overwritten bootstrap (@logic) ─────
+//
+// Doctor's `init` group verifies the feature-007 bootstrap artifacts so the
+// agent can machine-check "is bootstrap done" instead of assuming. A missing
+// `.mcp.json` and an `AGENTS.md` that lacks the Jolly marker (e.g. an agent
+// overwrote it) are both `fail`, each pointing at `jolly init` to recover.
+
+Given(
+  "a project directory whose `AGENTS.md` lacks Jolly's marker and which has no `.mcp.json`",
+  function (this: JollyWorld) {
+    // An AGENTS.md exists but carries no Jolly marker section (the clobbered
+    // case — file present, marker gone), and there is no .mcp.json at all.
+    writeFileSync(join(this.projectDir, "AGENTS.md"), "# Project notes\n\nNo Jolly marker here.\n");
+    assert.ok(
+      !existsSync(join(this.projectDir, ".mcp.json")),
+      "the fixture must have no .mcp.json",
+    );
+  },
+);
+
+When("the agent runs `jolly doctor init --json`", function (this: JollyWorld) {
+  this.runCli(["doctor", "init", "--json"], { env: logicSafeEnv() });
+});
+
+Then(
+  "the `agents-md` check should be {string} because the Jolly marker section is absent",
+  function (this: JollyWorld, status: string) {
+    const check = this.findCheck("agents-md");
+    assert.ok(check, "doctor init must report an agents-md check");
+    assert.equal(
+      check!.status,
+      status,
+      "an AGENTS.md without the Jolly marker must not pass",
+    );
+  },
+);
+
+Then(
+  "the `mcp-config` check should be {string}",
+  function (this: JollyWorld, status: string) {
+    const check = this.findCheck("mcp-config");
+    assert.ok(check, "doctor init must report an mcp-config check");
+    assert.equal(check!.status, status, "a missing .mcp.json must not pass");
+  },
+);
+
+Then(
+  "both should give `jolly init` as the next step",
+  function (this: JollyWorld) {
+    for (const id of ["agents-md", "mcp-config"]) {
+      const check = this.findCheck(id);
+      assert.ok(check, `doctor init must report the ${id} check`);
+      assert.equal(
+        check!.command,
+        "jolly init",
+        `the failing ${id} check must offer "jolly init" as its next step`,
+      );
+    }
+  },
+);
+
+// ─── Scenario: Doctor confirms bootstrap is done (@logic) ───────────────────
+
+Given(
+  "the artifacts `jolly init` produces are present in the project directory",
+  function (this: JollyWorld) {
+    // Seed the on-disk artifacts init merges: a .mcp.json carrying the
+    // saleor-graphql server entry, and an AGENTS.md with the Jolly marker
+    // section. Mirror init's shapes (feature 007) without running it (no skill
+    // install / network).
+    writeFileSync(
+      join(this.projectDir, ".mcp.json"),
+      JSON.stringify(
+        {
+          mcpServers: {
+            "saleor-graphql": {
+              command: "npx",
+              args: ["-y", "mcp-graphql"],
+              env: { ENDPOINT: "https://example.saleor.cloud/graphql/" },
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    writeFileSync(
+      join(this.projectDir, "AGENTS.md"),
+      "<!-- jolly:begin -->\n## Jolly\n\nBootstrap section.\n<!-- jolly:end -->\n",
+    );
+  },
+);
+
+Then(
+  "the `mcp-config` and `agents-md` checks should be {string}",
+  function (this: JollyWorld, status: string) {
+    for (const id of ["mcp-config", "agents-md"]) {
+      const check = this.findCheck(id);
+      assert.ok(check, `doctor init must report the ${id} check`);
+      assert.equal(
+        check!.status,
+        status,
+        `${id} must be "${status}" once the artifact is present`,
+      );
+    }
+  },
+);
+
+Then(
+  "doctor should thereby confirm bootstrap is complete",
+  function (this: JollyWorld) {
+    // Both init checks pass, so the init group reports no failure: doctor has
+    // machine-confirmed bootstrap is done.
+    assert.ok(
+      !this.envelope.errors.some((e) => e.code === "DOCTOR_CHECKS_FAILED"),
+      "a complete bootstrap must not raise DOCTOR_CHECKS_FAILED",
+    );
+    assert.notEqual(this.envelope.status, "error", "complete bootstrap must not be an error");
   },
 );

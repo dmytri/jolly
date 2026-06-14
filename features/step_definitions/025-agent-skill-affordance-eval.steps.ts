@@ -25,6 +25,7 @@ import {
   DUMMY,
   envelopeFromTrace,
   parseTrace,
+  persistEvalTranscript,
   runBaselineAgent,
   setupEvalContext,
   subcommandOf,
@@ -152,10 +153,16 @@ When(
     this.notes[RUN] = run;
     const records = parseTrace(ctx(this).traceFile);
     this.notes[TRACE] = records;
+    // Persist the run's evidence before teardown when HARNESS_EVAL_TRANSCRIPT_DIR
+    // is set (feature 023 transcript keeping). Observability only — done here,
+    // before the Then assertions, so a non-deterministic FAIL is still captured;
+    // never affects pass/fail. Unset knob → no-op (the default throwaway run).
+    const transcriptDir = persistEvalTranscript(ctx(this), run, this.namespace);
     // Attach diagnostics so a non-deterministic failure is debuggable.
     this.attach(
       `Agent exit ${run.exitCode} in ${run.durationMs}ms` +
         (run.timedOut ? " (TIMED OUT)" : "") +
+        (transcriptDir ? `\nTranscript: ${transcriptDir}` : "") +
         `\nTraced Jolly invocations: ` +
         records.map((r) => `${r.tool} ${r.argv.join(" ")}`).join(" | "),
       "text/plain",
