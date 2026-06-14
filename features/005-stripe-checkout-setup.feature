@@ -93,15 +93,25 @@ Feature: Stripe checkout setup for the Jolly starter storefront
       - **Saleor Cloud platform API: cannot.** It manages orgs/projects/environments; it exposes
         no app/extension-install endpoint (the Dashboard "Extensions" one-click is sugar over the
         Saleor GraphQL `appInstall`).
-      - **Saleor GraphQL API: installs the app, does not configure it.** `appInstall(manifestUrl,
-        appName, permissions: [HANDLE_PAYMENTS])` installs the Stripe app programmatically against
-        the customer's `*.saleor.cloud` endpoint. There is **no** public GraphQL mutation to set
-        the app's keys or assign a configuration to a channel — post-install GraphQL is limited to
+      - **Saleor GraphQL API: `appInstall` exists but is STAFF-ONLY — Jolly's app token cannot
+        call it (acceptance-run finding 2026-06-14).** `appInstall(manifestUrl, appName,
+        permissions: [HANDLE_PAYMENTS])` is the documented programmatic install (manifest URL
+        `https://stripe.saleor.app/api/manifest`), but it requires a **staff-member** session:
+        called with the app token Jolly manages it returns `PermissionDenied` — "You need to be
+        authenticated as a staff member to perform this action" (verified live; the app even holds
+        `MANAGE_APPS`, so this is an auth-type restriction, not a missing scope). Jolly holds no
+        store staff token (its `JOLLY_SALEOR_CLOUD_TOKEN` is the Cloud *platform* API; its
+        `JOLLY_SALEOR_APP_TOKEN` is an app token), so **Jolly cannot install the Stripe app in v1.**
+        And even post-install there is **no** public GraphQL mutation to set the app's keys or
+        assign a configuration to a channel — post-install GraphQL is limited to
         `appActivate`/`appTokenCreate`. Key entry + channel-config mapping live in the Stripe
         app's own Dashboard form (no documented/stable public API).
     - Resulting division (this is the `jolly start` Stripe stage):
-      1. **Install — Jolly automates** the Stripe app install via GraphQL `appInstall` (verify the
-         current manifest URL at implementation time; idempotent — reuse an existing install).
+      1. **Install — human Dashboard step in v1** (Dashboard → Extensions → install the Stripe app;
+         the one-click runs `appInstall` as the logged-in staff user). Jolly **cannot** automate it
+         with its app token (`appInstall` is staff-only — finding above); it announces-and-waits at
+         this gate like the keys step, and verifies the app is present afterward. (A staff-token
+         path that would let Jolly run `appInstall` itself is post-MVP, not in v1.)
       2. **Channel payment flow — configurator/recipe** already sets it on the `us` channel.
       3. **Keys + channel-config mapping — Jolly runs a guided walk-through** (the announce-and-wait
          human gate, made precise): it pauses and emits, in the feature 020 envelope, the exact
