@@ -39,6 +39,8 @@ import {
   seedRecipeStock,
   DEFAULT_STOCK_QUANTITY,
   RECIPE_WAREHOUSE_SLUG,
+  installStripeApp,
+  STRIPE_APP_MANIFEST_URL,
   CloudApiError,
   type CloudOrganization,
 } from "./lib/cloud-api.ts";
@@ -2024,6 +2026,28 @@ function startPlan(): PlanStage[] {
         dryRunAvailable: true,
       },
     },
+    {
+      stage: "stripe",
+      effects: {
+        directoriesCreated: [],
+        filesWritten: [],
+        networkHostsContacted: ["cloud.saleor.io"],
+        repositoriesCloned: [],
+      },
+      riskContext: {
+        action:
+          "install the Saleor Stripe app via Saleor GraphQL appInstall, authenticating with the Cloud staff token",
+        target: `Saleor store apps (manifest ${STRIPE_APP_MANIFEST_URL})`,
+        riskLevel: "high",
+        categories: ["payment setup", "production configuration changes"],
+        reversible: true,
+        sideEffects: [
+          `Sends Saleor GraphQL appInstall with the Stripe app manifest (${STRIPE_APP_MANIFEST_URL}) and permissions [HANDLE_PAYMENTS], authenticated with the Cloud staff token (JOLLY_SALEOR_CLOUD_TOKEN — an app token cannot call appInstall); reuses an already-installed Stripe app rather than installing a duplicate; reversible via app uninstall`,
+          "Entering the publishable + restricted keys and mapping the configuration to the `us` channel is a guided human gate Jolly does NOT perform (no stable public API); Jolly only installs the app and then announces the manual keys + channel step",
+        ],
+        dryRunAvailable: true,
+      },
+    },
   ];
 }
 
@@ -2127,6 +2151,65 @@ async function runStockStage(checks: Check[]): Promise<StageStatus> {
   }
 }
 
+/**
+ * Genuinely perform the Stripe app-install stage (feature 005 Rule "`jolly start`
+ * Stripe stage — Jolly installs the app, keys + channel map is a guided gate").
+ * This is the SECOND genuinely-executing `jolly start` stage: Jolly's own Saleor
+ * GraphQL `appInstall` against the store GraphQL endpoint, authenticated with the
+ * Cloud STAFF token (`JOLLY_SALEOR_CLOUD_TOKEN` — an app token gets
+ * PermissionDenied). Idempotent (feature 022): an already-installed Stripe app is
+ * reused. Returns `completed` only when the app was actually installed/reused;
+ * `blocked` (with an honest check) when the endpoint/token is missing or the
+ * install failed — never a fabricated install. Wrapped so a network/DNS failure
+ * (e.g. the logic-tier unroutable base) resolves quickly to `blocked` rather than
+ * throwing. The keys + `us`-channel mapping stay a human gate announced by the
+ * caller regardless of the install outcome.
+ */
+async function runStripeStage(checks: Check[]): Promise<StageStatus> {
+  const values = loadEnvValues(projectDir());
+  const endpoint =
+    process.env["NEXT_PUBLIC_SALEOR_API_URL"] ?? values["NEXT_PUBLIC_SALEOR_API_URL"] ?? "";
+  const cloudToken =
+    process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? values["JOLLY_SALEOR_CLOUD_TOKEN"] ?? "";
+
+  if (!endpoint || !cloudToken) {
+    checks.push({
+      id: "stripe-app-installed",
+      status: "skipped",
+      description:
+        "Cannot install the Saleor Stripe app: NEXT_PUBLIC_SALEOR_API_URL and/or JOLLY_SALEOR_CLOUD_TOKEN are not configured.",
+      remediation:
+        "Complete the store stage so the endpoint and Cloud token are available, then re-run jolly start --yes.",
+    });
+    return "blocked";
+  }
+
+  try {
+    const result = await installStripeApp(endpoint, cloudToken);
+    checks.push({
+      id: "stripe-app-installed",
+      status: "pass",
+      description: result.reused
+        ? "Reused the already-installed Saleor Stripe app (no duplicate installed)."
+        : "Installed the Saleor Stripe app via Saleor GraphQL appInstall using the Cloud staff token.",
+    });
+    return "completed";
+  } catch (err) {
+    const code = err instanceof CloudApiError ? err.code : "STRIPE_APP_INSTALL_FAILED";
+    checks.push({
+      id: "stripe-app-installed",
+      status: "fail",
+      description:
+        code === "STRIPE_APP_INSTALL_FAILED"
+          ? "Did not install the Saleor Stripe app: the appInstall request was rejected."
+          : "Did not install the Saleor Stripe app: the store could not be reached.",
+      remediation:
+        "Verify NEXT_PUBLIC_SALEOR_API_URL and JOLLY_SALEOR_CLOUD_TOKEN reach the store, then re-run jolly start --yes.",
+    });
+    return "blocked";
+  }
+}
+
 async function commandStart(args: ParsedArgs): Promise<Envelope> {
   if (args.dryRun) return commandStartDryRun();
 
@@ -2165,6 +2248,9 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
   const plan = startPlan();
   const stages: StartStage[] = [];
   let gate: { stage: string; reason: string } | undefined;
+  // Set once the run reaches (executes) the Stripe stage, so the keys + channel
+  // human gate is announced regardless of whether appInstall succeeded.
+  let stripeStageReached = false;
 
   for (const planStage of plan) {
     const isBootstrap = planStage.stage === "init" || planStage.stage === "auth";
@@ -2201,6 +2287,19 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
       // (with an explaining check) when there are no variants/warehouse yet or
       // the store is unreachable — never a fabricated completion.
       status = await runStockStage(checks);
+    } else if (planStage.stage === "stripe" && !gate) {
+      // The Stripe app-install stage is the SECOND genuinely-executing `jolly
+      // start` stage (decision 2026-06-14, MVP sequencing): Jolly's own Saleor
+      // GraphQL appInstall, authenticated with the Cloud staff token. It only
+      // EXECUTES when the run actually reaches it (gate unset — the high-risk
+      // stages before it were pre-approved with --yes); otherwise it stays
+      // pending behind the gate. Reported honestly: `completed` only when the
+      // app was actually installed/reused; `blocked` (with an explaining check)
+      // when the endpoint/token is missing or the install failed — never a
+      // fabricated install. The keys + `us`-channel mapping stay a human gate
+      // announced below whenever the stage was reached.
+      stripeStageReached = true;
+      status = await runStripeStage(checks);
     } else {
       status = "pending";
     }
@@ -2233,6 +2332,19 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
     nextSteps.push({
       description: "Re-run jolly start to resume the remaining stages.",
       command: "jolly start",
+    });
+  }
+
+  // Whenever the Stripe stage was reached (executed) — regardless of whether
+  // appInstall succeeded — announce the keys + `us`-channel mapping human gate
+  // (feature 005 Rule): paste the publishable + restricted keys into the
+  // installed Stripe app's Dashboard config and map the configuration to the
+  // `us` channel. Keys referenced by name only — never printed. This step has
+  // no stable public API, so it stays a guided human gate Jolly does not perform.
+  if (stripeStageReached) {
+    nextSteps.push({
+      description:
+        "Open the installed Stripe app's configuration in the Saleor Dashboard, paste the publishable key and the Stripe restricted key, and map the configuration to the `us` channel (keys referenced by name only — Jolly does not perform this guided human gate).",
     });
   }
 

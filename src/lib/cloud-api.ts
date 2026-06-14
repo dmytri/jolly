@@ -728,6 +728,79 @@ export async function seedRecipeStock(
   };
 }
 
+// ── Stripe app install (feature 005 Rule "`jolly start` Stripe stage") ─────
+//
+// The Stripe app INSTALL is the second genuinely-executing `jolly start` stage:
+// Jolly's own Saleor GraphQL `appInstall(manifestUrl, appName, permissions:
+// [HANDLE_PAYMENTS])` against the customer's `*.saleor.cloud` GraphQL endpoint,
+// authenticated with the Cloud STAFF token (`JOLLY_SALEOR_CLOUD_TOKEN`) — an app
+// token cannot (PermissionDenied). Idempotent (feature 022): a Stripe app that
+// is already installed is reused rather than installing a duplicate. The keys +
+// `us`-channel mapping have no stable public API and stay a guided human gate.
+
+export const STRIPE_APP_MANIFEST_URL =
+  "https://stripe-v2.saleor.app/api/manifest";
+export const STRIPE_APP_NAME = "Stripe";
+
+export interface InstallStripeAppResult {
+  /** Whether an existing Stripe app was reused rather than newly installed. */
+  reused: boolean;
+}
+
+/**
+ * Install the Saleor Stripe app via GraphQL `appInstall`, authenticated with the
+ * Cloud staff token. Idempotent: first lists installed apps and reuses any whose
+ * name matches /stripe/i instead of installing a duplicate. Surfaces GraphQL/
+ * payload errors as CloudApiError with a stable code. Fails fast against an
+ * unroutable endpoint (the underlying fetch rejects rather than hanging).
+ */
+export async function installStripeApp(
+  graphqlUrl: string,
+  cloudToken: string,
+  manifestUrl: string = STRIPE_APP_MANIFEST_URL,
+  appName: string = STRIPE_APP_NAME,
+): Promise<InstallStripeAppResult> {
+  const apps = await queryGetApps(graphqlUrl, cloudToken);
+  const existing = apps.find((app) => /stripe/i.test(app.name ?? ""));
+  if (existing) {
+    return { reused: true };
+  }
+
+  const data = await graphqlFetch(
+    graphqlUrl,
+    cloudToken,
+    `mutation AppInstall($input: AppInstallInput!) {
+      appInstall(input: $input) {
+        appInstallation { id status }
+        errors { field message code }
+      }
+    }`,
+    {
+      input: {
+        appName,
+        manifestUrl,
+        permissions: ["HANDLE_PAYMENTS"],
+      },
+    },
+  );
+  const result = data.appInstall as Record<string, unknown> | undefined;
+  const errors = (result?.errors ?? []) as Array<Record<string, unknown>>;
+  if (errors.length > 0) {
+    throw new CloudApiError(
+      `appInstall failed: ${errors.map((e) => e.message).join("; ")}`,
+      "STRIPE_APP_INSTALL_FAILED",
+    );
+  }
+  const installation = result?.appInstallation as Record<string, unknown> | undefined;
+  if (!installation) {
+    throw new CloudApiError(
+      "appInstall did not return an appInstallation",
+      "STRIPE_APP_INSTALL_FAILED",
+    );
+  }
+  return { reused: false };
+}
+
 async function withRetries<T>(
   fn: () => Promise<T>,
   attempts: number = 5,

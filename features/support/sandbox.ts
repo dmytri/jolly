@@ -84,6 +84,13 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
     "saleorAppToken",
     "stripe",
   ],
+  // The Stripe app install is `jolly start`'s own Saleor GraphQL appInstall,
+  // authenticated with the Cloud STAFF token (an app token gets
+  // PermissionDenied) against the store GraphQL endpoint.
+  "Jolly start installs the Stripe app and surfaces the keys and channel gate": [
+    "saleorEndpoint",
+    "saleorCloud",
+  ],
   // 012-existing-saleor-store-connection
   "Jolly validates the GraphQL endpoint": ["saleorEndpoint"],
   "Jolly infers Saleor Cloud organization and environment": [

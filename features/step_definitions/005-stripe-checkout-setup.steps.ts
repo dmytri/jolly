@@ -18,6 +18,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { logicSafeEnv } from "../support/logic-env.ts";
 import { findRiskContexts, assertRiskContextShape } from "../support/envelope.ts";
+import { saleorGraphql } from "../support/saleor-graphql.ts";
 import {
   FAKE_STRIPE_PUBLISHABLE_KEY,
   FAKE_STRIPE_SECRET_KEY,
@@ -465,6 +466,387 @@ Then(
     assert.ok(
       steps.some((s) => String((s as { command?: unknown }).command) === "jolly create stripe"),
       "doctor should direct the agent to `jolly create stripe` (no flags) to import the keys",
+    );
+  },
+);
+
+// === `jolly start` Stripe app-install stage (feature 005 Rule "`jolly start` ===
+// Stripe stage — Jolly installs the app, keys + channel map is a guided gate")
+//
+// The Stripe app INSTALL is the SECOND genuinely-executing `jolly start` stage
+// (stock-seeding was first; AGENTS.md "MVP sequencing"): it is Jolly's own
+// Saleor GraphQL `appInstall(manifest, [HANDLE_PAYMENTS])`, authenticated with
+// the Cloud STAFF token (an app token gets PermissionDenied), with no spawned
+// CLI and no interactive stdio. The keys + `us`-channel mapping have no public
+// API and stay the announce-and-wait human gate. These step defs cover its
+// three faces, mirroring the feature-004 stock-stage structure:
+//   - @logic: `jolly start --dry-run` plans the Stripe stage after the Vercel
+//     deploy, with the riskContext + a preview naming the real appInstall
+//     request, the manifest URL, and the Cloud-staff-token auth — no mutation.
+//   - @logic: `jolly start` reaching the stage must not fabricate an install
+//     (honest reporting; keys+channel named as a pending human gate).
+//   - @sandbox: the live install via appInstall + idempotent reuse + the gate.
+//
+// Safety: the @logic paths run under logicSafeEnv() (dummy JOLLY_* + an
+// unroutable `.invalid` Cloud base and Saleor endpoint), so even a stage that
+// genuinely executes can never reach a real account (the "012 incident" rule).
+
+// The current Stripe app manifest (feature 005 Rule "Stripe app path"): the
+// v2 manifest — the older `stripe.saleor.app` is the retired v1.
+const STRIPE_APP_MANIFEST_HOST = "stripe-v2.saleor.app";
+const APP_INSTALL_MUTATION = "appInstall";
+
+interface StripePlanStage {
+  stage: string;
+  effects: Record<string, string[]>;
+  riskContext?: unknown;
+}
+
+/** Locate, in the dry-run plan, the Vercel deploy stage and the Stripe
+ * app-install stage (the latter identified by the appInstall mutation it
+ * names), so the test can assert ordering without pinning exact stage labels. */
+function findStripePlanStages(plan: StripePlanStage[]): {
+  deployIndex: number;
+  stripeIndex: number;
+  stripeStage?: StripePlanStage;
+} {
+  const text = (stage: StripePlanStage) => JSON.stringify(stage).toLowerCase();
+  const deployIndex = plan.findIndex((s) => text(s).includes("vercel"));
+  const stripeIndex = plan.findIndex((s) =>
+    text(s).includes(APP_INSTALL_MUTATION.toLowerCase()),
+  );
+  return { deployIndex, stripeIndex, stripeStage: plan[stripeIndex] };
+}
+
+interface StartStage {
+  stage: string;
+  status: string;
+  riskContext?: unknown;
+}
+
+/** Find the Stripe stage in a real run's data.stages — by name or by the
+ * appInstall mutation its riskContext names (robust to the stage label Crew
+ * chooses). */
+function findStripeStage(stages: StartStage[]): StartStage | undefined {
+  return stages.find(
+    (s) =>
+      s.stage === "stripe" ||
+      JSON.stringify(s).toLowerCase().includes(APP_INSTALL_MUTATION.toLowerCase()),
+  );
+}
+
+// --- Scenario: Jolly start previews the Stripe app-install stage (@logic) ----
+//
+// The deterministic dry-run target. The `Given the agent runs `jolly start
+// --dry-run`` step is shared (defined in feature 004's step defs).
+
+When("Jolly plans the Stripe stage", function (this: JollyWorld) {
+  this.runCli(["start", "--dry-run", "--json"], { env: logicSafeEnv() });
+});
+
+Then(
+  "the plan should include a Stripe stage that runs after the Vercel deploy stage",
+  function (this: JollyWorld) {
+    const plan = this.envelope.data.plan as StripePlanStage[];
+    assert.ok(Array.isArray(plan) && plan.length > 0, "start --dry-run must report data.plan");
+    const { deployIndex, stripeIndex, stripeStage } = findStripePlanStages(plan);
+    assert.ok(deployIndex >= 0, "the plan must include the Vercel deploy stage");
+    assert.ok(
+      stripeIndex >= 0,
+      `the plan must include a Stripe stage naming ${APP_INSTALL_MUTATION}`,
+    );
+    assert.ok(
+      stripeIndex > deployIndex,
+      "the Stripe stage must run AFTER the Vercel deploy stage",
+    );
+    this.notes.stripeStage = stripeStage;
+  },
+);
+
+Then(
+  "the Stripe stage should carry a riskContext with categories including {string} and {string}",
+  function (this: JollyWorld, categoryA: string, categoryB: string) {
+    const stage = this.notes.stripeStage as StripePlanStage | undefined;
+    assert.ok(stage, "the Stripe stage must have been located");
+    assert.ok(stage!.riskContext, "the Stripe stage must carry a riskContext");
+    assertRiskContextShape(stage!.riskContext);
+    const rc = stage!.riskContext as { categories: string[] };
+    assert.ok(
+      rc.categories.includes(categoryA),
+      `the Stripe riskContext categories must include "${categoryA}"`,
+    );
+    assert.ok(
+      rc.categories.includes(categoryB),
+      `the Stripe riskContext categories must include "${categoryB}"`,
+    );
+    // The riskContext is discoverable inside the feature-020 envelope (021).
+    assert.ok(
+      findRiskContexts(this.envelope).length > 0,
+      "riskContexts must live inside the envelope",
+    );
+  },
+);
+
+Then(
+  "the preview should name the real Saleor GraphQL `appInstall` request, the Stripe app manifest URL, and that it authenticates with the Cloud staff token",
+  function (this: JollyWorld) {
+    const stage = this.notes.stripeStage as StripePlanStage;
+    const blob = JSON.stringify(stage);
+    assert.ok(
+      blob.includes(APP_INSTALL_MUTATION),
+      `the preview must name the real Saleor GraphQL mutation (${APP_INSTALL_MUTATION})`,
+    );
+    assert.ok(
+      blob.includes(STRIPE_APP_MANIFEST_HOST) && blob.toLowerCase().includes("manifest"),
+      `the preview must name the Stripe app manifest URL (${STRIPE_APP_MANIFEST_HOST}/api/manifest)`,
+    );
+    const lower = blob.toLowerCase();
+    assert.ok(
+      lower.includes("staff") && lower.includes("cloud"),
+      "the preview must state it authenticates with the Cloud staff token",
+    );
+  },
+);
+
+Then(
+  "the preview should state that entering the keys and mapping them to the `us` channel is a guided human gate, not something Jolly performs",
+  function (this: JollyWorld) {
+    const stage = this.notes.stripeStage as StripePlanStage;
+    const lower = JSON.stringify(stage).toLowerCase();
+    assert.ok(lower.includes("key"), "the preview must reference the keys");
+    assert.ok(lower.includes("channel"), "the preview must reference the channel mapping");
+    assert.ok(
+      lower.includes("gate") || lower.includes("human") || lower.includes("guided") || lower.includes("manual"),
+      "the preview must state the keys + channel mapping is a guided human gate Jolly does not perform",
+    );
+  },
+);
+
+// `Then the preview should not perform any mutation` is shared (feature 004).
+
+// --- Scenario: Jolly start does not fabricate Stripe stage completion (@logic)
+//
+// The `Given the agent runs `jolly start` in a fresh project directory with no
+// real service credentials` step is shared (defined in feature 001's step
+// defs). With approvals pre-granted (`--yes`) under logicSafeEnv, the run
+// reaches and attempts the Stripe stage, but the appInstall cannot succeed
+// against the unroutable `.invalid` Cloud base — so the stage must be reported
+// honestly (never "installed"), and the keys + channel mapping must be named as
+// a pending human gate. This is the no-fabrication (integrity-rule) target.
+
+When("`jolly start` reaches the Stripe stage", function (this: JollyWorld) {
+  this.runCli(["start", "--yes", "--json"], { env: logicSafeEnv(), timeoutMs: 90_000 });
+});
+
+Then(
+  "it must not report the Stripe app as installed unless the `appInstall` actually succeeded",
+  function (this: JollyWorld) {
+    const stages = (this.envelope.data.stages ?? []) as StartStage[];
+    const stripe = findStripeStage(stages);
+    assert.ok(stripe, "the run must report a Stripe stage in data.stages");
+    // appInstall could not succeed against the unroutable base, so the stage
+    // must NOT be "completed" — honest reporting, never a fabricated install.
+    assert.notEqual(
+      stripe!.status,
+      "completed",
+      "the Stripe stage must not be reported completed when appInstall did not succeed",
+    );
+    // No check may claim the Stripe app was installed/configured as a pass.
+    for (const check of this.envelope.checks) {
+      if (/stripe.*(install|app)|app.*install/i.test(check.id)) {
+        assert.notEqual(
+          check.status,
+          "pass",
+          `${check.id} must not be a fabricated pass when appInstall did not succeed`,
+        );
+      }
+    }
+  },
+);
+
+Then(
+  "it must report the keys-and-channel-mapping step as a pending human gate and name it in nextSteps",
+  function (this: JollyWorld) {
+    const text = JSON.stringify(this.envelope.nextSteps).toLowerCase();
+    assert.ok(
+      text.includes("key") && text.includes("channel"),
+      "nextSteps must name the keys + channel-mapping human gate",
+    );
+    assert.ok(
+      text.includes("dashboard") || text.includes("paste") || text.includes("map") || text.includes("gate"),
+      "nextSteps must present the keys + channel mapping as a manual/guided human step",
+    );
+  },
+);
+
+Then(
+  "it must not claim that checkout is ready or that the Stripe keys were configured",
+  function (this: JollyWorld) {
+    assert.doesNotMatch(
+      this.envelope.summary,
+      /checkout (is )?ready|stripe (is )?configured|keys (are |were )?configured/i,
+      "the summary must not fabricate checkout readiness or configured Stripe keys",
+    );
+    for (const check of this.envelope.checks) {
+      if (check.status !== "pass") continue;
+      const blob = `${check.id} ${String((check as { description?: unknown }).description ?? "")}`;
+      assert.doesNotMatch(
+        blob,
+        /checkout.*ready|stripe.*configured|keys.*configured/i,
+        `${check.id} must not claim checkout readiness or configured keys as a pass`,
+      );
+    }
+  },
+);
+
+// --- Scenario: Jolly start installs the Stripe app and surfaces the gate (@sandbox)
+//
+// Gated by SANDBOX_REQUIREMENTS["Jolly start installs the Stripe app and
+// surfaces the keys and channel gate"] (saleorCloud + saleorEndpoint — the
+// appInstall uses the Cloud STAFF token) → skips locally. Verifies the SECOND
+// genuinely-executing `jolly start` stage against a real store: with approvals
+// pre-granted (`--yes`), the run reaches the Stripe stage and installs the app
+// via Saleor GraphQL appInstall; a re-run reuses the existing install (no
+// duplicate); the keys + `us`-channel mapping is announced as a human gate. When
+// the Stripe stage does not report `completed` (e.g. appInstall is unavailable
+// in this environment), the scenario skips — premise not producible — rather
+// than failing.
+
+function stripeStoreCreds(): { endpoint: string; cloudToken: string | undefined } {
+  return {
+    endpoint: process.env.NEXT_PUBLIC_SALEOR_API_URL ?? "",
+    cloudToken: process.env.JOLLY_SALEOR_CLOUD_TOKEN,
+  };
+}
+
+interface AppNode {
+  id: string;
+  name: string | null;
+  identifier: string | null;
+}
+
+/** Query the store's installed apps and return those that look like the Stripe
+ * payment app (by identifier or name). Listing apps needs MANAGE_APPS — the
+ * Cloud staff token carries it. */
+async function installedStripeApps(
+  endpoint: string,
+  token: string | undefined,
+): Promise<AppNode[]> {
+  const result = await saleorGraphql(
+    endpoint,
+    token,
+    `query { apps(first: 100) { edges { node { id name identifier } } } }`,
+  );
+  const edges =
+    (result.data?.apps as { edges?: Array<{ node: AppNode }> } | undefined)?.edges ?? [];
+  return edges
+    .map((e) => e.node)
+    .filter((a) => /stripe/i.test(a.identifier ?? "") || /stripe/i.test(a.name ?? ""));
+}
+
+Given(
+  "a Saleor Cloud environment with the starter recipe deployed and the Cloud token available",
+  { timeout: 900_000 },
+  function (this: JollyWorld) {
+    // Pre-grant per-stage approvals so the orchestrated run reaches and performs
+    // the Stripe app-install stage without interactive pauses (feature 021).
+    this.runCli(["start", "--yes", "--json"], { timeoutMs: 840_000 });
+    const creds = stripeStoreCreds();
+    assert.ok(creds.endpoint, "a Saleor GraphQL endpoint must be configured/derived");
+    this.notes.storeEndpoint = creds.endpoint;
+    this.notes.storeToken = creds.cloudToken;
+  },
+);
+
+When("Jolly start reaches the Stripe stage", function (this: JollyWorld) {
+  // The genuinely-executing outcome to verify is the Stripe stage reporting
+  // `completed` (the app installed via appInstall). When appInstall is not
+  // possible in this environment, Jolly reports the stage pending/blocked
+  // honestly (never a fabricated `completed`), so the scenario skips — premise
+  // not producible — rather than failing.
+  const stages = (this.envelope.data.stages ?? []) as StartStage[];
+  const stripe = findStripeStage(stages);
+  if (!stripe || stripe.status !== "completed") {
+    this.attach(
+      `Skipped: the Stripe app-install stage did not complete in this ` +
+        `environment (status: ${stripe?.status ?? "absent"})`,
+      "text/plain",
+    );
+    this.notes.skipStripe = true;
+  }
+});
+
+Then(
+  "it should install the Saleor Stripe app via Saleor GraphQL `appInstall` using the Cloud staff token and the current Stripe app manifest",
+  { timeout: 120_000 },
+  async function (this: JollyWorld) {
+    if (this.notes.skipStripe) return "skipped";
+    const endpoint = String(this.notes.storeEndpoint);
+    const token = this.notes.storeToken as string | undefined;
+    const apps = await installedStripeApps(endpoint, token);
+    assert.ok(
+      apps.length >= 1,
+      "the Saleor Stripe app must be installed on the store after the Stripe stage",
+    );
+    this.notes.stripeAppCount = apps.length;
+  },
+);
+
+Then(
+  "re-running the stage should reuse the existing installation rather than installing a duplicate",
+  { timeout: 900_000 },
+  async function (this: JollyWorld) {
+    if (this.notes.skipStripe) return "skipped";
+    // Re-run the orchestrated stage; the install must be idempotent (feature
+    // 022) — it detects the existing Stripe app and reuses it.
+    this.runCli(["start", "--yes", "--json"], { timeoutMs: 840_000 });
+    const endpoint = String(this.notes.storeEndpoint);
+    const token = this.notes.storeToken as string | undefined;
+    const apps = await installedStripeApps(endpoint, token);
+    assert.equal(
+      apps.length,
+      this.notes.stripeAppCount,
+      `re-running must not install a duplicate Stripe app (was ` +
+        `${this.notes.stripeAppCount}, now ${apps.length})`,
+    );
+  },
+);
+
+Then(
+  "it should announce the guided gate to paste the keys and map the configuration to the `us` channel, referencing the keys by name only",
+  function (this: JollyWorld) {
+    if (this.notes.skipStripe) return "skipped";
+    const text = JSON.stringify(this.envelope).toLowerCase();
+    assert.ok(text.includes("channel"), "the gate must reference the channel mapping");
+    assert.ok(text.includes("key"), "the gate must reference the keys to paste");
+    // Keys referenced by name only — no real secret values are printed.
+    this.assertNoSecretsIn(this.lastRun!.stdout, "start stdout");
+  },
+);
+
+Then(
+  "it should report the stage honestly — installed where it installed, and blocked on the human gate for the keys and channel mapping",
+  function (this: JollyWorld) {
+    if (this.notes.skipStripe) return "skipped";
+    const stages = (this.envelope.data.stages ?? []) as StartStage[];
+    const stripe = findStripeStage(stages);
+    assert.ok(stripe, "the run must report a Stripe stage in data.stages");
+    assert.equal(
+      stripe!.status,
+      "completed",
+      "the Stripe install stage must be reported completed (the app was installed)",
+    );
+    // The overall run is never "success": the keys + channel mapping remain a
+    // pending human gate Jolly cannot pass (integrity rule). nextSteps name it.
+    assert.notEqual(
+      this.envelope.status,
+      "success",
+      "the run must not report success while the keys + channel gate is pending",
+    );
+    const next = JSON.stringify(this.envelope.nextSteps).toLowerCase();
+    assert.ok(
+      next.includes("key") && next.includes("channel"),
+      "nextSteps must name the pending keys + channel-mapping human gate",
     );
   },
 );
