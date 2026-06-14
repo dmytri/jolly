@@ -42,6 +42,25 @@ artifacts absent; never overwrite the marker). Default dry-run now shows **3 und
 **Optional follow-on (not required):** the 025 eval could assert bootstrap via `jolly doctor init`
 instead of poking files on disk — a cleaner, single oracle — but that's a QM choice.
 
+**Plus — eval transcript keeping (QM, small task; specced in feature 023):** the `@eval` currently
+discards the baseline agent's behavior (per-run workspace + traces torn down; only a one-line
+summary reaches cucumber), so a run can't be understood after the fact. Implement the feature-023
+rule: a `HARNESS_EVAL_TRANSCRIPT_DIR` knob (default unset → temp as today) that, before teardown,
+persists under a per-run namespaced subdir the agent's full stdout/stderr (`AgentRun.stdout/stderr`),
+the Jolly trace (`ctx.traceFile`), the Stripe-CLI trace (`ctx.stripeTraceFile`), and the final
+workspace `.env`, scrubbing `HARNESS_OPENROUTER_API_KEY`. Observability only — never changes
+pass/fail. This is exactly the ad-hoc capture the Captain ran this session: a throwaway script
+reusing `setupEvalContext`/`runBaselineAgent`, copying the trace files + writing `run.stdout`
+before running the cleanup registry. Make it a first-class opt-in harness feature. (This session's
+sample transcript sits in the ephemeral `/tmp/jolly-eval-capture/` — not durable; the knob fixes
+that. pi runs in `-p` print mode, so captured stdout is its final summary, not step-by-step
+reasoning; a verbose pi mode is a later option if intermediate reasoning is wanted.)
+
+**Session boundary — next role is QM in a FRESH session.** Captain → Quartermaster requires a clear
+session (the QM context firewall): clear this session or start a new agent, then `/qm`. The two QM
+tasks above (doctor `init` group + eval transcript keeping) are both derivable from committed specs
+(features 014, 023) — no Captain chat context needed.
+
 ## DONE (2026-06-14, Captain — committed): Jolly imports Stripe keys from the Stripe CLI session — features 005 + 025
 
 **Status: DELIVERED and committed.** The QM worklist below is complete; all tiers green —
