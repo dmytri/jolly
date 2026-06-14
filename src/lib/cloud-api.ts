@@ -507,11 +507,14 @@ export async function createLocalApp(
 }
 
 /**
- * Acquire an app token on the instance: select an existing local app and
- * create a token for it, otherwise create a local app (which yields its
- * token directly) — the deprecated CLI's example flow. Retries transient
- * failures: a freshly provisioned environment can take a moment to serve
- * GraphQL.
+ * Acquire the workflow app token from a dedicated app Jolly owns, named
+ * `appName` (the caller passes "Jolly Setup"). Looks for an existing app whose
+ * name exactly matches: if found, mints a fresh token for that app via
+ * appTokenCreate (idempotent — no duplicate app); if absent, creates the
+ * dedicated app with the full v1 permission set via appCreate, which returns
+ * its token directly. Jolly never mints a token for an unrelated pre-existing
+ * app. Retries the GetApps query on transient failures: a freshly provisioned
+ * environment can take a moment to serve GraphQL.
  */
 export async function acquireAppToken(
   graphqlUrl: string,
@@ -519,8 +522,9 @@ export async function acquireAppToken(
   appName: string,
 ): Promise<string> {
   const apps = await withRetries(() => queryGetApps(graphqlUrl, token));
-  if (apps.length > 0) {
-    const { authToken } = await createAppToken(graphqlUrl, token, apps[0].id);
+  const existing = apps.find((app) => app.name === appName);
+  if (existing) {
+    const { authToken } = await createAppToken(graphqlUrl, token, existing.id);
     return authToken;
   }
   const permissions = await queryPermissionEnum(graphqlUrl, token);

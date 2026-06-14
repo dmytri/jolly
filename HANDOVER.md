@@ -10,67 +10,39 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
-## CURRENT (2026-06-14, Captain — MVP acceptance run, live): stages 1–7a verified; 2 real bugs found; feature 024 respec'd
+## CURRENT (2026-06-14, Captain — finding #2 open): clean-environment provisioning for the recipe deploy
 
-**What this is.** A by-hand drive of the MVP happy path against the LIVE `jolly-store` to answer
-"are we at MVP." Stages 1–7a now verified for real; two genuine bugs surfaced and are spec'd
-below. The agent-driven half's remaining stages (7b Stripe app, 8 deploy, 9 trusted origins, 10
-doctor) are human-gated and left for the customer to finish (precise steps below).
+Finding #1 is DONE and released (v0.5.1 — see below). The open MVP-acceptance item is **finding #2**:
+provision the store environment **without Saleor demo/sample data** so the starter-recipe deploy
+stays additive. This is the active Captain track.
 
-**Live progress (against `jolly-store`, env `FotDY4VH`, org `dmytris-organization-1`):**
-- 1–4 auth/store/app-token ✅ — but app-token only after fixing **finding #1** (below).
-- 5 storefront ✅ — Paper at `/home/exedev/acceptance/storefront`, `.env` wired
-  (`NEXT_PUBLIC_SALEOR_API_URL` + `NEXT_PUBLIC_DEFAULT_CHANNEL=us`); `recipe.yml` copied to
-  `saleor-config.yml`.
-- 6 recipe → `@saleor/configurator deploy` ✅ — **20 created / 2 updated / 120 deleted**. Live
-  store now has the `us`/USD channel, 10 published pirate products, and US shipping (2 methods).
-- 7a Stripe keys ✅ — `.env` holds valid `pk_test_`/`sk_test_` (standard) test-mode keys;
-  Stripe `/v1/balance` returns 200, `livemode:false`.
-
-**Live-state side effects (this VM):** a dedicated **"Jolly Setup" app (id `QXBwOjM=`, app #3,
-24 permissions)** was created on the store and its token written to the repo `.env` as
-`JOLLY_SALEOR_APP_TOKEN` (the old 3-perm "SMTP" token is gone). The store's Saleor sample data was
-wiped by the recipe deploy. `jolly-store` **persists and bills** until deleted.
-
-### 🐞 Finding #1 (FIXED in spec; needs QM+Crew) — `acquireAppToken` reuses `apps[0]`
-`src/lib/cloud-api.ts:516` `acquireAppToken`: if any app exists it mints a token for `apps[0]`,
-and only creates a full-permission "Jolly Setup" app when the instance has **zero** apps. On
-`jolly-store` `apps[0]` was a pre-existing **"SMTP"** app (`MANAGE_GIFT_CARD/ORDERS/USERS` only),
-so the token was missing every permission `@saleor/configurator` needs → stage 6 `Permission
-Denied`. `appTokenCreate` cannot escalate an existing app's permissions, so reusing a stranger app
-can never work. The first acceptance run only passed because the fresh env had no apps.
-
-**Decision (customer, 2026-06-14):** Jolly creates/reuses a **dedicated "Jolly Setup" app with the
-full v1 permission set** (reuse by exact name = idempotent, feature 022); never mints a token for
-an unrelated app. **Spec'd this pass: feature 024 rewritten** (6 `@logic` scenarios + 1 `@sandbox`;
-resolves the old "Open questions"); the old "select `apps[0]` / `NO_APPS_AVAILABLE` / present apps"
-model is retired. Empirically validated live (the hand-minted "Jolly Setup" app has all 5
-configurator perms and the diff/deploy then succeeded).
-
-**QM worklist (FRESH session — derivable from committed feature 024):**
-1. **QM — regenerate `features/step_definitions/024-jolly-app-token-acquisition.steps.ts`** (the old
-   file was DELETED this pass; default dry-run shows **6 undefined** as the marker). Hermetic
-   `@logic`: drive `acquireAppToken` against a local GraphQL stand-in (mirror 012/018's
-   `JOLLY_SALEOR_CLOUD_API_URL`/local-server pattern, or stub `GetApps`/`appCreate`/`appTokenCreate`)
-   to assert: no "Jolly Setup" → `appCreate` with all `PermissionEnum`; existing "Jolly Setup" →
-   `appTokenCreate`, no duplicate; an unrelated low-perm app present → still creates "Jolly Setup",
-   never tokens the stranger. 012-incident safety (`logicSafeEnv`, `.invalid` base on side-effecting
-   paths) throughout.
-2. **Crew — fix `acquireAppToken`** (`src/lib/cloud-api.ts:516`): find an app named "Jolly Setup";
-   reuse it via `appTokenCreate` if present, else `createLocalApp("Jolly Setup", allPermissions)`.
-   Stop selecting `apps[0]`. Keep writing to `.env` as `JOLLY_SALEOR_APP_TOKEN`, never printed.
-3. **Verify:** `@logic`/units/typecheck green; default dry-run back to **0 undefined**.
-
-### 🐞 Finding #2 (spec'd as clarification; provisioning fix needs a Captain decision)
+### 🐞 Finding #2 (OPEN — Captain decision in progress)
 The starter recipe is a complete *declarative* config — `deploy` reconciles the store to match,
 deleting undeclared entities. On `jolly-store`'s sample data that was **120 deletes**, and the
 skill-mandated `--fail-on-breaking`/`--failOnDelete` would (correctly) BLOCK it. The recipe assumes
-a *freshly created, empty* environment where the apply is additive. **Landed this pass:** a feature
-004 Rule "Recipe targets a clean environment". **OPEN for the next Captain pass:** the clean fix is
-`jolly create store --create-environment` provisioning the env **without Saleor demo/sample data**
-so the happy path stays additive — confirm the provisioning mechanism (Cloud API option / blank
-backup) and whether to make it the default, then spec it on the store-creation feature. Not yet
-routed to QM.
+a *freshly created, empty* environment where the apply is additive. **Already landed:** a feature
+004 Rule "Recipe targets a clean environment". **The clean fix:** `jolly create store
+--create-environment` provisioning the env **without Saleor demo/sample data** so the happy path
+stays additive — confirm the provisioning mechanism (Cloud API `database_population` option / blank
+backup) and whether to make it the default, then spec it on the store-creation feature (012).
+
+### ✅ Finding #1 (DONE — released v0.5.1) — dedicated "Jolly Setup" app-token
+`acquireAppToken` no longer reuses `apps[0]`. It resolves a dedicated app by exact name
+("Jolly Setup"): reuse via `appTokenCreate` if present (idempotent, no duplicate), else
+`createLocalApp("Jolly Setup", allPermissions)` with the full v1 permission set. This fixes the
+acceptance-run regression (a pre-existing 3-perm "SMTP" app gave Configurator a Permission-Denied
+token). Delivered by QM+Crew, all tiers green (typecheck clean, units 43/43, `@logic` 57/57, default
+dry-run 0 undefined); committed + released as v0.5.1.
+- `src/lib/cloud-api.ts` — `acquireAppToken` rewritten (Crew).
+- `features/step_definitions/024-jolly-app-token-acquisition.steps.ts` — regenerated against the
+  respec'd feature 024 via a local in-process Saleor GraphQL stand-in (QM).
+- `features/support/sandbox.ts` — `@sandbox` scenario-name gating updated (QM).
+
+### Live acceptance-run state (unchanged)
+`jolly-store` (env `FotDY4VH`, org `dmytris-organization-1`) is **LIVE and billing** until deleted.
+The store's Saleor sample data was wiped by the stage-6 recipe deploy; a dedicated "Jolly Setup" app
+(24 perms) holds the `.env` `JOLLY_SALEOR_APP_TOKEN`. Stages 1–7a verified for real; the
+remaining stages (7b Stripe app, 8 deploy, 9 trusted origins, 10 doctor) are human-gated.
 
 ### Remaining human-gated stages (for the customer to finish the acceptance run)
 - **7b — Saleor Dashboard → Extensions → Stripe app:** install/open it, add a configuration with
@@ -85,9 +57,9 @@ routed to QM.
 - **10 — Verify:** `npx @dk/jolly doctor` (all groups); confirm checkout reaches the Stripe test
   payment step.
 
-**Session boundary — next role is QM in a FRESH session** for the finding #1 work (feature 024 is
-committed; the 6 undefined scenarios are the marker). Finding #2's provisioning decision is a
-Captain item, not QM's.
+**Session boundary — finding #1 is committed + released (v0.5.1); finding #2 is the active Captain
+track.** Once finding #2 is spec'd, the next role is QM in a FRESH session to make the new
+store-creation scenarios executable.
 
 ---
 

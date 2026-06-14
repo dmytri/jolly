@@ -99,7 +99,10 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   "Jolly login verifies a headless token against the Cloud API": ["saleorCloud"],
   "Agent completes the full browser OAuth login flow": ["saleorCloud", "saleorAppToken"],  // needs JOLLY_SALEOR_APP_TOKEN for the real token check after browser flow
   // 024-jolly-app-token-acquisition
-  "Jolly create app-token acquires a real token from Saleor": ["saleorEndpoint", "saleorCloud"],
+  "Jolly create app-token acquires a real, fully-permissioned token from Saleor": [
+    "saleorEndpoint",
+    "saleorCloud",
+  ],
   // 012-existing-saleor-store-connection
   "Jolly creates a Saleor Cloud environment": ["saleorCloud"],
   "Jolly create store handles domain name collision": ["saleorCloud"],
