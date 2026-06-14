@@ -1,6 +1,6 @@
 Feature: Jolly app token acquisition via Saleor GraphQL
   As a customer's AI agent
-  I want Jolly to acquire app tokens from a Saleor instance via GraphQL
+  I want Jolly to acquire an app token from a Saleor instance via GraphQL
   So that Configurator and other privileged operations can proceed
   without requiring manual token creation in the Dashboard
 
@@ -9,30 +9,38 @@ Feature: Jolly app token acquisition via Saleor GraphQL
     And Jolly has a Saleor GraphQL instance URL
 
   @logic
-  Scenario: Jolly create app-token lists available apps via GraphQL
+  Scenario: Jolly create app-token ensures a dedicated Jolly Setup app
     Given the agent invokes `jolly create app-token`
-    When Jolly queries the Saleor instance for available apps
+    When Jolly resolves which app to mint a token for
     Then it should send the GetApps GraphQL query to the instance URL
     And the query should be authenticated with the Saleor Cloud bearer token
-    And it should parse the response for a list of app names and IDs
-    And if multiple apps are found, it should present them for selection
+    And it should look for an app it owns by the dedicated name "Jolly Setup"
+    And it should not mint a token for an unrelated pre-existing app
 
   @logic
-  Scenario: Jolly create app-token constructs the correct GraphQL mutation
-    Given the agent has selected a Saleor app by ID
-    When Jolly creates a token for that app
-    Then it should send the appTokenCreate GraphQL mutation with the selected app ID
-    And the mutation should request all available permissions for the token in v1
-    And it should extract the authToken from the mutation response
+  Scenario: Jolly create app-token creates the Jolly Setup app with full permissions when absent
+    Given the instance has no "Jolly Setup" app yet
+    When Jolly creates the dedicated app
+    Then it should send the appCreate GraphQL mutation named "Jolly Setup"
+    And the mutation should request all available permissions for the app in v1
+    And it should extract the authToken returned directly by appCreate
     And it should write the token to .env as JOLLY_SALEOR_APP_TOKEN
 
   @logic
-  Scenario: Jolly create app-token handles missing apps gracefully
-    Given the Saleor instance has no apps installed
-    When Jolly queries GetApps
-    Then it should report that no apps are available
-    And it should suggest creating a Saleor app via the Dashboard
-    And it should return an empty error code "NO_APPS_AVAILABLE"
+  Scenario: Jolly create app-token reuses an existing Jolly Setup app idempotently
+    Given the instance already has a "Jolly Setup" app from a previous run
+    When Jolly acquires a token
+    Then it should send the appTokenCreate mutation for that existing Jolly Setup app
+    And it should not create a duplicate app
+    And it should write the token to .env as JOLLY_SALEOR_APP_TOKEN
+
+  @logic
+  Scenario: Jolly create app-token does not reuse an unrelated low-permission app
+    Given the instance has a pre-existing app with only a few permissions and no "Jolly Setup" app
+    When Jolly acquires a token
+    Then it should create the dedicated "Jolly Setup" app with all available permissions
+    And it should not mint a token for the unrelated pre-existing app
+    And the resulting token's app should carry the permissions Configurator requires
 
   @logic
   Scenario: Jolly create app-token --dry-run shows risk context
@@ -44,24 +52,37 @@ Feature: Jolly app token acquisition via Saleor GraphQL
     And no GraphQL mutations should be sent to the Saleor instance
 
   @sandbox
-  Scenario: Jolly create app-token acquires a real token from Saleor
-    Given the Saleor instance has at least one app installed
-    When the agent runs `jolly create app-token` with a selected app
-    Then Jolly should successfully create a new app token via GraphQL
+  Scenario: Jolly create app-token acquires a real, fully-permissioned token from Saleor
+    Given a real Saleor instance, which may already have unrelated apps installed
+    When the agent runs `jolly create app-token`
+    Then Jolly should ensure a dedicated "Jolly Setup" app and create a token for it via GraphQL
+    And the token's app should hold the management permissions Configurator requires
     And it should write the token to .env as JOLLY_SALEOR_APP_TOKEN
     And subsequent `jolly auth status` should report the app token is configured
     And Jolly should not print the token value
 
   Rule: App token principles
     - App token acquisition uses the Saleor GraphQL API directly on the instance, not the Cloud API.
-    - The `appTokenCreate` mutation is a standard Saleor GraphQL mutation available on every instance.
     - The token returned is a bearer token for the Saleor instance's GraphQL API.
-    - Jolly v1 should request all available permissions when creating the setup/configuration app token.
-    - The app token is stored as JOLLY_SALEOR_APP_TOKEN in .env.
-    - Listing apps uses the standard GetApps GraphQL query.
+    - Listing apps uses the standard GetApps GraphQL query; the dedicated app is created with the
+      standard `appCreate` mutation and reused via `appTokenCreate`.
+    - The app token is stored as JOLLY_SALEOR_APP_TOKEN in .env; Jolly never prints it.
     - Jolly should not depend on the deprecated Saleor CLI for app token creation.
 
-  Rule: Open questions
-    - Whether Jolly should create a dedicated "Jolly Setup" app vs. selecting an existing app is deferred to CLI design.
-    - What specific app permissions Jolly should request for optimal Configurator access remains open.
-    - Whether app token creation should be part of `jolly create app-token` or folded into `jolly create store --with-app-token` is deferred.
+  Rule: Dedicated Jolly Setup app, full permissions (resolved 2026-06-14)
+    - Jolly acquires the workflow token from a dedicated app it owns, named "Jolly Setup", created
+      with the full v1 permission set (all available `PermissionEnum` values). It never mints a
+      token for an unrelated pre-existing app.
+    - Reason (acceptance-run finding 2026-06-14): `appTokenCreate` cannot escalate an existing
+      app's permissions — a token minted for, say, a 3-permission "SMTP" app is missing everything
+      `@saleor/configurator` needs (MANAGE_PRODUCTS, MANAGE_CHANNELS, MANAGE_SETTINGS,
+      MANAGE_SHIPPING, MANAGE_CHECKOUTS), so stage 6 fails Permission Denied. The earlier
+      "select the first existing app, else create one" flow (inherited from the deprecated CLI)
+      only produced a usable token on a pristine environment with zero apps.
+    - Acquisition is idempotent (feature 022): if a "Jolly Setup" app already exists, Jolly reuses
+      it (mints a fresh token via `appTokenCreate`) rather than creating a duplicate; only when it
+      is absent does Jolly create it via `appCreate`.
+    - "No apps installed" is therefore not an error condition — Jolly creates its own app. There is
+      no `NO_APPS_AVAILABLE` outcome and no interactive app selection in the agent-driven flow.
+    - v1 requests all available permissions; narrowing to the minimal Configurator/Paper set is a
+      post-MVP refinement.

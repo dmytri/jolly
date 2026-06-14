@@ -45,3 +45,17 @@ Feature: Jolly Configurator starter recipe
       `--fail-on-breaking` — passing the store URL and app token; Jolly never runs the configurator.
     - The recipe's `us` channel slug is the storefront's `NEXT_PUBLIC_DEFAULT_CHANNEL`.
 
+  Rule: Recipe targets a clean environment (acceptance-run finding 2026-06-14)
+    - The recipe is a complete *declarative* `@saleor/configurator` config: a `deploy` reconciles
+      the store to match it, which means it deletes catalog entities the recipe does not declare.
+    - It therefore assumes a freshly created, empty Saleor environment, where the apply is purely
+      additive (creates only) and `--fail-on-breaking`/`--failOnDelete` passes cleanly.
+    - On a store that already holds catalog data, the first apply is destructive — the safe guard
+      correctly blocks it (observed live: applying the recipe over Saleor's sample data was 20
+      creates + 120 deletes, `hasDestructiveOperations: true`). On such a store the agent must
+      surface the destructive diff and get the customer's explicit approval before applying, and
+      may only then deploy without the breaking guard. The skill carries this guidance.
+    - To keep the happy path additive, `jolly create store --create-environment` should provision
+      the environment WITHOUT Saleor's demo/sample data so the recipe is the store's first catalog
+      config. (Provisioning-mechanism decision tracked in HANDOVER; confirm before implementing.)
+
