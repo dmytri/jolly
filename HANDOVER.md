@@ -10,6 +10,38 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
+## CURRENT (2026-06-14, Captain): `jolly doctor` verifies bootstrap is done — feature 014 `init` group
+
+**Decision (customer, 2026-06-14):** `jolly doctor` must be able to verify "done." The `@eval`
+flakiness traces to a real gap: doctor has NO check for the init artifacts — it checks skills but
+ignores `.mcp.json` and the `AGENTS.md` marker — so the baseline agent could not machine-check
+whether bootstrap was done. It either skipped `jolly init` (assumed done) or overwrote `AGENTS.md`
+after, and doctor caught neither. Fix: a doctor `init` group that verifies the feature-007
+bootstrap artifacts, so "bootstrap done" is machine-checkable. (Operational "done" — storefront/
+deployment/stripe — is already doctor's job; this adds the missing bootstrap layer.)
+
+**Spec landed this Captain pass (feature 014, committed):** new `init` group; two `@logic`
+scenarios (missing/overwritten bootstrap → `mcp-config` + `agents-md` `fail` with next step `jolly
+init`; artifacts present → `pass`, bootstrap complete); the targeted-groups list gains `init`; a
+Rule bullet. Companion `SKILL.md` stage-1 edit already shipped (e67412b: run `jolly init` if
+artifacts absent; never overwrite the marker). Default dry-run now shows **3 undefined scenarios**
+(the 2 new + the groups-list step whose text changed) — the intended QM marker, not a regression.
+
+**QM worklist (fresh session):**
+1. **Crew — doctor `init` group.** `commandDoctor` (`src/index.ts` ~1556): add `init` to
+   `DOCTOR_GROUPS`; under `wants("init")` emit `mcp-config` (pass iff `.mcp.json` carries the
+   `saleor-graphql` server entry) and `agents-md` (pass iff `AGENTS.md` carries the `jolly:begin`
+   marker — NOT mere file existence, so a clobbered `AGENTS.md` is `fail`), each with command
+   `jolly init` when failing. Default `jolly doctor` (no group) includes them. Reuse the same
+   merge/marker helpers `cmdInit` uses (`mergeMcpJson`/`mergeAgentsMd` predicates).
+2. **QM — step defs** for the 2 new 014 scenarios + update the targeted-groups step text to include
+   `init`. Hermetic `@logic`: seed `.mcp.json` + marker `AGENTS.md` for the present case (mirror
+   007); a clobbered `AGENTS.md` (present, no marker) + no `.mcp.json` for the fail case. No network.
+3. **Verify:** `@logic`/units/typecheck green; default dry-run back to **0 undefined**.
+
+**Optional follow-on (not required):** the 025 eval could assert bootstrap via `jolly doctor init`
+instead of poking files on disk — a cleaner, single oracle — but that's a QM choice.
+
 ## DONE (2026-06-14, Captain — committed): Jolly imports Stripe keys from the Stripe CLI session — features 005 + 025
 
 **Status: DELIVERED and committed.** The QM worklist below is complete; all tiers green —

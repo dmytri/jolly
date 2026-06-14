@@ -62,7 +62,22 @@ Feature: Jolly doctor diagnostics
     Given the agent needs to diagnose a specific area
     When it invokes a named `jolly doctor` check group
     Then Jolly should run only the relevant checks for that group
-    And supported v1 groups should include skills, saleor, storefront, deployment, and stripe
+    And supported v1 groups should include skills, init, saleor, storefront, deployment, and stripe
+
+  @logic
+  Scenario: Doctor flags a missing or overwritten bootstrap so the agent need not assume
+    Given a project directory whose `AGENTS.md` lacks Jolly's marker and which has no `.mcp.json`
+    When the agent runs `jolly doctor init --json`
+    Then the `agents-md` check should be "fail" because the Jolly marker section is absent
+    And the `mcp-config` check should be "fail"
+    And both should give `jolly init` as the next step
+
+  @logic
+  Scenario: Doctor confirms bootstrap is done once the init artifacts are present
+    Given the artifacts `jolly init` produces are present in the project directory
+    When the agent runs `jolly doctor init --json`
+    Then the `mcp-config` and `agents-md` checks should be "pass"
+    And doctor should thereby confirm bootstrap is complete
 
   Rule: Doctor principles
     - `jolly doctor` is required for v1.
@@ -75,6 +90,7 @@ Feature: Jolly doctor diagnostics
     - Doctor should suggest concrete next commands or manual steps.
     - Doctor is the agent's recovery oracle during skill-driven setup: when a step fails or is incomplete, the relevant check should tell the agent what is wrong and the concrete next action (a command to run, a CLI to authenticate, a value to provide), so the agent can self-correct and resume via the Jolly skill.
     - Doctor's checks should reflect end-to-end state produced by the agent's official-CLI steps (cloned storefront, configured store, deployment) — see feature 022 — so a re-run after agent work shows real progress, not just Jolly's own plumbing.
+    - Doctor verifies the local bootstrap artifacts `jolly init` produces (feature 007) under an `init` group — the merged `.mcp.json` saleor-graphql entry (`mcp-config`) and the `AGENTS.md` `jolly:begin` marker section (`agents-md`) — so the agent can machine-check whether bootstrap is done instead of assuming it. A missing `.mcp.json`, or an `AGENTS.md` that exists but no longer carries the Jolly marker (e.g. an agent overwrote it), is `fail` with `jolly init` as the next step; both present is `pass`. `jolly init` re-merges idempotently to recover.
     - Doctor should be diagnostics-only in v1.
     - Doctor should not make local or remote changes in v1.
     - Per feature 020's "No fabricated success", doctor reports `pass` only for a check it actually performed and confirmed; checks it could not run are `skipped` or `unknown`, never `pass`.
