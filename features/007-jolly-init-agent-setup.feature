@@ -43,6 +43,26 @@ Feature: Jolly init for local agent setup
     And the output envelope should report a status of success
     And the summary should indicate what was installed
 
+  @sandbox
+  Scenario: Skills install non-interactively with no agent runtime present
+    # Reproduces a fresh customer machine: the real installer runs with no interactive
+    # terminal and no agent runtime detected. Needs no Saleor credentials.
+    Given `jolly init` runs with no interactive terminal and no agent runtime detected
+    When it installs the default skill set
+    Then each default skill should be installed under `.agents/skills/<id>/` and verified on disk
+    And the install should require no interactive prompt and no specific agent to be present
+    And Jolly should report success only when every skill actually landed on disk
+
+  Rule: Skill installation is non-interactive and agent-agnostic
+    - `jolly init`/`start` install skills with no interactive prompts and no dependence on a TTY,
+      a human, or any particular agent runtime being present or selected: the install behaves the
+      same whether zero, one, or many agents are installed, and always writes the universal
+      `.agents/skills/<id>/` location.
+    - The skill installer is invoked with its OWN non-interactive flag so it never opens an
+      agent/skill picker. Spawned non-interactively a picker installs nothing while still exiting
+      0 — a silent failure — so on-disk verification (below) is authoritative: a skill that did not
+      land reads as fail, never pass.
+
   Rule: Init boundaries
     - `jolly init` is automatically invoked by `jolly start` as part of the setup flow. The agent never runs it as an explicit step.
     - `jolly init` is available standalone for repo re-initialization and maintenance.
