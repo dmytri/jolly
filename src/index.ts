@@ -41,6 +41,7 @@ import {
   RECIPE_WAREHOUSE_SLUG,
   installStripeApp,
   STRIPE_APP_MANIFEST_URL,
+  probeCheckoutPaymentGateway,
   CloudApiError,
   type CloudOrganization,
 } from "./lib/cloud-api.ts";
@@ -1592,7 +1593,7 @@ function agentsMdHasJollyMarker(): boolean {
   return readFileSync(path, "utf8").includes("<!-- jolly:begin -->");
 }
 
-function commandDoctor(args: ParsedArgs): Envelope {
+async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
   const group = args.positionals[1];
   const values = loadEnvValues(projectDir());
   const checks: Check[] = [];
@@ -1742,6 +1743,81 @@ function commandDoctor(args: ParsedArgs): Envelope {
           ? "jolly create stripe"
           : "jolly create stripe --publishable-key <pk> --secret-key <sk>",
       });
+    }
+
+    // Checkout-readiness probe (feature 005 Rule "Checkout-readiness verify
+    // probe"): the authoritative signal that checkout reaches the Stripe test
+    // payment step is whether a real `us` checkout is offered the Stripe gateway.
+    // There is no public read for the app's channel-config mapping, so Jolly
+    // creates a minimal `us` test checkout, inspects its available payment
+    // gateways, then reverts (deletes) it (harmless — test mode only, no
+    // payment captured). Honest reporting: `pass` only when Stripe is actually
+    // offered; `warning` when the store is reachable but it is not; never `pass`
+    // when the store/creds are unavailable or the probe cannot run.
+    const endpoint =
+      values["NEXT_PUBLIC_SALEOR_API_URL"] ?? process.env["NEXT_PUBLIC_SALEOR_API_URL"];
+    const probeToken =
+      values["JOLLY_SALEOR_APP_TOKEN"] ??
+      process.env["JOLLY_SALEOR_APP_TOKEN"] ??
+      values["JOLLY_SALEOR_CLOUD_TOKEN"] ??
+      process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
+    const gateStep =
+      "Open the installed Stripe app's configuration in the Saleor Dashboard, " +
+      "paste the publishable and restricted keys, and map the configuration to " +
+      "the `us` channel.";
+    if (!endpoint || !probeToken) {
+      checks.push({
+        id: "checkout-payment-gateway",
+        status: "skipped",
+        description:
+          "Checkout-readiness probe skipped: no Saleor endpoint and/or token to reach the store. " +
+          "Once the store is reachable, this probe creates a reverted `us` test checkout to confirm the Stripe gateway is offered.",
+        command: "jolly create store --url <graphql-endpoint>",
+      });
+    } else {
+      const outcome = await probeCheckoutPaymentGateway(endpoint, probeToken);
+      switch (outcome.kind) {
+        case "stripe-offered":
+          checks.push({
+            id: "checkout-payment-gateway",
+            status: "pass",
+            description:
+              "Checkout is ready: a `us` checkout is offered the Stripe payment gateway, so checkout can progress to the Stripe test payment step.",
+          });
+          break;
+        case "not-offered":
+          checks.push({
+            id: "checkout-payment-gateway",
+            status: "warning",
+            description:
+              "The store is reachable but a `us` checkout is not yet offered the Stripe gateway. " +
+              "Complete the remaining keys + `us`-channel Dashboard step: " +
+              gateStep,
+            command: gateStep,
+          });
+          break;
+        case "no-variants":
+        case "no-checkout":
+          checks.push({
+            id: "checkout-payment-gateway",
+            status: "unknown",
+            description:
+              "Checkout-readiness could not be determined: a `us` test checkout could not be created " +
+              "(no buyable variant or no `us` channel). Seed stock and deploy the starter recipe, then re-run.",
+            command: "jolly start",
+          });
+          break;
+        case "unreachable":
+        default:
+          checks.push({
+            id: "checkout-payment-gateway",
+            status: "unknown",
+            description:
+              "Checkout-readiness probe could not reach the store's Saleor GraphQL endpoint (NEXT_PUBLIC_SALEOR_API_URL); checkout readiness was not verified.",
+            command: "jolly doctor saleor",
+          });
+          break;
+      }
     }
   }
 
@@ -2218,7 +2294,7 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
   // Bootstrap: run init (real, on-disk) + run doctor (read-only). Never
   // fabricate stages the agent must perform.
   const initEnv = commandInit(args);
-  const doctorEnv = commandDoctor({
+  const doctorEnv = await commandDoctor({
     ...args,
     positionals: ["doctor"],
     json: true,

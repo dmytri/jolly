@@ -10,7 +10,39 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
-## HANDOFF (2026-06-14, Captain → QM): make `jolly doctor` genuinely PROBE checkout readiness (iteration 1 of "1 and 2")
+## DONE (2026-06-14, QM+Crew+Bosun — checkout-readiness verify probe): committed locally this Bosun pass
+
+Iteration 1 (the worklist below) is **complete, verified, and committed locally** (committing is Bosun's
+custody; pushing/releasing stays the Captain/customer action). `jolly doctor` now genuinely probes
+checkout readiness — the third convergence onto honest, genuinely-executing behavior (AGENTS.md "MVP
+sequencing"). All deterministic tiers green: typecheck clean, units **43/43**, `test:logic` **62/62**
+(473 steps), default `--dry-run` **0 undefined**. `@sandbox`/`test:bdd` NOT run locally (billable) —
+deferred to a creds-present/CI run.
+
+**What landed:**
+- **Crew — `src/lib/cloud-api.ts`:** `probeCheckoutPaymentGateway(graphqlUrl, token)` creates a minimal
+  `us` test checkout (`checkoutCreate` with a variant from `productVariants(first:1)`), reads
+  `availablePaymentGateways`, then reverts via `checkoutDelete` (test mode, captures no payment — feature
+  023 harmless). Returns a discriminated outcome (`stripe-offered`/`not-offered`/`no-variants`/
+  `no-checkout`/`unreachable`); all network/GraphQL errors map to `unreachable`, never thrown. `timedGraphql`
+  adds a 5s AbortController so the probe fails fast against an unroutable endpoint (no hang).
+- **Crew — `src/index.ts`:** `commandDoctor` is now `async`; the `wants("stripe")` block (also in the
+  default run) resolves the endpoint (`NEXT_PUBLIC_SALEOR_API_URL`) + token (`JOLLY_SALEOR_APP_TOKEN`
+  → `JOLLY_SALEOR_CLOUD_TOKEN` fallback) from the existing doctor cred resolution and pushes a stable
+  `checkout-payment-gateway` check: `pass` ONLY when the Stripe gateway is offered; `warning` (naming the
+  keys + `us`-channel Dashboard step) when reachable-but-not-offered; `unknown`/`skipped` when
+  unavailable — never a fabricated "checkout ready".
+- **QM — `features/step_definitions/005-…steps.ts` + `features/support/sandbox.ts`:** step defs for the
+  2 new feature-005 scenarios (the `@logic` no-fabrication target; the `@sandbox` real probe with an
+  independent gateway cross-check, skip-not-fail when premise not producible) + `@sandbox` credential
+  gating (`saleorEndpoint`+`saleorAppToken`; no Vercel/Stripe cred — gateway availability is server-side).
+
+**AGREED-NEXT — iteration 2 (configurator-deploy executing stage), still NOT built:** see the AGREED-NEXT
+note in the (now-complete) HANDOFF section below; Captain will fully Gherkin-spec it in a later pass.
+
+---
+
+## HANDOFF (2026-06-14, Captain → QM): make `jolly doctor` genuinely PROBE checkout readiness (iteration 1 of "1 and 2") — COMPLETE, see DONE above
 
 **Next role: QM in a FRESH/cleared session** (Captain→QM context firewall).
 
@@ -30,7 +62,7 @@ import). There is **no `paymentGatewayInitialize`/checkout probe** anywhere in `
 `@sandbox` "Agent verifies checkout readiness" only asserts a `stripe-keys` check exists — it does not
 verify gateway availability.
 
-**Specs landed this Captain pass (committed by Bosun next):** feature 005 — 2 new scenarios (1 `@logic`,
+**Specs landed this Captain pass (committed by Bosun — see DONE above):** feature 005 — 2 new scenarios (1 `@logic`,
 1 `@sandbox`) + the new Rule; AGENTS.md — MVP stage 9 + MVP-sequencing sub-bullet. Default
 `cucumber-js --dry-run` should now show **2 undefined scenarios** (feature 005) — the intended QM marker.
 

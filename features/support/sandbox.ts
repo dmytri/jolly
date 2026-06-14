@@ -91,6 +91,15 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
     "saleorEndpoint",
     "saleorCloud",
   ],
+  // The checkout-readiness probe is Jolly's own Saleor GraphQL (create + revert a
+  // `us` test checkout, read availablePaymentGateways) — no CLI spawn, no Vercel.
+  // It needs the store endpoint + a token that can create a checkout (app token,
+  // derivable from the Cloud token); gateway availability is server-side, so no
+  // Stripe credential is required.
+  "Jolly doctor verifies the Stripe payment gateway is reachable for checkout": [
+    "saleorEndpoint",
+    "saleorAppToken",
+  ],
   // 012-existing-saleor-store-connection
   "Jolly validates the GraphQL endpoint": ["saleorEndpoint"],
   "Jolly infers Saleor Cloud organization and environment": [

@@ -801,6 +801,128 @@ export async function installStripeApp(
   return { reused: false };
 }
 
+// ── Checkout-readiness probe (feature 005 Rule "Checkout-readiness verify probe")
+//
+// Installing the Stripe app and completing the keys + `us`-channel Dashboard gate
+// are necessary but NOT self-verifying — there is no public read for the app's
+// channel-config mapping. The authoritative signal is whether a real `us`
+// checkout is actually offered the Stripe payment gateway. This probe creates a
+// minimal `us` test checkout, inspects availablePaymentGateways, then reverts
+// (deletes) the checkout (feature 023 harmless: test mode only, captures no
+// payment). It fails fast against an unroutable endpoint via an AbortController
+// timeout so the probe never hangs.
+
+const CHECKOUT_PROBE_TIMEOUT_MS = 5_000;
+
+export type CheckoutProbeOutcome =
+  | { kind: "stripe-offered" }
+  | { kind: "not-offered" }
+  | { kind: "unreachable" }
+  | { kind: "no-variants" }
+  | { kind: "no-checkout" };
+
+/** A single timed GraphQL request that fails fast (AbortController) rather than
+ * hanging against an unroutable endpoint. Returns the parsed body or throws. */
+async function timedGraphql(
+  graphqlUrl: string,
+  token: string | undefined,
+  query: string,
+  variables?: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CHECKOUT_PROBE_TIMEOUT_MS);
+  try {
+    const response = await fetch(graphqlUrl, {
+      method: "POST",
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(variables ? { query, variables } : { query }),
+      signal: controller.signal,
+    });
+    if (!response.ok && response.status !== 400) {
+      throw new CloudApiError(
+        `GraphQL request failed: HTTP ${response.status}`,
+        "GRAPHQL_HTTP_ERROR",
+        response.status,
+      );
+    }
+    return (await response.json()) as Record<string, unknown>;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Probe whether a `us` checkout is offered the Stripe payment gateway. Creates a
+ * minimal `us` checkout with the first product variant, reads
+ * availablePaymentGateways, then deletes the checkout (harmless, reverted). Maps
+ * every failure mode (no variants, no checkout, unreachable/timed-out endpoint)
+ * to a non-throwing outcome so the caller never reports a fabricated pass.
+ */
+export async function probeCheckoutPaymentGateway(
+  graphqlUrl: string,
+  token: string | undefined,
+): Promise<CheckoutProbeOutcome> {
+  try {
+    const variantData = await timedGraphql(
+      graphqlUrl,
+      token,
+      `query { productVariants(first: 1) { edges { node { id } } } }`,
+    );
+    const variants = (variantData.data as Record<string, unknown> | undefined)
+      ?.productVariants as { edges?: Array<{ node?: { id?: string } }> } | undefined;
+    const variantId = variants?.edges?.[0]?.node?.id;
+    if (!variantId) return { kind: "no-variants" };
+
+    const checkoutData = await timedGraphql(
+      graphqlUrl,
+      token,
+      `mutation($channel: String!, $variantId: ID!) {
+         checkoutCreate(input: { channel: $channel, lines: [{ quantity: 1, variantId: $variantId }] }) {
+           checkout { id availablePaymentGateways { id name } }
+           errors { code }
+         }
+       }`,
+      { channel: "us", variantId },
+    );
+    const payload = (checkoutData.data as Record<string, unknown> | undefined)
+      ?.checkoutCreate as
+      | {
+          checkout?: {
+            id: string;
+            availablePaymentGateways?: Array<{ id: string; name: string | null }>;
+          };
+        }
+      | undefined;
+    const checkout = payload?.checkout;
+    if (!checkout) return { kind: "no-checkout" };
+
+    // Revert: delete the test checkout (capture no payment — feature 023).
+    try {
+      await timedGraphql(
+        graphqlUrl,
+        token,
+        `mutation($id: ID!) { checkoutDelete(id: $id) { errors { code } } }`,
+        { id: checkout.id },
+      );
+    } catch {
+      // Best-effort teardown; do not let a delete failure mask the verdict.
+    }
+
+    const gateways = checkout.availablePaymentGateways ?? [];
+    const offered = gateways.some(
+      (g) => /stripe/i.test(g.id) || /stripe/i.test(g.name ?? ""),
+    );
+    return offered ? { kind: "stripe-offered" } : { kind: "not-offered" };
+  } catch {
+    // Network error, timeout (unroutable endpoint), or GraphQL HTTP failure —
+    // the store could not be reached. Never a pass.
+    return { kind: "unreachable" };
+  }
+}
+
 async function withRetries<T>(
   fn: () => Promise<T>,
   attempts: number = 5,

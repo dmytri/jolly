@@ -850,3 +850,341 @@ Then(
     );
   },
 );
+
+// === Checkout-readiness verify probe (feature 005 Rule "Checkout-readiness ===
+// verify probe — jolly doctor confirms the Stripe test payment step is reachable")
+//
+// The THIRD convergence onto honest, genuinely-executing behavior (AGENTS.md
+// "MVP sequencing"). Installing the Stripe app + completing the keys/`us`-channel
+// Dashboard gate are necessary but NOT self-verifying — there is no public read
+// for the app's channel-config mapping (feature 005 Rule "Stripe app path"). The
+// authoritative signal that checkout reaches the Stripe test payment step (the
+// feature 002 acceptance bar) is whether a real `us` checkout is actually offered
+// the Stripe payment gateway. `jolly doctor` (the `stripe` group, in the default
+// run) performs that probe with Jolly's own Saleor GraphQL — it creates a minimal
+// `us` test checkout, inspects availablePaymentGateways, then reverts (deletes)
+// the checkout. These step defs cover its two faces:
+//   - @logic: with no reachable store the checkout-readiness check must never be
+//     a fabricated `pass` (the integrity-rule deterministic target).
+//   - @sandbox: against a real store the check passes ONLY when the Stripe
+//     gateway is offered, and reports honestly (naming the keys + channel
+//     Dashboard step) when it is not — using test mode only, capturing no payment.
+
+/** Locate the checkout-readiness check in a doctor envelope. Robust to the
+ * exact id Crew picks (handoff suggests `checkout-payment-gateway`): any check
+ * in the stripe group whose id names checkout/payment-gateway readiness. */
+function findCheckoutReadinessCheck(
+  checks: ReadonlyArray<{ id: string; status: string; description?: unknown }>,
+): { id: string; status: string; description?: unknown } | undefined {
+  return checks.find(
+    (c) => /checkout/i.test(c.id) && /(ready|gateway|payment)/i.test(c.id),
+  ) ?? checks.find((c) => /checkout/i.test(c.id));
+}
+
+// --- Scenario: Jolly doctor does not fabricate checkout readiness (@logic) ----
+//
+// Under logicSafeEnv the Saleor endpoint is the unroutable `.invalid` TLD, so
+// the probe cannot reach a real store — exactly the "no reachable store" premise.
+// A probe that genuinely runs (no fabrication) must report the checkout-readiness
+// check as skipped/unknown/fail, never a fabricated `pass`, and the summary must
+// not claim checkout is ready. This is the deterministic target driving Crew.
+
+Given("Jolly cannot reach a real store in this run", function (this: JollyWorld) {
+  // logicSafeEnv() points NEXT_PUBLIC_SALEOR_API_URL at the unroutable
+  // `.invalid` TLD (RFC 6761) — the probe cannot reach any store. Nothing to
+  // set up beyond running under that env in the When step.
+  this.notes.noReachableStore = true;
+});
+
+When(
+  "the agent runs `jolly doctor stripe` with no reachable store",
+  function (this: JollyWorld) {
+    // logicSafeEnv supplies dummy Stripe keys (so stripe-keys may pass) AND the
+    // unroutable `.invalid` Saleor endpoint (so the checkout probe cannot reach
+    // a store). The probe must fail fast against `.invalid` — give it headroom
+    // but a real cap so a hung probe surfaces as a test failure, not a hang.
+    this.runCli(["doctor", "stripe", "--json"], {
+      env: logicSafeEnv(),
+      timeoutMs: 60_000,
+    });
+  },
+);
+
+Then(
+  "a checkout-readiness check should be reported in the stripe group",
+  function (this: JollyWorld) {
+    const check = findCheckoutReadinessCheck(this.envelope.checks);
+    assert.ok(
+      check,
+      "doctor stripe must report a checkout-readiness check (e.g. checkout-payment-gateway)",
+    );
+    this.notes.checkoutReadiness = check;
+  },
+);
+
+Then(
+  "that check must not be {string} unless the Stripe payment gateway was actually offered for a `us` checkout",
+  function (this: JollyWorld, forbidden: string) {
+    const check = this.notes.checkoutReadiness as { status: string } | undefined;
+    assert.ok(check, "the checkout-readiness check must have been located");
+    // No store was reachable, so the gateway was never offered — the check must
+    // not be a fabricated pass (integrity rule).
+    assert.notEqual(
+      check!.status,
+      forbidden,
+      `the checkout-readiness check must not be "${forbidden}" when no gateway was offered`,
+    );
+  },
+);
+
+Then(
+  "with no reachable store the checkout-readiness check should be {string}, {string}, or {string}, never {string}",
+  function (
+    this: JollyWorld,
+    a: string,
+    b: string,
+    c: string,
+    forbidden: string,
+  ) {
+    const check = this.notes.checkoutReadiness as { status: string } | undefined;
+    assert.ok(check, "the checkout-readiness check must have been located");
+    assert.ok(
+      [a, b, c].includes(check!.status),
+      `with no reachable store the checkout-readiness check should be one of ` +
+        `${[a, b, c].join("/")}, got "${check!.status}"`,
+    );
+    assert.notEqual(check!.status, forbidden, `it must never be "${forbidden}"`);
+  },
+);
+
+Then(
+  "the summary must not claim checkout is ready when it was not verified",
+  function (this: JollyWorld) {
+    assert.doesNotMatch(
+      this.envelope.summary,
+      /checkout (is )?ready|checkout.*(verified|confirmed)|payment step.*reachable/i,
+      "the summary must not fabricate checkout readiness when no store was reached",
+    );
+  },
+);
+
+// --- Scenario: Jolly doctor verifies the Stripe payment gateway is reachable (@sandbox)
+//
+// Gated by SANDBOX_REQUIREMENTS["Jolly doctor verifies the Stripe payment
+// gateway is reachable for checkout"] (saleorEndpoint + saleorAppToken, derivable
+// from the Cloud token) → skips locally. The probe is Jolly's own Saleor GraphQL
+// (no CLI spawn, no Vercel) so it does NOT gate on the Vercel CLI. Against a real
+// store the checkout-readiness check passes ONLY when the Stripe gateway is
+// offered for a `us` checkout (independently re-verified here), and reports
+// honestly otherwise. When the store/endpoint is unreachable or carries no `us`
+// channel/variants, the check is skipped/unknown and the scenario skips — premise
+// not producible — rather than failing.
+
+interface PaymentGateway {
+  id: string;
+  name: string | null;
+}
+
+/** Independently create a minimal `us` test checkout, read its available
+ * payment gateways, and revert (delete) it — the same harmless probe doctor
+ * performs, used here to cross-check doctor's verdict. Returns whether Stripe
+ * was offered, or null when a `us` checkout could not be created (no variants /
+ * no `us` channel / store unreachable). */
+async function stripeOfferedForUsCheckout(
+  world: JollyWorld,
+  endpoint: string,
+  token: string | undefined,
+): Promise<boolean | null> {
+  // A variant to put in the checkout.
+  const vResult = await saleorGraphql(
+    endpoint,
+    token,
+    `query { productVariants(first: 1) { edges { node { id } } } }`,
+  );
+  const variantId = (
+    vResult.data?.productVariants as
+      | { edges?: Array<{ node: { id: string } }> }
+      | undefined
+  )?.edges?.[0]?.node?.id;
+  if (!variantId) return null;
+
+  const result = await saleorGraphql(
+    endpoint,
+    token,
+    `mutation($channel: String!, $variantId: ID!) {
+       checkoutCreate(input: { channel: $channel, lines: [{ quantity: 1, variantId: $variantId }] }) {
+         checkout { id availablePaymentGateways { id name } }
+         errors { code }
+       }
+     }`,
+    { channel: "us", variantId },
+  );
+  const payload = result.data?.checkoutCreate as
+    | {
+        checkout?: { id: string; availablePaymentGateways?: PaymentGateway[] };
+        errors?: Array<{ code: string }>;
+      }
+    | undefined;
+  const checkout = payload?.checkout;
+  if (!checkout) return null;
+  // Revert: delete the test checkout (capture no payment — feature 023 harmless).
+  world.cleanup.register(`probe checkout ${checkout.id}`, async () => {
+    await saleorGraphql(
+      endpoint,
+      token,
+      `mutation($id: ID!) { checkoutDelete(id: $id) { errors { code } } }`,
+      { id: checkout.id },
+    );
+  });
+  const gateways = checkout.availablePaymentGateways ?? [];
+  return gateways.some(
+    (g) => /stripe/i.test(g.id) || /stripe/i.test(g.name ?? ""),
+  );
+}
+
+Given(
+  "a deployed store whose Stripe app is configured and mapped to the `us` channel",
+  function (this: JollyWorld) {
+    // Premise (the Dashboard mapping) is store state the harness cannot force —
+    // it is verified, not produced. Capture the live store creds for the
+    // independent gateway cross-check below.
+    this.notes.storeEndpoint = process.env.NEXT_PUBLIC_SALEOR_API_URL ?? "";
+    this.notes.storeToken = process.env.JOLLY_SALEOR_APP_TOKEN;
+    assert.ok(
+      this.notes.storeEndpoint,
+      "a Saleor GraphQL endpoint must be configured/derived",
+    );
+  },
+);
+
+When(
+  "`jolly doctor` probes checkout payment readiness",
+  { timeout: 120_000 },
+  function (this: JollyWorld) {
+    this.runCli(["doctor", "stripe", "--json"], { timeoutMs: 90_000 });
+    const check = findCheckoutReadinessCheck(this.envelope.checks);
+    if (!check) {
+      this.attach(
+        "Skipped: doctor reported no checkout-readiness check in this run",
+        "text/plain",
+      );
+      this.notes.skipProbe = true;
+      return "skipped";
+    }
+    this.notes.checkoutReadiness = check;
+    // When the store/creds were unreachable the probe honestly reports
+    // skipped/unknown — premise not producible, so the scenario skips.
+    if (check.status === "skipped" || check.status === "unknown") {
+      this.attach(
+        `Skipped: checkout-readiness probe could not run (status: ${check.status})`,
+        "text/plain",
+      );
+      this.notes.skipProbe = true;
+      return "skipped";
+    }
+  },
+);
+
+Then(
+  "it should create a harmless, reverted test checkout in the `us` channel and inspect its available payment gateways",
+  function (this: JollyWorld) {
+    if (this.notes.skipProbe) return "skipped";
+    const check = this.notes.checkoutReadiness as { status: string } | undefined;
+    assert.ok(check, "the checkout-readiness check must be present");
+    // Jolly-observable: the probe reaches a verdict (pass/warning/fail) by
+    // creating + inspecting a `us` checkout. A reached verdict is the evidence
+    // the probe ran; harmlessness (revert / no payment) is asserted below.
+    assert.ok(
+      ["pass", "warning", "fail"].includes(check!.status),
+      `the probe must reach a real verdict, got "${check!.status}"`,
+    );
+  },
+);
+
+Then(
+  "the checkout-readiness check should pass only when the Stripe gateway is offered for that checkout",
+  { timeout: 120_000 },
+  async function (this: JollyWorld) {
+    if (this.notes.skipProbe) return "skipped";
+    const check = this.notes.checkoutReadiness as { status: string };
+    const offered = await stripeOfferedForUsCheckout(
+      this,
+      String(this.notes.storeEndpoint),
+      this.notes.storeToken as string | undefined,
+    );
+    this.notes.stripeOffered = offered;
+    if (offered === null) {
+      // Could not independently create a `us` checkout (no variants / channel) —
+      // premise not producible for the cross-check; skip rather than fail.
+      this.attach(
+        "Skipped: could not create an independent `us` checkout to cross-check the gateway",
+        "text/plain",
+      );
+      this.notes.skipProbe = true;
+      return "skipped";
+    }
+    if (check.status === "pass") {
+      assert.ok(
+        offered,
+        "the checkout-readiness check is `pass`, so the Stripe gateway must be offered for a `us` checkout",
+      );
+    }
+  },
+);
+
+Then(
+  "it should report honestly when the Stripe gateway is not yet offered, naming the remaining keys-and-channel Dashboard step",
+  function (this: JollyWorld) {
+    if (this.notes.skipProbe) return "skipped";
+    const check = this.notes.checkoutReadiness as {
+      status: string;
+      description?: unknown;
+    };
+    const offered = this.notes.stripeOffered as boolean | null;
+    if (offered) {
+      // Gateway IS offered → a pass is honest; nothing to assert about the gate.
+      assert.equal(
+        check.status,
+        "pass",
+        "when the Stripe gateway is offered the checkout-readiness check should pass",
+      );
+      return;
+    }
+    // Gateway NOT offered → the check must be honest (warning/fail, never pass)
+    // and name the remaining keys + channel Dashboard step.
+    assert.notEqual(
+      check.status,
+      "pass",
+      "the check must not pass when the Stripe gateway is not offered",
+    );
+    const blob = `${String(check.description ?? "")} ${JSON.stringify(
+      this.envelope.nextSteps,
+    )}`.toLowerCase();
+    assert.ok(
+      blob.includes("key") && blob.includes("channel"),
+      "an honest not-ready report must name the remaining keys + channel mapping step",
+    );
+    assert.ok(
+      blob.includes("dashboard") || blob.includes("map") || blob.includes("stripe app"),
+      "the honest report must point at the Stripe app Dashboard step",
+    );
+  },
+);
+
+Then(
+  "the probe should use Stripe test mode only and capture no payment",
+  function (this: JollyWorld) {
+    if (this.notes.skipProbe) return "skipped";
+    // v1 is test mode only (Background). The probe creates + reverts a checkout
+    // and never completes/charges it: no order/payment language in the verdict,
+    // and no secret values leaked.
+    this.assertNoSecretsIn(this.lastRun!.stdout, "doctor stdout");
+    this.assertNoSecretsIn(this.lastRun!.stderr, "doctor stderr");
+    const check = this.notes.checkoutReadiness as { description?: unknown };
+    assert.doesNotMatch(
+      String(check.description ?? ""),
+      /captured|charged|payment (taken|completed)|order (placed|created)/i,
+      "the probe must not capture a payment or place an order",
+    );
+  },
+);
