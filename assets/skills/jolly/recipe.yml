@@ -107,6 +107,9 @@ shippingZones:
 products:
   - name: "Cutlass"
     slug: cutlass
+    media:
+      - externalUrl: "https://raw.githubusercontent.com/dmytri/jolly/main/assets/skills/jolly/images/cutlass.png"
+        alt: "Cutlass"
     description: "A trusty curved blade, forged for close-quarters boarding actions."
     productType: Pirate Goods
     category: weapons
@@ -124,6 +127,9 @@ products:
 
   - name: "Flintlock Pistol"
     slug: flintlock-pistol
+    media:
+      - externalUrl: "https://raw.githubusercontent.com/dmytri/jolly/main/assets/skills/jolly/images/flintlock-pistol.png"
+        alt: "Flintlock Pistol"
     description: "One shot, one chance — make it count, then swing the cutlass."
     productType: Pirate Goods
     category: weapons
@@ -141,6 +147,9 @@ products:
 
   - name: "Brass Spyglass"
     slug: brass-spyglass
+    media:
+      - externalUrl: "https://raw.githubusercontent.com/dmytri/jolly/main/assets/skills/jolly/images/brass-spyglass.png"
+        alt: "Brass Spyglass"
     description: "Spot the king's frigates — and the merchantmen — long before they spot you."
     productType: Pirate Goods
     category: navigation
@@ -158,6 +167,9 @@ products:
 
   - name: "Pirate's Compass"
     slug: pirates-compass
+    media:
+      - externalUrl: "https://raw.githubusercontent.com/dmytri/jolly/main/assets/skills/jolly/images/pirates-compass.png"
+        alt: "Pirate's Compass"
     description: "Points not north, but toward what your heart wants most. Usually rum."
     productType: Pirate Goods
     category: navigation
@@ -175,6 +187,9 @@ products:
 
   - name: "Tricorne Hat"
     slug: tricorne-hat
+    media:
+      - externalUrl: "https://raw.githubusercontent.com/dmytri/jolly/main/assets/skills/jolly/images/tricorne-hat.png"
+        alt: "Tricorne Hat"
     description: "Three corners of pure intimidation. Feather not included."
     productType: Pirate Goods
     category: apparel
@@ -192,6 +207,9 @@ products:
 
   - name: "Leather Eyepatch"
     slug: leather-eyepatch
+    media:
+      - externalUrl: "https://raw.githubusercontent.com/dmytri/jolly/main/assets/skills/jolly/images/leather-eyepatch.png"
+        alt: "Leather Eyepatch"
     description: "Keeps one eye dark-adapted for going below decks. Also: very dashing."
     productType: Pirate Goods
     category: apparel
@@ -209,6 +227,9 @@ products:
 
   - name: "Treasure Map (Authentic Replica)"
     slug: treasure-map
+    media:
+      - externalUrl: "https://raw.githubusercontent.com/dmytri/jolly/main/assets/skills/jolly/images/treasure-map.png"
+        alt: "Treasure Map (Authentic Replica)"
     description: "X marks the spot. We make no guarantees about what's under the X."
     productType: Pirate Goods
     category: treasure
@@ -226,6 +247,9 @@ products:
 
   - name: "Pieces of Eight (Coin Set)"
     slug: pieces-of-eight
+    media:
+      - externalUrl: "https://raw.githubusercontent.com/dmytri/jolly/main/assets/skills/jolly/images/pieces-of-eight.png"
+        alt: "Pieces of Eight (Coin Set)"
     description: "A handful of gleaming doubloons. Spend them, bury them, bite them to check."
     productType: Pirate Goods
     category: treasure
@@ -243,6 +267,9 @@ products:
 
   - name: "Oak Rum Barrel"
     slug: oak-rum-barrel
+    media:
+      - externalUrl: "https://raw.githubusercontent.com/dmytri/jolly/main/assets/skills/jolly/images/oak-rum-barrel.png"
+        alt: "Oak Rum Barrel"
     description: "Provisions for a long voyage. The most important supply on any ship."
     productType: Pirate Goods
     category: ship-supplies
@@ -260,6 +287,9 @@ products:
 
   - name: "Jolly Roger Flag"
     slug: jolly-roger-flag
+    media:
+      - externalUrl: "https://raw.githubusercontent.com/dmytri/jolly/main/assets/skills/jolly/images/jolly-roger-flag.png"
+        alt: "Jolly Roger Flag"
     description: "Run it up the mast and watch the prices — and the prizes — surrender."
     productType: Pirate Goods
     category: ship-supplies
@@ -280,6 +310,9 @@ products:
   # done. That is what this tool is: not the grand vessel, the one that gets you there.
   - name: "The Jolly"
     slug: the-jolly
+    media:
+      - externalUrl: "https://raw.githubusercontent.com/dmytri/jolly/main/assets/skills/jolly/images/the-jolly.png"
+        alt: "The Jolly"
     description: "Every ship carries one: the small, trusty boat that rows the crew ashore to do the real work. Not the grand vessel — the one that actually gets you there. (Now you know where the name came from.)"
     productType: Pirate Goods
     category: ship-supplies
