@@ -331,7 +331,10 @@ products:
 # A featured collection for Paper's storefront merchandising.
 collections:
   - name: "Crew Favorites"
-    slug: crew-favorites
+    # Paper's homepage renders the collection with slug `featured-products`
+    # (src/lib/catalog/get-featured-products.ts). Keep this slug so the storefront
+    # home page shows products out of the box.
+    slug: featured-products
     description: "What every well-equipped pirate carries aboard."
     products:
       - the-jolly
@@ -345,7 +348,10 @@ collections:
 
 menus:
   - name: Main Navigation
-    slug: main-nav
+    # Paper renders the navbar from the menu with slug `navbar`
+    # (src/lib/menus/get-menu-data.ts → getNavbarMenuItems). Use that slug so the
+    # storefront navigation shows our categories, not Saleor's sample menu.
+    slug: navbar
     items:
       - name: Weapons
         category: weapons
@@ -358,4 +364,4 @@ menus:
       - name: Ship Supplies
         category: ship-supplies
       - name: Crew Favorites
-        collection: crew-favorites
+        collection: featured-products
