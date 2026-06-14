@@ -225,7 +225,7 @@ Then(
 
     // Installed Jolly skill on disk.
     assert.ok(
-      existsSync(join(ws, ".claude", "skills", "jolly", "SKILL.md")),
+      existsSync(join(ws, ".agents", "skills", "jolly", "SKILL.md")),
       "the installed Jolly skill must be present on disk",
     );
 

@@ -64,6 +64,28 @@ The pivot QM/Crew cycle (worklist items 1 & 2 below) is **complete and verified*
   **58/58** (was 3 failed); default `--dry-run` **0 undefined**; `eval` dry-run **0 undefined**.
   Full `@sandbox`/`test:bdd` NOT run locally (provisions billable Saleor envs — deferred to CI).
 
+### DONE (2026-06-14, QM+Crew+Captain — committed + released @dk/jolly v0.5.3): skill-install verify location
+The QM/Crew worklist below is **complete, verified, committed, and released as v0.5.3** (`npm publish`
+stays the customer's action — auth required; `prepublishOnly`/`prepack` build the bundle).
+- **Crew — `src/index.ts`:** added `agentsSkillsBaseDir()` (`.agents/skills`) alongside the legacy
+  `skillsBaseDir()` (`.claude/skills`); `skillInstalledOnDisk()` (now `src/index.ts:278`) checks
+  **both** bases (present if `SKILL.md` or the dir exists under either), so a real `npx skills add`
+  install (universal `.agents/skills/<id>/`) is detected while already-seeded `.claude/skills/`
+  workspaces still verify. `installSkill()` untouched. Honesty fix: the skills/init preview
+  `directoriesCreated` now reports `.agents/skills` (where skills actually land), not `.claude/skills`.
+- **QM — harness fidelity:** the feature-007 `@logic` seed (`skillsBaseDir` helper in
+  `features/step_definitions/007-…steps.ts`) and the feature-025 eval seed (`features/support/eval.ts`
+  + the 025 assertion in `features/step_definitions/025-…steps.ts`) now seed/verify at
+  `.agents/skills/<id>/` — matching the real tool. Seeding at the real location first turned the 3
+  feature-007 `@logic` scenarios RED against the unfixed verifier (the deterministic failing target
+  that drove Crew), then GREEN after the fix.
+- **Verify:** `tsc --noEmit` clean; units **43/43**; `npm run test:logic` **58/58**; default
+  `--dry-run` **0 undefined**; `eval --dry-run` **0 undefined**. `@sandbox` **022:20** needs real
+  network for `npx skills add` and skips locally; with the path fix it passes wherever the install
+  actually runs (verify on a creds-present/CI runner).
+
+(Historical decision + worklist that produced this — now complete — follows.)
+
 ### RESOLVED (2026-06-14, Captain): skill-install verify location — DECIDED, QM/Crew worklist below
 Crew's honest `skillsInstalled` reporting surfaced a pre-existing `@sandbox` bug: feature **022:20**
 "Jolly start resumes bootstrap…" fails on `data.bootstrap.skillsInstalled === true`. **Confirmed

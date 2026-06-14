@@ -264,15 +264,25 @@ const DEFAULT_SKILLS: SkillSpec[] = [
   { id: "saleor-app", ref: "saleor/saleor-app", description: "Saleor app development guidance" },
 ];
 
-// Standard project-local skill location used by `npx skills add`.
+// Universal project-local skill location `npx skills add` (no --agent) writes
+// to, read by all supported agents (feature 007).
+function agentsSkillsBaseDir(): string {
+  return join(projectDir(), ".agents", "skills");
+}
+
+// Legacy per-agent location, kept so already-seeded workspaces still verify.
 function skillsBaseDir(): string {
   return join(projectDir(), ".claude", "skills");
 }
 
 function skillInstalledOnDisk(skill: SkillSpec): boolean {
-  // A skill is present when its directory exists on disk.
-  const dir = join(skillsBaseDir(), skill.id);
-  return existsSync(join(dir, "SKILL.md")) || existsSync(dir);
+  // A skill is present when its directory (or SKILL.md) exists under either the
+  // universal `.agents/skills/<id>/` or the legacy `.claude/skills/<id>/`.
+  for (const base of [agentsSkillsBaseDir(), skillsBaseDir()]) {
+    const dir = join(base, skill.id);
+    if (existsSync(join(dir, "SKILL.md")) || existsSync(dir)) return true;
+  }
+  return false;
 }
 
 // ─── login / token verification (feature 018) ─────────────────────────────
@@ -1885,7 +1895,7 @@ function startPlan(): PlanStage[] {
     {
       stage: "init",
       effects: {
-        directoriesCreated: [".claude/skills"],
+        directoriesCreated: [".agents/skills"],
         filesWritten: [".mcp.json", "AGENTS.md"],
         networkHostsContacted: ["github.com"],
         repositoriesCloned: [],

@@ -262,7 +262,7 @@ export function setupEvalContext(
   // reachable registry (same approach as the feature 007 @logic steps). The
   // Jolly skill is the REAL Captain-owned asset (feature 025: no mocks); the
   // peripheral Saleor skills are minimal markers, only there so init succeeds.
-  const skillsBase = join(workspace, ".claude", "skills");
+  const skillsBase = join(workspace, ".agents", "skills");
   for (const id of DEFAULT_SKILL_IDS) {
     const dir = join(skillsBase, id);
     mkdirSync(dir, { recursive: true });

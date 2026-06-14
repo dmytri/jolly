@@ -11,7 +11,8 @@
 // SKILL_INSTALL_FAILED) with the skills unverified on disk. To pin the
 // "verified-on-disk success" and merge behavior independent of network, these
 // steps pre-seed the standard project-local skill directories
-// (.claude/skills/<id>) so init verifies them on disk and skips `npx`. The
+// (.agents/skills/<id> — the universal dir `npx skills add` writes to, feature
+// 007 Rule "Init boundaries") so init verifies them on disk and skips `npx`. The
 // honest-failure path is asserted separately by leaving them absent.
 //
 // Safety: every command runs under logicSafeEnv() — dummy credentials and an
@@ -34,7 +35,9 @@ const DEFAULT_SKILL_IDS = [
 ];
 
 function skillsBaseDir(world: JollyWorld): string {
-  return join(world.projectDir, ".claude", "skills");
+  // The universal location `npx skills add` (no --agent) writes to and Jolly
+  // verifies against (feature 007 Rule "Init boundaries", verified 2026-06-14).
+  return join(world.projectDir, ".agents", "skills");
 }
 
 /** Pre-seed the standard project-local skill locations so init verifies them
