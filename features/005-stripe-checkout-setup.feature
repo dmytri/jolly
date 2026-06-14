@@ -126,19 +126,18 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     - Stripe live mode is explicitly out of v1 scope.
     - Payment credentials are secrets and must not be printed.
 
-  Rule: Stripe app path (resolved 2026-06-13; automation split clarified 2026-06-14)
+  Rule: Stripe app path and the automation split
     - The Saleor-supported path is the Stripe app, configured with a publishable key and a Stripe
       **restricted** key (with the app's required scopes), and mapped to the storefront's channel
       (the starter recipe's `us` channel).
-    - What each API can and cannot do (verified 2026-06-14 against current Saleor docs + the
-      configurator source — this is the authority for the automation split):
+    - What each API can and cannot do (the authority for the automation split):
       - **`@saleor/configurator`: cannot.** It manages catalog/channels/settings only; its sole
         payment field is the channel's `defaultTransactionFlowStrategy` (the recipe already sets
         `CHARGE`). No app install, no payment/gateway config in its schema or source.
       - **Saleor Cloud platform API: cannot.** It manages orgs/projects/environments; it exposes
         no app/extension-install endpoint (the Dashboard "Extensions" one-click is sugar over the
         Saleor GraphQL `appInstall`).
-      - **Saleor GraphQL API: installs the app, does not configure it (verified live 2026-06-14).**
+      - **Saleor GraphQL API: installs the app, does not configure it.**
         `appInstall(manifestUrl, appName, permissions: [HANDLE_PAYMENTS])` installs the Stripe app
         programmatically against the customer's `*.saleor.cloud` endpoint. **It requires
         `AUTHENTICATED_STAFF_USER` + `MANAGE_APPS` — an app token CANNOT call it** (returns
@@ -147,31 +146,42 @@ Feature: Stripe checkout setup for the Jolly starter storefront
         GraphQL authenticates as the environment's staff superuser** (`me.isStaff: true`) — the same
         auth Jolly uses for `appCreate`/`appTokenCreate`. So `appInstall` MUST use the Cloud token,
         not `JOLLY_SALEOR_APP_TOKEN`. The current manifest URL is
-        **`https://stripe-v2.saleor.app/api/manifest`** (the older `stripe.saleor.app` is the
-        retired v1 — installing it silently fails). There is **no** public GraphQL mutation to set
-        the app's keys or assign a configuration to a channel — post-install GraphQL is limited to
-        `appActivate`/`appTokenCreate`. Key entry + channel-config mapping live in the Stripe app's
-        own Dashboard form (no documented/stable public API).
-    - Resulting division (this is the `jolly start` Stripe stage):
+        **`https://stripe-v2.saleor.app/api/manifest`** (re-verify the current URL at implementation
+        time). There is **no** public GraphQL mutation to set the app's keys or assign a
+        configuration to a channel — post-install GraphQL is limited to `appActivate`/`appTokenCreate`.
+        Key entry + channel-config mapping live in the Stripe app's own Dashboard form (no
+        documented/stable public API).
+    - Resulting division (this is the `jolly start` Stripe stage, which runs after the Vercel deploy
+      stage):
       1. **Install — Jolly automates** the Stripe app install via GraphQL `appInstall`, using the
-         Cloud token as staff auth and manifest `https://stripe-v2.saleor.app/api/manifest`
-         (re-verify the current URL at implementation time; idempotent — reuse an existing install).
-         Verified working live 2026-06-14 (app `saleor.app.payment.stripe` installed on `jolly-store`).
+         Cloud token as staff auth and manifest `https://stripe-v2.saleor.app/api/manifest`. The
+         install is Jolly's own Saleor GraphQL call — no spawned CLI, no interactive stdio — so
+         `jolly start` performs it itself rather than handing it to the agent. First-party Saleor
+         host, a credential Jolly already manages — no new host or credential (Network Boundaries
+         unchanged). The stage carries a feature 021 riskContext (categories: payment setup,
+         production configuration changes; the install is reversible via app uninstall), gates for
+         the agent's approval like the other high-risk stages, and `jolly start --yes` pre-approves
+         it. Idempotent and resumable (feature 022): a re-run detects the already-installed Stripe
+         app and reuses it rather than installing a duplicate.
       2. **Channel payment flow — configurator/recipe** already sets it on the `us` channel.
       3. **Keys + channel-config mapping — Jolly runs a guided walk-through** (the announce-and-wait
-         human gate, made precise): it pauses and emits, in the feature 020 envelope, the exact
-         deep link to the installed app's configuration page and step-by-step "paste this
-         publishable key here, this restricted key there, assign the config to the `us` channel"
+         human gate): after the install it pauses and emits, in the feature 020 envelope, the exact
+         deep link to the installed app's configuration page and step-by-step "paste the publishable
+         key here, the restricted key there, assign the configuration to the `us` channel"
          instructions (keys referenced by name, never printed), then waits for the human to confirm.
-      4. **Verify — Jolly probes** `paymentGatewayInitialize` / a checkout to confirm the Stripe
-         test payment step is reachable before reporting the stage done (no fabrication).
+         These have no stable public API; if one for setting the app's keys/channel ever ships, this
+         step can be automated too — until then it stays the guided human gate (do not build on the
+         app's undocumented internal config endpoint).
+      4. **Verify — `jolly doctor` probes** a checkout to confirm the Stripe test payment step is
+         reachable (Rule "Checkout-readiness verify probe").
+    - Honest reporting (integrity rule): Jolly reports the install `completed` only when `appInstall`
+      actually succeeded, and reports the keys/channel step as blocked on the human gate until it is
+      done — never a fabricated "Stripe configured" or "checkout ready". Final checkout readiness is
+      confirmed by `jolly doctor`, not asserted by the install alone.
     - The Stripe app registers and removes its own Stripe webhooks when a configuration is
       created or deleted — Jolly does not automate Stripe webhook endpoint registration.
-    - If a stable public API for setting the app's keys/channel ever ships, step 3 can be
-      automated too; until then it stays the guided human gate (do not build on the app's
-      undocumented internal config endpoint).
 
-  Rule: Stripe keys via the official CLI OAuth, imported by Jolly (decision 2026-06-13; amended 2026-06-13)
+  Rule: Stripe keys via the official CLI OAuth, imported by Jolly
     - The primary way the agent gets the two test keys is the official Stripe CLI's browser OAuth
       login (`npx @stripe/cli login`) — a one-time human consent. The Stripe CLI cannot create a
       Stripe account, so signup stays a human step; live mode (Dashboard keys) is out of v1 scope.
@@ -200,45 +210,14 @@ Feature: Stripe checkout setup for the Jolly starter storefront
       that expiry from the Stripe CLI output; the skill warns the agent and trusts it to replace them
       with durable Dashboard keys (re-run `jolly create stripe`, update the Saleor Stripe app) before
       expiry. v1 accepts this "fast to start, agent owns the 90-day follow-up" tradeoff.
-    - Open validation (acceptance run): confirm Saleor's Stripe app accepts the CLI-issued
-      `sk_test_` key and that its permissions suffice for checkout. Adopt-on-green.
 
-  Rule: `jolly start` Stripe stage — Jolly installs the app, keys + channel map is a guided gate (decision 2026-06-14)
-    - Mirroring the stock-seeding stage (feature 004), the Stripe app **install** is a
-      genuinely-executing `jolly start` stage: it is Jolly's own Saleor GraphQL `appInstall` call —
-      no spawned CLI, no interactive stdio — so `jolly start` performs it itself rather than handing
-      it to the agent. It is the **second** stage to converge on the in-process orchestrator
-      (stock-seeding was first; AGENTS.md "MVP sequencing").
-    - When the run reaches the Stripe stage, Jolly calls `appInstall(manifestUrl, appName,
-      permissions: [HANDLE_PAYMENTS])` against the customer's `*.saleor.cloud` GraphQL endpoint,
-      authenticated with the **Cloud token** (`JOLLY_SALEOR_CLOUD_TOKEN`) as staff auth — an app
-      token cannot (`PermissionDenied`). Manifest `https://stripe-v2.saleor.app/api/manifest`
-      (re-verify the current URL at implementation time). First-party Saleor host, a credential Jolly
-      already manages — no new host or credential (Network Boundaries unchanged).
-    - The Stripe stage runs after the Vercel deploy stage and carries a feature 021 riskContext
-      (categories: payment setup, production configuration changes; the install is reversible via app
-      uninstall). It gates for the agent's approval like the other high-risk stages, and `jolly start
-      --yes` pre-approves it.
-    - It is idempotent and resumable (feature 022): a re-run detects the already-installed Stripe app
-      and reuses it rather than installing a duplicate.
-    - The keys + `us`-channel-configuration mapping have no stable public API and stay the
-      announce-and-wait human gate: after the install, Jolly emits, in the feature 020 envelope, the
-      deep link to the app's configuration page and the precise "paste the publishable key here, the
-      restricted key there, assign the configuration to the `us` channel" steps (keys by name, never
-      printed) and waits.
-    - Honest reporting (integrity rule): Jolly reports the install `completed` only when `appInstall`
-      actually succeeded, and reports the keys/channel step as blocked on the human gate until it is
-      done — never a fabricated "Stripe configured" or "checkout ready". Final checkout readiness is
-      confirmed by `jolly doctor` (and the optional `paymentGatewayInitialize`/checkout probe), not
-      asserted by the install alone.
-
-  Rule: Checkout-readiness verify probe — jolly doctor confirms the Stripe test payment step is reachable (decision 2026-06-14)
+  Rule: Checkout-readiness verify probe
     - Installing the Stripe app (`jolly start`) and completing the keys + `us`-channel Dashboard gate
       are necessary but not self-verifying. The closing signal is whether a real checkout in the
       storefront's channel is actually offered the Stripe payment gateway — i.e. checkout can
       progress to the Stripe test payment step (the feature 002 acceptance bar). There is no public
-      read for the app's channel-config mapping (see Rule "Stripe app path"), so gateway availability
-      at checkout is the authoritative signal that the mapping was completed.
+      read for the app's channel-config mapping (see Rule "Stripe app path and the automation split"),
+      so gateway availability at checkout is the authoritative signal that the mapping was completed.
     - `jolly doctor` (the `stripe` group, included in the default run) performs this probe against the
       store's Saleor GraphQL endpoint: it creates a minimal test checkout in the recipe's `us` channel
       and inspects the available payment gateways (and/or `paymentGatewayInitialize`), reporting a
@@ -252,6 +231,6 @@ Feature: Stripe checkout setup for the Jolly starter storefront
       deleted after the probe, it only reads gateway availability, it uses Stripe test mode only, and
       it never captures a payment. This is a narrow, reverted exception to doctor's read-only default,
       justified because gateway availability cannot be read without a checkout context.
-    - This closes the Stripe stage's step-4 verify (Rule "Stripe app path") and the feature 002
-      "checkout progresses to the Stripe test payment step" acceptance bar within Jolly's own
-      first-party-host code — no Vercel or Stripe-CLI dependency.
+    - This closes the Stripe stage's step-4 verify (Rule "Stripe app path and the automation split")
+      and the feature 002 "checkout progresses to the Stripe test payment step" acceptance bar within
+      Jolly's own first-party-host code — no Vercel or Stripe-CLI dependency.

@@ -93,7 +93,7 @@ Feature: Test architecture and sandbox-first strategy
     - Step definitions live in `features/step_definitions/<feature-slug>.steps.ts`.
     - Shared hooks, world, sandbox setup/teardown, and credential gating live in `features/support/`.
     - Logic-tier unit tests live in `tests/` and run via `node --test` (using `node:test` + `node:assert`), separate from the Cucumber suite.
-    - Package scripts are Node-native (decision 2026-06-13, dropped Bun): `node --test` for units, Cucumber.js and `tsc` run under Node, and the published bundle built with esbuild. Node >= 23's native type stripping loads the TypeScript sources directly (project files, not under `node_modules`); Bun is no longer used anywhere.
+    - Package scripts are Node-native: `node --test` for units, Cucumber.js and `tsc` run under Node, and the published bundle built with esbuild. Node >= 23's native type stripping loads the TypeScript sources directly (project files, not under `node_modules`).
     - Each `.feature` maps to a step-definition file of the same slug; every required step has executable coverage.
     - The QM owns creating and maintaining this harness, including the Cucumber configuration and test scripts.
 

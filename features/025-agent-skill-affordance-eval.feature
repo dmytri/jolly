@@ -3,9 +3,8 @@
 # it drives a live baseline agent over the Captain-owned Jolly skill, so it is
 # non-deterministic, credentialed, and slow. Tagged @eval and EXCLUDED from the
 # default profile (cucumber.js: `not @meta and not @eval`); it runs only via an
-# explicit `eval` profile/command. Decision 2026-06-13: the skill-behavior eval,
-# previously deferred ("validated by real use, not cucumber"), is pulled forward
-# now — but as this separate opt-in tier, never as a gate on normal CI.
+# explicit `eval` profile/command. It is a separate opt-in tier, never a gate on
+# normal CI.
 Feature: Agent skill affordance evaluation
   As the maintainer of the Jolly skill
   I want to check that a baseline agent, given only the documented skill and CLI,
@@ -82,16 +81,15 @@ Feature: Agent skill affordance evaluation
       merged `.mcp.json`, a scaffolded `.env`, and the marker-merged `AGENTS.md`).
     - Jolly's diagnostics must have run and emitted the standard feature 020
       output envelope.
-    - Stripe affordance (revised 2026-06-14): the fake Stripe CLI session is
-      still seeded, but this entry-point scenario no longer asserts Stripe keys
-      land in `.env`. Following the real `/setup` under forced-safe credentials,
-      the agent runs `jolly start`, which (per "Agent-supervised orchestration",
-      feature 002) reaches the Stripe stage only after the Saleor login/store
-      stages — and those stop at the human credential gate under the `.invalid`
-      safe creds, so the run never reaches Stripe. The Stripe-import affordance
-      (Jolly importing test keys via the read-only Stripe CLI, no fresh OAuth or
-      paste) is covered by feature 005 (`@logic`/`@sandbox`); re-add it here only
-      if `start` is built to import Stripe early, before the Saleor gate.
+    - Stripe affordance: the fake Stripe CLI session is seeded, but this
+      entry-point scenario does not assert Stripe keys land in `.env`. Following
+      the real `/setup` under forced-safe credentials, the agent runs `jolly
+      start`, which (per "Agent-supervised orchestration", feature 002) reaches
+      the Stripe stage only after the Saleor login/store stages — and those stop
+      at the human credential gate under the `.invalid` safe creds, so the run
+      never reaches Stripe. The Stripe-import affordance (Jolly importing test
+      keys via the read-only Stripe CLI, no fresh OAuth or paste) is covered by
+      feature 005 (`@logic`/`@sandbox`).
     - The eval must NOT assert a working deployed store, and must NOT assert
       artifacts Jolly does not produce (there is no `jolly.config.ts`).
 

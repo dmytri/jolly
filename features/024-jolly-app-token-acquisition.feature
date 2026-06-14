@@ -69,16 +69,15 @@ Feature: Jolly app token acquisition via Saleor GraphQL
     - The app token is stored as JOLLY_SALEOR_APP_TOKEN in .env; Jolly never prints it.
     - Jolly should not depend on the deprecated Saleor CLI for app token creation.
 
-  Rule: Dedicated Jolly Setup app, full permissions (resolved 2026-06-14)
+  Rule: Dedicated Jolly Setup app, full permissions
     - Jolly acquires the workflow token from a dedicated app it owns, named "Jolly Setup", created
       with the full v1 permission set (all available `PermissionEnum` values). It never mints a
       token for an unrelated pre-existing app.
-    - Reason (acceptance-run finding 2026-06-14): `appTokenCreate` cannot escalate an existing
-      app's permissions — a token minted for, say, a 3-permission "SMTP" app is missing everything
-      `@saleor/configurator` needs (MANAGE_PRODUCTS, MANAGE_CHANNELS, MANAGE_SETTINGS,
-      MANAGE_SHIPPING, MANAGE_CHECKOUTS), so stage 6 fails Permission Denied. The earlier
-      "select the first existing app, else create one" flow (inherited from the deprecated CLI)
-      only produced a usable token on a pristine environment with zero apps.
+    - `appTokenCreate` cannot escalate an existing app's permissions — a token minted for, say, a
+      3-permission "SMTP" app is missing everything `@saleor/configurator` needs (MANAGE_PRODUCTS,
+      MANAGE_CHANNELS, MANAGE_SETTINGS, MANAGE_SHIPPING, MANAGE_CHECKOUTS), so the Configurator
+      stage fails Permission Denied. Minting from the dedicated full-permission app ensures the
+      token always carries what Configurator requires.
     - Acquisition is idempotent (feature 022): if a "Jolly Setup" app already exists, Jolly reuses
       it (mints a fresh token via `appTokenCreate`) rather than creating a duplicate; only when it
       is absent does Jolly create it via `appCreate`.

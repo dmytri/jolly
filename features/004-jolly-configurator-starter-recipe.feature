@@ -81,7 +81,7 @@ Feature: Jolly Configurator starter recipe
     - Provide the channel, product model, navigation, sample catalog, shipping, Stripe-ready checkout assumptions, and other configuration required for a working end-to-end storefront.
     - Keep the recipe version-controlled and reviewable in the cloned storefront repository.
 
-  Rule: Recipe artifact (resolved 2026-06-13)
+  Rule: Recipe artifact
     - The starter recipe ships with the Jolly skill as `assets/skills/jolly/recipe.yml`, a
       `@saleor/configurator` config: shop settings, the `us` channel, a `Pirate Goods` product
       type, categories, a warehouse, a default US shipping zone, published USD-priced pirate
@@ -91,68 +91,58 @@ Feature: Jolly Configurator starter recipe
       `--fail-on-breaking` — passing the store URL and app token; Jolly never runs the configurator.
     - The recipe's `us` channel slug is the storefront's `NEXT_PUBLIC_DEFAULT_CHANNEL`.
 
-  Rule: Recipe targets a clean environment (acceptance-run finding 2026-06-14)
+  Rule: Recipe targets a clean environment
     - The recipe is a complete *declarative* `@saleor/configurator` config: a `deploy` reconciles
       the store to match it, which means it deletes catalog entities the recipe does not declare.
     - It therefore assumes a freshly created, empty Saleor environment, where the apply is purely
       additive (creates only) and `--fail-on-breaking`/`--fail-on-delete` passes cleanly.
     - On a store that already holds catalog data, the first apply is destructive — the safe guard
-      correctly blocks it (observed live: applying the recipe over Saleor's sample data was 20
-      creates + 120 deletes, `hasDestructiveOperations: true`). On such a store the agent must
+      correctly blocks it (`hasDestructiveOperations: true`). On such a store the agent must
       surface the destructive diff and get the customer's explicit approval before applying, and
       may only then deploy without the breaking guard. The skill carries this guidance.
     - To keep the happy path additive, `jolly create store --create-environment` provisions the
       environment WITHOUT Saleor's demo/sample data (`database_population: null` — the Cloud "blank"
-      template) so the recipe is the store's first catalog config. Mechanism resolved 2026-06-14;
-      see feature 012 Rule "Created environments are provisioned blank".
+      template) so the recipe is the store's first catalog config; see feature 012 Rule "Created
+      environments are provisioned blank".
 
-  Rule: Recipe products need seeded stock — configurator cannot (acceptance-run finding 2026-06-14)
+  Rule: Recipe products need seeded stock — configurator cannot
     - `@saleor/configurator` cannot make products buyable: its product-variant schema (v3.23) is
       `name, sku, weight, digital, attributes, channelListings` only — no `stocks` and no
       `trackInventory` field — and it hardcodes `trackInventory: true` on variant create. The
       recipe's shop `trackInventoryByDefault: false` is applied to the shop but Saleor does not
       propagate it to configurator-created variants. Net: after a pure recipe deploy every variant
       has `trackInventory: true` with zero stock, so `quantityAvailable` is 0 and any `us` checkout
-      fails with `INSUFFICIENT_STOCK` before reaching payment (observed live 2026-06-14).
-    - Decision (customer, 2026-06-14): `jolly start`'s recipe stage **seeds real stock** after the
-      `@saleor/configurator` deploy, because config-as-code cannot. For every recipe product
-      variant it sets a default per-variant quantity (100 in v1) in the recipe's warehouse via
-      Saleor GraphQL (`productVariantStocksCreate`, updating in place when a stock entry already
-      exists) — leaving `trackInventory: true`, so the catalog shows finite stock that decrements
-      with sales. Seeding stock, not flipping `trackInventory`, was the chosen approach.
+      fails with `INSUFFICIENT_STOCK` before reaching payment.
+    - `jolly start`'s recipe stage **seeds real stock** after the `@saleor/configurator` deploy,
+      because config-as-code cannot. For every recipe product variant it sets a default per-variant
+      quantity (100 in v1) in the recipe's warehouse via Saleor GraphQL (`productVariantStocksCreate`,
+      updating in place when a stock entry already exists) — leaving `trackInventory: true`, so the
+      catalog shows finite stock that decrements with sales. Seeding stock, not flipping
+      `trackInventory`, is the approach.
     - This is Jolly plumbing against a first-party Saleor host using the app token Jolly already
       manages — no new host, no new credential (Network Boundaries unchanged). It emits a feature
       021 `riskContext` (catalog data modification) and is idempotent and resumable (feature 022):
       re-running updates the quantities rather than creating duplicate stock entries.
     - The default quantity is a v1 constant; a configurable quantity is a post-MVP iteration.
     - `jolly start` **performs** this seeding itself — it is Jolly's own Saleor GraphQL call, not a
-      spawned CLI — and reports it **honestly** (decision 2026-06-14, MVP sequencing). When the run
-      reaches the stock stage and the store holds the recipe's variants (the configurator deploy has
-      happened), Jolly executes `productVariantStocksCreate` for each variant and reports the stage
-      `completed` only when stock was actually seeded; if no recipe variants are present yet (recipe
-      not deployed), the stage is reported `pending`/`blocked` honestly, never a fabricated
-      `completed`. Because seeding is plain GraphQL with no interactive stdio, it is the **first
-      genuinely-executing `jolly start` stage**: the CLI-spawning stages (git/pnpm/configurator/
-      vercel) remain plan-and-gate and agent-driven via the Jolly skill until later iterations build
-      them. The full in-process orchestrator of features 001/002 stays the goal; it is built
-      incrementally, stock-seeding first.
+      spawned CLI — and reports it **honestly**. When the run reaches the stock stage and the store
+      holds the recipe's variants (the configurator deploy has happened), Jolly executes
+      `productVariantStocksCreate` for each variant and reports the stage `completed` only when stock
+      was actually seeded; if no recipe variants are present yet (recipe not deployed), the stage is
+      reported `pending`/`blocked` honestly, never a fabricated `completed`.
 
-  Rule: Configurator deploy is a genuinely-executing stage (decision 2026-06-14, iteration 2 / fourth convergence)
-    - `jolly start` performs the recipe deploy itself by SPAWNING `npx @saleor/configurator deploy` —
-      the FIRST spawned-CLI stage to converge (after the GraphQL-only stock-seeding and Stripe app
-      stages). Jolly spawns the official, current CLI and never reimplements it against raw APIs.
+  Rule: Configurator deploy
+    - `jolly start` performs the recipe deploy itself by SPAWNING `npx @saleor/configurator deploy`.
+      Jolly spawns the official, current CLI and never reimplements it against raw APIs.
     - It deploys Jolly's own bundled starter recipe (`assets/skills/jolly/recipe.yml`, resolved
       relative to Jolly's module path — the same bundled-asset mechanism `init` uses to install the
-      skill), so the stage is decoupled from the not-yet-built `git`-clone stage and converges on its
-      own. The agent's reviewable in-repo copy (Rule "Recipe artifact") is unchanged for ongoing
-      iteration.
-    - Re-verified upstream 2026-06-14 (per "re-check upstream at implementation time"): the deploy
-      flags are `--url <store GraphQL>`, `--token <app token Jolly manages>`, `--config <recipe>`,
-      `--fail-on-delete` (exit code 6), `--fail-on-breaking` (exit code 7), `--plan` (preview without
-      changes), `--json`, `--quiet`; env `SALEOR_URL`/`SALEOR_TOKEN`. `@saleor/configurator`
-      auto-activates non-interactive mode in a non-TTY subprocess, so Jolly spawns it as a
-      non-interactive batch command and reads its EXIT CODE — no stdio passthrough (unlike the
-      deferred interactive `vercel login`/`stripe login` gates).
+      skill). The agent's reviewable in-repo copy (Rule "Recipe artifact") is for ongoing iteration.
+    - The deploy flags are `--url <store GraphQL>`, `--token <app token Jolly manages>`,
+      `--config <recipe>`, `--fail-on-delete` (exit code 6), `--fail-on-breaking` (exit code 7),
+      `--plan` (preview without changes), `--json`, `--quiet`; env `SALEOR_URL`/`SALEOR_TOKEN`.
+      `@saleor/configurator` auto-activates non-interactive mode in a non-TTY subprocess, so Jolly
+      spawns it as a non-interactive batch command and reads its EXIT CODE — no stdio passthrough
+      (unlike the interactive `vercel login`/`stripe login` gates).
     - Jolly passes `--fail-on-delete --fail-on-breaking` so a destructive apply over a non-blank store
       is BLOCKED, not silently destructive; on the happy path (the `create store` blank env, Rule
       "Recipe targets a clean environment") the apply is additive and exits 0.
@@ -171,8 +161,5 @@ Feature: Jolly Configurator starter recipe
       skip the stage when the store already matches the recipe.
     - It runs BEFORE the stock-seeding stage (Rule "Recipe products need seeded stock"): the deploy
       makes the recipe catalog exist, the seed makes it buyable, so `create store` → configurator
-      deploy → stock-seed is an all-Jolly-executable chain. The remaining spawned-CLI stages (git
-      clone, pnpm install, vercel deploy) stay agent-driven via the Jolly skill until later
-      iterations. The full in-process orchestrator of features 001/002 stays the goal; built
-      incrementally, honesty-first.
+      deploy → stock-seed is an all-Jolly-executable chain.
 

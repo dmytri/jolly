@@ -77,11 +77,89 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And `jolly doctor` should verify that the deployed storefront can reach Saleor Cloud
     And it should report the deployed URL and any remaining manual steps
 
-  Rule: Agent-supervised orchestration — `jolly start` runs the CLIs (decision 2026-06-14, SUPERSEDES the "agent runs the CLIs" framing of this feature)
-    - For `jolly start`, this rule governs. The "Jolly start creates a deployable storefront" and
-      "Jolly start deploys to Vercel" scenarios above assert the orchestrated behavior; the
-      Background and "Fast path principles" reflect Jolly spawning the CLIs. Each orchestrated stage
-      also remains a composable command the agent can run itself (feature 008).
+  @logic
+  Scenario: Jolly start previews the storefront clone and install
+    Given the agent runs `jolly start --dry-run`
+    When Jolly plans the storefront stage
+    Then the plan should include a storefront step that spawns `git` to clone Saleor Paper and `pnpm` to install
+    And the preview should name the default target directory `storefront` and the `saleor/storefront` Paper template from `main`
+    And the storefront step should carry a riskContext for cloning and installing the storefront
+    And the preview should not spawn git or pnpm or write the storefront
+
+  @logic
+  Scenario: Jolly start does not fabricate the storefront preparation
+    Given the agent runs `jolly start` with no real Saleor credentials
+    When the run reaches the storefront stage without `--dry-run`
+    Then Jolly should report the storefront stage as completed, blocked, or pending, never fabricated
+    And the overall envelope status should be "warning", not "success"
+
+  @logic
+  Scenario: Jolly start previews the Vercel deploy
+    Given the agent runs `jolly start --dry-run`
+    When Jolly plans the deploy stage
+    Then the plan should include a deploy step that spawns the official Vercel CLI `npx vercel`
+    And the preview should state Jolly holds no Vercel token and sends no request to api.vercel.com
+    And the deploy step should carry a riskContext for a live Vercel deployment
+    And the preview should not spawn the Vercel CLI or deploy anything
+
+  @logic
+  Scenario: Jolly start does not fabricate the Vercel deployment
+    Given the agent runs `jolly start` with no real Saleor credentials
+    When the run reaches the deploy stage without `--dry-run`
+    Then Jolly should report the deploy stage as blocked or pending, never completed
+    And the summary should not claim the storefront was deployed
+    And the overall envelope status should be "warning", not "success"
+
+  @logic
+  Scenario: Jolly start points the human to run it in a shell when the agent cannot proceed
+    Given the agent runs `jolly start` with no real Saleor credentials
+    When the run stops at a gate the agent cannot complete
+    Then the nextSteps should offer the human-run fallback of running `jolly start` in a shell
+    And it should not fabricate that the human-run step was completed
+
+  Rule: Storefront and Vercel deploy stages
+    - `jolly start` performs the storefront and deploy stages itself by SPAWNING the official CLIs,
+      completing the all-Jolly-executable chain `create store` → configurator deploy → stock-seed →
+      storefront clone/install → vercel deploy.
+    - Storefront stage: Jolly spawns `git` to clone `saleor/storefront` (Paper) from `main` into the
+      default `storefront/` directory, removes the upstream `.git` history, initializes a fresh
+      repository, and spawns `pnpm install`. Non-interactive (like the configurator deploy): Jolly
+      reads the child exit codes and reports `completed` only when the clone + install actually
+      succeeded; `blocked`/`failed` honestly otherwise — never a fabricated completion. Idempotent
+      (feature 022): an already-cloned/installed `storefront/` is detected and the stage is skipped.
+    - Deploy stage: Jolly spawns `npx vercel` (and `npx vercel --prod`) under the Vercel CLI's OWN
+      `vercel login` session to deploy `storefront/`, sets the required Vercel env vars through the
+      CLI, surfaces Vercel Deployment Protection (on by default) for the human/agent to disable, and
+      updates Saleor trusted origins where APIs allow. The durable Vercel invariants hold: official
+      CLI only (never a raw-API reimplementation), its own auth, no `JOLLY_VERCEL_TOKEN`, and no
+      api.vercel.com in Jolly's own request code (see "Agent-supervised orchestration" and feature
+      020 "First-party hosts only"). `vercel login` is an interactive stdio-passthrough gate; reports
+      `completed` only on a real exit-0 deploy, honest otherwise.
+    - Both stages are high-risk → approval: each emits the feature 021 `riskContext` and pauses for
+      the agent to approve; `--yes` pre-approves. `--dry-run` previews each by naming the spawned
+      command(s), target directory/template, and the Vercel invariants, performing no work and
+      spawning nothing; the dry-run riskContext is deep-equal to the real-run stage's (021).
+
+  Rule: Human-runnable `jolly start` is the backup path
+    - The full mechanical chain makes `jolly start` runnable end-to-end by a HUMAN in a plain
+      shell — the natural way to clear the irreducibly-interactive gates (account creation, browser
+      OAuth, `vercel login`, `stripe login`) that a non-TTY agent cannot pass via stdio passthrough.
+    - The headline entry point stays paste-to-agent (the homepage copy box is unchanged); human-run is
+      a FALLBACK, not a co-equal entry point.
+    - When the agent cannot or will not complete `jolly start` — it refuses, or a stage fails, or it
+      reaches an interactive CLI gate it cannot complete in a non-TTY context — Jolly's feature 020
+      output and the Jolly skill direct the agent to ask the human to run `jolly start` in a shell,
+      then start their agent in that project to iterate (the skills `jolly init` installed are already
+      on disk, so the agent resumes from a working/partly-built store).
+    - Honesty-first: a blocked/failed `jolly start` surfaces the human-run fallback in its `nextSteps`;
+      it never fabricates that the human-run step was performed. The agent-facing guidance lives in the
+      Jolly skill (Captain-owned asset).
+
+  Rule: jolly start orchestrates the setup by spawning the official CLIs
+    - The "Jolly start creates a deployable storefront" and "Jolly start deploys to Vercel"
+      scenarios above assert the orchestrated behavior; the Background and "Fast path principles"
+      reflect Jolly spawning the CLIs. Each orchestrated stage also remains a composable command the
+      agent can run itself (feature 008).
     - `jolly start` is a resumable end-to-end runner that performs the mechanical stages itself by
       SPAWNING the official CLIs: `git` clone of Paper (strip `.git`, fresh `git init`), `pnpm
       install`, `@saleor/configurator diff`/`deploy` of the starter recipe, and `npx vercel`
@@ -106,9 +184,9 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     - Every orchestrated stage is also a composable command the agent can run independently;
       `start` chains them and is resumable (feature 022), skipping satisfied stages.
 
-  Rule: Git provider for optional source control (decision 2026-06-13)
+  Rule: Git provider for optional source control
     - GitHub is the default Git provider for optional source-control setup; other providers are deferred to v2.
-    - Git setup is convenience, not the deployment mechanism — deployment is always the official Vercel CLI (`npx vercel`), now spawned by `jolly start` (see "Agent-supervised orchestration"). The durable Vercel invariants (official CLI only, its own `vercel login` session, no `JOLLY_VERCEL_TOKEN`, no `api.vercel.com` in Jolly's own code) live in that rule and feature 020's "First-party hosts only".
+    - Git setup is convenience, not the deployment mechanism — deployment is always the official Vercel CLI (`npx vercel`), spawned by `jolly start` (see "jolly start orchestrates the setup by spawning the official CLIs"). The durable Vercel invariants (official CLI only, its own `vercel login` session, no `JOLLY_VERCEL_TOKEN`, no `api.vercel.com` in Jolly's own code) live in that rule and feature 020's "First-party hosts only".
 
   Rule: V1 operational readiness
     - The deployed storefront URL must work.

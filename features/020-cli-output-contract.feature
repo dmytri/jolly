@@ -64,7 +64,7 @@ Feature: Jolly CLI output contract
     - Structured side-effect context (see feature 021) should be carried inside `data` and/or `checks`, not in a separate ad hoc format.
     - Field names use camelCase (for example `nextSteps`, `errors[].code`); this applies to the envelope and to the feature 021 risk context.
 
-  Rule: No fabricated success (decision 2026-06-12)
+  Rule: No fabricated success
     - Success, verified, valid, connected, authenticated, and similar claims — in
       `summary`, `checks`, `data`, or human text — are permitted only when backed by an
       operation the command actually performed and confirmed in this run: a real request
@@ -83,14 +83,14 @@ Feature: Jolly CLI output contract
     - `--dry-run` previews show the real request the command would send — same host, same
       path, real resolved identifiers — and never claim the previewed work happened.
 
-  Rule: First-party hosts only (decision 2026-06-12, amended 2026-06-13)
+  Rule: First-party hosts only
     - Jolly's code sends network requests only to these hosts: auth.saleor.io (Keycloak
       OAuth, realm saleor-cloud), cloud.saleor.io (Saleor Cloud API and token page), the
       customer's own *.saleor.cloud environment domains, api.stripe.com (payments),
       github.com (cloning saleor/storefront and skills), and 127.0.0.1 (local OAuth
       callback). "Hosts Jolly contacts" stays exactly equal to the hosts appearing in
       Jolly's request-sending code.
-    - api.vercel.com is NOT in this allowlist (amended 2026-06-13): Vercel is reached only
+    - api.vercel.com is NOT in this allowlist: Vercel is reached only
       by the official Vercel CLI (`npx vercel`) that Jolly delegates to, never by Jolly's
       own request-sending code (see feature 008 Rule "Official CLIs only, no reimplementation").
     - Secrets travel only to their own service: Saleor tokens only to auth.saleor.io,

@@ -62,7 +62,7 @@ Feature: Structured agent risk context
     - `riskContext` should be carried inside the feature 020 output envelope, not a separate format.
     - Risk context must never include secret values; reference credentials by name only.
 
-  Rule: `jolly start` pauses for approval at each high-risk stage (decision 2026-06-14)
+  Rule: `jolly start` pauses for approval at each high-risk stage
     - Under "Agent-supervised orchestration" (feature 002), `jolly start` runs the high-risk
       stages itself (`create store`, `@saleor/configurator deploy`, the `npx vercel` deploy).
       Before EACH such stage it emits that stage's `riskContext` in the envelope and PAUSES for the

@@ -18,30 +18,28 @@ Feature: Npx-first Jolly CLI command surface
     And the agent then drives the official CLIs (Vercel CLI, `@saleor/configurator`, `git`, `pnpm`) per the Jolly skill, calling Jolly's thin helpers for plumbing
     And the output should follow Jolly's hybrid human-readable plus machine-readable format
 
-  Rule: Thin command surface (decision 2026-06-13)
+  Rule: Thin command surface
     - Jolly is a thin CLI: it provides deterministic plumbing and installs the Jolly skill; it never shells out to the Vercel CLI or `@saleor/configurator`, and never wraps a CLI the agent should run.
     - The full command surface is `login`, `logout`, `auth status`, `init`, `start`, `doctor`, `upgrade`, `skills`, and `create` with subcommands `store`, `app-token`, and `stripe` only.
-    - The tool-wrapping subcommands `create deployment`, `deploy`, `create recipe`, and `create storefront` are retired (decision 2026-06-13): the customer's agent runs the Vercel CLI, `@saleor/configurator`, and `git` itself, guided by the Jolly skill (see feature 008).
+    - There are no `create deployment`, `deploy`, `create recipe`, or `create storefront` subcommands: the customer's agent runs the Vercel CLI, `@saleor/configurator`, and `git` itself, guided by the Jolly skill (see feature 008).
     - All skills (the Jolly skill and the Saleor agent-skills) are installed via `npx skills add <ref>`, falling back to a Git-based install only for a skill not available that way.
     - All CLI commands should support `--json`.
     - All CLI commands should support `--quiet`.
     - All CLI commands should support `--yes` / `-y` to skip Jolly prompts where the agent environment allows.
     - Side-effecting remote/action commands should support `--dry-run` for preview/no-side-effects mode.
-    - The package name is `@dk/jolly`, everywhere (decision 2026-06-12). Jolly is a
+    - The package name is `@dk/jolly`, everywhere. Jolly is a
       tool by Dmytri Kleiner that helps agents set up a store quickly using Saleor,
       Vercel and Stripe; it is not an official product of any of those. No other
       package name (including any `@saleor/...` scope) may be mentioned in code,
       output, or docs — not as runnable, not as "future/official"; docs describe
       only what exists and can be run.
-    - The published Jolly CLI is a Node.js program (decision 2026-06-12): the
+    - The published Jolly CLI is a Node.js program: the
       launcher (`bin/jolly`) runs under Node.js >= 23 and never invokes or
-      requires Bun. The project's dev and CI runtime is also Node.js >= 23 + npm
-      (decision 2026-06-13: Bun was dropped for dev/prod parity — running dev on
-      Bun while shipping Node is exactly what masked the 0.1.11/0.2.0 npx break);
+      requires Bun. The project's dev and CI runtime is also Node.js >= 23 + npm;
       Bun is not a requirement anywhere.
     - The published package ships **pre-built JavaScript** compiled from `src/`,
-      and the launcher loads that build — not raw TypeScript (correction
-      2026-06-13). Node's native type stripping is disabled for files under
+      and the launcher loads that build — not raw TypeScript. Node's native type
+      stripping is disabled for files under
       `node_modules`, so an npm-installed `npx @dk/jolly` cannot strip types and
       must run plain JavaScript. A build step produces the bundle before publish;
       the package's `files` ship the build output (not raw `.ts`).
@@ -49,8 +47,7 @@ Feature: Npx-first Jolly CLI command surface
       **as actually installed** — `npm pack` the tarball, install it into a
       temporary `node_modules`, and run the installed `jolly` bin — because
       running the launcher from the source tree (where `src/` is not under
-      `node_modules`) gives a false pass and hid exactly this failure
-      (lesson 2026-06-13: `0.1.11`/`0.2.0` published broken for `npx`).
+      `node_modules`) gives a false pass.
     - The published package's `engines` field must declare the Node.js requirement
       and must not require Bun.
     - On a Node.js older than the minimum, the launcher should fail with a clear

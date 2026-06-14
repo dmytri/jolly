@@ -23,7 +23,7 @@ Feature: Agent skill installation targets
     And Jolly should avoid overwriting unrelated user-authored instructions without approval
 
   Rule: Installation strategy
-    - Install skills via `npx skills add <ref>`; fall back to a Git-based install only for a skill not available that way (decision 2026-06-13).
+    - Install skills via `npx skills add <ref>`; fall back to a Git-based install only for a skill not available that way.
     - The default set is the Jolly skill plus the Saleor agent-skills; the Jolly skill is the end-to-end playbook that teaches the agent to drive the official CLIs.
     - Use standard project-local skills where possible.
     - Add agent-specific glue/instructions for Zed, Claude Code, Cursor, OpenCode, Pi.dev, and generic agents.

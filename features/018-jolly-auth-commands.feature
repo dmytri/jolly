@@ -134,7 +134,7 @@ Feature: Jolly auth commands
       by the Cloud API — never a placeholder or invented label.
 
   Rule: Token verification is a real request or it is not verification
-    - Token verification means one thing (decision 2026-06-12): an authenticated read-only
+    - Token verification means one thing: an authenticated read-only
       GET of the Cloud API organizations endpoint
       (`https://cloud.saleor.io/platform/api/organizations/`, `Authorization: Token <value>`)
       whose response was actually received and checked. A 2xx response with a parseable
@@ -147,11 +147,9 @@ Feature: Jolly auth commands
     - `JOLLY_SALEOR_CLOUD_API_URL` optionally overrides the Cloud API base URL (default
       `https://cloud.saleor.io/platform/api`) for proxy or self-routing setups; all Cloud
       API requests honor it. Pointing it elsewhere is the customer's explicit choice.
-    - The hosts `id.saleor.online` and `api.saleor.cloud` are retired remnants of the
-      deprecated saleor/cli era (live probe 2026-06-12: id.saleor.online is a stub with
-      404 /verify and /configure). They must not appear in Jolly code, output, or specs;
-      the real first-party hosts are auth.saleor.io (Keycloak, realm saleor-cloud) and
-      cloud.saleor.io (Cloud API and token page).
+    - The hosts `id.saleor.online` and `api.saleor.cloud` are retired and must not appear
+      in Jolly code, output, or specs; the real first-party hosts are auth.saleor.io
+      (Keycloak, realm saleor-cloud) and cloud.saleor.io (Cloud API and token page).
     - The OAuth code exchange makes real requests (Keycloak token endpoint, then Cloud
       API /platform/api/tokens) and reports their real outcomes. No placeholder tokens,
       simulated responses, or fabricated "verified" checks — if a step is unimplemented,

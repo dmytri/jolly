@@ -79,156 +79,91 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/bosun`, `/clearrole`, or generic r
 - **CLI:** Designed for agents first, not direct human use first. Executable via `npx` without a prior global install.
 - **Inspiration:** swamp.club.
 - **Core principle:** Jolly exists to empower the customer's own agent, not replace it. The customer's agent remains the primary orchestrator, explainer, and approval manager. Jolly provides capabilities, setup automation, wrappers, diagnostics, and local/project automation that make the agent more effective.
-- **SUPERSEDED 2026-06-14 by "Agent-supervised orchestration" below** — the bullet immediately
-  following reverses the "the agent runs the tools, not Jolly" stance for `jolly start`. The
-  parts that survive (spawn official CLIs only — never raw-API reimplementation; each CLI uses
-  its own auth so Jolly holds no new provider token; the deprecated `saleor/cli` stays banned)
-  are restated there. Read this bullet as historical context for that decision.
-- **Skill-driven, thin CLI — the agent runs the tools, not Jolly (decision 2026-06-13,
-  superseding the same-day "Jolly runs the CLIs" drafts):** Jolly does not replace the agent
-  and does not orchestrate the official tools itself. Where an official, maintained CLI exists
-  for a job, **the customer's own agent runs it**, guided by the **Jolly skill** that Jolly
-  installs. Jolly itself **never shells out to** the Vercel CLI or `@saleor/configurator`, never
-  reimplements them against raw provider APIs, and holds no provider tokens those CLIs own.
-  **Narrow exception — read-only Stripe CLI import (decision 2026-06-13):** `jolly create stripe`
-  (no flags) may invoke the **Stripe CLI read-only** (`stripe config --list`) solely to import the
-  test-mode keys the human/agent already authorized via `stripe login`, writing them to `.env`.
-  This is a read of already-authorized local auth state, not orchestration: Jolly never runs the
-  Stripe CLI's `login`/OAuth (that stays the human/agent step), issues no mutating Stripe CLI
-  command, makes no network call by importing, and owns no Stripe token beyond the user's own keys
-  it places in `.env`. The Vercel CLI and `@saleor/configurator` get no such exception.
-  Division of labor:
-  - **Jolly (thin, deterministic plumbing only):** acquire Saleor Cloud auth (`jolly login`)
-    and app tokens (`jolly create app-token`), provision the Saleor store/environment via the
-    Cloud API (`jolly create store`), install skills + write `.mcp.json` + scaffold env
-    (`jolly init`), diagnose (`jolly doctor`), and bootstrap + emit the ordered playbook
-    (`jolly start`). Jolly safely writes secrets to `.env` and never prints them.
-  - **The customer's agent, guided by the Jolly skill, runs the official CLIs:** Vercel
-    deployment via the **Vercel CLI** (`npx vercel`, authenticated by its own `vercel login`
-    session); Saleor store configuration and recipes via **`@saleor/configurator`**; storefront
-    creation via **`git`** + `saleor/storefront`; dependency install via **`pnpm`**; Stripe
-    test-key acquisition via the official **Stripe CLI** (`npx @stripe/cli login`, browser OAuth —
-    keys are ephemeral test-mode, and the agent swaps them for durable Dashboard keys before the
-    ~90-day expiry; decision 2026-06-13).
-  - There is **no `JOLLY_VERCEL_TOKEN`**, no Vercel API calls in Jolly's code, and no Jolly
-    subcommand wrapping a CLI an agent should run (`create deployment`, `deploy`, `create
-    recipe`, `create storefront` are retired — see feature 008).
-  The one banned tool is the **deprecated** `saleor/cli` (study-only, never invoked). The
-  first-party-host allowlist below governs only Jolly's *own* request-sending code; the CLIs the
-  agent runs reach their own services under their own auth and are not Jolly's requests.
-- **Agent-supervised orchestration — `jolly start` runs the mechanical steps for the agent
-  (decision 2026-06-14, supersedes "the agent runs the tools, not Jolly" for `start`):** The
-  evidence from the live acceptance run is that the skill-driven flow *works* and produces a
-  real, browsable store, but has one genuinely fiddly, reliability-sensitive seam — the
-  `@saleor/configurator` deploy (correct flags, blank-vs-sample environment, destructive-delete
-  handling) — where a varied LLM re-improvising the choreography is the weak point. So `jolly
-  start` becomes a **resumable end-to-end runner that deterministically executes the mechanical
-  setup steps by spawning the official CLIs on the agent's behalf**, for reliability and honesty
-  (it runs real CLIs and reports their real results, instead of emitting a playbook and trusting
-  the agent re-derived it). Division of responsibility:
-  - **Jolly orchestrates the mechanical, no-decision steps** by spawning the official CLIs:
-    `git` clone of Paper, `pnpm install`, `@saleor/configurator diff`/`deploy` of the starter
-    recipe, and the `npx vercel` deploy + env-var setup — plus its own plumbing (`login`,
-    `create store`/`app-token`, the read-only `create stripe` import, `init`, `doctor`).
-  - **What survives from the thin-CLI model:** Jolly spawns *official, current* CLIs only — it
-    still **never reimplements** them against raw provider APIs. Each spawned CLI uses **its own
-    auth session** (`vercel login`, the Saleor app token Jolly manages, the Stripe keys), so
-    there is still **no `JOLLY_VERCEL_TOKEN`**, no Vercel token in Jolly's secrets, and
-    `api.vercel.com` is still **not** in Jolly's *own* request allowlist (the Vercel CLI makes
-    those calls). The deprecated `saleor/cli` stays banned.
+- **Agent-supervised orchestration — `jolly start` runs the mechanical steps for the agent.**
+  `jolly start` is a resumable end-to-end runner that executes the mechanical setup itself by
+  **spawning the official CLIs** on the agent's behalf and reports their real results — it does not
+  emit a playbook and trust the agent to re-derive it. Division of responsibility:
+  - **Jolly orchestrates the mechanical, no-decision steps** by spawning the official CLIs: `git`
+    clone of Paper, `pnpm install`, `@saleor/configurator deploy` of the starter recipe, and the
+    `npx vercel` deploy + env-var setup — plus its own plumbing (`login`, `create store`/`app-token`,
+    the read-only `create stripe` import, `init`, `doctor`). Jolly writes secrets to `.env` and never
+    prints them.
+  - **Official CLIs only, each under its own auth.** Jolly spawns official, current CLIs and never
+    reimplements them against raw provider APIs. Each spawned CLI uses its own auth session (`vercel
+    login`, the Saleor app token Jolly manages, the Stripe keys), so there is **no `JOLLY_VERCEL_TOKEN`**,
+    no Vercel token in Jolly's secrets, and `api.vercel.com` is not in Jolly's own request allowlist
+    (the Vercel CLI makes those calls). The deprecated `saleor/cli` is banned — study-only, never
+    invoked. The retired `create deployment`/`deploy`/`create recipe`/`create storefront` subcommands
+    are not revived as separate fat commands; the orchestration lives inside `start` (feature 008).
+  - **Narrow exception — read-only Stripe CLI import:** `jolly create stripe` (no flags) may invoke
+    the Stripe CLI read-only (`stripe config --list`) to import the test-mode keys the human/agent
+    already authorized via `stripe login`, writing them to `.env`. Jolly never runs the Stripe CLI's
+    `login`/OAuth, issues no mutating Stripe CLI command, makes no network call by importing, and owns
+    no Stripe token beyond the user's own keys it places in `.env`. The Vercel CLI and
+    `@saleor/configurator` get no such exception.
   - **Interactive CLI gates = stdio passthrough, continue on exit.** When a spawned CLI needs the
-    user (e.g. `vercel login`, `stripe login`), Jolly runs it with the terminal **passed straight
-    through** — the user interacts with that CLI exactly as it directs (its own prompts, URL,
-    browser-open, polling); Jolly needs zero per-CLI knowledge of the protocol. Jolly just
-    **waits for the child to exit**: exit 0 → continue to the next step; non-zero → stop honestly
-    (report the real failure, never fabricate success).
-  - **Non-CLI human gates = announce and wait.** The steps no CLI can perform — creating an
-    account (Saleor/Vercel/Stripe), **configuring Saleor's Stripe app in the Dashboard and
-    mapping it to the channel**, or pasting a secret no CLI hands over — Jolly cannot automate.
-    It prints the exact instruction/URL (in the feature 020 envelope so the agent can relay it),
-    **waits** for the human to complete it, verifies what it can, then resumes.
-  - **Agent stays the approval authority.** Before each high-risk Jolly-driven action (`create
-    store`, configurator `deploy`, the Vercel deploy) `start` emits the feature 021 `riskContext`
-    and **pauses for the agent to approve**, then resumes; an agent pre-authorization flag
-    (`--yes`/pre-approve) lets it run straight through when the agent's policy allows. "Agents in
-    charge" is preserved at the decision layer (the agent invokes `start`, approves each gate,
-    provides credentials, owns all post-setup iteration); Jolly owns only the mechanical
-    choreography between gates.
-  - **Composable commands stay.** Every stage `start` runs is still available as an independent
-    command the agent can call and mediate itself (feature 008 surface, feature 022
-    resumability); `start` chains them — it does not replace them.
-  - **Stripe — Jolly automates what the APIs allow; the key entry is a guided gate** (verified
-    live 2026-06-14, feature 005). `@saleor/configurator` and the Cloud API cannot touch the Stripe
-    app; the Saleor GraphQL `appInstall` mutation CAN install it (HANDLE_PAYMENTS) — **using the
-    Cloud token as staff auth** (see the staff-auth note below; an app token gets `PermissionDenied`)
-    and manifest **`https://stripe-v2.saleor.app/api/manifest`** (the older `stripe.saleor.app` is
-    retired v1). No public API sets its keys or maps it to a channel — that lives in the app's
-    Dashboard form. So the `start` Stripe stage = (1) Jolly installs the app via `appInstall`
-    (verified working live — app `saleor.app.payment.stripe`); (2) the recipe sets the channel
-    payment flow; (3) Jolly runs a precise guided walk-through for the keys + `us`-channel mapping
-    (deep link + "paste this here, assign to the `us` channel", keys by name only) and waits;
-    (4) Jolly probes `paymentGatewayInitialize`/checkout to verify. Paper takes no Stripe keys (it
-    reads the publishable key from Saleor at runtime); `jolly create stripe` only imports the test
-    keys into `.env`.
-  - **The Cloud token is staff auth on the store GraphQL (verified 2026-06-14).** Saleor Cloud
-    accepts `JOLLY_SALEOR_CLOUD_TOKEN` as `Authorization: Bearer` on a `*.saleor.cloud/graphql/`
-    endpoint and resolves it to the environment's **staff superuser** (`me.isStaff: true`). This is
-    already how Jolly does `appCreate`/`appTokenCreate`, and it is what makes `appInstall` and other
-    staff-only mutations available. Consequence: the customer's agent can perform staff-level store
-    management (install/manage apps, etc.) with the Cloud token it already holds — not only inside
-    `jolly start`. (App tokens, `JOLLY_SALEOR_APP_TOKEN`, are NOT staff and cannot do these.)
-  This applies to `jolly start` (feature 001/002); the retired `create deployment`/`deploy`/
-  `create recipe`/`create storefront` are **not** revived as separate fat commands — the
-  orchestration lives **inside `start`**, spawning the official CLIs.
-  - **MVP sequencing — the orchestrator is built incrementally; stock-seeding executes first
-    (decision 2026-06-14).** The full in-process orchestrator above is the **goal**, not a single
-    build: today `commandStart` does real bootstrap (init + doctor) then **plans and gates** the
-    downstream stages (it reports each stage's status + `riskContext` and pauses for approval) — it
-    does not yet spawn `git`/`pnpm`/`@saleor/configurator`/`npx vercel`. Those stages stay
-    **agent-driven via the Jolly skill** (the model that produced a live store in the 2026-06-14
-    acceptance run) until later iterations wire their real spawning. The **first stage made to
-    genuinely execute is the recipe stock-seeding** (feature 004), because it is Jolly's own Saleor
-    GraphQL call (`productVariantStocksCreate`) with no CLI spawn and no interactive stdio — the
-    cheapest real stage and the fix for the acceptance-run zero-stock checkout block. `jolly start`
-    performs it against the store's recipe variants, idempotently, reporting `completed` only when
-    stock was actually seeded and `pending`/`blocked` honestly when the recipe is not yet deployed.
-    The **second genuinely-executing stage is the Stripe app install** (feature 005): like
-    stock-seeding it is Jolly's own Saleor GraphQL call (`appInstall`, Cloud staff token + the
-    `stripe-v2` manifest, idempotent) with no CLI spawn or interactive stdio, gated for approval; the
-    keys + `us`-channel mapping stay the announce-and-wait human gate (no public API). We do **not**
-    revert the orchestration specs to a pure playbook; we converge on them stage by stage,
-    honesty-first (no fabricated stage completion — integrity rule below). The **third convergence is
-    the checkout-readiness verify probe** (feature 005 Rule "Checkout-readiness verify probe";
-    decision 2026-06-14): `jolly doctor` creates a harmless, reverted `us` test checkout and inspects
-    the available payment gateways to confirm the Stripe payment step is reachable — closing the
-    feature 002 acceptance bar in Jolly's own first-party-host code. It is cheap (Jolly's own Saleor
-    GraphQL, no CLI spawn). The **fourth convergence is making the `@saleor/configurator` deploy a
-    genuinely-executing `jolly start` stage** — the **first spawned-CLI stage** (feature 004 Rule
-    "Configurator deploy is a genuinely-executing stage"; **spec'd this Captain pass 2026-06-14,
-    pending QM/Crew build**). `jolly start` spawns `npx @saleor/configurator deploy` of Jolly's own
-    bundled starter recipe (`assets/skills/jolly/recipe.yml`, resolved relative to Jolly's module
-    path — the same bundled-asset mechanism as skill install), so the stage is **decoupled from the
-    not-yet-built `git`-clone stage** and converges independently; the agent's reviewable in-repo copy
-    (feature 004 "Recipe artifact") is unchanged for ongoing iteration. **Re-verified upstream
-    2026-06-14:** the deploy flags are `--url <store GraphQL>`, `--token <app token Jolly manages>`,
-    `--config <recipe>`, `--fail-on-delete` (exit code 6), `--fail-on-breaking` (exit code 7),
-    `--plan` (preview without changes), `--json`, `--quiet`; env `SALEOR_URL`/`SALEOR_TOKEN`. Unlike
-    `vercel login`/`stripe login` (the truly-interactive stdio-passthrough gates, still deferred),
-    `@saleor/configurator` **auto-activates non-interactive mode in a non-TTY subprocess**, so Jolly
-    spawns it as a non-interactive batch command and reads its **exit code** — no stdio passthrough
-    needed. Jolly passes `--fail-on-delete --fail-on-breaking` so a destructive apply over a non-blank
-    store is **blocked, not silently destructive**; on the happy path (the `create store` blank env)
-    the apply is additive and exits 0. **Honest reporting:** the stage is `completed` only on exit 0;
-    on exit 6/7 it is `blocked` with the destructive diff surfaced and an explicit-approval
-    requirement to deploy without the guard; any other non-zero exit (or an un-spawnable configurator)
-    is reported `blocked`/`failed` honestly with the configurator's real error — never a fabricated
-    `completed`. Gated for approval (feature 021 `riskContext`; `--yes` pre-approves) and idempotent
-    (re-deploying the same declarative recipe reconciles to a no-op diff, feature 022). It runs
-    **before** the stock-seeding stage — deploy makes the recipe catalog exist, seeding makes it
-    buyable — so `create store` → configurator deploy → stock-seed becomes an all-Jolly-executable
-    chain. Until built, the recipe deploy stays agent-driven via the Jolly skill; the remaining
-    spawned-CLI stages (git clone, pnpm install, vercel deploy) stay agent-driven until later
-    iterations.
+    user (`vercel login`, `stripe login`), Jolly runs it with the terminal passed straight through and
+    waits for the child to exit: exit 0 → continue to the next step; non-zero → stop honestly (never
+    fabricate success).
+  - **Non-CLI human gates = announce and wait.** Steps no CLI can perform — account creation
+    (Saleor/Vercel/Stripe), configuring Saleor's Stripe app in the Dashboard and mapping it to the
+    channel, or pasting a secret no CLI hands over — Jolly prints (in the feature 020 envelope), waits
+    for the human, verifies what it can, then resumes.
+  - **Agent stays the approval authority.** Before each high-risk action (`create store`, configurator
+    `deploy`, the Vercel deploy) `start` emits the feature 021 `riskContext` and pauses for the agent
+    to approve; `--yes`/pre-approve runs straight through when the agent's policy allows. The agent
+    invokes `start`, approves each gate, provides credentials, and owns all post-setup iteration; Jolly
+    owns only the mechanical choreography between gates.
+  - **Composable commands stay.** Every stage `start` runs is also an independent command the agent
+    can call and mediate itself (feature 008 surface, feature 022 resumability); `start` chains them.
+  - **Human-run `jolly start` is the backup path.** Because `start` runs the full mechanical chain, a
+    human can run it in a plain shell — the natural way to clear the interactive gates a non-TTY agent
+    cannot pass. The headline entry stays paste-to-agent; when the agent cannot or will not complete
+    `start` (refuses, a stage fails, or an interactive gate it cannot pass), Jolly's output and the
+    Jolly skill tell it to ask the human to run `jolly start` in a shell, then start their agent to
+    iterate (the skills `jolly init` installed are already on disk). A blocked/failed run surfaces the
+    human-run fallback in `nextSteps` and never fabricates that it was done.
+  - **Stripe — Jolly installs the app; the key entry is a guided gate** (feature 005).
+    `@saleor/configurator` and the Cloud API cannot touch the Stripe app; the Saleor GraphQL
+    `appInstall` mutation installs it (HANDLE_PAYMENTS) using the Cloud token as staff auth (an app
+    token gets `PermissionDenied`), manifest `https://stripe-v2.saleor.app/api/manifest`. No public API
+    sets its keys or maps it to a channel. So the `start` Stripe stage = (1) Jolly installs the app via
+    `appInstall`; (2) the recipe sets the channel payment flow; (3) Jolly runs a guided walk-through for
+    the keys + `us`-channel mapping (keys by name only) and waits; (4) `jolly doctor` probes checkout to
+    verify. Paper takes no Stripe keys (it reads the publishable key from Saleor at runtime); `jolly
+    create stripe` only imports the test keys into `.env`.
+  - **The Cloud token is staff auth on the store GraphQL.** Saleor Cloud resolves
+    `JOLLY_SALEOR_CLOUD_TOKEN` (Bearer) on a `*.saleor.cloud/graphql/` endpoint to the environment's
+    staff superuser (`me.isStaff: true`) — how Jolly does `appCreate`/`appTokenCreate`/`appInstall`.
+    The customer's agent can perform staff-level store management with the Cloud token it holds, not
+    only inside `jolly start`. App tokens (`JOLLY_SALEOR_APP_TOKEN`) are not staff and cannot do these.
+  - **The `jolly start` stages and their honesty contract.** `jolly start` runs bootstrap (init +
+    doctor), then performs each mechanical stage itself and reports `completed` only for work it
+    actually did (integrity rule below); a stage that is skipped, paused for approval, or blocked at a
+    human gate is reported as such, never as passed. Each stage is idempotent/resumable (feature 022)
+    and gated for approval (feature 021; `--yes` pre-approves). The stages:
+    - **storefront** — spawns `git` to clone `saleor/storefront` (Paper) from `main` into `storefront/`,
+      strips the upstream `.git`, inits a fresh repo, and spawns `pnpm install` (feature 002).
+    - **configurator deploy** — spawns `npx @saleor/configurator deploy` of Jolly's bundled starter
+      recipe (`assets/skills/jolly/recipe.yml`, resolved relative to Jolly's module path) against the
+      store URL + app token, with `--fail-on-delete`/`--fail-on-breaking` so a destructive apply over a
+      non-blank store is blocked, not silently destructive. Non-interactive — reads the exit code
+      (0 → completed; 6/7 → blocked with the destructive diff; other non-zero/un-spawnable → blocked).
+      Feature 004.
+    - **stock-seeding** — Jolly's own Saleor GraphQL `productVariantStocksCreate` seeds a default
+      quantity per recipe variant into the recipe warehouse (configurator cannot set stock and
+      hardcodes `trackInventory: true`, so without this a `us` checkout fails `INSUFFICIENT_STOCK`).
+      Runs after the deploy. Feature 004.
+    - **vercel deploy** — spawns `npx vercel` under the Vercel CLI's own session to deploy
+      `storefront/`, set the Vercel env vars, surface Deployment Protection, and update Saleor trusted
+      origins (feature 002).
+    - **Stripe app install** — Jolly's own Saleor GraphQL `appInstall` (Cloud staff token, `stripe-v2`
+      manifest); the keys + `us`-channel mapping stay an announce-and-wait human gate (feature 005).
+    - **verify** — `jolly doctor` confirms operational readiness, including a checkout-readiness probe
+      that creates and reverts a `us` test checkout and inspects the available payment gateways to
+      confirm the Stripe payment step is reachable (features 005/014).
+    The all-Jolly-executable chain is `create store` → storefront clone/install → configurator deploy →
+    stock-seed → vercel deploy → Stripe app install → `jolly doctor` verify.
 - **Install skills via `npx skills add` (decision 2026-06-13):** Jolly installs every skill —
   the Jolly skill and the Saleor agent-skills — through `npx skills add <ref>`, falling back to
   a Git-based install only for a skill not available that way (e.g. Paper's embedded skill,
@@ -285,90 +220,41 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/bosun`, `/clearrole`, or generic r
 
 ## MVP and Launch Definition
 
-Launch bar (decision 2026-06-13): the MVP is the **full honest end-to-end** — the
-customer's agent goes from the homepage prompt to a **real, deployed, working storefront**,
-with every claim verified and nothing fabricated. The acceptance bar mirrors feature 002's
-"V1 operational readiness": the deployed URL works, product browsing works against Saleor
-Cloud data, cart works, and checkout progresses to the Stripe test payment step.
+Launch bar: the MVP is the **full honest end-to-end** — the customer's agent goes from the homepage
+prompt to a **real, deployed, working storefront**, with every claim verified and nothing fabricated.
+The acceptance bar mirrors feature 002's "V1 operational readiness": the deployed URL works, product
+browsing works against Saleor Cloud data, cart works, and checkout progresses to the Stripe test
+payment step.
 
-The flow is **agent-supervised orchestration** (decision 2026-06-14 — see "Agent-supervised
-orchestration" above; supersedes the prior "agent-driven playbook" framing of this paragraph):
-`jolly start` is a **resumable end-to-end runner** that deterministically executes the mechanical
-stages itself by **spawning the official CLIs** (`git`, `pnpm`, `@saleor/configurator`,
-`npx vercel`) plus its own plumbing, **pausing for the agent to approve each high-risk action**
-(feature 021 `riskContext`) and **announcing-and-waiting at the human gates** (account creation,
-OAuth/`vercel login`/`stripe login` — run with stdio passed through to the CLI and continued on
-its exit — and the Dashboard Stripe-app step). The agent stays the approval authority and
-credential provider; every stage is also a composable command the agent can run itself. Each
-side does **real** work and reports only verified results (no fabrication — see the integrity
-rule below). The numbered stages below describe the same end-to-end; under this decision stages
-5–8 are spawned by `start` (not hand-run by the agent), while remaining agent/human at the
-approval and interaction gates:
+The flow is **agent-supervised orchestration** (see "Agent-supervised orchestration" above): `jolly
+start` is a resumable end-to-end runner that performs the mechanical stages itself by spawning the
+official CLIs plus its own plumbing, pausing for the agent to approve each high-risk action (feature
+021 `riskContext`) and announcing-and-waiting at the human gates (account creation,
+OAuth/`vercel login`/`stripe login`, and the Dashboard Stripe-app keys + `us`-channel mapping). The
+agent stays the approval authority and credential provider; every stage is also a composable command
+the agent can run itself, and each does real work reporting only verified results (integrity rule
+below). The ordered stages are listed under "Agent-supervised orchestration" above: bootstrap (`init`
++ `doctor`), auth (`login`/`auth status`), store/app-token via the Cloud API (environments provisioned
+**blank** — `database_population: null` — so the recipe deploy is additive, feature 012), storefront
+clone/install, configurator deploy, stock-seed, Vercel deploy, Stripe app install, and `jolly doctor`
+verify (including the checkout-readiness probe).
 
-1. **Bootstrap** — `jolly start` runs `jolly init` (install the Jolly skill + Saleor skills via
-   `npx skills add`, write `.mcp.json`, scaffold), acquires auth as needed, runs `jolly doctor`,
-   and emits the ordered playbook + next steps. *Currently a simulation stub — must be rebuilt
-   to do real bootstrap + playbook, not fake stage completion.*
-2. **Auth** — `jolly login` / `auth status` (Jolly plumbing). *Built and sandbox-verified.*
-3. **Store/environment** — `jolly create store` / `create environment` via the Cloud API
-   (Jolly plumbing). Environments are provisioned **blank** (`database_population: null`, no
-   sample data) so the stage-6 recipe deploy is purely additive — see feature 012 Rule "Created
-   environments are provisioned blank" (decision 2026-06-14, finding #2). *Built and
-   sandbox-verified; blank-provisioning change pending QM/Crew.*
-4. **App token** — `jolly create app-token` via Saleor GraphQL (Jolly plumbing, feature 024).
-5. **Storefront (agent)** — the agent clones `saleor/storefront` (Paper) from `main` with
-   `git`, strips `.git`, fresh `git init`, `pnpm` install, per the Jolly skill (feature 002/003).
-6. **Recipe** — `jolly start` deploys the Jolly starter recipe by **spawning `@saleor/configurator
-   deploy`** of its own bundled `recipe.yml` against the store URL + app token, with
-   `--fail-on-delete --fail-on-breaking` so a destructive apply over a non-blank store is blocked;
-   gated for approval, honest exit-code reporting (the first spawned-CLI stage — **spec'd 2026-06-14,
-   feature 004 Rule "Configurator deploy is a genuinely-executing stage", pending QM/Crew build**;
-   until built it stays agent-driven via the skill). **Then `jolly start` seeds stock** for every
-   recipe variant (default 100 each) into the recipe warehouse via Saleor GraphQL, because
-   configurator cannot set stock or `trackInventory` and hardcodes `trackInventory: true` — without
-   this the catalog has zero stock and `us` checkout fails with `INSUFFICIENT_STOCK` before payment
-   (acceptance-run finding 2026-06-14; see feature 004 Rule "Recipe products need seeded stock").
-7. **Deployment (agent)** — the agent deploys with the **Vercel CLI** (`npx vercel`) under its
-   own `vercel login` session, sets Vercel env vars, and updates Saleor trusted origins, per the
-   skill (feature 002). No Jolly Vercel token, no `api.vercel.com` in Jolly's code.
-8. **Stripe** — for 0-friction first-run, the agent obtains test keys via the official **Stripe
-   CLI** OAuth login (`npx @stripe/cli login`), after which `jolly create stripe` (no flags)
-   imports them by invoking the Stripe CLI **read-only** (`stripe config --list`) and writes them
-   to `.env` — the agent never handles the secret. Explicit `--publishable-key`/`--secret-key`
-   flags override (durable Dashboard keys). These CLI keys are test-mode and expire (~90 days); the skill
-   warns the agent to swap in durable Dashboard keys before expiry, and pasting Dashboard keys is
-   the always-supported alternative. `jolly start` installs the Saleor Stripe app itself via Saleor
-   GraphQL `appInstall` (Cloud staff token + `stripe-v2` manifest, idempotent — the second
-   genuinely-executing stage after stock-seeding); the keys + `us`-channel-configuration mapping stay
-   the guided Dashboard human gate (no public API), and checkout readiness is verified with
-   `jolly doctor` (feature 005). `@saleor/configurator` manages catalog and channels only — it
-   does not configure payments. (Decision 2026-06-13; Saleor's acceptance of the CLI-issued
-   `sk_test_` key is to be confirmed in the acceptance run — adopt-on-green.)
-9. **Verify** — `jolly doctor` confirms operational readiness (feature 014), including a
-   **checkout-readiness probe**: it creates a harmless, reverted test checkout in the recipe's `us`
-   channel and inspects the available payment gateways to confirm checkout can reach the Stripe test
-   payment step — reporting `pass` only when the Stripe gateway is actually offered, and honestly
-   `warning`/`fail`/`skipped` otherwise (feature 005 Rule "Checkout-readiness verify probe").
+**Integrity rule:** Jolly's own commands report success and `pass` checks only for work Jolly actually
+performed and confirmed; unbuilt or unperformable paths **error honestly** (stable `errors[].code`) and
+never fabricate. The Jolly skill is real agent guidance, not a Jolly claim of having done the work. This
+applies feature 020's "No fabricated success" to the create subcommands (feature 008), `jolly start`
+(feature 001), and `jolly doctor` (feature 014); testable at `@logic` without credentials, with real
+end-to-end verified at `@sandbox`. It applies per-stage: `jolly start` reports only the stages it
+actually performed (via the CLIs it spawned) and their real results — never a deployed store it did not
+deploy; a stage that was skipped, paused for approval, or is waiting at a human gate is reported as
+such, not as passed.
 
-**Integrity rule (decision 2026-06-13):** Jolly's own commands report success and `pass` checks
-only for work Jolly actually performed and confirmed; unbuilt or unperformable paths **error
-honestly** (stable `errors[].code`) and never fabricate. `jolly start` reports what it actually
-set up and the playbook it emitted — never a completed deployment it did not perform. The Jolly
-skill is real agent guidance, not a Jolly claim of having done the work. This applies feature
-020's "No fabricated success" to the surviving create subcommands (feature 008), `jolly start`
-(feature 001), and `jolly doctor` (feature 014); testable at `@logic` without credentials, with
-real end-to-end verified at `@sandbox`. Under the 2026-06-14 orchestration decision, this
-applies per-stage: `jolly start` reports only the stages it actually performed (via the CLIs it
-spawned) and their real results — never a deployed store it did not deploy; a stage that was
-skipped, paused for approval, or is waiting at a human gate is reported as such, not as passed.
-
-**Launch credentials (as of 2026-06-13):** Jolly's own credentials are `JOLLY_SALEOR_CLOUD_TOKEN`
-and `JOLLY_STRIPE_PUBLISHABLE_KEY` / `JOLLY_STRIPE_SECRET_KEY` (Stripe **test mode** only).
-**Vercel auth is NOT a Jolly credential** — it lives entirely in the Vercel CLI's own
-`vercel login` session, so `JOLLY_VERCEL_TOKEN` is **retired** (remove it from `.env`, harness
-gating, and step defs). The deploy `@sandbox` scenarios gate on the Vercel CLI being
-authenticated (`npx vercel whoami` exit 0), not on any Jolly env var. Likewise, Configurator
-`@sandbox` work uses the Saleor app token Jolly already manages, passed to `@saleor/configurator`.
+**Launch credentials:** Jolly's own credentials are `JOLLY_SALEOR_CLOUD_TOKEN` and
+`JOLLY_STRIPE_PUBLISHABLE_KEY` / `JOLLY_STRIPE_SECRET_KEY` (Stripe **test mode** only). **Vercel auth is
+NOT a Jolly credential** — it lives entirely in the Vercel CLI's own `vercel login` session; there is no
+`JOLLY_VERCEL_TOKEN`. The deploy `@sandbox` scenarios gate on the Vercel CLI being authenticated
+(`npx vercel whoami` exit 0), not on any Jolly env var. Configurator `@sandbox` work uses the Saleor app
+token Jolly already manages, passed to `@saleor/configurator`.
 
 ## CLI Output Contract
 
@@ -378,7 +264,7 @@ authenticated (`npx vercel whoami` exit 0), not on any Jolly env var. Likewise, 
 - With `--json`, stdout contains only the envelope; default mode adds concise human text; `--quiet` trims nonessential human text only.
 - Stable `errors[].code` and check-id strings let agents branch programmatically; secrets are never printed and are referenced by name only.
 - Field names use camelCase (for example `nextSteps`, `riskLevel`, `dryRunAvailable`), across the envelope and the feature 021 risk context.
-- **No fabricated success (decision 2026-06-12):** verified/valid/connected/success claims
+- **No fabricated success:** verified/valid/connected/success claims
   and `pass` checks are permitted only for operations actually performed and confirmed in
   the run; storing without verifying is reported as exactly "stored, not verified"; junk
   input never yields success language; unimplemented behavior errors honestly instead of
@@ -387,8 +273,8 @@ authenticated (`npx vercel whoami` exit 0), not on any Jolly env var. Likewise, 
 
 ## Network Boundaries (first-party hosts only)
 
-Decision 2026-06-12 (see feature 020 Rule "First-party hosts only"), amended 2026-06-13:
-Jolly's code sends network requests only to auth.saleor.io (Keycloak, realm saleor-cloud),
+Jolly's code sends network requests only to (see feature 020 Rule "First-party hosts only")
+auth.saleor.io (Keycloak, realm saleor-cloud),
 cloud.saleor.io (Cloud API + token page), the customer's *.saleor.cloud environment domains,
 api.stripe.com, github.com (cloning saleor/storefront and skills), and 127.0.0.1 (OAuth
 callback). "Hosts Jolly contacts" stays exactly equal to the hosts in Jolly's request-sending
@@ -396,8 +282,7 @@ code. Secrets travel only to their own service (Saleor tokens → Saleor hosts; 
 api.stripe.com; nothing to github.com). `JOLLY_SALEOR_CLOUD_API_URL` optionally overrides the
 Cloud API base (default `https://cloud.saleor.io/platform/api`) for proxy/self-routing setups.
 
-Delegated official CLIs are not Jolly's request code (affirmed by the 2026-06-14
-"Agent-supervised orchestration" decision above): `jolly start` **spawns** the **Vercel CLI**
+Delegated official CLIs are not Jolly's request code: `jolly start` **spawns** the **Vercel CLI**
 (`npx vercel`) and **`@saleor/configurator`**, which contact their own services (api.vercel.com
 for Vercel; the customer's Saleor GraphQL endpoint for Configurator) under their own auth. `api.vercel.com` is
 therefore **no longer in Jolly's own allowlist** — it is reached by the Vercel CLI Jolly
@@ -487,6 +372,27 @@ Jolly-specific role notes:
 - CLI implementation lives under `src/`.
 - `assets/**` (including `assets/homepage/` and `assets/skills/jolly/`) is Captain-owned — out of Crew Mate scope entirely.
 - Implement the minimal production/application change needed to satisfy committed specs and tests.
+
+### Bosun
+
+- **Keep the spec corpus current-design-only, every pass.** Feature files, AGENTS.md, and
+  HANDOVER.md must encode only the *current* design plus enough to rebuild the codebase correctly —
+  never past designs or decision archaeology. Each Bosun pass, merge or purge superseded, obsolete,
+  redundant, or purely-historical scenarios, rules, and steps: drop "SUPERSEDED by…" tombstones and
+  the dead half of supersession pairs, strip inline decision-history framing (dated "decision …",
+  "observed live", "acceptance-run finding", build-sequencing narration like "Nth genuinely-executing
+  stage / convergence") down to the present-tense behavior, and de-duplicate scenarios that assert the
+  same behavior in more than one place. Trim HANDOVER.md to the current handoff. The design history
+  lives in git log + commit messages, so the specs lose nothing by shedding it.
+- This is **hygiene, not redesign**: remove only provably-dead content (explicitly superseded,
+  duplicated, or pure history) and preserve every current behavioral contract (the pinned contracts —
+  output envelope 020, riskContext 021, idempotency 022, first-party hosts, the stages `jolly start`
+  performs, doctor checks, auth flows — and current guardrails such as the `saleor/cli` ban and the
+  no-`JOLLY_VERCEL_TOKEN` rule). The bar: a fresh QM/Crew could rebuild `src/` correctly from the
+  cleaned specs alone. If a removal would change current design or is ambiguous, leave it and raise a
+  Captain blocker.
+- After pruning specs, regenerate or prune the matching step definitions/tests so nothing is orphaned,
+  and confirm `npx cucumber-js --dry-run` is `0 undefined` and `-p logic` stays green before committing.
 
 ## Durable Assets
 

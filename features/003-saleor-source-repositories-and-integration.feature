@@ -105,7 +105,7 @@ Feature: Saleor source repositories and integration boundaries
     - Legacy Vercel login used a Saleor CLI Vercel integration OAuth flow; Jolly should validate modern Vercel setup separately.
 
   Rule: Jolly integration principles
-    - The customer's agent runs the official tools — `git` (cloning `saleor/storefront` from `main` unless the customer chooses another ref), `@saleor/configurator`, `pnpm`, and the Vercel CLI — guided by the Jolly skill. Jolly never shells out to `@saleor/configurator` or the Vercel CLI (decision 2026-06-13).
+    - The customer's agent runs the official tools — `git` (cloning `saleor/storefront` from `main` unless the customer chooses another ref), `@saleor/configurator`, `pnpm`, and the Vercel CLI — guided by the Jolly skill. Jolly never shells out to `@saleor/configurator` or the Vercel CLI.
     - All skills (the Jolly skill and the Saleor agent-skills) are installed via `npx skills add <ref>`, falling back to a Git-based install only for a skill not available that way (such as Paper's embedded skill, which arrives with the cloned storefront).
     - Use the deprecated `saleor/cli` only as research evidence for flows that are not otherwise documented; never invoke it.
     - Preserve upstream agent instructions and skills rather than duplicating all Saleor knowledge inside Jolly.

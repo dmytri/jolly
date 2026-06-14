@@ -141,19 +141,19 @@ Feature: Existing Saleor store connection
       environmental skip (like absent credentials), not a failure: the account's capacity,
       not Jolly's behavior, is what prevented the run.
 
-  Rule: Created environments are provisioned blank (finding #2, resolved 2026-06-14)
+  Rule: Created environments are provisioned blank
     - `jolly create store --create-environment` provisions the environment with NO sample data
       and NO sample configuration: `database_population` is sent as null — the Saleor Cloud
       "blank" template, which "contains no data and configuration settings" — never "sample".
-    - Reason (MVP acceptance-run finding 2026-06-14): the starter recipe (feature 004) is a
-      complete declarative config that `@saleor/configurator deploy` reconciles the store to
-      match, deleting any undeclared entity. Against Saleor's sample data that was ~120 deletes,
-      which the skill-mandated `--fail-on-breaking`/`--fail-on-delete` correctly blocks. A blank
-      environment makes the recipe deploy purely additive, so the happy path never needs a
-      destructive deploy. Pairs with feature 004 Rule "Recipe targets a clean environment".
+    - Reason: the starter recipe (feature 004) is a complete declarative config that
+      `@saleor/configurator deploy` reconciles the store to match, deleting any undeclared entity.
+      Against Saleor's sample data that is many deletes, which the skill-mandated
+      `--fail-on-breaking`/`--fail-on-delete` correctly blocks. A blank environment makes the recipe
+      deploy purely additive, so the happy path never needs a destructive deploy. Pairs with feature
+      004 Rule "Recipe targets a clean environment".
     - v1 has no database-template override flag: provisioning is always blank. Re-introducing a
       `--database <sample|blank|snapshot>` pass-through is a post-MVP iteration only if a real
-      need appears (decision 2026-06-14: blank-only for v1).
+      need appears (blank-only for v1).
 
   Rule: Environment-creation test runs are namespaced and self-cleaning
     - Whenever a sandbox run needs a Saleor endpoint or app token that is not configured
