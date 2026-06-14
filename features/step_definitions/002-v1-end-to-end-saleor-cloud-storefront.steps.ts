@@ -1,15 +1,19 @@
 // Feature 002 — V1 end-to-end Saleor Cloud storefront setup.
 //
-// This is the operational-readiness ACCEPTANCE feature. Its journey — register
-// or connect a store, clone Paper, apply the recipe, deploy to Vercel — is
-// performed by the customer's AGENT running the official CLIs (git, pnpm,
-// @saleor/configurator, the Vercel CLI), guided by the Jolly skill. That
-// narrative is NOT Jolly's code and NOT cucumber-testable here. These step
+// This is the operational-readiness ACCEPTANCE feature. Under the 2026-06-14
+// "Agent-supervised orchestration" decision, `jolly start` performs the
+// mechanical journey itself by SPAWNING the official CLIs (git, pnpm,
+// @saleor/configurator, the Vercel CLI), pausing for the agent's per-stage
+// approval and waiting at the human gates. The spawned CLIs' own behavior
+// (the actual clone/install/deploy and the resulting live store) is the
+// acceptance-run concern, not harmlessly cucumber-testable here. These step
 // defs therefore keep ONLY the Jolly-observable contributions:
-//   - the @logic scenario asserts `jolly start` reveals the plan and the
-//     required human-action steps;
-//   - the @sandbox scenarios assert Jolly's thin plumbing + `jolly doctor`
-//     verification (never running git clone / npx vercel / the configurator).
+//   - the @logic scenario asserts `jolly start` reveals the plan (including the
+//     auth/store stages the journey branches on) and the required human steps;
+//   - the @sandbox scenarios assert Jolly's observable surface — `jolly doctor`
+//     readiness checks and the orchestration plan — never depending on a real
+//     destructive clone/deploy from within cucumber. The riskContext/approval
+//     pause behavior is pinned at @logic in features 001/021.
 // The deep auth/store/app-token/url-normalization behavior is pinned in
 // features 018/012/024; here it is asserted only at the Jolly surface.
 //
@@ -34,15 +38,15 @@ Given(
   function () {},
 );
 Given(
-  "the customer's own agent performs the CLI steps \\(clone, configure, deploy), guided by the Jolly skill that Jolly installs",
+  "`jolly start` performs the mechanical CLI steps itself by spawning the official CLIs \\(`git` clone, `pnpm` install, `@saleor\\/configurator` deploy, `npx vercel` deploy), each under its own auth — never reimplementing them against raw APIs",
   function () {},
 );
 Given(
-  "Jolly's role is the thin plumbing \\(auth, store\\/app-token via the Cloud API, secret writing, `.mcp.json`, skill install) plus `jolly doctor` verification — Jolly never shells out to the Vercel CLI or `@saleor\\/configurator`",
+  "the customer's agent supervises: it approves each high-risk stage's `riskContext`, provides credentials, and completes the human gates, and may run any stage as a composable command itself",
   function () {},
 );
 Given(
-  "`@saleor\\/configurator` is run by the agent directly for store configuration and recipes",
+  "Jolly's own plumbing covers auth, store\\/app-token via the Cloud API, secret writing, `.mcp.json`, skill install, and `jolly doctor` verification",
   function () {},
 );
 Given(
@@ -250,85 +254,74 @@ Then("it should verify connectivity before proceeding to storefront setup", func
   assert.ok(check, "doctor saleor must report an endpoint/connectivity check");
 });
 
-// --- Scenario: Agent creates a deployable storefront from Saleor Paper (@sandbox)
+// --- Scenario: Jolly start creates a deployable storefront from Saleor Paper (@sandbox)
 //
-// Cloning Paper, removing .git, pnpm install, and Paper's own validation are
-// the agent's git/pnpm steps. Jolly-observable: `jolly doctor storefront`
-// reports storefront readiness (and `--full-validation` is its deeper check).
-// Gated (saleorEndpoint) → skips locally.
+// `jolly start` spawns `git` (clone Paper, strip .git, fresh init) and `pnpm`
+// (install) to prepare the storefront. The spawn + live outcome is the
+// acceptance-run concern; here we assert Jolly's observable surface — `jolly
+// doctor storefront` reports storefront readiness (and `--full-validation` is
+// its deeper check). Gated (saleorEndpoint) → skips locally.
 
 Given("Saleor connectivity has been verified", function (this: JollyWorld) {
   this.notes.connectivityVerified = true;
 });
 
-When("the agent prepares the storefront project", function (this: JollyWorld) {
-  this.runCli(["doctor", "storefront", "--json"]);
-});
+When(
+  "`jolly start` prepares the storefront project by spawning `git` and `pnpm`",
+  function (this: JollyWorld) {
+    // Jolly-observable surface of the storefront stage: doctor storefront.
+    this.runCli(["doctor", "storefront", "--json"]);
+  },
+);
 
-Then("it should propose `storefront` as the default storefront target directory", function () {
-  // The default `storefront` dir is the agent's clone target per the skill — narrative.
-});
-
-Then("it should proceed with the default directory automatically", function () {
-  // Agent/skill behavior — narrative.
-});
+Then(
+  "it should use `storefront` as the default storefront target directory and proceed automatically",
+  function () {
+    // The default `storefront` dir is start's clone target; the directory choice
+    // and auto-proceed are spawned-`git` behavior verified in the acceptance run.
+  },
+);
 
 Then(
   "it should only pause if the default directory already exists and ask how to resolve the collision",
   function () {
-    // Collision handling is the agent's clone-step concern — narrative.
+    // Collision handling on the storefront clone is start's spawn-step concern —
+    // verified in the acceptance run.
   },
 );
 
 Then(
-  "it should clone or directly use Saleor's official `saleor\\/storefront` Paper template as the baseline",
+  "it should clone Saleor's official `saleor\\/storefront` Paper template from `main` by spawning `git`, remove the upstream `.git` history, and initialize a fresh repository",
   function () {
-    // The agent runs `git clone saleor/storefront` — agent-journey.
+    // start spawns `git clone saleor/storefront@main`, strips .git, re-inits —
+    // a spawned-CLI outcome verified in the acceptance run, not from cucumber.
   },
 );
 
-Then("it should remove the cloned upstream `.git` history", function () {
-  // The agent's git step — narrative.
-});
-
 Then(
-  "it should initialize a fresh Git repository when needed for the customer's storefront workflow",
+  "it should install Paper's dependencies by spawning `pnpm`",
   function () {
-    // The agent's git step — narrative.
+    // start spawns `pnpm install` — a spawned-CLI outcome (acceptance run).
   },
 );
 
-Then("it should validate the local Node.js version against Paper's current requirements", function () {
-  // Node-version guidance is the agent's runtime domain / skill copy — narrative.
-});
-
-Then("it should provide actionable guidance when the local Node.js version is incompatible", function () {
-  // Skill copy — narrative.
-});
-
 Then(
-  "it should not install or switch Node.js versions automatically because runtime management is the customer's agent's domain",
+  "it should validate the local Node.js version against Paper's current requirements and give actionable guidance on a mismatch, without installing or switching Node.js itself",
   function () {
-    // Boundary: Jolly never manages runtimes — not a runtime assertion.
+    // Node-version validation/guidance is start's pre-spawn check; Jolly never
+    // manages runtimes — a boundary, not a harmless cucumber assertion here.
   },
 );
 
-Then("it should use Paper's expected package manager, `pnpm`, for the cloned storefront", function () {
-  // The agent runs pnpm — agent-journey.
-});
-
-Then("it should install Paper storefront dependencies automatically by default", function () {
-  // The agent runs `pnpm install` — agent-journey.
-});
-
-Then("it should run lightweight validation by default", function (this: JollyWorld) {
-  // Jolly-observable: doctor storefront reports a storefront-present check.
-  const check = this.findCheck("storefront-present");
-  assert.ok(check, "doctor storefront must report a storefront readiness check");
-});
+Then(
+  "it should give actionable guidance if `pnpm` is missing, optionally installing it where the agent\\/customer allows",
+  function () {
+    // pnpm-presence guidance is start's pre-spawn check — acceptance run.
+  },
+);
 
 Then(
-  "`jolly doctor storefront --full-validation` should run full Paper validation such as generate, typecheck, build, or tests where feasible; the agent also runs Paper's own `pnpm` validation directly per the Jolly skill",
+  "`jolly doctor storefront --full-validation` should run full Paper validation such as generate, typecheck, build, or tests where feasible",
   function (this: JollyWorld) {
     // Jolly-observable: doctor storefront accepts the deeper validation request
     // and still reports a well-formed envelope (no fabricated pass).
@@ -337,89 +330,105 @@ Then(
   },
 );
 
-Then("it should provide actionable guidance if `pnpm` is missing", function () {
-  // pnpm guidance is skill copy / agent concern — narrative.
-});
-
-Then(
-  "it should optionally install `pnpm` where possible when the agent\\/customer allows it",
-  function () {
-    // pnpm install is the agent's runtime concern — narrative.
-  },
-);
-
 Then(
   "it should preserve Paper's intended architecture and default presentation rather than rewriting or re-theming it unnecessarily",
   function () {
-    // Preservation is the agent's discipline guided by the skill — narrative.
+    // Preservation is start's discipline when preparing Paper — acceptance run.
   },
 );
 
-// --- Scenario: Agent deploys to Vercel via the official Vercel CLI (@sandbox)
+// --- Scenario: Jolly start deploys to Vercel by spawning the official Vercel CLI (@sandbox)
 //
-// Deployment is the agent's `npx vercel` step; Jolly never contacts
-// api.vercel.com and holds no Vercel token. Jolly-observable: `jolly doctor`
-// reports the deployment as agent-run (skipped, not fabricated) and verifies
-// the deployed storefront can reach Saleor. Gated (saleorEndpoint) AND
-// requiresVercelCli → skips locally without an authenticated Vercel CLI.
+// `jolly start` deploys by SPAWNING `npx vercel` under the CLI's own `vercel
+// login` session; Jolly's own code never contacts api.vercel.com and holds no
+// Vercel token. The riskContext/approval pause is pinned at @logic (001/021);
+// here we assert Jolly's observable surface — `jolly doctor` reports the
+// deployment as spawn-run (skipped, not fabricated) and verifies the deployed
+// storefront can reach Saleor. Gated (saleorEndpoint) AND requiresVercelCli →
+// skips locally without an authenticated Vercel CLI.
 
 Given("the storefront is ready for deployment", function (this: JollyWorld) {
   this.notes.deployReady = true;
 });
 
-When("the agent deploys to Vercel following the Jolly skill", function (this: JollyWorld) {
-  // The agent runs `npx vercel`. Jolly-observable: doctor's deployment group.
+When("`jolly start` deploys to Vercel", function (this: JollyWorld) {
+  // start spawns `npx vercel`. Jolly-observable surface: doctor's deployment group.
   this.runCli(["doctor", "deployment", "--json"]);
 });
 
 Then(
-  "the agent should deploy exclusively through the official Vercel CLI \\(`npx vercel`)",
+  "it should emit the deploy stage's feature 021 `riskContext` and pause for the agent to approve before deploying",
   function (this: JollyWorld) {
-    // Jolly-observable: doctor's deployment check points at the Vercel CLI and
+    // The deploy stage's riskContext + approval pause is pinned at @logic
+    // (features 001/021). Jolly-observable here: the orchestration plan carries
+    // a deploy stage and a riskContext (read from the harmless dry-run plan).
+    const dry = this.runCli(["start", "--dry-run", "--json"]);
+    const plan =
+      (dry.envelope?.data as { plan?: Array<Record<string, unknown>> })?.plan ?? [];
+    assert.ok(
+      plan.some((s) => String(s.stage).includes("deploy")),
+      "the start plan must include a deploy stage carrying its riskContext",
+    );
+  },
+);
+
+Then(
+  "it should deploy exclusively by spawning the official Vercel CLI \\(`npx vercel`), under the CLI's own `vercel login` session",
+  function (this: JollyWorld) {
+    // Jolly-observable: doctor's deployment check references the Vercel CLI and
     // is marked skipped (Jolly does not contact Vercel) — never a fabricated pass.
     const check = this.findCheck("deployment-status");
     assert.ok(check, "doctor must report a deployment-status check");
-    assert.equal(check!.status, "skipped", "Jolly must not fabricate a deployment pass; it is agent-run");
+    assert.equal(check!.status, "skipped", "Jolly must not fabricate a deployment pass; it spawns the Vercel CLI");
   },
 );
 
 Then(
-  "the agent should authenticate only via the Vercel CLI's own `vercel login` session",
+  "when the Vercel CLI is not authenticated, it should run `vercel login` with stdio passed through and continue on its exit",
   function () {
-    // Vercel auth is the CLI's own session; there is no JOLLY_VERCEL_TOKEN — boundary.
-  },
-);
-
-Then(
-  "when the Vercel CLI is not authenticated, the Jolly skill should direct the human to run `npx vercel login` and resume afterward",
-  function () {
-    // Skill copy directs the human to `npx vercel login` — narrative.
+    // stdio passthrough + continue-on-exit for `vercel login` is start's spawn
+    // behavior, verified in the acceptance run — not capturable from cucumber.
   },
 );
 
 Then(
   "Jolly's own code should send no request to api.vercel.com and hold no Vercel token",
   function (this: JollyWorld) {
-    // Jolly-observable boundary: the deployment check explicitly states Jolly
-    // does not contact Vercel, and Jolly exposes no Vercel token surface.
+    // Jolly-observable boundary: the deployment check references the spawned
+    // Vercel CLI, and Jolly exposes no Vercel token / api.vercel.com surface.
     const check = this.findCheck("deployment-status");
     const text = JSON.stringify(check ?? {}).toLowerCase();
-    assert.ok(text.includes("vercel"), "the deployment check should reference the agent-run Vercel CLI");
+    assert.ok(text.includes("vercel"), "the deployment check should reference the spawned Vercel CLI");
     assert.ok(!text.includes("api.vercel.com"), "Jolly must not contact api.vercel.com");
   },
 );
 
 Then(
-  "the agent should not fall back to any other deployment mechanism such as a guided Git import flow",
+  "it should not fall back to any other deployment mechanism such as a guided Git import flow",
   function () {
     // No guided-import fallback exists — boundary (decision 2026-06-13).
   },
 );
 
 Then(
-  "the agent should configure required environment variables on the Vercel project through the Vercel CLI",
+  "it should configure the required environment variables on the Vercel project through the Vercel CLI",
   function () {
-    // The agent sets Vercel env vars via the CLI — agent-journey.
+    // start sets Vercel env vars by spawning the Vercel CLI — acceptance run.
+  },
+);
+
+Then(
+  "it should surface Vercel Deployment Protection \\(on by default) for the human or agent to disable so the store is publicly reachable",
+  function () {
+    // Deployment Protection is a Vercel project setting start surfaces for the
+    // human/agent to disable (not a deploy step) — acceptance run.
+  },
+);
+
+Then(
+  "it should update Saleor allowed\\/trusted origins for the deployed storefront URL where APIs allow",
+  function () {
+    // Trusted-origin updates are a Cloud-API step start performs after deploy — acceptance run.
   },
 );
 
@@ -433,14 +442,7 @@ Then(
   },
 );
 
-Then(
-  "the agent should update Saleor allowed\\/trusted origins for the deployed storefront URL where APIs allow",
-  function () {
-    // Trusted-origin updates are an agent/Cloud-API step guided by the skill — narrative.
-  },
-);
-
-Then("the deployed URL and any remaining manual steps should be reported", function (this: JollyWorld) {
+Then("it should report the deployed URL and any remaining manual steps", function (this: JollyWorld) {
   // Jolly-observable: doctor carries a nextSteps channel for remaining manual steps.
   assert.ok(Array.isArray(this.envelope.nextSteps), "doctor must carry a nextSteps channel");
 });

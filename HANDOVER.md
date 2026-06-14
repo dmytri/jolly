@@ -17,6 +17,67 @@ official CLIs for the agent — reversing the "the agent runs the tools, not Jol
 is a real re-architecture; specs are updated, IMPLEMENTATION IS NOT BUILT (src `start` still does
 the old bootstrap+playbook). Next is a QM/Crew cycle to build it.
 
+### PROGRESS (2026-06-14, QM then Captain — scenarios regenerated, eval steps done)
+The pivot specs are **committed** (`86dcbc5`, `530db32`) — the "(UNCOMMITTED)" notes below are
+historical. Two things landed since:
+- **QM (prior session):** wrote the **2 reworded feature-025 `@eval` step defs** (invoked `jolly
+  start`; honest stop at a human/credential gate under forced-safe creds) and removed the two
+  orphaned 025 steps. Typecheck/units/`@logic` green; default + `eval` dry-runs **0 undefined**.
+  QM then flagged a blocker: the 001/002 pivot landed as **Rules only** — the actual Scenario
+  Gherkin still asserted the *playbook*, and rewriting acceptance criteria is Captain's job, so QM
+  could not write orchestration step defs.
+- **Captain (this session) — resolved that blocker:** rewrote the flagged Scenario Gherkin to
+  assert the orchestrated `jolly start`. **features/001** — "Jolly start orchestrates the setup by
+  spawning the official CLIs" (`@sandbox`), "…does not fabricate stage completion" now asserts an
+  honest **gate-pause = envelope status `warning`, not success** (`@logic`), dry-run names the
+  spawned-CLI stages (`@logic`). **features/002** — Background reframed to Jolly-spawns-the-CLIs;
+  "Jolly start creates a deployable storefront" and "Jolly start deploys to Vercel" now assert
+  spawning `git`/`pnpm`/`npx vercel` with riskContext pause, stdio passthrough, Deployment-Protection
+  surfacing; superseded "Deployment tooling" rule trimmed to the durable Git-provider line; stale
+  Fast-path Stripe line corrected to the feature-005 model. **features/021** — new `@logic` scenario
+  "Jolly start pauses for agent approval before each high-risk stage" (riskContext + pause; `--yes`
+  pre-approves). Result: default dry-run now **9 undefined scenarios / 53 undefined steps** (001×3,
+  002×5 — incl. 17/24/40 via the shared Background, 021×1) — the intended QM marker.
+
+### DONE (2026-06-14, QM+Crew — orchestrator built, all logic green)
+The pivot QM/Crew cycle (worklist items 1 & 2 below) is **complete and verified**.
+- **QM — step defs regenerated** for the 9 scenarios. The 3 orchestration `@logic` targets are now
+  real and were made to pass by Crew: 001 "does not fabricate…" (envelope status `warning` at the
+  gate; `data.stages` ordered `{stage,status,riskContext?}`; `data.gate` named in nextSteps; no
+  downstream stage `completed`), 001 dry-run (plan now lists the spawned-CLI stages git/pnpm/
+  configurator/vercel, each side-effecting stage carrying a riskContext), 021 "pauses for agent
+  approval" (first high-risk stage = `store` → `awaiting-approval` with a riskContext deep-equal to
+  its `--dry-run` form; `--yes` removes the pause but still emits each riskContext). 002 Background
+  reframed to Jolly-spawns-the-CLIs (re-defines 002:17/24/40); 002:53/66 reworded to the `jolly
+  start` framing. `@sandbox` orchestration scenarios assert Jolly's observable surface (doctor +
+  dry-run plan) and skip locally; `features/support/sandbox.ts` gating keys updated to the reworded
+  scenario names + the new 001 orchestrate scenario (FULL_END_TO_END + Vercel).
+- **Crew — `jolly start` rebuilt as the orchestrator** in `src/index.ts`: `startPlan()` now surfaces
+  every spawned-CLI stage (git+pnpm clone/install, `@saleor/configurator deploy`, `npx vercel`
+  deploy), each high-risk stage's riskContext built from one shared source so dry-run and real-run
+  are identical; `commandStart()` reports `data.stages` (gate → `awaiting-approval`/`blocked`,
+  downstream → `pending`), `data.gate`, status `warning` when paused, and `data.bootstrap.*` derived
+  **honestly** from the real init checks (no more fabricated `skillsInstalled: true`). A network
+  skill-install failure is now a surfaced check, not a fatal bootstrap error, so the run still
+  reaches the create-store approval gate.
+- **Verification (this session):** `tsc --noEmit` clean; units **43/43**; `npm run test:logic`
+  **58/58** (was 3 failed); default `--dry-run` **0 undefined**; `eval` dry-run **0 undefined**.
+  Full `@sandbox`/`test:bdd` NOT run locally (provisions billable Saleor envs — deferred to CI).
+
+### Finding (pre-existing, NOT a regression — for Captain): skills not detected after real install
+Crew's honest `skillsInstalled` reporting surfaced a pre-existing `@sandbox` bug. On this VM (real
+`.env` present, so `@sandbox` runs) feature **022:20** "Jolly start resumes bootstrap…" fails on
+`data.bootstrap.skillsInstalled === true`: real `installSkill` (`npx skills add`) either cannot
+install offline in the harness or installs to a path `skillInstalledOnDisk()` (`.claude/skills/<id>`)
+does not check, so a genuine install isn't detected. **Confirmed pre-existing:** committed baseline
+src failed **022:20 + 022:35**; this cycle fixed **022:35** and 022:20 stayed red (no regression).
+This turns on where `npx skills add --agent <…>` actually writes (and offline reachability) — a
+skill-install/product question (feature 007 + the AGENTS.md skill-install principle), so QM stopped
+rather than guess. Follow-up options: teach `skillInstalledOnDisk()` the real install path, or gate
+022's real-install `@sandbox` steps on skill-install capability. Off the default worklist (`@sandbox`,
+skips in credential-less CI). The other live-`@sandbox` reds (002:66 real Vercel deploy, 012:75
+transient namespace) are environmental and unchanged by this cycle.
+
 ### Why (evidence from the live acceptance run, this session)
 Drove the current skill-driven flow against the live `jolly-store` to find where it actually
 breaks. It **works**: Paper deployed to Vercel, **public and browsing the live store** at
@@ -56,24 +117,37 @@ only stages actually performed.
   /setup run under safe creds stops at the Saleor gate before Stripe); 2 Then-steps reworded →
   **2 undefined steps in the `eval` profile** (the QM marker).
 
-### QM/Crew worklist (FRESH session)
-1. **Crew — rebuild `jolly start` as the orchestrator** in `src/index.ts`: spawn the official CLIs
-   for clone/install/configurator/deploy + env-var setup; stdio passthrough for interactive CLI
-   logins, continue on exit (non-zero → honest stop); announce-and-wait at human gates; emit
-   `riskContext` + pause before each high-risk stage (`--yes` to pre-approve); resumable, skips
-   satisfied stages; no fabrication. Keep the composable commands. Configurator deploy must handle
-   the blank-vs-sample env (blank provisioning already shipped v0.5.2) and destructive-delete flags.
-   **Stripe stage (feature 005, automation split verified 2026-06-14):** Jolly installs the Stripe
-   app via Saleor GraphQL `appInstall` (HANDLE_PAYMENTS; verify the current manifest URL at impl
-   time; idempotent); the recipe already sets the channel payment flow; the keys + channel-config
-   mapping have NO public API, so `start` runs a precise guided walk-through (deep link + paste-here
-   instructions, keys by name) and waits, then verifies via `paymentGatewayInitialize`/checkout.
-   Configurator and the Cloud API cannot do any of this — checked.
-2. **QM — regenerate step defs** for the reframed scenarios in 001/002 and the **025 eval** (the 2
-   new Then-steps: invoked `jolly start`; honest stop at a human/credential gate under safe creds).
-   012-incident safety throughout.
-3. **Verify** — `@logic`/units/typecheck green; default dry-run 0 undefined; `eval` profile back to
-   0 undefined; the `@eval` run drives the real `/setup` → `jolly start` orchestration.
+### QM/Crew worklist (FRESH session) — UPDATED 2026-06-14
+**025 eval step defs: DONE (QM).** Scenario Gherkin for 001/002/021: **regenerated (Captain).**
+Remaining:
+1. **QM — regenerate step defs for the 9 now-undefined scenarios** (001×3, 002×5, 021×1). These
+   assert the orchestrated `jolly start` and will be **undefined/failing against today's
+   bootstrap-only `start`** — that is the point: they become the failing targets that drive Crew.
+   - 002 Background gained 3 new steps (Jolly-spawns-the-CLIs framing) → update the shared/002
+     Background step defs; that re-defines 002:17/24/40 (their own Then-steps are unchanged).
+   - `@logic` targets to make real now: 001 "does not fabricate…" (assert envelope status
+     `warning` = paused-at-gate, not success; later stages reported pending/blocked), 001 dry-run
+     (plan lists the spawned-CLI stages, each with riskContext), 021 "pauses for agent approval"
+     (riskContext emitted + no action without approval; `--yes` proceeds). 012-incident safety
+     throughout (dummy `JOLLY_*` + `.invalid` Cloud base on any side-effecting path).
+   - `@sandbox` orchestration scenarios (001 orchestrates, 002 storefront/deploy) assert
+     **Jolly-observable** outcomes of the spawned CLIs (dir cloned + fresh git, deps installed,
+     deploy URL reported/reachable); they gate on real creds/Vercel-CLI session and skip locally.
+2. **Crew — rebuild `jolly start` as the orchestrator** in `src/index.ts` to make those targets
+   pass: spawn the official CLIs for clone/install/configurator/deploy + env-var setup; stdio
+   passthrough for interactive CLI logins, continue on exit (non-zero → honest stop);
+   announce-and-wait at human gates; emit `riskContext` + pause before each high-risk stage
+   (`--yes` to pre-approve); resumable, skips satisfied stages; no fabrication (gate-pause =
+   envelope `warning`, never `success`). Keep the composable commands. Configurator deploy must
+   handle the blank-vs-sample env (blank provisioning already shipped v0.5.2) and destructive-delete
+   flags. **Stripe stage (feature 005, automation split verified 2026-06-14):** Jolly installs the
+   Stripe app via Saleor GraphQL `appInstall` (HANDLE_PAYMENTS; verify the current manifest URL at
+   impl time; idempotent); the recipe already sets the channel payment flow; the keys +
+   channel-config mapping have NO public API, so `start` runs a precise guided walk-through (deep
+   link + paste-here instructions, keys by name) and waits, then verifies via
+   `paymentGatewayInitialize`/checkout. Configurator and the Cloud API cannot do any of this — checked.
+3. **Verify** — `@logic`/units/typecheck green; default dry-run back to 0 undefined; `eval` profile
+   stays 0 undefined; the `@eval` run drives the real `/setup` → `jolly start` orchestration.
 
 ### Open Captain follow-up
 - Full `assets/skills/jolly/SKILL.md` playbook rewrite to the orchestration model (only a banner so far).

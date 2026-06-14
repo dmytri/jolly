@@ -289,3 +289,132 @@ Then(
     );
   },
 );
+
+// --- Scenario: Jolly start pauses for agent approval before each high-risk stage (@logic)
+//
+// Under "Agent-supervised orchestration" (feature 002), `jolly start` runs the
+// high-risk stages itself and PAUSES for the agent's approval before each one,
+// emitting that stage's riskContext (identical to its --dry-run form). A
+// pre-authorization flag (`--yes`) approves up front so it proceeds without
+// per-stage pauses, still emitting each riskContext for the record.
+//
+// Reaching the first high-risk stage (`create store`) only requires bootstrap +
+// a present Cloud token; logicSafeEnv supplies a dummy one, so the run pauses at
+// the create-store approval gate BEFORE making any network call — and the
+// unroutable base means a `--yes` run that proceeds can never reach a real
+// account.
+
+interface StartStage {
+  stage: string;
+  status: string;
+  riskContext?: unknown;
+}
+
+function startStages(envelopeData: Record<string, unknown>): StartStage[] {
+  const raw = (envelopeData as { stages?: unknown }).stages;
+  assert.ok(Array.isArray(raw), "jolly start must report data.stages as an array");
+  return raw as StartStage[];
+}
+
+Given(
+  "the agent runs `jolly start` without a pre-authorization flag",
+  function (this: JollyWorld) {
+    // No --yes: the run must pause for the agent's approval at each high-risk
+    // stage. The When step runs it.
+  },
+);
+
+When(
+  "`jolly start` reaches a high-risk stage \\(`create store`, `@saleor\\/configurator deploy`, or the `npx vercel` deploy)",
+  function (this: JollyWorld) {
+    // Real run with no --yes: pauses at the first high-risk approval gate.
+    this.runCli(["start", "--json"], { env: logicSafeEnv() });
+    const realEnvelope = this.envelope;
+    this.notes.startEnvelope = realEnvelope;
+    const stagesList = startStages(realEnvelope.data);
+    this.notes.approvalStage = stagesList.find((s) => s.status === "awaiting-approval");
+    // The --dry-run plan, to compare each stage's riskContext against.
+    const dry = this.runCli(["start", "--dry-run", "--json"], { env: logicSafeEnv() });
+    this.notes.dryPlan =
+      (dry.envelope?.data as { plan?: Array<Record<string, unknown>> }).plan ?? [];
+  },
+);
+
+Then(
+  "it should emit that stage's `riskContext` in the feature {int} envelope before performing the action",
+  function (this: JollyWorld, _featureNum: number) {
+    const stage = this.notes.approvalStage as StartStage | undefined;
+    assert.ok(
+      stage,
+      "start (no --yes) must report a high-risk stage awaiting the agent's approval",
+    );
+    assert.ok(stage!.riskContext, `the awaiting-approval stage "${stage!.stage}" must carry a riskContext`);
+    assertRiskContextShape(stage!.riskContext);
+    // The riskContext is carried inside the feature 020 envelope.
+    const realEnvelope = this.notes.startEnvelope as typeof this.envelope;
+    assert.ok(
+      findRiskContexts(realEnvelope).length > 0,
+      "the high-risk stage's riskContext must live inside the envelope",
+    );
+  },
+);
+
+Then(
+  "it should pause for the agent to approve and not self-approve or perform the action",
+  function (this: JollyWorld) {
+    const realEnvelope = this.notes.startEnvelope as typeof this.envelope;
+    // Paused at a gate, never reported as success/completed.
+    assert.equal(
+      realEnvelope.status,
+      "warning",
+      "a run paused for approval must report envelope status warning, not success",
+    );
+    const stage = this.notes.approvalStage as StartStage;
+    assert.equal(stage.status, "awaiting-approval", "the high-risk stage must await approval");
+    // Jolly never self-approves: the riskContext carries no approval verdict.
+    const rc = stage.riskContext as Record<string, unknown>;
+    for (const verdictKey of ["approved", "approve", "denied", "decision", "autoApprove"]) {
+      assert.ok(!(verdictKey in rc), `riskContext must not embed an approval verdict ("${verdictKey}")`);
+    }
+  },
+);
+
+Then(
+  "the emitted `riskContext` should be identical to the one shown for that stage under `--dry-run`",
+  function (this: JollyWorld) {
+    const stage = this.notes.approvalStage as StartStage;
+    const dryPlan = this.notes.dryPlan as Array<Record<string, unknown>>;
+    const dryStage = dryPlan.find((s) => s.stage === stage.stage);
+    assert.ok(
+      dryStage,
+      `the --dry-run plan must include the high-risk stage "${stage.stage}" for comparison`,
+    );
+    assert.deepEqual(
+      stage.riskContext,
+      dryStage!.riskContext,
+      "the real-run riskContext must be identical to the --dry-run preview for that stage",
+    );
+  },
+);
+
+Then(
+  "running `jolly start --yes` should pre-approve and proceed through the high-risk stages without per-stage pauses, still emitting each `riskContext` for the record",
+  function (this: JollyWorld) {
+    // --yes pre-approves: no stage is left awaiting the agent's approval, yet
+    // each high-risk stage's riskContext is still emitted for the record. The
+    // unroutable logic-safe base means any stage that proceeds cannot reach a
+    // real account.
+    this.runCli(["start", "--yes", "--json"], { env: logicSafeEnv() });
+    const yesEnvelope = this.envelope;
+    const awaiting = startStages(yesEnvelope.data).filter((s) => s.status === "awaiting-approval");
+    assert.equal(
+      awaiting.length,
+      0,
+      "with --yes there must be no stage left awaiting per-stage approval",
+    );
+    assert.ok(
+      findRiskContexts(yesEnvelope).length > 0,
+      "each high-risk stage's riskContext must still be emitted for the record under --yes",
+    );
+  },
+);

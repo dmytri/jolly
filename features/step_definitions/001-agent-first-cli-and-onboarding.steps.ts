@@ -1,16 +1,31 @@
 // Feature 001 — Agent-first Jolly onboarding and CLI.
 //
-// Covers `jolly start`'s three faces:
-//   - @sandbox: the full bootstrap-and-handoff output (skips locally).
-//   - @logic: `jolly start` (no --dry-run) must not fabricate stage completion
-//     — it reports only the bootstrap work it actually performed (skills,
-//     scaffold, doctor) plus the playbook, never "success" for an incomplete
-//     end-to-end flow, never fabricated URLs/verification.
+// Under the 2026-06-14 "Agent-supervised orchestration" decision, `jolly start`
+// is a resumable end-to-end runner that performs the mechanical stages itself by
+// SPAWNING the official CLIs (`git`, `pnpm`, `@saleor/configurator`, `npx
+// vercel`), pausing for the agent to approve each high-risk stage (feature 021
+// riskContext) and announcing-and-waiting at the human gates. These step defs
+// cover its three faces:
+//   - @sandbox: the full orchestrated run (skips locally; observed at the Jolly
+//     surface — bootstrap-first, the spawned-CLI stages, the automatic doctor
+//     verification, honest reporting of only the stages actually performed).
+//   - @logic: `jolly start` (no --dry-run) must NOT fabricate stage completion —
+//     it performs only the local bootstrap, stops honestly at the first gate,
+//     reports envelope status "warning" (paused at a gate, not "success"), and
+//     reports downstream stages as pending/blocked, never passed.
 //   - @logic: `jolly start --dry-run --json` is a true preview — data.dryRun
-//     true, a per-stage plan of effects, feature 021 riskContexts on
-//     side-effecting stages, nextSteps pointing at `jolly start`, and a
-//     before/after recursive snapshot of the project directory proving ZERO
-//     files created or modified.
+//     true, a per-stage plan that includes the spawned-CLI stages (git clone,
+//     pnpm install, configurator deploy, npx vercel deploy), feature 021
+//     riskContexts on side-effecting stages, nextSteps pointing at `jolly
+//     start`, and a before/after snapshot proving ZERO files changed.
+//
+// Contract this feature pins for the orchestrated real run (`jolly start
+// --json`): the envelope carries `data.stages` — an ordered array of
+// `{ stage, status, riskContext? }` — where `status` is one of "completed",
+// "awaiting-approval" (a high-risk stage paused for the agent's approval),
+// "blocked" (a human/credential gate Jolly cannot pass), or "pending"; plus
+// `data.gate` naming the active gate (also surfaced in nextSteps) and
+// `data.bootstrap` reporting the local bootstrap it performed.
 //
 // Safety: the @logic side-effecting paths run under logicSafeEnv() (dummy
 // creds, unroutable Cloud API base) so a CLI ignoring --dry-run can never
@@ -22,6 +37,41 @@ import { join, relative } from "node:path";
 import { findRiskContexts, assertRiskContextShape } from "../support/envelope.ts";
 import { logicSafeEnv } from "../support/logic-env.ts";
 import type { JollyWorld } from "../support/world.ts";
+
+/** Downstream (non-bootstrap) stages that must never be reported completed
+ * until Jolly has actually performed them. */
+const DOWNSTREAM_STAGES = ["store", "storefront", "recipe", "deploy", "deployment"];
+
+/** Stage statuses the orchestrated `jolly start` envelope may report. */
+const STAGE_STATUSES = [
+  "completed",
+  "awaiting-approval",
+  "blocked",
+  "pending",
+  "skipped",
+  "error",
+];
+
+interface Stage {
+  stage: string;
+  status: string;
+  riskContext?: unknown;
+}
+
+/** Read and shape-check `data.stages` from the current envelope. */
+function stages(world: JollyWorld): Stage[] {
+  const raw = (world.envelope.data as { stages?: unknown }).stages;
+  assert.ok(Array.isArray(raw), "start must report data.stages as an array of stages");
+  const list = raw as Stage[];
+  for (const s of list) {
+    assert.equal(typeof s.stage, "string", "each stage must name its stage");
+    assert.ok(
+      STAGE_STATUSES.includes(s.status),
+      `stage "${s.stage}" has unknown status "${s.status}"`,
+    );
+  }
+  return list;
+}
 
 /** Recursive snapshot of a directory tree: relative path → size+mtime, so a
  * before/after diff proves the dry run created or modified nothing. */
@@ -48,42 +98,82 @@ function snapshotDir(root: string): Map<string, string> {
   return snap;
 }
 
-// ─── Scenario: Jolly start bootstraps and hands the agent the playbook (@sandbox) ─
+// ─── Scenario: Jolly start orchestrates the setup by spawning the official CLIs (@sandbox) ─
+//
+// Gated FULL_END_TO_END + Vercel CLI → skips locally. The orchestration's
+// observable shape is also pinned by the @logic scenarios below; here it is
+// asserted end-to-end against real credentials with the agent's approvals
+// pre-granted (`--yes`).
 
 Given(
-  "`jolly start` has installed skills, written `.mcp.json`, scaffolded, and run doctor",
+  "the agent runs `jolly start` with the credentials and approvals the run needs",
   function (this: JollyWorld) {
-    // @sandbox (FULL_END_TO_END + Vercel CLI): skips locally. The bootstrap
-    // output shape is fully pinned by the @logic scenarios below.
-    this.runCli(["start", "--json"]);
+    // Pre-grant the agent's per-stage approvals so the orchestrated run proceeds
+    // through the high-risk stages without interactive pauses (feature 021).
+    this.runCli(["start", "--yes", "--json"]);
   },
 );
 
-When("Jolly prints its output", function () {
-  // The output was produced by the Given.
-});
-
-Then("it should include a concise human-readable summary", function (this: JollyWorld) {
-  assert.ok(this.envelope.summary.length > 0);
+When("`jolly start` performs the setup end-to-end", function (this: JollyWorld) {
+  // The orchestrated run executed in the Given.
+  assert.ok(this.lastRun?.envelope, "start must emit a machine-readable envelope");
 });
 
 Then(
-  "it should include machine-readable JSON or report data for the customer's agent on stdout",
+  "it should bootstrap first \\(install skills, write `.mcp.json`, scaffold, acquire auth as needed)",
   function (this: JollyWorld) {
-    assert.ok(this.lastRun!.envelope, "start must emit a machine-readable envelope");
+    const bootstrap = this.envelope.data.bootstrap as Record<string, unknown>;
+    assert.ok(bootstrap, "start must report the local bootstrap it performed first");
+    assert.equal(bootstrap.doctorRan, true, "bootstrap must have run doctor");
   },
 );
 
 Then(
-  "it should include the ordered Jolly-skill playbook of the steps the agent should run next, with the official CLIs they use",
+  "it should run the mechanical stages itself by spawning the official CLIs \\(`git`, `pnpm`, `@saleor\\/configurator`, `npx vercel`), never reimplementing them against raw APIs",
   function (this: JollyWorld) {
-    const playbook = this.envelope.data.playbook as string[];
-    assert.ok(Array.isArray(playbook) && playbook.length > 0, "start must emit a playbook");
+    // Observable: the reported stages cover the spawned-CLI work (clone,
+    // install, configurator deploy, vercel deploy). The actual spawn + live
+    // outcome is exercised by the credentialed CI run / acceptance run.
+    const names = stages(this).map((s) => s.stage);
+    for (const expected of ["storefront", "recipe", "deploy"]) {
+      assert.ok(
+        names.includes(expected),
+        `the orchestrated stages must include the spawned-CLI stage "${expected}"`,
+      );
+    }
   },
 );
 
 Then(
-  "it should include verification results from the automatic `jolly doctor` run",
+  "before each high-risk stage \\(`create store`, configurator `deploy`, the Vercel deploy) it should emit that stage's feature 021 `riskContext` and pause for the agent to approve",
+  function (this: JollyWorld) {
+    // Each high-risk stage carries a riskContext inside the envelope (emitted
+    // for the record even when --yes pre-approves the pauses).
+    const contexts = findRiskContexts(this.envelope);
+    assert.ok(contexts.length > 0, "high-risk stages must carry a riskContext in the envelope");
+    for (const rc of contexts) assertRiskContextShape(rc);
+  },
+);
+
+Then(
+  "at interactive CLI gates \\(`vercel login`, `stripe login`) it should pass stdio straight through and continue on the child's exit",
+  function () {
+    // stdio passthrough + continue-on-exit is a spawn behavior of the live run
+    // (not capturable from the JSON envelope); verified by the acceptance run.
+  },
+);
+
+Then(
+  "at non-CLI human gates \\(account creation, the Dashboard Stripe app, pasting a secret) it should announce the exact step and wait, then resume",
+  function (this: JollyWorld) {
+    // Observable: when paused at a human gate the envelope names it and carries
+    // nextSteps guidance; the live wait/resume is acceptance-run verified.
+    assert.ok(Array.isArray(this.envelope.nextSteps), "start must carry a nextSteps channel");
+  },
+);
+
+Then(
+  "it should run `jolly doctor` automatically to verify the result",
   function (this: JollyWorld) {
     const doctorChecks = this.envelope.checks.filter((c) => c.id.startsWith("doctor-"));
     assert.ok(doctorChecks.length > 0, "start must fold in doctor's verification results");
@@ -91,29 +181,37 @@ Then(
 );
 
 Then(
-  "it should include next-step guidance for the customer's agent to drive the storefront, recipe, and deployment steps",
+  "its output should include a concise summary, machine-readable stdout data, key URLs and statuses, the doctor verification results, and next-step guidance, with no secret values",
   function (this: JollyWorld) {
-    assert.ok(this.envelope.nextSteps.length > 0, "start must emit next-step guidance");
+    assert.ok(this.envelope.summary.length > 0, "start must include a concise summary");
+    assert.ok(this.lastRun!.envelope, "start must emit machine-readable data on stdout");
+    assert.ok(
+      this.envelope.checks.some((c) => c.id.startsWith("doctor-")),
+      "start must include doctor verification results",
+    );
+    assert.ok(this.envelope.nextSteps.length > 0, "start must include next-step guidance");
+    this.assertNoSecretsIn(this.lastRun!.stdout, "start stdout");
   },
 );
-
-Then("it should avoid printing secret values", function (this: JollyWorld) {
-  this.assertNoSecretsIn(this.lastRun!.stdout, "start stdout");
-});
 
 Then(
-  "it should not claim a deployed storefront or any stage it did not itself perform",
+  "it should report only the stages it actually performed and never claim a deployed storefront or any stage it did not perform",
   function (this: JollyWorld) {
-    // start never reports overall success for the incomplete end-to-end flow.
-    assert.notEqual(
-      this.envelope.status,
-      "success",
-      "start must not claim end-to-end success it did not perform",
-    );
+    // No stage may be reported "completed" unless actually performed; a paused
+    // or blocked run must not report overall "success".
+    const list = stages(this);
+    const incomplete = list.some((s) => s.status !== "completed");
+    if (incomplete) {
+      assert.notEqual(
+        this.envelope.status,
+        "success",
+        "start must not claim success while a stage is pending/blocked/awaiting approval",
+      );
+    }
   },
 );
 
-// ─── Scenario: Jolly start does not fabricate stage completion (@logic) ─────
+// ─── Scenario: Jolly start does not fabricate stage completion or success (@logic) ─
 
 Given(
   "the agent runs `jolly start` in a fresh project directory with no real service credentials",
@@ -128,53 +226,91 @@ When("`jolly start` runs without `--dry-run`", function (this: JollyWorld) {
 });
 
 Then(
-  "it must report only the bootstrap work it actually performed \\(skills, scaffold, doctor) plus the playbook for the agent",
+  "it should perform and report only the stages it actually completed \\(the local bootstrap — skills, scaffold, doctor)",
   function (this: JollyWorld) {
     const bootstrap = this.envelope.data.bootstrap as Record<string, unknown>;
     assert.ok(bootstrap, "start must report the bootstrap it performed");
     assert.equal(bootstrap.doctorRan, true, "start must have run doctor");
-    assert.ok(
-      Array.isArray(this.envelope.data.playbook),
-      "start must emit the playbook for the agent",
-    );
-  },
-);
-
-Then(
-  "it must not report any stage as completed that it did not actually perform",
-  function (this: JollyWorld) {
-    // Downstream stages must be listed as pending, not done.
-    const pending = this.envelope.data.pendingStages as string[];
-    assert.ok(Array.isArray(pending) && pending.length > 0, "start must list pending stages");
-    for (const stage of ["storefront", "deploy"]) {
+    // Only bootstrap-class stages may be "completed"; no downstream stage is.
+    const completed = stages(this).filter((s) => s.status === "completed").map((s) => s.stage);
+    for (const stage of completed) {
       assert.ok(
-        pending.includes(stage) || pending.includes("recipe"),
-        `stage "${stage}" must be reported pending, not completed`,
+        !DOWNSTREAM_STAGES.includes(stage),
+        `stage "${stage}" cannot be completed with no real credentials`,
       );
     }
   },
 );
 
 Then(
-  "stages it did not perform must be reported as pending steps for the agent — never as passed",
+  "it should stop honestly at the first human or credential gate it cannot pass and name that gate in nextSteps",
   function (this: JollyWorld) {
-    // No check should assert a deploy/storefront stage as a fabricated pass.
-    for (const check of this.envelope.checks) {
-      if (/deploy|storefront-deployed|vercel/i.test(check.id)) {
-        assert.notEqual(check.status, "pass", `${check.id} must not be a fabricated pass`);
+    const gate = this.envelope.data.gate as { stage?: unknown } | undefined;
+    assert.ok(
+      gate && typeof gate.stage === "string" && gate.stage.length > 0,
+      "start must name the gate it stopped at in data.gate",
+    );
+    // The gate stage is reported blocked or awaiting approval, never completed.
+    const gated = stages(this).find((s) => s.stage === gate!.stage);
+    assert.ok(gated, `data.stages must include the gate stage "${String(gate!.stage)}"`);
+    assert.ok(
+      gated!.status === "blocked" || gated!.status === "awaiting-approval",
+      `the gate stage must be blocked or awaiting-approval, got "${gated!.status}"`,
+    );
+    // The gate is surfaced to the agent in nextSteps.
+    assert.ok(this.envelope.nextSteps.length > 0, "start must name the gate in nextSteps");
+    const nextStepText = JSON.stringify(this.envelope.nextSteps);
+    assert.ok(
+      nextStepText.includes(String(gate!.stage)),
+      "nextSteps must reference the gate stage start stopped at",
+    );
+  },
+);
+
+Then(
+  'the overall envelope status should be "warning", reflecting a run paused at a gate — not "success" and not a fabricated completion',
+  function (this: JollyWorld) {
+    assert.equal(
+      this.envelope.status,
+      "warning",
+      "a run paused at a gate must report envelope status warning, not success",
+    );
+  },
+);
+
+Then(
+  "it must not report any later stage \\(store, storefront, recipe, deployment) as completed",
+  function (this: JollyWorld) {
+    for (const s of stages(this)) {
+      if (DOWNSTREAM_STAGES.includes(s.stage)) {
+        assert.notEqual(
+          s.status,
+          "completed",
+          `later stage "${s.stage}" must not be reported completed`,
+        );
       }
     }
   },
 );
 
 Then(
-  "it must not report overall envelope status {string} for an end-to-end flow that has not completed",
-  function (this: JollyWorld, successWord: string) {
-    assert.notEqual(
-      this.envelope.status,
-      successWord,
-      `start must not report "${successWord}" for an incomplete end-to-end flow`,
-    );
+  "stages it did not perform must be reported as pending or blocked-on-a-gate — never as passed",
+  function (this: JollyWorld) {
+    // Every non-completed stage carries an honest pending/blocked/awaiting
+    // status, and no downstream check is a fabricated pass.
+    for (const s of stages(this)) {
+      if (DOWNSTREAM_STAGES.includes(s.stage)) {
+        assert.ok(
+          ["pending", "blocked", "awaiting-approval", "skipped"].includes(s.status),
+          `stage "${s.stage}" must be pending/blocked, got "${s.status}"`,
+        );
+      }
+    }
+    for (const check of this.envelope.checks) {
+      if (/deploy|storefront-deployed|vercel/i.test(check.id)) {
+        assert.notEqual(check.status, "pass", `${check.id} must not be a fabricated pass`);
+      }
+    }
   },
 );
 
@@ -193,7 +329,7 @@ Then(
   },
 );
 
-// ─── Scenario: Jolly start --dry-run previews the plan without side effects (@logic) ─
+// ─── Scenario: Jolly start --dry-run previews the orchestrated plan without side effects (@logic) ─
 
 Given("the agent runs Jolly in a fresh project directory", function (this: JollyWorld) {
   // Snapshot the fresh project directory before the dry run so the after-diff
@@ -237,6 +373,24 @@ Then(
           `stage "${stage.stage}" effects.${key} must be an array`,
         );
       }
+    }
+  },
+);
+
+Then(
+  "the plan should include the stages Jolly runs by spawning the official CLIs — `git` clone, `pnpm` install, `@saleor\\/configurator` deploy, and the `npx vercel` deploy",
+  function (this: JollyWorld) {
+    // The orchestrated plan must surface each spawned-CLI stage. Match by the
+    // CLI named in the stage's effects/riskContext so the assertion is robust to
+    // the exact stage labels Crew chooses.
+    const plan = this.envelope.data.plan as Array<Record<string, unknown>>;
+    assert.ok(Array.isArray(plan) && plan.length > 0, "data.plan must be a non-empty array");
+    const blob = JSON.stringify(plan).toLowerCase();
+    for (const cli of ["git", "pnpm", "configurator", "vercel"]) {
+      assert.ok(
+        blob.includes(cli),
+        `the plan must include the stage Jolly runs by spawning \`${cli}\``,
+      );
     }
   },
 );

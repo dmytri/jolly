@@ -51,14 +51,15 @@ const FULL_END_TO_END: CredentialGroup[] = [
 export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   // 001-agent-first-cli-and-onboarding
   "Jolly start completes successfully": FULL_END_TO_END,
+  "Jolly start orchestrates the setup by spawning the official CLIs": FULL_END_TO_END,
   // 002-v1-end-to-end-saleor-cloud-storefront
   "Agent helps register a new Saleor Cloud store": ["saleorCloud"],
   "Agent connects an existing Saleor store as automatically as possible": [
     "saleorEndpoint",
     "saleorAppToken",
   ],
-  "Agent creates a deployable storefront from Saleor Paper": ["saleorEndpoint"],
-  "Agent deploys to Vercel via the official Vercel CLI": ["saleorEndpoint"],
+  "Jolly start creates a deployable storefront from Saleor Paper": ["saleorEndpoint"],
+  "Jolly start deploys to Vercel by spawning the official Vercel CLI": ["saleorEndpoint"],
   // 003-saleor-source-repositories-and-integration
   "Use Saleor Paper as the storefront baseline": ["saleorEndpoint"],
   "Use Saleor Configurator directly for store configuration": [
@@ -129,7 +130,8 @@ export function requiredGroups(scenarioName: string): CredentialGroup[] {
  */
 export const VERCEL_CLI_SCENARIOS: ReadonlySet<string> = new Set([
   "Jolly start completes successfully",
-  "Agent deploys to Vercel via the official Vercel CLI",
+  "Jolly start orchestrates the setup by spawning the official CLIs",
+  "Jolly start deploys to Vercel by spawning the official Vercel CLI",
   "Agent verifies checkout readiness",
   "Doctor checks deployment and payment readiness",
   "Jolly start runs doctor automatically",

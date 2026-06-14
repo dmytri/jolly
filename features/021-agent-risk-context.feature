@@ -43,6 +43,15 @@ Feature: Structured agent risk context
     Then the relevant categories should be listed explicitly
     And destructive operations, billing, payment setup, credential handling, live deployment, and production configuration changes should each map to a category
 
+  @logic
+  Scenario: Jolly start pauses for agent approval before each high-risk stage
+    Given the agent runs `jolly start` without a pre-authorization flag
+    When `jolly start` reaches a high-risk stage (`create store`, `@saleor/configurator deploy`, or the `npx vercel` deploy)
+    Then it should emit that stage's `riskContext` in the feature 020 envelope before performing the action
+    And it should pause for the agent to approve and not self-approve or perform the action
+    And the emitted `riskContext` should be identical to the one shown for that stage under `--dry-run`
+    And running `jolly start --yes` should pre-approve and proceed through the high-risk stages without per-stage pauses, still emitting each `riskContext` for the record
+
   Rule: Risk context principles
     - Jolly describes risk; it never hardcodes the approval decision (consistent with feature 010).
     - `riskContext` fields are `action`, `target`, `riskLevel`, `categories`, `reversible`, `sideEffects`, and `dryRunAvailable`.

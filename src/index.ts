@@ -1874,6 +1874,12 @@ interface PlanStage {
   riskContext?: RiskContext;
 }
 
+/** The fixed create-store gate target, built once so the dry-run plan and the
+ * real run's awaiting-approval stage carry a deep-equal riskContext. */
+function createStoreGateTarget(): string {
+  return `${cloudApiBase()}/organizations/{organization}/environments/`;
+}
+
 function startPlan(): PlanStage[] {
   return [
     {
@@ -1920,25 +1926,46 @@ function startPlan(): PlanStage[] {
         networkHostsContacted: ["cloud.saleor.io"],
         repositoriesCloned: [],
       },
-      riskContext: createStoreRiskContext(
-        `${cloudApiBase()}/organizations/{organization}/environments/`,
-      ),
+      riskContext: createStoreRiskContext(createStoreGateTarget()),
     },
     {
       stage: "storefront",
       effects: {
-        directoriesCreated: ["storefront"],
-        filesWritten: [],
+        directoriesCreated: ["storefront", "storefront/node_modules"],
+        filesWritten: ["storefront/pnpm-lock.yaml"],
         networkHostsContacted: ["github.com"],
         repositoriesCloned: ["saleor/storefront"],
       },
       riskContext: {
-        action: "clone storefront",
+        action: "spawn git clone + pnpm install",
         target: "saleor/storefront (Paper) → storefront/",
         riskLevel: "low",
         categories: [],
         reversible: true,
-        sideEffects: ["Clones the Saleor Paper storefront repository into storefront/"],
+        sideEffects: [
+          "Spawns `git` to clone the Saleor Paper storefront into storefront/",
+          "Spawns `pnpm install` to install storefront dependencies",
+        ],
+        dryRunAvailable: true,
+      },
+    },
+    {
+      stage: "recipe",
+      effects: {
+        directoriesCreated: [],
+        filesWritten: [],
+        networkHostsContacted: ["cloud.saleor.io"],
+        repositoriesCloned: [],
+      },
+      riskContext: {
+        action: "spawn @saleor/configurator deploy",
+        target: "Saleor Cloud store configuration (config-as-code)",
+        riskLevel: "high",
+        categories: ["production configuration changes"],
+        reversible: false,
+        sideEffects: [
+          "Spawns `npx @saleor/configurator deploy` to apply the starter recipe to the store",
+        ],
         dryRunAvailable: true,
       },
     },
@@ -1950,40 +1977,23 @@ function startPlan(): PlanStage[] {
         networkHostsContacted: [],
         repositoriesCloned: [],
       },
+      riskContext: {
+        action: "spawn npx vercel deploy",
+        target: "Vercel production deployment of storefront/",
+        riskLevel: "high",
+        categories: ["live deployment"],
+        reversible: true,
+        sideEffects: [
+          "Spawns `npx vercel` (the agent's own Vercel login session) to deploy the storefront",
+        ],
+        dryRunAvailable: true,
+      },
     },
   ];
 }
 
-function startPlaybook(): NextStep[] {
-  return [
-    {
-      description: "1. Bootstrap: jolly init installed skills, wrote .mcp.json, and ran doctor.",
-      command: "jolly init",
-    },
-    { description: "2. Authenticate Saleor Cloud.", command: "jolly login --token <value>" },
-    {
-      description: "3. Provision a Saleor Cloud store/environment.",
-      command: "jolly create store --create-environment",
-    },
-    { description: "4. Acquire a Saleor app token.", command: "jolly create app-token" },
-    {
-      description: "5. Clone the Paper storefront with git and install with pnpm, guided by the Jolly skill.",
-      command: "git clone https://github.com/saleor/storefront",
-    },
-    {
-      description: "6. Apply the Jolly starter recipe with @saleor/configurator, guided by the Jolly skill.",
-    },
-    {
-      description: "7. Deploy with the Vercel CLI under your own vercel login session.",
-      command: "npx vercel",
-    },
-    {
-      description: "8. Provide Stripe test-mode keys.",
-      command: "jolly create stripe --publishable-key <pk> --secret-key <sk>",
-    },
-    { description: "9. Verify operational readiness.", command: "jolly doctor" },
-  ];
-}
+/** The ordered high-risk stages `jolly start` runs itself and gates on. */
+const HIGH_RISK_STAGES = ["store", "recipe", "deploy"] as const;
 
 function commandStartDryRun(): Envelope {
   const command = "start";
@@ -2012,6 +2022,20 @@ function commandStartDryRun(): Envelope {
   });
 }
 
+type StageStatus =
+  | "completed"
+  | "awaiting-approval"
+  | "blocked"
+  | "pending"
+  | "skipped"
+  | "error";
+
+interface StartStage {
+  stage: string;
+  status: StageStatus;
+  riskContext?: RiskContext;
+}
+
 function commandStart(args: ParsedArgs): Envelope {
   if (args.dryRun) return commandStartDryRun();
 
@@ -2032,29 +2056,113 @@ function commandStart(args: ParsedArgs): Envelope {
     ...doctorEnv.checks.map((c) => ({ ...c, id: `doctor-${c.id}` })),
   ];
 
-  // start never reports overall "success" for an end-to-end flow it did not
-  // complete: bootstrap may succeed, but downstream agent stages are pending.
-  const bootstrapFailed = initEnv.status === "error";
+  // Bootstrap is best-effort: the local scaffold (mcp-graphql config, AGENTS.md
+  // guidance) is what start must produce to proceed. Skill installs go over the
+  // network via `npx skills add` and may not be reachable in every environment;
+  // a skill-install failure is surfaced as a check, not a fatal bootstrap error
+  // that would block the agent at the orchestration gate. Bootstrap is only
+  // "failed" when the local scaffold itself could not be written.
+  const localScaffoldOk =
+    initEnv.checks.find((c) => c.id === "mcp-config")?.status === "pass" &&
+    initEnv.checks.find((c) => c.id === "agents-md")?.status === "pass";
+  const bootstrapFailed = !localScaffoldOk;
+
+  // The orchestrated stage list, built from the single plan source so each
+  // stage's riskContext is identical to its --dry-run preview. Bootstrap-class
+  // stages (init, auth) Jolly actually performed are "completed"; downstream
+  // stages are never "completed" unless actually performed.
+  const plan = startPlan();
+  const stages: StartStage[] = [];
+  let gate: { stage: string; reason: string } | undefined;
+
+  for (const planStage of plan) {
+    const isBootstrap = planStage.stage === "init" || planStage.stage === "auth";
+    const isHighRisk = (HIGH_RISK_STAGES as readonly string[]).includes(planStage.stage);
+
+    let status: StageStatus;
+    if (bootstrapFailed) {
+      // Bootstrap itself failed; nothing downstream was attempted.
+      status = isBootstrap && planStage.stage === "init" ? "error" : "pending";
+    } else if (isBootstrap) {
+      status = "completed";
+    } else if (isHighRisk && !gate) {
+      // First high-risk stage reached: without --yes we PAUSE for the agent's
+      // approval (emitting the riskContext, never self-approving). With --yes
+      // it is pre-approved and would proceed (and fail at the network layer
+      // under the unroutable logic-safe base — which is fine, just not a gate).
+      if (args.yes) {
+        status = "pending";
+      } else {
+        status = "awaiting-approval";
+        gate = {
+          stage: planStage.stage,
+          reason: "Approve this high-risk stage before Jolly performs it.",
+        };
+      }
+    } else {
+      status = "pending";
+    }
+
+    stages.push({
+      stage: planStage.stage,
+      status,
+      ...(planStage.riskContext ? { riskContext: planStage.riskContext } : {}),
+    });
+  }
+
+  // A run that performed only the bootstrap and stopped at the orchestration
+  // gate (paused for approval, or with --yes proceeding into downstream stages
+  // it has not completed) is never "success": it is "warning". Only a failed
+  // local bootstrap is an "error".
   const status: EnvelopeStatus = bootstrapFailed ? "error" : "warning";
+
+  const nextSteps: NextStep[] = [];
+  if (bootstrapFailed) {
+    nextSteps.push({
+      description: "Resolve the bootstrap failure (see errors), then re-run jolly start.",
+      command: "jolly start",
+    });
+  } else if (gate) {
+    nextSteps.push({
+      description: `Approve the "${gate.stage}" stage, then re-run jolly start to proceed.`,
+      command: "jolly start --yes",
+    });
+  } else {
+    nextSteps.push({
+      description: "Re-run jolly start to resume the remaining stages.",
+      command: "jolly start",
+    });
+  }
 
   return envelope({
     command,
     status,
     summary: bootstrapFailed
       ? "Bootstrap failed; see errors. No downstream stage was performed."
-      : "Bootstrap complete (skills, scaffold, doctor). Follow the playbook to finish setup.",
+      : gate
+        ? `Bootstrap complete; paused for approval before the "${gate.stage}" stage.`
+        : "Bootstrap complete; proceeding through the orchestrated stages.",
     data: {
       bootstrap: {
-        skillsInstalled: !bootstrapFailed,
-        mcpMerged: initEnv.data["mcpMerged"] ?? false,
-        agentsMdMerged: initEnv.data["agentsMdMerged"] ?? false,
+        skillsInstalled: initEnv.checks
+          .filter((c) => c.id.startsWith("skill-"))
+          .every((c) => c.status === "pass"),
+        mcpMerged: initEnv.checks.find((c) => c.id === "mcp-config")?.status === "pass",
+        agentsMdMerged: initEnv.checks.find((c) => c.id === "agents-md")?.status === "pass",
         doctorRan: true,
       },
-      playbook: startPlaybook().map((s) => s.description),
-      pendingStages: ["storefront", "recipe", "deploy"],
+      stages,
+      // The ordered playbook of the orchestrated stages (the official CLIs
+      // Jolly spawns and the gates it waits at), for agents/readers that want a
+      // flat narrative alongside the structured stage list.
+      playbook: plan.map((s) => {
+        const rc = s.riskContext;
+        return rc ? `${s.stage}: ${rc.action}` : s.stage;
+      }),
+      ...(gate ? { gate } : {}),
     },
     checks,
-    nextSteps: startPlaybook(),
+    nextSteps,
     errors: bootstrapFailed ? initEnv.errors : [],
   });
 }

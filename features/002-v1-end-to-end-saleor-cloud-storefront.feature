@@ -7,9 +7,9 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     Given Vercel is the first deployment target
     And Saleor's official `saleor/storefront` Paper template is the first storefront baseline
     And Jolly should create the storefront by cloning or otherwise directly using `saleor/storefront` from the `main` branch by default
-    And the customer's own agent performs the CLI steps (clone, configure, deploy), guided by the Jolly skill that Jolly installs
-    And Jolly's role is the thin plumbing (auth, store/app-token via the Cloud API, secret writing, `.mcp.json`, skill install) plus `jolly doctor` verification — Jolly never shells out to the Vercel CLI or `@saleor/configurator`
-    And `@saleor/configurator` is run by the agent directly for store configuration and recipes
+    And `jolly start` performs the mechanical CLI steps itself by spawning the official CLIs (`git` clone, `pnpm` install, `@saleor/configurator` deploy, `npx vercel` deploy), each under its own auth — never reimplementing them against raw APIs
+    And the customer's agent supervises: it approves each high-risk stage's `riskContext`, provides credentials, and completes the human gates, and may run any stage as a composable command itself
+    And Jolly's own plumbing covers auth, store/app-token via the Cloud API, secret writing, `.mcp.json`, skill install, and `jolly doctor` verification
     And the Saleor MCP server at mcp.saleor.app provides read-only access to live store data such as products, orders, and customers after setup is complete
     And the setup path must minimize human intervention to new account creation, browser OAuth consent, and providing secret values
 
@@ -50,46 +50,38 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And it should verify connectivity before proceeding to storefront setup
 
   @sandbox
-  Scenario: Agent creates a deployable storefront from Saleor Paper
+  Scenario: Jolly start creates a deployable storefront from Saleor Paper
     Given Saleor connectivity has been verified
-    When the agent prepares the storefront project
-    Then it should propose `storefront` as the default storefront target directory
-    And it should proceed with the default directory automatically
+    When `jolly start` prepares the storefront project by spawning `git` and `pnpm`
+    Then it should use `storefront` as the default storefront target directory and proceed automatically
     And it should only pause if the default directory already exists and ask how to resolve the collision
-    And it should clone or directly use Saleor's official `saleor/storefront` Paper template as the baseline
-    And it should remove the cloned upstream `.git` history
-    And it should initialize a fresh Git repository when needed for the customer's storefront workflow
-    And it should validate the local Node.js version against Paper's current requirements
-    And it should provide actionable guidance when the local Node.js version is incompatible
-    And it should not install or switch Node.js versions automatically because runtime management is the customer's agent's domain
-    And it should use Paper's expected package manager, `pnpm`, for the cloned storefront
-    And it should install Paper storefront dependencies automatically by default
-    And it should run lightweight validation by default
-    And `jolly doctor storefront --full-validation` should run full Paper validation such as generate, typecheck, build, or tests where feasible; the agent also runs Paper's own `pnpm` validation directly per the Jolly skill
-    And it should provide actionable guidance if `pnpm` is missing
-    And it should optionally install `pnpm` where possible when the agent/customer allows it
+    And it should clone Saleor's official `saleor/storefront` Paper template from `main` by spawning `git`, remove the upstream `.git` history, and initialize a fresh repository
+    And it should install Paper's dependencies by spawning `pnpm`
+    And it should validate the local Node.js version against Paper's current requirements and give actionable guidance on a mismatch, without installing or switching Node.js itself
+    And it should give actionable guidance if `pnpm` is missing, optionally installing it where the agent/customer allows
+    And `jolly doctor storefront --full-validation` should run full Paper validation such as generate, typecheck, build, or tests where feasible
     And it should preserve Paper's intended architecture and default presentation rather than rewriting or re-theming it unnecessarily
 
   @sandbox
-  Scenario: Agent deploys to Vercel via the official Vercel CLI
+  Scenario: Jolly start deploys to Vercel by spawning the official Vercel CLI
     Given the storefront is ready for deployment
-    When the agent deploys to Vercel following the Jolly skill
-    Then the agent should deploy exclusively through the official Vercel CLI (`npx vercel`)
-    And the agent should authenticate only via the Vercel CLI's own `vercel login` session
-    And when the Vercel CLI is not authenticated, the Jolly skill should direct the human to run `npx vercel login` and resume afterward
+    When `jolly start` deploys to Vercel
+    Then it should emit the deploy stage's feature 021 `riskContext` and pause for the agent to approve before deploying
+    And it should deploy exclusively by spawning the official Vercel CLI (`npx vercel`), under the CLI's own `vercel login` session
+    And when the Vercel CLI is not authenticated, it should run `vercel login` with stdio passed through and continue on its exit
     And Jolly's own code should send no request to api.vercel.com and hold no Vercel token
-    And the agent should not fall back to any other deployment mechanism such as a guided Git import flow
-    And the agent should configure required environment variables on the Vercel project through the Vercel CLI
+    And it should not fall back to any other deployment mechanism such as a guided Git import flow
+    And it should configure the required environment variables on the Vercel project through the Vercel CLI
+    And it should surface Vercel Deployment Protection (on by default) for the human or agent to disable so the store is publicly reachable
+    And it should update Saleor allowed/trusted origins for the deployed storefront URL where APIs allow
     And `jolly doctor` should verify that the deployed storefront can reach Saleor Cloud
-    And the agent should update Saleor allowed/trusted origins for the deployed storefront URL where APIs allow
-    And the deployed URL and any remaining manual steps should be reported
+    And it should report the deployed URL and any remaining manual steps
 
   Rule: Agent-supervised orchestration — `jolly start` runs the CLIs (decision 2026-06-14, SUPERSEDES the "agent runs the CLIs" framing of this feature)
-    - This rule supersedes, for `jolly start`, the Background line "the customer's own agent
-      performs the CLI steps (clone, configure, deploy)" and the "agent runs it" wording of the
-      "Agent creates a deployable storefront", "Agent deploys to Vercel", and "Fast path
-      principles" rules/scenarios below. Those scenarios are to be REGENERATED by QM to assert the
-      orchestrated behavior; until then read them as historical.
+    - For `jolly start`, this rule governs. The "Jolly start creates a deployable storefront" and
+      "Jolly start deploys to Vercel" scenarios above assert the orchestrated behavior; the
+      Background and "Fast path principles" reflect Jolly spawning the CLIs. Each orchestrated stage
+      also remains a composable command the agent can run itself (feature 008).
     - `jolly start` is a resumable end-to-end runner that performs the mechanical stages itself by
       SPAWNING the official CLIs: `git` clone of Paper (strip `.git`, fresh `git init`), `pnpm
       install`, `@saleor/configurator diff`/`deploy` of the starter recipe, and `npx vercel`
@@ -114,12 +106,9 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     - Every orchestrated stage is also a composable command the agent can run independently;
       `start` chains them and is resumable (feature 022), skipping satisfied stages.
 
-  Rule: Deployment tooling (SUPERSEDED 2026-06-14 — see "Agent-supervised orchestration" above; `start` now spawns the Vercel CLI itself, under the CLI's own `vercel login` session)
-    - Vercel deployment is performed by the customer's agent using the official Vercel CLI (`npx vercel`), guided by the Jolly skill; neither Jolly nor anyone reimplements Vercel deployment against api.vercel.com.
-    - Jolly never shells out to the Vercel CLI and holds no Vercel credential. The only Vercel authentication is the Vercel CLI's own `vercel login` session; there is no `JOLLY_VERCEL_TOKEN`.
-    - New Vercel account signup and login are the human browser steps; the Jolly skill directs the human to `npx vercel login` and the agent resumes afterward.
-    - GitHub remains the default Git provider for optional source-control setup; other providers are deferred to v2. Git setup is convenience, not the deployment mechanism — deployment is always the Vercel CLI.
-    - See feature 008 Rule "Thin surface — the agent runs the official CLIs, Jolly does not" and feature 020's amended "First-party hosts only".
+  Rule: Git provider for optional source control (decision 2026-06-13)
+    - GitHub is the default Git provider for optional source-control setup; other providers are deferred to v2.
+    - Git setup is convenience, not the deployment mechanism — deployment is always the official Vercel CLI (`npx vercel`), now spawned by `jolly start` (see "Agent-supervised orchestration"). The durable Vercel invariants (official CLI only, its own `vercel login` session, no `JOLLY_VERCEL_TOKEN`, no `api.vercel.com` in Jolly's own code) live in that rule and feature 020's "First-party hosts only".
 
   Rule: V1 operational readiness
     - The deployed storefront URL must work.
@@ -138,4 +127,4 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     - Jolly should never ask for information it can infer, detect, or safely default.
     - When a human step is required, Jolly should tell the agent exactly what to ask the customer for, then resume automatically once the value is provided.
     - For new Saleor Cloud accounts: direct the customer to cloud.saleor.io, wait for the resulting store URL, then automate everything from that point.
-    - For Stripe test mode: the agent should ask for the Stripe publishable key and secret key from the Stripe Dashboard, write them to .env, and proceed without further manual steps.
+    - For Stripe test mode: `jolly start` installs the Saleor Stripe app (`appInstall`), imports test keys via the read-only Stripe CLI where a `stripe login` session exists (`jolly create stripe`), and runs a guided gate for the Dashboard key entry and `us`-channel mapping that no public API can perform (feature 005); pasting Dashboard keys stays the always-supported alternative.

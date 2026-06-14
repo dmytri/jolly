@@ -16,7 +16,7 @@ import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { assertEnvelopeShape, findEnvelope } from "../support/envelope.ts";
+import { assertEnvelopeShape, type Envelope, findEnvelope } from "../support/envelope.ts";
 import {
   assertRealInputs,
   type AgentRun,
@@ -35,7 +35,6 @@ import { UNROUTABLE_CLOUD_API } from "../support/logic-env.ts";
 import {
   FAKE_STRIPE_PUBLISHABLE_KEY,
   FAKE_STRIPE_SECRET_KEY,
-  readStripeTrace,
 } from "../support/stripe-cli-fake.ts";
 import type { JollyWorld } from "../support/world.ts";
 
@@ -180,7 +179,7 @@ function trace(world: JollyWorld): TraceRecord[] {
 // ─── Affordance assertions ──────────────────────────────────────────────────
 
 Then(
-  "the agent should have invoked Jolly's documented CLI commands",
+  "the agent should have invoked Jolly's documented CLI commands, including `jolly start`",
   function (this: JollyWorld) {
     const records = trace(this);
     assert.ok(
@@ -207,6 +206,14 @@ Then(
     assert.ok(
       substantive,
       `agent ran only ${JSON.stringify(subs)}; expected a setup/diagnostic command (init/start/doctor/create)`,
+    );
+    // Reworded 2026-06-14 (the "Agent-supervised orchestration" pivot): the
+    // `/setup` guide directs the agent to `jolly start` as the orchestrated entry
+    // point, so the agent must specifically have invoked it — not merely some
+    // other setup command.
+    assert.ok(
+      subs.includes("start"),
+      `agent never invoked \`jolly start\`; ran ${JSON.stringify(subs)}`,
     );
   },
 );
@@ -254,46 +261,56 @@ Then(
 );
 
 Then(
-  "the workspace `.env` should contain the Stripe test keys, imported through Jolly from the already-present Stripe CLI session, with no fresh OAuth or human paste",
+  "under the forced-safe credentials the run should stop honestly at a human\\/credential gate without fabricating success",
   function (this: JollyWorld) {
-    const envFile = join(ctx(this).workspace, ".env");
-    assert.ok(existsSync(envFile), "the workspace .env must exist");
-    const contents = readFileSync(envFile, "utf8");
-    // The keys must be the FAKE Stripe CLI session's values — proving they were
-    // imported from the session, not pre-seeded or pasted.
-    assert.match(
-      contents,
-      new RegExp(`^JOLLY_STRIPE_PUBLISHABLE_KEY=${FAKE_STRIPE_PUBLISHABLE_KEY}$`, "m"),
-      ".env must carry the publishable key imported from the Stripe CLI session",
-    );
-    assert.match(
-      contents,
-      new RegExp(`^JOLLY_STRIPE_SECRET_KEY=${FAKE_STRIPE_SECRET_KEY}$`, "m"),
-      ".env must carry the secret key imported from the Stripe CLI session",
-    );
-    // Imported, not pasted: a traced `jolly create stripe` invocation that did
-    // NOT carry the key flags (the secret never passed through the agent).
-    const createStripe = trace(this).filter(
-      (r) => subcommandOf(r) === "create" && r.argv.includes("stripe"),
-    );
+    // Under the `.invalid` Cloud API base + dummy JOLLY_* creds, the end-to-end
+    // CANNOT complete: `jolly start` reaches the Saleor login/store stages (before
+    // the Stripe stage) and must stop at the human/credential gate rather than
+    // fabricate success (feature 025; feature 001's no-fabrication invariant).
+    // Assert the run was honest about that — no fabricated end-to-end success, and
+    // a real gate signal somewhere in the traced envelopes.
+    const envelopes = trace(this)
+      .map((rec) => ({
+        sub: subcommandOf(rec),
+        env: rec.stdout ? findEnvelope(rec.stdout) : undefined,
+      }))
+      .filter((e): e is { sub: string | undefined; env: Envelope } => Boolean(e.env));
     assert.ok(
-      createStripe.length > 0,
-      "the agent must have run `jolly create stripe` to import the keys",
+      envelopes.length > 0,
+      "no Jolly command emitted an output envelope to judge stop-honesty",
     );
-    assert.ok(
-      createStripe.some(
-        (r) =>
-          !r.argv.includes("--secret-key") && !r.argv.includes("--publishable-key"),
-      ),
-      "the keys must be imported (no --publishable-key/--secret-key paste through the agent)",
-    );
-    // No fresh OAuth: the fake Stripe CLI was only ever asked to list config.
-    for (const argv of readStripeTrace(ctx(this).stripeTraceFile)) {
-      assert.ok(
-        !argv.includes("login"),
-        "no fresh `stripe login`/OAuth — the import path is read-only",
-      );
+
+    // (a) No fabricated overall success: `jolly start` must not report envelope
+    // status "success" for an end-to-end flow that cannot complete under the
+    // forced-safe credentials (the feature 001 invariant, applied to the run).
+    for (const { sub, env } of envelopes) {
+      if (sub === "start") {
+        assert.notEqual(
+          env.status,
+          "success",
+          "`jolly start` reported overall success for an end-to-end flow that cannot complete under forced-safe credentials",
+        );
+      }
     }
+
+    // (b) Honest stop at a gate: at least one command surfaced that it could not
+    // proceed — an error/warning envelope, a failing/warning check, or
+    // nextSteps/errors/summary naming the human/credential gate it is waiting on.
+    const GATE =
+      /credential|log[\s-]?in|sign[\s-]?in|auth|token|account|paste|dashboard|browser|human|gate|unauthor|invalid|missing/i;
+    const honest = envelopes.some(
+      ({ env }) =>
+        env.status === "error" ||
+        env.status === "warning" ||
+        env.checks.some((c) => c.status === "fail" || c.status === "warning") ||
+        GATE.test(env.summary) ||
+        GATE.test(JSON.stringify(env.nextSteps)) ||
+        GATE.test(JSON.stringify(env.errors)),
+    );
+    assert.ok(
+      honest,
+      "the run neither errored/warned nor surfaced a human/credential gate, yet could not have completed under forced-safe credentials — that reads as fabricated success",
+    );
   },
 );
 

@@ -4,33 +4,36 @@ Feature: Agent-first Jolly onboarding and CLI
   So that my agent can scaffold, inspect, and operate a Saleor storefront project effectively
 
   @sandbox
-  Scenario: Jolly start bootstraps and hands the agent the playbook
-    Given `jolly start` has installed skills, written `.mcp.json`, scaffolded, and run doctor
-    When Jolly prints its output
-    Then it should include a concise human-readable summary
-    And it should include machine-readable JSON or report data for the customer's agent on stdout
-    And it should include the ordered Jolly-skill playbook of the steps the agent should run next, with the official CLIs they use
-    And it should include verification results from the automatic `jolly doctor` run
-    And it should include next-step guidance for the customer's agent to drive the storefront, recipe, and deployment steps
-    And it should avoid printing secret values
-    And it should not claim a deployed storefront or any stage it did not itself perform
+  Scenario: Jolly start orchestrates the setup by spawning the official CLIs
+    Given the agent runs `jolly start` with the credentials and approvals the run needs
+    When `jolly start` performs the setup end-to-end
+    Then it should bootstrap first (install skills, write `.mcp.json`, scaffold, acquire auth as needed)
+    And it should run the mechanical stages itself by spawning the official CLIs (`git`, `pnpm`, `@saleor/configurator`, `npx vercel`), never reimplementing them against raw APIs
+    And before each high-risk stage (`create store`, configurator `deploy`, the Vercel deploy) it should emit that stage's feature 021 `riskContext` and pause for the agent to approve
+    And at interactive CLI gates (`vercel login`, `stripe login`) it should pass stdio straight through and continue on the child's exit
+    And at non-CLI human gates (account creation, the Dashboard Stripe app, pasting a secret) it should announce the exact step and wait, then resume
+    And it should run `jolly doctor` automatically to verify the result
+    And its output should include a concise summary, machine-readable stdout data, key URLs and statuses, the doctor verification results, and next-step guidance, with no secret values
+    And it should report only the stages it actually performed and never claim a deployed storefront or any stage it did not perform
 
   @logic
   Scenario: Jolly start does not fabricate stage completion or success
     Given the agent runs `jolly start` in a fresh project directory with no real service credentials
     When `jolly start` runs without `--dry-run`
-    Then it must report only the bootstrap work it actually performed (skills, scaffold, doctor) plus the playbook for the agent
-    And it must not report any stage as completed that it did not actually perform
-    And stages it did not perform must be reported as pending steps for the agent — never as passed
-    And it must not report overall envelope status "success" for an end-to-end flow that has not completed
+    Then it should perform and report only the stages it actually completed (the local bootstrap — skills, scaffold, doctor)
+    And it should stop honestly at the first human or credential gate it cannot pass and name that gate in nextSteps
+    And the overall envelope status should be "warning", reflecting a run paused at a gate — not "success" and not a fabricated completion
+    And it must not report any later stage (store, storefront, recipe, deployment) as completed
+    And stages it did not perform must be reported as pending or blocked-on-a-gate — never as passed
     And it must not print fabricated URLs or verification results
 
   @logic
-  Scenario: Jolly start --dry-run previews the plan without side effects
+  Scenario: Jolly start --dry-run previews the orchestrated plan without side effects
     Given the agent runs Jolly in a fresh project directory
     When the agent runs `jolly start --dry-run --json`
     Then the output envelope data should mark the run as a dry run
     And the data should include a per-stage plan of intended effects: directories created, files written, network hosts contacted, and repositories cloned
+    And the plan should include the stages Jolly runs by spawning the official CLIs — `git` clone, `pnpm` install, `@saleor/configurator` deploy, and the `npx vercel` deploy
     And each side-effecting stage in the plan should carry a feature 021 riskContext
     And the preview must be distinguishable from execution progress, with nextSteps directing the agent to run `jolly start` to execute the plan
     And no files should be created or modified in the project directory
@@ -57,7 +60,7 @@ Feature: Agent-first Jolly onboarding and CLI
       contacted, repos cloned — marks the envelope as a dry run, carries feature 021
       riskContexts for side-effecting stages, and changes nothing. Its output must be
       programmatically distinguishable from real execution progress.
-    - `jolly start` (behavior amended 2026-06-14 — "Agent-supervised orchestration", feature 002): bootstraps setup (install skills, write `.mcp.json`, scaffold, acquire auth) AND runs the setup end-to-end by spawning the official CLIs itself (`git`, `pnpm`, `@saleor/configurator`, `npx vercel`) — pausing for the agent's approval (feature 021 `riskContext`) before each create/deploy and announcing-and-waiting at the human gates (account creation, OAuth/`vercel login`/`stripe login` via stdio passthrough, the Dashboard Stripe app). It no longer merely emits a playbook for the agent to run. The scenarios above ("hands the agent the playbook"; "report only the bootstrap work … plus the playbook") are to be REGENERATED by QM to assert the orchestrated behavior; the no-fabrication invariant (report only stages actually performed; never claim a deployed store) is unchanged and now applies to the orchestrated stages too.
+    - `jolly start` (behavior amended 2026-06-14 — "Agent-supervised orchestration", feature 002): bootstraps setup (install skills, write `.mcp.json`, scaffold, acquire auth) AND runs the setup end-to-end by spawning the official CLIs itself (`git`, `pnpm`, `@saleor/configurator`, `npx vercel`) — pausing for the agent's approval (feature 021 `riskContext`) before each create/deploy and announcing-and-waiting at the human gates (account creation, OAuth/`vercel login`/`stripe login` via stdio passthrough, the Dashboard Stripe app). It no longer merely emits a playbook for the agent to run. The scenarios above ("Jolly start orchestrates the setup by spawning the official CLIs"; "Jolly start does not fabricate stage completion or success") assert this orchestrated behavior; the no-fabrication invariant (report only stages actually performed; never claim a deployed store) is unchanged and applies to the orchestrated stages too.
     - `jolly start` should run `jolly doctor` automatically for verification of the bootstrap and, when re-run, of the agent's progress.
     - Final `jolly start` success output should include a concise summary, structured stdout data/report, key URLs/statuses, final doctor verification results, next-step agent guidance, and no secret values.
     - `jolly start` should be hybrid: agent-friendly by default, with a human-friendly interactive mode available.
