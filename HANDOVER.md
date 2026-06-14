@@ -10,6 +10,46 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
+## HANDOFF (2026-06-14, Captain → QM): ONE focused iteration — implement recipe stock-seeding
+
+**Next role: QM in a FRESH/cleared session** (Captain→QM context firewall). Scope this iteration to
+**one thing: the stock-seeding cycle** below. Everything else this session is already committed and
+pushed; do not widen the iteration.
+
+**The QM worklist (deterministic, ready):** make `jolly start` seed stock for recipe variants —
+feature **004**, the **2 undefined scenarios** (`npx cucumber-js --dry-run` → 11 undefined steps is
+the marker). Full detail in the "DECISION (customer): seed real stock" + "QM/Crew worklist" parts of
+the acceptance-run section below. In short: QM writes the step defs (the `@logic` "previews seeding
+stock" is the deterministic target; the `@sandbox` one skips without creds), then dispatches Crew to
+implement post-configurator-deploy stock seeding via Saleor GraphQL `productVariantStocksCreate`
+(default qty 100, recipe warehouse, idempotent, riskContext, dry-run preview). Verify: `@logic`/units/
+typecheck green, default dry-run back to 0 undefined.
+
+**Already DONE + committed this Captain session (context, not QM work):**
+- **Stripe `appInstall` works — and is now implemented-ready.** Corrected the earlier wrong "staff-only,
+  Jolly can't install" finding (commit `73b1d65`): the **Cloud token is staff auth** on the store
+  GraphQL (`me.isStaff:true`), so `appInstall` succeeds (manifest `https://stripe-v2.saleor.app/api/manifest`;
+  the v1 `stripe.saleor.app` is dead). Stripe app installed live. Specs pinned in feature 005 / AGENTS.md
+  (+ "the Cloud token is staff auth" capability note) / HANDOVER.
+- **Recipe upgrades** (committed `b140248`, `ed5990a`): 11 product images via `media.externalUrl`
+  (GitHub raw); menu slug → `navbar` and collection slug → `featured-products` to match what Paper
+  reads (nav + homepage now populate). No Paper code changes ("Paper as-is" preserved).
+- **Live `jolly-store` hand-fixed to match** (it predates blank-provisioning so it carried sample data):
+  navbar menu, featured-products collection (published in `us`, our products), product media seeded,
+  and all sample categories + `summer-picks` collection deleted (us product count unchanged = 10).
+  Storefront redeployed (`jolly-acceptance.vercel.app`) — verified pirate nav + homepage products + images.
+- **Fresh-start confirmed in code:** `jolly create store --create-environment` sends
+  `database_population: null` (blank), so a NEW `jolly start` begins empty and configurator populates
+  it additively — no sample baggage. (This store was messy only because it predates that.)
+
+**DEFERRED to a later iteration (NOT this one) — the "back to Stripe" track:** now that `appInstall`
+is verified working via the Cloud token, a future cycle can implement `jolly start`'s Stripe stage to
+actually install the app (Cloud token + `stripe-v2` manifest, idempotent) and run the guided
+keys+`us`-channel Dashboard gate. The keys + channel mapping stay a human Dashboard step (no public
+API). Keep this OUT of the stock-seeding iteration.
+
+---
+
 ## CURRENT (2026-06-14, Captain — acceptance run): checkout BLOCKED by zero stock — configurator cannot make products buyable
 
 **Published:** `@dk/jolly` **v0.5.3** (skill-install verify location) is live on npm and smoke-tested.
