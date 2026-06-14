@@ -10,21 +10,46 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
-## CURRENT (2026-06-14, Captain — finding #2 open): clean-environment provisioning for the recipe deploy
+## CURRENT (2026-06-14, Captain — finding #2 SPEC'D): blank-environment provisioning → QM/Crew
 
-Finding #1 is DONE and released (v0.5.1 — see below). The open MVP-acceptance item is **finding #2**:
-provision the store environment **without Saleor demo/sample data** so the starter-recipe deploy
-stays additive. This is the active Captain track.
+Finding #1 is DONE and released (v0.5.1 — see below). Finding #2 is now **spec'd** and ready for a
+**fresh QM session**: provision the store environment **blank** so the starter-recipe deploy stays
+additive. Default dry-run shows **1 undefined** step (the feature 012 marker, below).
 
-### 🐞 Finding #2 (OPEN — Captain decision in progress)
+### 🐞 Finding #2 (SPEC'D this Captain pass — ready for QM/Crew)
 The starter recipe is a complete *declarative* config — `deploy` reconciles the store to match,
-deleting undeclared entities. On `jolly-store`'s sample data that was **120 deletes**, and the
-skill-mandated `--fail-on-breaking`/`--failOnDelete` would (correctly) BLOCK it. The recipe assumes
-a *freshly created, empty* environment where the apply is additive. **Already landed:** a feature
-004 Rule "Recipe targets a clean environment". **The clean fix:** `jolly create store
---create-environment` provisioning the env **without Saleor demo/sample data** so the happy path
-stays additive — confirm the provisioning mechanism (Cloud API `database_population` option / blank
-backup) and whether to make it the default, then spec it on the store-creation feature (012).
+deleting undeclared entities. On `jolly-store`'s sample data that was **120 deletes**, which
+`--fail-on-breaking`/`--failOnDelete` (correctly) BLOCKS. The recipe assumes a *freshly created,
+empty* environment where the apply is additive.
+
+**Decision (customer, 2026-06-14):** `jolly create store --create-environment` provisions the
+environment **blank** — `database_population: null` (the Saleor Cloud "blank" template: "contains no
+data and configuration settings"), never `"sample"`. **No** database-template override flag in v1
+(blank-only; a `--database` pass-through is a post-MVP iteration only if needed). Authoritative
+mechanism confirmed against the (study-only) saleor/cli source: its `--database blank` →
+`database: null` → `database_population: null` in the env-create body; `"sample"` is the only
+non-null happy value and is what caused the 120 deletes.
+
+**Specs landed this pass (committed):** feature 012 — new Rule "Created environments are provisioned
+blank" + the env-create POST-body principle now says `database_population: null` + the @logic
+dry-run scenario step reworded to "the prepared request should create a blank environment with no
+sample data" (the QM marker); feature 004 clean-env rule updated to point at the resolved mechanism;
+AGENTS.md MVP stage 3 records blank provisioning.
+
+**QM worklist (FRESH session — derivable from committed feature 012):**
+1. **QM — regenerate the feature 012 @logic step** `Then("the prepared request should create a
+   blank environment with no sample data")` in `012-…steps.ts`: assert the dry-run preview's
+   request body has `database_population` === null AND the preview labels it blank
+   (`data.databaseTemplate`), driving against the existing local harness Cloud API server. Remove
+   the now-orphaned `Then("the default database template should be {string}")` step def (no
+   scenario uses it after the reword). 012-incident safety unchanged.
+2. **Crew — change the provisioning default** in `src/index.ts`: the three `database_population:
+   "sample"` sites (env-create dry-run body ~874, the `databaseTemplate: "sample"` data field ~891,
+   and the real env-create body ~979) → `database_population: null` (and the preview's
+   `databaseTemplate` label → `"blank"`). Update the `src/lib/cloud-api.ts` doc comment (~line 13)
+   that documents the body shape. No new flag.
+3. **Verify:** `@logic`/units/typecheck green; default dry-run back to **0 undefined**. The @sandbox
+   "Jolly creates a Saleor Cloud environment" scenario still skips locally (provisions a real env).
 
 ### ✅ Finding #1 (DONE — released v0.5.1) — dedicated "Jolly Setup" app-token
 `acquireAppToken` no longer reuses `apps[0]`. It resolves a dedicated app by exact name
@@ -57,9 +82,9 @@ remaining stages (7b Stripe app, 8 deploy, 9 trusted origins, 10 doctor) are hum
 - **10 — Verify:** `npx @dk/jolly doctor` (all groups); confirm checkout reaches the Stripe test
   payment step.
 
-**Session boundary — finding #1 is committed + released (v0.5.1); finding #2 is the active Captain
-track.** Once finding #2 is spec'd, the next role is QM in a FRESH session to make the new
-store-creation scenarios executable.
+**Session boundary — next role is QM in a FRESH session.** Finding #1 is committed + released
+(v0.5.1); finding #2 is spec'd (committed) with the worklist above and a 1-undefined marker. Clear
+this session (Captain → QM context firewall) before `/qm`.
 
 ---
 

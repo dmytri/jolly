@@ -66,7 +66,7 @@ Feature: Existing Saleor store connection
     Then the prepared request should POST to /platform/api/organizations/{organization}/environments/
     And the POST body should include name, project, domain_label, database_population, service, and optional basic-auth credentials
     And the default region should be "us-east-1"
-    And the default database template should be "sample"
+    And the prepared request should create a blank environment with no sample data
     And no environment should be created
     # Real execution (task polling, domain extraction, env writes) is pinned by
     # the @sandbox scenario "Jolly creates a Saleor Cloud environment" below.
@@ -141,6 +141,20 @@ Feature: Existing Saleor store connection
       environmental skip (like absent credentials), not a failure: the account's capacity,
       not Jolly's behavior, is what prevented the run.
 
+  Rule: Created environments are provisioned blank (finding #2, resolved 2026-06-14)
+    - `jolly create store --create-environment` provisions the environment with NO sample data
+      and NO sample configuration: `database_population` is sent as null — the Saleor Cloud
+      "blank" template, which "contains no data and configuration settings" — never "sample".
+    - Reason (MVP acceptance-run finding 2026-06-14): the starter recipe (feature 004) is a
+      complete declarative config that `@saleor/configurator deploy` reconciles the store to
+      match, deleting any undeclared entity. Against Saleor's sample data that was ~120 deletes,
+      which the skill-mandated `--fail-on-breaking`/`--failOnDelete` correctly blocks. A blank
+      environment makes the recipe deploy purely additive, so the happy path never needs a
+      destructive deploy. Pairs with feature 004 Rule "Recipe targets a clean environment".
+    - v1 has no database-template override flag: provisioning is always blank. Re-introducing a
+      `--database <sample|blank|snapshot>` pass-through is a post-MVP iteration only if a real
+      need appears (decision 2026-06-14: blank-only for v1).
+
   Rule: Environment-creation test runs are namespaced and self-cleaning
     - Whenever a sandbox run needs a Saleor endpoint or app token that is not configured
       and `JOLLY_SALEOR_CLOUD_TOKEN` is present, the harness provisions one shared
@@ -173,7 +187,7 @@ Feature: Existing Saleor store connection
       identifiers or random task ids (feature 020, "No fabricated success").
     - Organizations: GET /platform/api/organizations/ returns a list with slug and environments URL.
     - Projects: POST /platform/api/organizations/{slug}/projects/ with body { name, plan: "dev", region }.
-    - Environments: POST /platform/api/organizations/{slug}/environments/ with body { name, project, domain_label, database_population: "sample", service: "saleor", region: "us-east-1" }. Returns a task_id.
+    - Environments: POST /platform/api/organizations/{slug}/environments/ with body { name, project, domain_label, database_population: null, service: "saleor", region: "us-east-1" }. Returns a task_id. `database_population` is null (the Saleor Cloud "blank" template — no sample data or config), never "sample"; see the "Created environments are provisioned blank" rule.
     - Task status: GET /platform/api/service/task-status/{task_id} until status is "SUCCEEDED".
     - The environment task result contains the domain URL (https://{domain_label}.saleor.cloud/graphql/).
     - Require an app token or equivalent credential for full existing-store setup.

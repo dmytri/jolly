@@ -179,7 +179,10 @@ verified results (no fabrication — see the integrity rule below):
    to do real bootstrap + playbook, not fake stage completion.*
 2. **Auth** — `jolly login` / `auth status` (Jolly plumbing). *Built and sandbox-verified.*
 3. **Store/environment** — `jolly create store` / `create environment` via the Cloud API
-   (Jolly plumbing). *Built and sandbox-verified.*
+   (Jolly plumbing). Environments are provisioned **blank** (`database_population: null`, no
+   sample data) so the stage-6 recipe deploy is purely additive — see feature 012 Rule "Created
+   environments are provisioned blank" (decision 2026-06-14, finding #2). *Built and
+   sandbox-verified; blank-provisioning change pending QM/Crew.*
 4. **App token** — `jolly create app-token` via Saleor GraphQL (Jolly plumbing, feature 024).
 5. **Storefront (agent)** — the agent clones `saleor/storefront` (Paper) from `main` with
    `git`, strips `.git`, fresh `git init`, `pnpm` install, per the Jolly skill (feature 002/003).

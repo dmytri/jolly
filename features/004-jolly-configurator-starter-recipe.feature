@@ -55,7 +55,8 @@ Feature: Jolly Configurator starter recipe
       creates + 120 deletes, `hasDestructiveOperations: true`). On such a store the agent must
       surface the destructive diff and get the customer's explicit approval before applying, and
       may only then deploy without the breaking guard. The skill carries this guidance.
-    - To keep the happy path additive, `jolly create store --create-environment` should provision
-      the environment WITHOUT Saleor's demo/sample data so the recipe is the store's first catalog
-      config. (Provisioning-mechanism decision tracked in HANDOVER; confirm before implementing.)
+    - To keep the happy path additive, `jolly create store --create-environment` provisions the
+      environment WITHOUT Saleor's demo/sample data (`database_population: null` — the Cloud "blank"
+      template) so the recipe is the store's first catalog config. Mechanism resolved 2026-06-14;
+      see feature 012 Rule "Created environments are provisioned blank".
 
