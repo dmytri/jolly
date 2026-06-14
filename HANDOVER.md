@@ -10,7 +10,51 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
-## Current state (2026-06-14): `@sandbox` MVP gate is GREEN against real services
+## TOP PRIORITY (2026-06-14): shipped 0.6.0 is BROKEN on fresh machines — skill install fails silently
+
+`npx @dk/jolly@0.6.0 start` on a fresh machine (real report: Debian distrobox with Cursor
+installed) reports **every** skill check `fail` — `init-skill-*` and `doctor-skill-*` for all of
+jolly, saleor-storefront, saleor-configurator, storefront-builder, saleor-core, saleor-app — so
+`bootstrap.skillsInstalled` is false and the customer starts with no skills on disk. The rest of
+bootstrap (`.mcp.json`, AGENTS.md, doctor) is fine.
+
+**Confirmed root cause (reproduced 2026-06-14, Captain discovery).** `installSkill` in `src/index.ts`
+runs `spawnSync("npx", ["--yes", "skills", "add", skill.ref])`. The `--yes` there is **npx's** flag;
+it is NOT passed to the `skills add` subcommand. Without the skills tool's own `-y`, `skills add`
+opens an interactive agent multi-select. When Jolly spawns it non-interactively (piped stdio), the
+picker installs **nothing and still exits 0** — a silent failure. Jolly's on-disk check then
+correctly reports `fail`. Reproduction (no-agent, non-interactive):
+  - `npx --yes skills add dmytri/jolly`        → exit 0, installs nothing (stuck in the picker).
+  - `npx --yes skills add dmytri/jolly --yes`  → exit 0, installs `.agents/skills/jolly/SKILL.md`.
+So the fix direction is: pass the **skills tool's own** `-y`/`--yes` so it installs deterministically
+to the universal `.agents/skills/<id>/` location Jolly verifies, regardless of which agent runtimes
+are present. (The tree-URL Saleor refs from the previous fix are correct; they need git+network,
+which the reporting machine has.)
+
+**Why the green `@sandbox` gate missed it (the real QM gap).** The feature 007 init/skill-install
+verification ran on the CI/VM, where an agent runtime is auto-detected so the picker auto-resolves
+and the buggy invocation happens to install. It never exercised the **non-interactive / no-agent**
+condition a fresh customer machine actually has. **Verification must reproduce that condition** (e.g.
+drive the install with stripped agent context and piped stdio, asserting the skills land on disk and
+that a silent exit-0-installs-nothing is caught) so this class of bug cannot ship green again. This
+is exactly what the deferred **acceptance run** (real paste→live-store on a clean machine) would have
+caught before publish; it remains outstanding.
+
+### QM task this session
+1. Add executable coverage that fails against current `src/` (reproduce the non-interactive/no-agent
+   install so the silent failure is caught — not just the agent-detected happy path).
+2. Drive the minimal Crew fix in `installSkill` (skills' own `-y`), keep deterministic universal
+   `.agents/skills/` install, re-green every tier including the new coverage.
+3. Possible related check: AGENTS.md says the jolly skill installs from the **bundled copy (no
+   network)**, but the impl installs `dmytri/jolly` over the network — confirm whether that gap
+   should be closed in the same pass.
+4. After Bosun commits, the remaining outbound is a **0.6.1 publish** (Captain-owned) and, before any
+   further publish is trusted, the real acceptance run on a clean machine.
+
+Do NOT trust a green skill-install check that ran in an agent-detected environment as proof the
+shipped artifact works for customers.
+
+## Earlier state (2026-06-14): `@sandbox` MVP gate is GREEN against real services
 
 The full `jolly start` chain (`create store` → configurator deploy → stock-seed → storefront
 clone/install → Vercel deploy → Stripe app install → `jolly doctor` verify) is **specified, built, and
