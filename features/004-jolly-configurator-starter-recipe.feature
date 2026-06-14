@@ -24,6 +24,23 @@ Feature: Jolly Configurator starter recipe
     And the customer's agent should decide whether customer approval is needed before applying changes
     And it should fail safely if destructive or breaking operations are detected
 
+  @logic
+  Scenario: Jolly start previews seeding stock for the recipe catalog
+    Given the agent runs `jolly start --dry-run`
+    When Jolly plans the recipe stage
+    Then the plan should include a stock-seeding step that runs after the `@saleor/configurator` deploy
+    And the stock-seeding step should carry a riskContext for modifying catalog data
+    And the preview should name the real Saleor GraphQL request, the recipe warehouse, and the default per-variant quantity
+    And the preview should not perform any mutation
+
+  @sandbox
+  Scenario: Jolly start seeds stock so the recipe catalog is buyable
+    Given a freshly created Saleor Cloud environment with the starter recipe deployed
+    When Jolly start completes the recipe stage
+    Then every recipe product variant should have stock in the recipe warehouse
+    And a checkout in the `us` channel should not be blocked by INSUFFICIENT_STOCK
+    And re-running the stage should update the quantities idempotently rather than creating duplicate stock
+
   Rule: Starter recipe goals
     - Make a freshly created Saleor Cloud environment immediately useful with Paper.
     - Use a playful pirate-themed demo catalog: stuff that pirates would buy.
@@ -59,4 +76,24 @@ Feature: Jolly Configurator starter recipe
       environment WITHOUT Saleor's demo/sample data (`database_population: null` — the Cloud "blank"
       template) so the recipe is the store's first catalog config. Mechanism resolved 2026-06-14;
       see feature 012 Rule "Created environments are provisioned blank".
+
+  Rule: Recipe products need seeded stock — configurator cannot (acceptance-run finding 2026-06-14)
+    - `@saleor/configurator` cannot make products buyable: its product-variant schema (v3.23) is
+      `name, sku, weight, digital, attributes, channelListings` only — no `stocks` and no
+      `trackInventory` field — and it hardcodes `trackInventory: true` on variant create. The
+      recipe's shop `trackInventoryByDefault: false` is applied to the shop but Saleor does not
+      propagate it to configurator-created variants. Net: after a pure recipe deploy every variant
+      has `trackInventory: true` with zero stock, so `quantityAvailable` is 0 and any `us` checkout
+      fails with `INSUFFICIENT_STOCK` before reaching payment (observed live 2026-06-14).
+    - Decision (customer, 2026-06-14): `jolly start`'s recipe stage **seeds real stock** after the
+      `@saleor/configurator` deploy, because config-as-code cannot. For every recipe product
+      variant it sets a default per-variant quantity (100 in v1) in the recipe's warehouse via
+      Saleor GraphQL (`productVariantStocksCreate`, updating in place when a stock entry already
+      exists) — leaving `trackInventory: true`, so the catalog shows finite stock that decrements
+      with sales. Seeding stock, not flipping `trackInventory`, was the chosen approach.
+    - This is Jolly plumbing against a first-party Saleor host using the app token Jolly already
+      manages — no new host, no new credential (Network Boundaries unchanged). It emits a feature
+      021 `riskContext` (catalog data modification) and is idempotent and resumable (feature 022):
+      re-running updates the quantities rather than creating duplicate stock entries.
+    - The default quantity is a v1 constant; a configurable quantity is a post-MVP iteration.
 

@@ -92,7 +92,10 @@ and mediate it yourself. The order and the load-bearing specifics:
    (or `SALEOR_URL`/`SALEOR_TOKEN`), with `--fail-on-breaking` on `deploy`. High-risk → approval
    gate; review the diff before the deploy writes. (`deploy` reconciles the store to the recipe; on
    a **blank** environment that is purely additive — Jolly provisions environments blank for
-   exactly this.)
+   exactly this.) **After the deploy, `start` seeds stock** — it sets a default quantity (100) for
+   every recipe variant in the recipe warehouse via Saleor GraphQL, because `@saleor/configurator`
+   cannot set stock or `trackInventory` (it hardcodes `trackInventory: true`). Without this the
+   catalog has zero stock and checkout fails with `INSUFFICIENT_STOCK` before reaching payment.
 7. **Stripe (test mode)** — `start` installs Saleor's Stripe app for you via the Saleor GraphQL
    `appInstall` mutation (HANDLE_PAYMENTS); the recipe sets the channel payment flow. The keys and
    the channel mapping have **no public API**, so this stage is a guided gate:

@@ -10,6 +10,87 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
+## CURRENT (2026-06-14, Captain — acceptance run): checkout BLOCKED by zero stock — configurator cannot make products buyable
+
+**Published:** `@dk/jolly` **v0.5.3** (skill-install verify location) is live on npm and smoke-tested.
+
+**Live acceptance run against `jolly-store` (`https://jolly-acceptance.vercel.app`):**
+- ✅ **Store** operational — `us` channel, 10 pirate recipe products, shop US/USD (live GraphQL query).
+- ✅ **Storefront deployed & public** — `/` and `/us/products` return 200 and render the products
+  (Brass Spyglass, Cutlass, Flintlock Pistol…); `/default-channel/products` correctly 404s.
+- ✅ **Warehouse/shipping/channel mapping correct** — "Port Royal Warehouse" → "United States"
+  shipping zone → `us` channel.
+- 🔴 **Checkout was BLOCKED: `INSUFFICIENT_STOCK` ("Only 0 remaining").** Every variant had
+  `trackInventory: true` and `stocks: []` → `quantityAvailable: 0`.
+
+**Root-cause finding (the durable blocker):** `@saleor/configurator` **cannot make products
+buyable.** Its product-variant schema (v3.23) is exactly `name, sku, weight, digital, attributes,
+channelListings` — **no `stocks`, no `trackInventory`** — and the configurator **hardcodes
+`trackInventory: true`** on variant create. The recipe's shop `trackInventoryByDefault: false` IS
+applied to the shop (verified live) but Saleor does not propagate it to configurator-created
+variants, which carry their own `trackInventory: true`. **Net: a pure recipe deploy always yields a
+store where checkout fails** — config-as-code has no field to fix it. This affects EVERY store, not
+just this one; it is a pure product gap, not a human gate.
+
+**Verified fix (applied live):** setting `trackInventory: false` on all 10 variants via Saleor
+GraphQL (`productVariantUpdate`) immediately unblocked checkout — `checkoutCreate` in `us` now
+succeeds (total $59 USD, no stock error). The live store is now buyable.
+
+**Stripe (the remaining, documented human gate):** no Stripe app is installed (only "Jolly Setup"
++ "SMTP"); checkout `availablePaymentGateways` shows the gift-card gateway only. So checkout reaches
+the **payment-selection step but Stripe is not offered**. Installing the Saleor Stripe app
+(`appInstall`, HANDLE_PAYMENTS) is automatable, but setting its keys and **mapping it to the `us`
+channel has no public API** — it is the Dashboard-only human step (feature 005). The feature-002
+acceptance bar ("checkout progresses to the Stripe test payment step") is therefore **not yet met**;
+the gap is now precisely (a) the buyability fix below and (b) the Stripe-app Dashboard config.
+
+**DECISION (customer, 2026-06-14): seed real stock.** `jolly start`'s recipe stage seeds a default
+quantity (100) for every recipe variant into the recipe warehouse via Saleor GraphQL
+(`productVariantStocksCreate`, update-in-place if present) **after** the configurator deploy,
+leaving `trackInventory: true` so the catalog shows finite, decrementing stock. Purely additive,
+first-party host, app token Jolly already manages — no new host/credential. Spec'd this pass.
+
+**Live store made faithful to the decision:** reverted the variants to `trackInventory: true` and
+seeded 100 stock each into Port Royal Warehouse; `us` checkout verified (qty 2 → $118, no stock
+error). `https://jolly-acceptance.vercel.app` is now a buyable store.
+
+**Specs landed this Captain pass (uncommitted until committed):**
+- **feature 004** — new Rule "Recipe products need seeded stock — configurator cannot" (root cause +
+  decision + riskContext/idempotency/first-party-host contracts) and 2 new scenarios: `@logic`
+  "Jolly start previews seeding stock…" (dry-run plan names the Saleor GraphQL request, recipe
+  warehouse, default quantity; riskContext; no mutation) and `@sandbox` "Jolly start seeds stock so
+  the recipe catalog is buyable" (variants have stock; `us` checkout not blocked; idempotent re-run).
+- **AGENTS.md** MVP stage 6 + **assets/skills/jolly/SKILL.md** stage 6 — the post-deploy
+  stock-seeding step and the configurator limitation.
+- Default dry-run now shows **2 undefined scenarios / 11 undefined steps** (feature 004) — the
+  intended QM marker.
+
+**QM/Crew worklist (FRESH session — Captain→QM needs a clear session for the context firewall):**
+1. **QM — step defs** for the 2 new feature-004 scenarios. The `@logic` one is the deterministic
+   target: `jolly start --dry-run` must surface a stock-seeding stage that runs after the
+   configurator deploy, carrying a riskContext (catalog data modification) and a preview naming the
+   real Saleor GraphQL mutation (`productVariantStocksCreate`), the recipe warehouse
+   ("Port Royal Warehouse"), and the default per-variant quantity (100) — with no mutation
+   performed. 012-incident safety (dummy `JOLLY_*` + `.invalid` Cloud base) on any side-effecting
+   path. The `@sandbox` one asserts Jolly-observable real outcomes (variant stock present; `us`
+   checkout not `INSUFFICIENT_STOCK`; idempotent re-run) and skips without creds.
+2. **Crew — implement the recipe-stage stock seeding** in `src/index.ts`'s `jolly start`: after the
+   configurator deploy stage, for every recipe product variant set the default quantity (100) in
+   the recipe warehouse via Saleor GraphQL `productVariantStocksCreate` (update in place when a
+   stock entry exists — idempotent, feature 022); emit the feature-021 riskContext; report the
+   stage honestly (no fabrication); `--dry-run` previews without mutating. Resolve the warehouse by
+   the recipe's warehouse name and the variants by querying the recipe channel. First-party Saleor
+   host only; reuse the app token Jolly manages.
+3. **Verify** — `@logic`/units/typecheck green; default dry-run back to 0 undefined; on a
+   creds-present VM the `@sandbox` scenario seeds stock and the `us` checkout clears.
+
+**Remaining acceptance gate (unchanged, human/Dashboard — not QM's job):** install + configure the
+Saleor Stripe app and **map it to the `us` channel** (keys + mapping have no public API), then
+confirm checkout offers Stripe and reaches the test payment step. `appInstall` is automatable
+(feature 005); the keys/channel-map is the irreducible Dashboard step.
+
+---
+
 ## CURRENT (2026-06-14, Captain — ARCHITECTURE PIVOT spec'd): `jolly start` becomes an agent-supervised orchestrator
 
 **Decision (customer, 2026-06-14): `jolly start` runs the setup end-to-end by spawning the

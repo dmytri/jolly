@@ -260,7 +260,11 @@ approval and interaction gates:
 5. **Storefront (agent)** — the agent clones `saleor/storefront` (Paper) from `main` with
    `git`, strips `.git`, fresh `git init`, `pnpm` install, per the Jolly skill (feature 002/003).
 6. **Recipe (agent)** — the agent applies the Jolly starter recipe via `@saleor/configurator`'s
-   safe workflow, per the skill (feature 004).
+   safe workflow, per the skill (feature 004). **Then `jolly start` seeds stock** for every recipe
+   variant (default 100 each) into the recipe warehouse via Saleor GraphQL, because configurator
+   cannot set stock or `trackInventory` and hardcodes `trackInventory: true` — without this the
+   catalog has zero stock and `us` checkout fails with `INSUFFICIENT_STOCK` before payment
+   (acceptance-run finding 2026-06-14; see feature 004 Rule "Recipe products need seeded stock").
 7. **Deployment (agent)** — the agent deploys with the **Vercel CLI** (`npx vercel`) under its
    own `vercel login` session, sets Vercel env vars, and updates Saleor trusted origins, per the
    skill (feature 002). No Jolly Vercel token, no `api.vercel.com` in Jolly's code.
