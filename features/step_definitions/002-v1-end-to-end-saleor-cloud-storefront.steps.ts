@@ -23,7 +23,7 @@
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { logicSafeEnv } from "../support/logic-env.ts";
-import { findRiskContexts } from "../support/envelope.ts";
+import { findRiskContexts, assertRiskContextShape } from "../support/envelope.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 // --- Background (capability statements) -------------------------------------
@@ -445,4 +445,301 @@ Then(
 Then("it should report the deployed URL and any remaining manual steps", function (this: JollyWorld) {
   // Jolly-observable: doctor carries a nextSteps channel for remaining manual steps.
   assert.ok(Array.isArray(this.envelope.nextSteps), "doctor must carry a nextSteps channel");
+});
+
+// ─── @logic: storefront + Vercel-deploy previews and the no-fabrication and
+//     human-run-fallback guardrails (fifth + sixth convergence) ──────────────
+//
+// These five @logic scenarios pin Jolly's OBSERVABLE contract for the two
+// remaining mechanical stages and the backup path:
+//   - the two PREVIEW scenarios drive Crew: `jolly start --dry-run`'s plan must
+//     name the spawned `git`/`pnpm` clone+install (default `storefront/` dir,
+//     `saleor/storefront` Paper from `main`) and the spawned `npx vercel` deploy
+//     with its durable invariants (no Vercel token, no api.vercel.com in Jolly's
+//     own code), each carrying its feature-021 riskContext — performing nothing;
+//   - the two NO-FABRICATION guardrails: a real (`--yes`) run with no real creds
+//     and the storefront/deploy CLIs faked offline reports each stage honestly
+//     (never a fabricated `completed`) and the overall envelope `warning`;
+//   - the human-run FALLBACK: a run that cannot proceed surfaces, in nextSteps,
+//     the offer to ask the human to run `jolly start` in a shell — without
+//     fabricating that it was done.
+//
+// The `Given the agent runs \`jolly start --dry-run\`` and `Given the agent runs
+// \`jolly start\` with no real Saleor credentials` (the latter writing the fake
+// npx + git/pnpm/vercel PATH shims) are shared with feature 004's step defs.
+// logicSafeEnv keeps every preview/real run unable to touch any real service.
+
+interface StartPlanStage {
+  stage: string;
+  effects?: { networkHostsContacted?: string[] } & Record<string, unknown>;
+  riskContext?: unknown;
+}
+
+/** The dry-run plan, asserted present. */
+function startPlanStages(world: JollyWorld): StartPlanStage[] {
+  const plan = world.envelope.data.plan as StartPlanStage[] | undefined;
+  assert.ok(Array.isArray(plan) && plan.length > 0, "start --dry-run must report data.plan");
+  return plan!;
+}
+
+/** The named stage in the plan, asserted present. */
+function planStage(world: JollyWorld, name: string): StartPlanStage {
+  const stage = startPlanStages(world).find((s) => s.stage === name);
+  assert.ok(stage, `the start plan must include a "${name}" stage`);
+  return stage!;
+}
+
+/** A clean preview: flagged dry-run, overall success, no stage executed. */
+function assertPreviewPerformedNothing(world: JollyWorld): void {
+  assert.equal(world.envelope.data.dryRun, true, "the preview must set data.dryRun true");
+  assert.equal(world.envelope.status, "success", "a clean preview reports success");
+  const dryRunCheck = world.findCheck("start-dry-run");
+  assert.ok(dryRunCheck, "the preview must carry a start-dry-run check");
+  assert.equal(dryRunCheck!.status, "skipped", "no stage may be executed in a preview");
+}
+
+/** The orchestrated (real-run) stages, with status. */
+function realRunStages(world: JollyWorld): Array<{ stage: string; status: string }> {
+  return (world.envelope.data.stages ?? []) as Array<{ stage: string; status: string }>;
+}
+
+/** The PATH env that puts the scenario's fake CLIs (npx/git/pnpm/vercel) first,
+ * keeping a real `--yes` run hermetic, on top of logicSafeEnv's dummy creds. */
+function shimmedLogicEnv(world: JollyWorld): Record<string, string | undefined> {
+  return logicSafeEnv({
+    PATH: `${String(world.notes.npxShimDir)}:${process.env.PATH ?? ""}`,
+  });
+}
+
+// --- Scenario: Jolly start previews the storefront clone and install --------
+
+When("Jolly plans the storefront stage", function (this: JollyWorld) {
+  this.runCli(["start", "--dry-run", "--json"], { env: logicSafeEnv() });
+});
+
+Then(
+  "the plan should include a storefront step that spawns `git` to clone Saleor Paper and `pnpm` to install",
+  function (this: JollyWorld) {
+    const stage = planStage(this, "storefront");
+    const blob = JSON.stringify(stage).toLowerCase();
+    assert.ok(blob.includes("git"), "the storefront preview must name the spawned `git` clone");
+    assert.ok(blob.includes("pnpm"), "the storefront preview must name the spawned `pnpm` install");
+    this.notes.storefrontStage = stage;
+  },
+);
+
+Then(
+  "the preview should name the default target directory `storefront` and the `saleor\\/storefront` Paper template from `main`",
+  function (this: JollyWorld) {
+    const blob = JSON.stringify(this.notes.storefrontStage as StartPlanStage);
+    assert.ok(blob.includes("storefront"), "the preview must name the default target directory `storefront`");
+    assert.ok(
+      blob.includes("saleor/storefront"),
+      "the preview must name the `saleor/storefront` Paper template",
+    );
+    assert.ok(
+      /\bmain\b/.test(blob),
+      "the preview must name the `main` branch the Paper template is cloned from",
+    );
+  },
+);
+
+Then(
+  "the storefront step should carry a riskContext for cloning and installing the storefront",
+  function (this: JollyWorld) {
+    const stage = this.notes.storefrontStage as StartPlanStage;
+    assert.ok(stage.riskContext, "the storefront stage must carry a riskContext");
+    assertRiskContextShape(stage.riskContext);
+    assert.ok(
+      findRiskContexts(this.envelope).length > 0,
+      "riskContexts must live inside the envelope",
+    );
+  },
+);
+
+Then("the preview should not spawn git or pnpm or write the storefront", function (this: JollyWorld) {
+  assertPreviewPerformedNothing(this);
+});
+
+// --- Scenario: Jolly start does not fabricate the storefront preparation ----
+
+When(
+  "the run reaches the storefront stage without `--dry-run`",
+  function (this: JollyWorld) {
+    this.runCli(["start", "--yes", "--json"], { env: shimmedLogicEnv(this), timeoutMs: 90_000 });
+  },
+);
+
+Then(
+  "Jolly should report the storefront stage as completed, blocked, or pending, never fabricated",
+  function (this: JollyWorld) {
+    const storefront = realRunStages(this).find((s) => s.stage === "storefront");
+    assert.ok(storefront, "the orchestrated stages must include the storefront stage");
+    assert.ok(
+      ["completed", "blocked", "pending"].includes(storefront!.status),
+      `the storefront stage must be completed/blocked/pending, got "${storefront!.status}"`,
+    );
+    // No fabrication: with the storefront CLIs faked offline there is no real
+    // clone/install, so a `completed` here could only be fabricated.
+    assert.notEqual(
+      storefront!.status,
+      "completed",
+      "with the storefront CLIs faked offline there is no real clone; `completed` would be fabricated",
+    );
+  },
+);
+
+// --- Scenario: Jolly start previews the Vercel deploy -----------------------
+
+When("Jolly plans the deploy stage", function (this: JollyWorld) {
+  this.runCli(["start", "--dry-run", "--json"], { env: logicSafeEnv() });
+});
+
+Then(
+  "the plan should include a deploy step that spawns the official Vercel CLI `npx vercel`",
+  function (this: JollyWorld) {
+    const stage = planStage(this, "deploy");
+    assert.ok(
+      JSON.stringify(stage).includes("npx vercel"),
+      "the deploy preview must name the spawned official Vercel CLI `npx vercel`",
+    );
+    this.notes.deployStage = stage;
+  },
+);
+
+Then(
+  "the preview should state Jolly holds no Vercel token and sends no request to api.vercel.com",
+  function (this: JollyWorld) {
+    const stage = this.notes.deployStage as StartPlanStage;
+    const blob = JSON.stringify(stage);
+    const lower = blob.toLowerCase();
+    assert.ok(
+      /no vercel token|holds no vercel token|JOLLY_VERCEL_TOKEN/i.test(blob),
+      "the deploy preview must state Jolly holds no Vercel token",
+    );
+    // The preview must STATE the no-Vercel-API-request invariant. We do NOT
+    // require the literal host string `api.vercel.com` in the stage text: a
+    // pinned enforcement contract (tests/first-party-hosts.test.ts) bans that
+    // literal from src/ precisely because Jolly's code never contacts Vercel,
+    // so the preview communicates the invariant in prose ("sends no request to
+    // the Vercel API") rather than naming the banned host.
+    assert.ok(
+      lower.includes("vercel") &&
+        /no request|sends no|makes no request|contacts no|reaches no|no vercel (rest )?api/.test(lower),
+      "the deploy preview must state Jolly's own code sends no request to the Vercel API " +
+        "(the spawned Vercel CLI reaches Vercel under its own auth)",
+    );
+    // Precision: Jolly's OWN deploy stage contacts no first-party host — the
+    // Vercel API is reached by the spawned Vercel CLI, never by Jolly's code.
+    const hosts = stage.effects?.networkHostsContacted ?? [];
+    assert.ok(
+      !hosts.includes("api.vercel.com"),
+      "Jolly's own deploy stage must not list the Vercel API host among the hosts it contacts",
+    );
+  },
+);
+
+Then(
+  "the deploy step should carry a riskContext for a live Vercel deployment",
+  function (this: JollyWorld) {
+    const stage = this.notes.deployStage as StartPlanStage;
+    assert.ok(stage.riskContext, "the deploy stage must carry a riskContext");
+    assertRiskContextShape(stage.riskContext);
+    const rc = stage.riskContext as { categories: string[] };
+    assert.ok(
+      rc.categories.includes("live deployment"),
+      'the deploy riskContext must flag a live deployment ("live deployment")',
+    );
+    assert.ok(
+      findRiskContexts(this.envelope).length > 0,
+      "riskContexts must live inside the envelope",
+    );
+  },
+);
+
+Then("the preview should not spawn the Vercel CLI or deploy anything", function (this: JollyWorld) {
+  assertPreviewPerformedNothing(this);
+});
+
+// --- Scenario: Jolly start does not fabricate the Vercel deployment ---------
+
+When(
+  "the run reaches the deploy stage without `--dry-run`",
+  function (this: JollyWorld) {
+    this.runCli(["start", "--yes", "--json"], { env: shimmedLogicEnv(this), timeoutMs: 90_000 });
+  },
+);
+
+Then(
+  "Jolly should report the deploy stage as blocked or pending, never completed",
+  function (this: JollyWorld) {
+    const deploy = realRunStages(this).find((s) => s.stage === "deploy");
+    assert.ok(deploy, "the orchestrated stages must include the deploy stage");
+    assert.ok(
+      deploy!.status === "blocked" || deploy!.status === "pending",
+      `the deploy stage must be blocked or pending with no creds, got "${deploy!.status}"`,
+    );
+    assert.notEqual(
+      deploy!.status,
+      "completed",
+      "the deploy stage must never be completed without a real, successful Vercel deploy",
+    );
+  },
+);
+
+Then("the summary should not claim the storefront was deployed", function (this: JollyWorld) {
+  const summary = String(this.envelope.summary ?? "").toLowerCase();
+  assert.ok(
+    !/deployed|is live|store is live|storefront is live|live store/.test(summary),
+    `the summary must not claim the storefront was deployed: "${this.envelope.summary}"`,
+  );
+});
+
+// --- Scenario: Jolly start points the human to run it in a shell ------------
+
+When("the run stops at a gate the agent cannot complete", function (this: JollyWorld) {
+  // No --yes: the run pauses at the first high-risk gate it cannot self-approve;
+  // with no real creds it could not run to completion either way → warning. The
+  // PATH shim keeps bootstrap (init's `npx skills add`) hermetic.
+  this.runCli(["start", "--json"], { env: shimmedLogicEnv(this), timeoutMs: 90_000 });
+});
+
+Then(
+  "the nextSteps should offer the human-run fallback of running `jolly start` in a shell",
+  function (this: JollyWorld) {
+    assert.equal(
+      this.envelope.status,
+      "warning",
+      "a run that could not run to completion must be `warning`",
+    );
+    const nextSteps = (this.envelope.nextSteps ?? []) as Array<Record<string, unknown>>;
+    const offersFallback = nextSteps.some((step) => {
+      const blob = `${step.description ?? ""} ${step.command ?? ""}`.toLowerCase();
+      return blob.includes("jolly start") && blob.includes("shell") && blob.includes("human");
+    });
+    assert.ok(
+      offersFallback,
+      `nextSteps must offer the human-run fallback of running \`jolly start\` in a shell: ${JSON.stringify(nextSteps)}`,
+    );
+  },
+);
+
+Then("it should not fabricate that the human-run step was completed", function (this: JollyWorld) {
+  // The fallback is OFFERED, not performed: status is not success, no check
+  // claims a human ran it as a pass, and the summary claims no completion.
+  assert.notEqual(this.envelope.status, "success", "offering the fallback is not success");
+  const fabricated = this.envelope.checks.find(
+    (c) =>
+      c.status === "pass" &&
+      /human.*(ran|run|shell)|ran in a shell/i.test(`${c.id} ${c.description ?? ""}`),
+  );
+  assert.ok(
+    !fabricated,
+    `no check may fabricate that the human ran jolly start: ${JSON.stringify(fabricated)}`,
+  );
+  const summary = String(this.envelope.summary ?? "").toLowerCase();
+  assert.ok(
+    !/(human ran|ran in a shell|store is live|deployed)/.test(summary),
+    `the summary must not fabricate that the human-run step happened: "${this.envelope.summary}"`,
+  );
 });

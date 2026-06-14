@@ -18,6 +18,7 @@ import { logicSafeEnv, DUMMY } from "../support/logic-env.ts";
 import { findRiskContexts, assertRiskContextShape } from "../support/envelope.ts";
 import { saleorGraphql } from "../support/saleor-graphql.ts";
 import { writeFakeNpx } from "../support/configurator-cli-fake.ts";
+import { writeFakeStorefrontClis } from "../support/storefront-cli-fake.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 // The Jolly starter recipe's warehouse (assets/skills/jolly/recipe.yml) and the
@@ -597,6 +598,9 @@ Given(
   function (this: JollyWorld) {
     const shimDir = this.newTempDir("configurator-fake");
     writeFakeNpx(shimDir);
+    // Also shadow the storefront/deploy CLIs (git/pnpm/vercel) so those stages
+    // stay hermetic once they spawn — no @logic run touches the network.
+    writeFakeStorefrontClis(shimDir);
     this.notes.npxShimDir = shimDir;
   },
 );

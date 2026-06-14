@@ -272,19 +272,26 @@ Then(
     const envelopes = trace(this)
       .map((rec) => ({
         sub: subcommandOf(rec),
+        dryRun: rec.argv.includes("--dry-run"),
         env: rec.stdout ? findEnvelope(rec.stdout) : undefined,
       }))
-      .filter((e): e is { sub: string | undefined; env: Envelope } => Boolean(e.env));
+      .filter(
+        (e): e is { sub: string | undefined; dryRun: boolean; env: Envelope } =>
+          Boolean(e.env),
+      );
     assert.ok(
       envelopes.length > 0,
       "no Jolly command emitted an output envelope to judge stop-honesty",
     );
 
-    // (a) No fabricated overall success: `jolly start` must not report envelope
-    // status "success" for an end-to-end flow that cannot complete under the
-    // forced-safe credentials (the feature 001 invariant, applied to the run).
-    for (const { sub, env } of envelopes) {
-      if (sub === "start") {
+    // (a) No fabricated overall success: a REAL `jolly start` run must not report
+    // envelope status "success" for an end-to-end flow that cannot complete under
+    // the forced-safe credentials (the feature 001 invariant, applied to the run).
+    // `jolly start --dry-run` is exempt: a preview legitimately reports "success"
+    // (features 001/020) because it performs nothing — the no-fabrication
+    // invariant constrains the real run, not the preview.
+    for (const { sub, dryRun, env } of envelopes) {
+      if (sub === "start" && !dryRun) {
         assert.notEqual(
           env.status,
           "success",

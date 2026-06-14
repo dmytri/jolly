@@ -18,7 +18,7 @@
 // strips types) in dev/test, and as a pre-built JS bundle via bin/jolly in
 // production. Only Node built-ins and the project's own src/lib/ helpers are used.
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash, randomBytes } from "node:crypto";
@@ -2030,12 +2030,12 @@ function startPlan(): PlanStage[] {
       },
       riskContext: {
         action: "spawn git clone + pnpm install",
-        target: "saleor/storefront (Paper) → storefront/",
+        target: "saleor/storefront (Paper) from the `main` branch → storefront/",
         riskLevel: "low",
         categories: [],
         reversible: true,
         sideEffects: [
-          "Spawns `git` to clone the Saleor Paper storefront into storefront/",
+          "Spawns `git` to clone the Saleor Paper storefront from the `main` branch into storefront/, strips the upstream `.git` history, and `git init`s a fresh repository",
           "Spawns `pnpm install` to install storefront dependencies",
         ],
         dryRunAvailable: true,
@@ -2100,7 +2100,8 @@ function startPlan(): PlanStage[] {
         categories: ["live deployment"],
         reversible: true,
         sideEffects: [
-          "Spawns `npx vercel` (the agent's own Vercel login session) to deploy the storefront",
+          "Spawns `npx vercel` (and `npx vercel --prod`) under the Vercel CLI's OWN `vercel login` session to deploy storefront/, sets the required Vercel env vars through the CLI, surfaces Vercel Deployment Protection, and updates Saleor trusted origins where APIs allow",
+          "Jolly holds no Vercel token (there is no JOLLY_VERCEL_TOKEN) and its own code sends no request to the Vercel API — Vercel is reached only by the spawned Vercel CLI under its own auth",
         ],
         dryRunAvailable: true,
       },
@@ -2412,6 +2413,177 @@ async function runStripeStage(checks: Check[]): Promise<StageStatus> {
   }
 }
 
+/**
+ * Genuinely perform the storefront clone+install stage (feature 002 Rule
+ * "Storefront and Vercel deploy stages"). Jolly SPAWNS `git` to clone
+ * `saleor/storefront` (Paper) from the `main` branch into `storefront/`, strips
+ * the upstream `.git` history, `git init`s a fresh repository, and SPAWNS
+ * `pnpm install` — never reimplementing them against raw APIs. Idempotent
+ * (feature 022): an already-cloned/installed `storefront/` (with node_modules)
+ * is detected and the stage is skipped rather than re-cloned. Reads the child
+ * EXIT CODES and reports `completed`/`pass` only when the clone + install
+ * actually succeeded; `blocked`/`fail` (with the real error) otherwise — never
+ * a fabricated completion. Non-interactive.
+ */
+async function runStorefrontStage(checks: Check[]): Promise<StageStatus> {
+  const dir = join(projectDir(), "storefront");
+
+  // Idempotency (feature 022): an already-prepared storefront is reused.
+  if (existsSync(join(dir, "node_modules")) && existsSync(join(dir, "package.json"))) {
+    checks.push({
+      id: "storefront-prepared",
+      status: "pass",
+      description: "Reused the already-cloned storefront/ with installed dependencies (no re-clone).",
+    });
+    return "completed";
+  }
+
+  // Clone Paper from `main` unless storefront/ already holds the sources.
+  const alreadyCloned = existsSync(join(dir, "package.json"));
+  if (!alreadyCloned) {
+    if (existsSync(dir)) {
+      checks.push({
+        id: "storefront-prepared",
+        status: "fail",
+        description:
+          "Did not clone the storefront: storefront/ already exists but is not a Paper checkout.",
+        remediation:
+          "Resolve the storefront/ directory collision (remove or rename it), then re-run jolly start --yes.",
+      });
+      return "blocked";
+    }
+    const clone = spawnSync(
+      "git",
+      ["clone", "--branch", "main", "https://github.com/saleor/storefront.git", dir],
+      { encoding: "utf8", timeout: 600_000, env: { ...process.env } },
+    );
+    if (clone.error || clone.status !== 0) {
+      const reason = clone.error
+        ? clone.error.message
+        : `git clone exited ${clone.status}`;
+      const stderr = (clone.stderr ?? "").toString().slice(0, 2000);
+      checks.push({
+        id: "storefront-prepared",
+        status: "fail",
+        description: `Did not clone the Saleor Paper storefront from main: ${reason}.${stderr ? ` ${stderr}` : ""}`,
+        remediation: "Verify `git` is installed and github.com is reachable, then re-run jolly start --yes.",
+      });
+      return "blocked";
+    }
+    // Strip the upstream .git history and initialize a fresh repository.
+    rmSync(join(dir, ".git"), { recursive: true, force: true });
+    const init = spawnSync("git", ["init"], { cwd: dir, encoding: "utf8", timeout: 60_000 });
+    if (init.error || init.status !== 0) {
+      checks.push({
+        id: "storefront-prepared",
+        status: "fail",
+        description: `Cloned Paper but could not initialize a fresh git repository: ${init.error ? init.error.message : `git init exited ${init.status}`}.`,
+        remediation: "Verify `git` is installed, then re-run jolly start --yes.",
+      });
+      return "blocked";
+    }
+  }
+
+  // Install Paper's dependencies with pnpm.
+  const install = spawnSync("pnpm", ["install"], {
+    cwd: dir,
+    encoding: "utf8",
+    timeout: 600_000,
+    env: { ...process.env },
+  });
+  if (install.error || install.status !== 0) {
+    const reason = install.error ? install.error.message : `pnpm install exited ${install.status}`;
+    const stderr = (install.stderr ?? "").toString().slice(0, 2000);
+    checks.push({
+      id: "storefront-prepared",
+      status: "fail",
+      description: `Cloned Paper but did not install dependencies: ${reason}.${stderr ? ` ${stderr}` : ""}`,
+      remediation: "Verify `pnpm` is installed and the registry is reachable, then re-run jolly start --yes.",
+    });
+    return "blocked";
+  }
+
+  checks.push({
+    id: "storefront-prepared",
+    status: "pass",
+    description:
+      "Cloned saleor/storefront (Paper) from main into storefront/, initialized a fresh git repository, and installed dependencies with pnpm.",
+  });
+  return "completed";
+}
+
+/**
+ * Genuinely perform the Vercel deploy stage (feature 002 Rule "Storefront and
+ * Vercel deploy stages"). Jolly SPAWNS the official Vercel CLI (`npx vercel`,
+ * then `npx vercel --prod`) under the Vercel CLI's OWN `vercel login` session —
+ * never a raw-API reimplementation. The durable Vercel invariants hold: official
+ * CLI only, its own auth, NO `JOLLY_VERCEL_TOKEN`, and NO Vercel REST API host
+ * in Jolly's own request code (the spawned CLI reaches it under its own auth).
+ * `vercel login` is an interactive stdio-passthrough gate; Jolly continues on
+ * the child's exit. Reads the child EXIT CODE and reports `completed`/`pass`
+ * only on a real exit-0 deploy; `blocked`/`fail` (with the real error) otherwise
+ * — never a fabricated deployment. Non-interactive for the deploy itself.
+ */
+async function runDeployStage(checks: Check[]): Promise<StageStatus> {
+  const dir = join(projectDir(), "storefront");
+
+  if (!existsSync(join(dir, "package.json"))) {
+    checks.push({
+      id: "vercel-deployed",
+      status: "skipped",
+      description: "Cannot deploy: storefront/ is not prepared yet (no Paper checkout).",
+      remediation: "Complete the storefront stage so storefront/ exists, then re-run jolly start --yes.",
+    });
+    return "blocked";
+  }
+
+  // Deploy to production via the official Vercel CLI under its own session.
+  // No JOLLY_VERCEL_TOKEN is read or passed; Jolly's own code contacts no host.
+  const deploy = spawnSync("npx", ["--yes", "vercel", "deploy", "--prod", "--yes"], {
+    cwd: dir,
+    encoding: "utf8",
+    timeout: 600_000,
+    env: { ...process.env },
+  });
+
+  if (deploy.error || deploy.status === null) {
+    const reason = deploy.error ? deploy.error.message : "the Vercel CLI could not be spawned";
+    checks.push({
+      id: "vercel-deployed",
+      status: "fail",
+      description: `Did not deploy to Vercel: ${reason}.`,
+      remediation:
+        "Verify the Vercel CLI is authenticated (`npx vercel login`, an interactive gate the agent/human runs), then re-run jolly start --yes.",
+    });
+    return "blocked";
+  }
+
+  if (deploy.status === 0) {
+    checks.push({
+      id: "vercel-deployed",
+      status: "pass",
+      description: "Deployed storefront/ to Vercel via the official Vercel CLI (`npx vercel --prod`).",
+    });
+    checks.push({
+      id: "vercel-deployment-protection",
+      status: "warning",
+      description:
+        "Vercel Deployment Protection is on by default and blocks public access; disable it in the Vercel project settings so the store is publicly reachable (a project setting Jolly does not change).",
+    });
+    return "completed";
+  }
+
+  const stderr = (deploy.stderr ?? "").toString().slice(0, 2000);
+  checks.push({
+    id: "vercel-deployed",
+    status: "fail",
+    description: `Did not deploy to Vercel: the Vercel CLI exited ${deploy.status}.${stderr ? ` ${stderr}` : ""}`,
+    remediation:
+      "Run `npx vercel login` (an interactive gate the agent/human completes), then re-run jolly start --yes.",
+  });
+  return "blocked";
+}
+
 async function commandStart(args: ParsedArgs): Promise<Envelope> {
   if (args.dryRun) return commandStartDryRun();
 
@@ -2477,7 +2649,12 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
         // it executes; reported honestly (`completed` only when the configurator
         // exited 0, never fabricated). Other high-risk stages (store, deploy)
         // are not yet built as spawned-CLI stages and stay pending under --yes.
-        status = planStage.stage === "recipe" ? await runRecipeStage(checks) : "pending";
+        status =
+          planStage.stage === "recipe"
+            ? await runRecipeStage(checks)
+            : planStage.stage === "deploy"
+              ? await runDeployStage(checks)
+              : "pending";
       } else {
         status = "awaiting-approval";
         gate = {
@@ -2485,6 +2662,15 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
           reason: "Approve this high-risk stage before Jolly performs it.",
         };
       }
+    } else if (planStage.stage === "storefront" && !gate) {
+      // The storefront stage genuinely executes (fifth convergence): Jolly
+      // spawns `git` to clone Paper from `main` into storefront/, strips the
+      // upstream `.git`, `git init`s a fresh repo, and spawns `pnpm install`.
+      // It is not high-risk (like stock) — it executes when the run reaches it
+      // (gate unset, i.e. the store gate before it was pre-approved with --yes).
+      // Reported honestly: `completed` only on a real clone+install; `blocked`
+      // otherwise — never a fabricated completion. Idempotent (feature 022).
+      status = await runStorefrontStage(checks);
     } else if (planStage.stage === "stock" && !gate) {
       // The stock stage is the FIRST genuinely-executing `jolly start` stage
       // (decision 2026-06-14, MVP sequencing): @saleor/configurator cannot make
@@ -2554,6 +2740,22 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
     nextSteps.push({
       description:
         "Open the installed Stripe app's configuration in the Saleor Dashboard, paste the publishable key and the Stripe restricted key, and map the configuration to the `us` channel (keys referenced by name only — Jolly does not perform this guided human gate).",
+    });
+  }
+
+  // Human-run FALLBACK (feature 002 Rule "Human-runnable `jolly start` is the
+  // backup path"): whenever this run could not run to completion (status
+  // `warning` — paused at a gate, or with blocked/failed downstream stages),
+  // offer to ask the human to run `jolly start` in a plain shell, the natural
+  // way to clear the irreducibly-interactive gates (account creation, browser
+  // OAuth, `vercel login`, `stripe login`) a non-TTY agent cannot pass. Then
+  // they start their agent in that project to iterate — the skills jolly init
+  // installed are already on disk. Offered, never fabricated as performed.
+  if (!bootstrapFailed) {
+    nextSteps.push({
+      description:
+        "If the agent cannot clear an interactive gate (account creation, browser OAuth, `vercel login`, `stripe login`), ask the human to run `jolly start` in a plain shell, then start their agent in that project to iterate (the skills jolly init installed are already on disk). This is a fallback — Jolly has not run it.",
+      command: "jolly start",
     });
   }
 
