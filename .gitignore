@@ -2,6 +2,8 @@ node_modules
 dist/
 .env
 bun.lockb
-.claude/skills
-.agents/skills
+.claude/
+.agents/
+.agent/
 .pi/
+skills-lock.json
