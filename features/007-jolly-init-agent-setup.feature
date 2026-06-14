@@ -52,6 +52,7 @@ Feature: Jolly init for local agent setup
     - `jolly init` should not store secrets.
     - Jolly must never silently overwrite an existing .mcp.json or AGENTS.md. Merge, never replace.
     - Skill installation output must reflect what was actually verified on disk, not pre-computed names. If a clone or install step fails, surface stderr and exit non-zero.
+    - The standard project-local skill location is `.agents/skills/<id>/` — the universal directory `npx skills add` (with no `--agent`) writes to, read by all supported agents (verified 2026-06-14). Jolly's on-disk verification must check there; a real install must not read as "not installed" because the check looked only under one agent's `.claude/skills/`.
     - Exact per-agent instruction file targets remain open.
 
   Rule: Jolly skill source (resolved 2026-06-13)

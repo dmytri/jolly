@@ -1,131 +1,134 @@
 ---
 name: jolly
-description: End-to-end playbook for setting up a Saleor Cloud storefront with Jolly — teaches the customer's own agent to drive the official CLIs (Vercel, @saleor/configurator, git, pnpm) plus Jolly's thin helpers, from `jolly start` to a live, deployed store.
+description: End-to-end playbook for setting up a Saleor Cloud storefront with Jolly — run `jolly start` and supervise it as it spawns the official CLIs (Vercel, @saleor/configurator, git, pnpm) plus Jolly's own plumbing, from one command to a live, deployed store.
 ---
 
 # Jolly setup playbook
 
-> **UPDATED 2026-06-14 — `jolly start` now orchestrates the whole setup.** Under the
-> "Agent-supervised orchestration" decision (AGENTS.md), the primary path is: **run
-> `jolly start` and let it drive end-to-end.** It spawns the official CLIs for you (`git` clone
-> of Paper, `pnpm install`, `@saleor/configurator diff`/`deploy`, `npx vercel`) alongside its own
-> plumbing, **pausing for your approval** (a `riskContext`) before each create/deploy and
-> **waiting at the human gates**. Interactive logins (`vercel login`, `stripe login`) are run by
-> Jolly with the terminal handed to that CLI — you complete the login as it directs and `start`
-> continues on its exit. The stages below now describe **what `start` does and where it pauses**,
-> and remain the manual fallback (every stage is also a command you can run yourself). The
-> Saleor **Dashboard Stripe app** (configure + map to the channel) and **account creation** are
-> the steps no CLI can do — `start` announces and waits for you there. *(This banner supersedes
-> the "you run the official CLIs yourself" framing in the lines just below, which are pending a
-> full rewrite to the orchestration model.)*
+You are the customer's own agent. **Jolly does not replace you.** The primary path is one
+command — **`jolly start`** — a resumable runner that performs the whole setup end-to-end by
+**spawning the official CLIs** (`git` clone of Paper, `pnpm install`, `@saleor/configurator
+diff`/`deploy`, `npx vercel`) alongside its own plumbing (auth, store/app-token, secret writing,
+`.mcp.json`, diagnostics). **You stay in charge:** `start` pauses for *your* approval before each
+high-risk action and waits at the human gates; you provide credentials, decide approvals, and own
+all post-setup iteration. Jolly owns only the mechanical choreography between gates — and it never
+reimplements a CLI against raw APIs, holds no Vercel token, and never fabricates a step it did not
+perform.
 
-You are the customer's own agent. **Jolly does not replace you** — it gives you a thin CLI
-for plumbing (auth, store provisioning, secret writing, diagnostics) and this playbook. You
-run the official CLIs yourself. Jolly never shells out to the Vercel CLI or
-`@saleor/configurator`; you do.
-
-Reach the goal — a real, deployed, working storefront (browsing, cart, and checkout to the
-Stripe test payment step) — in as few human interruptions as possible. Pause only for the
-unavoidable human steps: new-account creation, browser OAuth/login consent, and pasting secret
-values. Everything else, automate.
+The goal: a real, deployed, working storefront (browsing, cart, and checkout to the Stripe test
+payment step) with the fewest human interruptions — only the steps no tool can do (new-account
+creation, browser login consent, the Dashboard Stripe-app config).
 
 > Exact upstream commands and flags (Vercel CLI, `@saleor/configurator`, Paper's
-> `saleor/storefront`) change over time. Re-check the current upstream docs/`--help` at run
-> time rather than trusting memorized invocations. The Jolly skill describes the *flow*; the
-> tools own the *specifics*.
+> `saleor/storefront`) change over time. Re-check current upstream docs/`--help` at run time
+> rather than trusting memorized invocations. This skill describes the *flow*; the tools own the
+> *specifics*.
 
 ## Before each action
 
 Every Jolly command emits one structured envelope (`command`, `status`, `summary`, `data`,
 `checks`, `nextSteps`, `errors`) and, before any create/modify/deploy action, a `riskContext`
 (`action`, `target`, `riskLevel`, `categories`, `reversible`, `sideEffects`, `dryRunAvailable`).
-**You** decide whether to seek the customer's approval based on that risk context and the
-customer's policies — Jolly never hardcodes the decision. Parse `--json` output to branch.
+**You** decide whether to seek the customer's approval from that risk context and the customer's
+policies — Jolly never hardcodes the decision. Parse `--json` to branch.
 
-## Stages
+## Run it: `jolly start`
 
-1. **Bootstrap** — if `.mcp.json` and the `jolly:begin` block in `AGENTS.md` aren't already
-   present, run `jolly init` (or `jolly start`): it installs this skill + the Saleor agent-skills
-   via `npx skills add`, writes `.mcp.json` (local mcp-graphql), scaffolds, and runs `jolly
-   doctor`. Read its `data`/`nextSteps`; never overwrite Jolly's marked `AGENTS.md` section.
+```
+jolly start            # orchestrate end-to-end, pausing at each gate
+jolly start --dry-run   # preview the whole plan (stages, effects, riskContexts) — changes nothing
+jolly start --yes       # pre-approve the high-risk stages and run straight through
+```
 
-2. **Authenticate to Saleor Cloud** — if not already authed, run `jolly login`. It prefers the
-   browser OAuth flow and falls back to a pasted token; pause for the human's browser consent.
-   The Saleor Cloud token is stored as `JOLLY_SALEOR_CLOUD_TOKEN` in `.env`.
+Preview first with `--dry-run --json`: the `data.plan` lists every stage, its effects, and the
+`riskContext` for each side-effecting one. Then run `jolly start`. It will:
 
-3. **Provision the store** — run `jolly create store` (creates/reuses the Saleor Cloud
-   organization, project, and environment via the Cloud API). For a brand-new Saleor account,
-   direct the human to sign up at cloud.saleor.io first, then resume with the store URL.
+- **Bootstrap first** — install this skill + the Saleor agent-skills via `npx skills add`, write
+  `.mcp.json` (local mcp-graphql against your endpoint), scaffold, and run `jolly doctor`.
+- **Pause for your approval before each high-risk stage** — `create store`, the
+  `@saleor/configurator deploy`, and the `npx vercel` deploy. `start` emits that stage's
+  `riskContext` and waits; you approve (or `--yes` pre-approves the whole run). It never
+  self-approves.
+- **Hand you the terminal at interactive CLI logins** — `vercel login`, `stripe login`: `start`
+  runs the CLI with stdio passed straight through, the human completes the login as that CLI
+  directs (URL/browser/one click), and `start` continues when it exits (exit 0 → next; non-zero →
+  it stops honestly).
+- **Announce and wait at the human gates no CLI can do** — creating a Saleor/Vercel/Stripe
+  account, the **Saleor Dashboard Stripe app** (configure with the keys + map to the `us`
+  channel), and pasting a secret no CLI hands over. `start` prints the exact step (in the
+  envelope, so you can relay it) and waits, then resumes.
+- **Verify and report honestly** — it runs `jolly doctor` automatically and reports only the
+  stages it actually performed, with the deployed URL and any remaining manual steps. A stage
+  that is pending, paused for approval, or waiting at a human gate is reported as such (envelope
+  status `warning`), never as a completed success.
 
-4. **App token** — run `jolly create app-token` to acquire a Saleor app token (all permissions
-   in v1) for configuration.
+**Resumable:** re-running `jolly start` is safe — it detects what you and it already did (the
+cloned storefront, the configured store, the deployment) and continues from the first outstanding
+stage rather than redoing work.
 
-5. **Storefront** — clone the Paper template yourself:
-   `git clone https://github.com/saleor/storefront.git ./storefront` (the `main` branch),
-   remove the upstream `.git`, run `git init`, `cp .env.example .env`, and `pnpm install`. If the
+## The stages (each is also a command you can run yourself)
+
+`start` chains these; every one is also a composable command, so you can drive any single stage
+and mediate it yourself. The order and the load-bearing specifics:
+
+1. **Bootstrap** — `jolly init` (skills + `.mcp.json` + scaffold + doctor). Never overwrite
+   Jolly's marked `AGENTS.md` section.
+2. **Authenticate Saleor Cloud** — `jolly login` (browser OAuth, or a pasted `--token`). Stores
+   `JOLLY_SALEOR_CLOUD_TOKEN` in `.env`. For a brand-new account, send the human to
+   cloud.saleor.io to sign up, then resume.
+3. **Provision the store** — `jolly create store` (creates/reuses the Cloud organization,
+   project, and a **blank** environment via the Cloud API). High-risk → approval gate.
+4. **App token** — `jolly create app-token` (full v1 permissions, for configuration).
+5. **Storefront** — clone Paper (`git clone https://github.com/saleor/storefront.git ./storefront`,
+   `main`), strip the upstream `.git`, `git init`, `cp .env.example .env`, `pnpm install`. If the
    local Node version is incompatible with Paper, tell the human (don't switch Node yourself). In
-   the storefront's `.env`, set `NEXT_PUBLIC_SALEOR_API_URL` to your store's GraphQL endpoint and
-   `NEXT_PUBLIC_DEFAULT_CHANNEL=us` (the channel the starter recipe creates).
-
-6. **Configure the store** — the Jolly starter recipe ships with this skill as `recipe.yml`
-   (alongside this `SKILL.md`): a pirate-themed US/USD/English catalog with shipping and the `us`
-   channel Paper points at. Copy it into the storefront repo as `saleor-config.yml` (keep it
-   version-controlled and reviewable), then apply it with `@saleor/configurator`'s safe
-   workflow — `diff` to preview, then `deploy` — passing
+   the storefront `.env` set `NEXT_PUBLIC_SALEOR_API_URL` to your GraphQL endpoint and
+   `NEXT_PUBLIC_DEFAULT_CHANNEL=us` (the channel the recipe creates).
+6. **Configure the store** — the Jolly starter recipe ships beside this file as `recipe.yml` (a
+   pirate-themed US/USD/English catalog with shipping and the `us` channel Paper points at). Copy
+   it into the storefront repo as `saleor-config.yml` (version-controlled, reviewable), then apply
+   with `@saleor/configurator`'s safe workflow — `diff` to preview, then `deploy` — passing
    `--url "$NEXT_PUBLIC_SALEOR_API_URL" --token "$JOLLY_SALEOR_APP_TOKEN" --config saleor-config.yml`
-   (or set `SALEOR_URL`/`SALEOR_TOKEN`). Add `--fail-on-breaking` on `deploy`. Show the diff and
-   seek the customer's approval before deploying writes. Jolly never runs the configurator; you do.
-
-7. **Stripe (test mode)** — get the test keys the fast way, via the official Stripe CLI's
-   browser OAuth login (no hunting through the Dashboard):
-   - Run `npx @stripe/cli login` — it prints a URL; have the human open it and approve in the
-     browser (one click). If they have no Stripe account, send them to
-     https://dashboard.stripe.com/register first (test mode works immediately after signup —
-     no business details needed). The CLI cannot create the account; that signup is the human's.
-   - Then run `jolly create stripe` — with no flags it imports the test-mode keys from your
-     Stripe CLI session for you: it invokes the Stripe CLI read-only (`stripe config --list`) and
-     writes `test_mode_pub_key`/`test_mode_api_key` to `.env` (never printed). You don't read or
-     handle the secret yourself. Pass `--publishable-key …/--secret-key …` only to override (e.g.
-     durable Dashboard keys). Jolly runs the Stripe CLI only read-only, to import keys — it never
-     runs the `login`/OAuth (that one browser click is yours).
-   - **These CLI-issued keys are test-mode and expire (~90 days — see `test_mode_key_expires_at`).**
-     That is the right tradeoff to get started fast, but the expiry is yours to handle: before it
-     hits, generate durable keys in the Stripe Dashboard (Developers → API keys), re-run
-     `jolly create stripe`, and update the Saleor Stripe app config. Flag the expiry date to the
-     human now and own the follow-up — do not let checkout silently break at the 90-day mark.
-   - Durable-from-the-start alternative: if the human prefers, skip the CLI and paste standard
-     Dashboard keys straight into `jolly create stripe`. Live mode (out of v1 scope) always uses
-     Dashboard keys.
-   Then configure Saleor's **Stripe app** — the Saleor-supported payment path, *not* the
-   configurator (which manages catalog only): in the Saleor Dashboard → Extensions, install or
-   open the Stripe app, add a configuration with those keys, and **map it to the `us` channel**.
-   The Stripe app registers its own Stripe webhooks automatically. This Dashboard step needs the
-   human's click — guide them through it.
-
-8. **Deploy to Vercel** — deploy with the official Vercel CLI: `npx vercel`. Authentication is
-   the Vercel CLI's own `vercel login` session — if `npx vercel whoami` fails, pause and have
-   the human run `npx vercel login` (browser), then resume. Set the project's env vars
-   (`NEXT_PUBLIC_SALEOR_API_URL`, `NEXT_PUBLIC_DEFAULT_CHANNEL=us`) with the Vercel CLI
-   (`npx vercel env add …`), deploy to production (`npx vercel --prod`), and capture the deployed
-   URL. Do not use any other deployment mechanism.
-
-9. **Wire trusted origins** — update Saleor's allowed/trusted origins to include the deployed
-   storefront URL.
-
-10. **Verify** — run `jolly doctor` (all groups) to confirm operational readiness: Saleor
-    connectivity, storefront env, deployment reachability, and that checkout reaches the Stripe
-    test payment step. Report the live URL, the doctor results, and any remaining manual steps.
+   (or `SALEOR_URL`/`SALEOR_TOKEN`), with `--fail-on-breaking` on `deploy`. High-risk → approval
+   gate; review the diff before the deploy writes. (`deploy` reconciles the store to the recipe; on
+   a **blank** environment that is purely additive — Jolly provisions environments blank for
+   exactly this.)
+7. **Stripe (test mode)** — `start` installs Saleor's Stripe app for you via the Saleor GraphQL
+   `appInstall` mutation (HANDLE_PAYMENTS); the recipe sets the channel payment flow. The keys and
+   the channel mapping have **no public API**, so this stage is a guided gate:
+   - Get test keys the fast way: `npx @stripe/cli login` (one browser click — if there's no Stripe
+     account, sign up at https://dashboard.stripe.com/register first; test mode works immediately).
+     Then `jolly create stripe` with no flags imports the keys read-only from the CLI session
+     (`stripe config --list` → `.env`, never printed); you never handle the secret. Pass
+     `--publishable-key …/--secret-key …` to override with durable Dashboard keys.
+   - **These CLI keys expire (~90 days — `test_mode_key_expires_at`).** Flag the date to the human
+     now and own the follow-up: before expiry, generate durable Dashboard keys (Developers → API
+     keys), re-run `jolly create stripe`, and update the Stripe app config. Don't let checkout
+     silently break at the 90-day mark.
+   - Then the **Dashboard Stripe app** (human gate `start` waits at): Saleor Dashboard →
+     Extensions → the Stripe app, add a configuration with those keys, and **map it to the `us`
+     channel**. The app registers its own Stripe webhooks. The configurator does **not** touch
+     payments — this is the Saleor-supported path.
+8. **Deploy to Vercel** — the official Vercel CLI, spawned by `start`: `npx vercel`. Auth is the
+   CLI's own `vercel login` session (if `npx vercel whoami` fails, `start` runs `vercel login`
+   with the terminal handed through, then resumes). Set the project env vars
+   (`NEXT_PUBLIC_SALEOR_API_URL`, `NEXT_PUBLIC_DEFAULT_CHANNEL=us`) via the CLI, deploy to
+   production (`npx vercel --prod`), and capture the URL. High-risk → approval gate. **Vercel
+   Deployment Protection is on by default and blocks public access** — `start` surfaces it for the
+   human/agent to disable so the store is reachable. No other deployment mechanism.
+9. **Wire trusted origins** — add the deployed URL to Saleor's allowed/trusted origins.
+10. **Verify** — `jolly doctor` (all groups): Saleor connectivity, storefront env, deployment
+    reachability, and checkout reaching the Stripe test payment step. Report the live URL, the
+    doctor results, and any remaining manual steps.
 
 ## If a step fails or you're unsure
 
-Run `npx @dk/jolly doctor` — it tells you what is wrong and the concrete next action (a
-command to run, a CLI to authenticate, a value to ask your human for). Fix that, then
-continue. Re-running `jolly start` is safe: Jolly detects what you (and it) already did —
-the cloned storefront, the configured store, the deployment — and resumes from the first
-outstanding step rather than redoing work. Never treat a failed command as success.
+Run `npx @dk/jolly doctor` — it names what is wrong and the concrete next action (a command, a CLI
+to authenticate, a value to ask your human for). Fix that, then re-run `jolly start`; it resumes
+from the first outstanding stage. Never treat a failed command as success.
 
 ## Honesty
 
-Never claim a step succeeded that you did not actually perform and confirm. If a CLI is missing
-or unauthenticated, stop and tell the human exactly what to do (e.g. `npx vercel login`) — do
-not fabricate success or invent a fallback. Jolly's own commands follow the same rule.
+Never claim a step succeeded that you did not actually perform and confirm. If a CLI is missing or
+unauthenticated, stop and tell the human exactly what to do (e.g. `npx vercel login`) — do not
+fabricate success or invent a fallback. Jolly's own commands follow the same rule.

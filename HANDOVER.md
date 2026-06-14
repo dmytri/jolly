@@ -64,19 +64,37 @@ The pivot QM/Crew cycle (worklist items 1 & 2 below) is **complete and verified*
   **58/58** (was 3 failed); default `--dry-run` **0 undefined**; `eval` dry-run **0 undefined**.
   Full `@sandbox`/`test:bdd` NOT run locally (provisions billable Saleor envs — deferred to CI).
 
-### Finding (pre-existing, NOT a regression — for Captain): skills not detected after real install
-Crew's honest `skillsInstalled` reporting surfaced a pre-existing `@sandbox` bug. On this VM (real
-`.env` present, so `@sandbox` runs) feature **022:20** "Jolly start resumes bootstrap…" fails on
-`data.bootstrap.skillsInstalled === true`: real `installSkill` (`npx skills add`) either cannot
-install offline in the harness or installs to a path `skillInstalledOnDisk()` (`.claude/skills/<id>`)
-does not check, so a genuine install isn't detected. **Confirmed pre-existing:** committed baseline
-src failed **022:20 + 022:35**; this cycle fixed **022:35** and 022:20 stayed red (no regression).
-This turns on where `npx skills add --agent <…>` actually writes (and offline reachability) — a
-skill-install/product question (feature 007 + the AGENTS.md skill-install principle), so QM stopped
-rather than guess. Follow-up options: teach `skillInstalledOnDisk()` the real install path, or gate
-022's real-install `@sandbox` steps on skill-install capability. Off the default worklist (`@sandbox`,
-skips in credential-less CI). The other live-`@sandbox` reds (002:66 real Vercel deploy, 012:75
-transient namespace) are environmental and unchanged by this cycle.
+### RESOLVED (2026-06-14, Captain): skill-install verify location — DECIDED, QM/Crew worklist below
+Crew's honest `skillsInstalled` reporting surfaced a pre-existing `@sandbox` bug: feature **022:20**
+"Jolly start resumes bootstrap…" fails on `data.bootstrap.skillsInstalled === true`. **Confirmed
+pre-existing** (committed baseline failed 022:20 + 022:35; this cycle fixed 022:35, 022:20 stayed
+red — no regression). **Root cause, now verified empirically by Captain:** `npx skills add` with no
+`--agent` installs to the **universal** `.agents/skills/<id>/SKILL.md` (ran it live in a temp dir —
+output: `✓ ./.agents/skills/jolly  universal: Codex, Zed, Amp …`), but `skillInstalledOnDisk()`
+checks only `.claude/skills/<id>`. So a genuine install reads as "not installed."
+
+**Decision (captured in AGENTS.md skill-install principle + feature 007 Rule):** the standard
+project-local skill location is `.agents/skills/<id>/` (the universal dir all supported agents read);
+Jolly verifies installed skills there. This is an implementation/harness fix, not a spec change
+(feature 007 already says "standard project-local skill locations").
+
+**QM/Crew worklist (FRESH session):**
+1. **Crew — `src/index.ts` `skillInstalledOnDisk()`:** check `.agents/skills/<id>/` (where
+   `npx skills add` writes). Keep accepting `.claude/skills/<id>/` too so already-seeded
+   workspaces still verify (present if SKILL.md exists in *either*). Minimal change; do not alter
+   `installSkill` (it already installs to the universal location by omitting `--agent`).
+2. **QM — harness fidelity:** the eval/007 seed copies the skill to `.claude/skills/` to simulate a
+   real install; with the verifier accepting both, that keeps passing, but for fidelity prefer
+   seeding `.agents/skills/<id>/` (matches the real tool). 022's real-install `@sandbox` steps need
+   real network for `npx skills add`; if unreachable they should skip-not-fail (skill-install
+   capability), consistent with @sandbox gating — but with the path fix, 022:20 passes wherever the
+   install actually runs.
+3. **Verify:** `@logic`/units/typecheck green; default dry-run 0 undefined; on a creds-present VM,
+   `cucumber-js features/022…:20` passes (skills detected after a real install).
+
+Off the default worklist either way (`@sandbox`, skips in credential-less CI). The other
+live-`@sandbox` reds (002:66 real Vercel deploy, 012:75 transient namespace) are environmental and
+unchanged by this cycle.
 
 ### Why (evidence from the live acceptance run, this session)
 Drove the current skill-driven flow against the live `jolly-store` to find where it actually

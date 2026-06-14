@@ -180,7 +180,12 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompt
   is the explicit subpath `npx skills add https://github.com/dmytri/jolly/tree/main/assets/skills/jolly`
   (the bare `dmytri/jolly` also resolves to the single skill, but the explicit ref is preferred).
   The skill stays under `assets/` (Shipshape rule); the repo root is not restructured for it
-  (decision 2026-06-13).
+  (decision 2026-06-13). **Install/verify location (verified 2026-06-14):** `npx skills add`
+  with no `--agent` writes to the **universal** `.agents/skills/<id>/` location (read by all
+  supported agents — Claude Code, Codex, Zed, Cursor, …), not a single agent's `.claude/skills/`.
+  So Jolly verifies an installed skill at `.agents/skills/<id>/` (the on-disk check feature 007
+  requires). Hardcoding `.claude/skills/` is the cause of the feature-022 "skills not detected
+  after a real install" finding.
 - **Zero unnecessary friction:** The path from copying the Jolly homepage prompt to a working deployed storefront requires only the human actions that cannot be automated — new account creation, browser OAuth consent, and providing secret values. Everything else Jolly and the agent handle automatically using safe defaults.
 - **Trustworthy first-step handoff (decision 2026-06-13):** The setup instructions the customer
   pastes into their agent (homepage copy box → jolly.cool/setup → the Jolly skill) must read as
