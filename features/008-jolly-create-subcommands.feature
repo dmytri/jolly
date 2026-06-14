@@ -32,10 +32,11 @@ Feature: Jolly create subcommands
     - Storing without verifying is reported as exactly "stored, not verified" (per feature 020); it is never reported as created/configured.
     - `--dry-run` previews show the real intended request (host, path, resolved identifiers) and never claim the work was done.
 
-  Rule: Thin surface — the agent runs the official CLIs, Jolly does not (decision 2026-06-13)
-    - `jolly create` exposes only the deterministic-plumbing resources Jolly owns: `store` (Saleor Cloud store/project/environment via the Cloud API), `app-token` (Saleor app token via GraphQL), and `stripe` (writes Stripe test keys to `.env`).
-    - The former tool-wrapping subcommands are retired: storefront creation (`git` clone of `saleor/storefront`), recipe apply (`@saleor/configurator`), and Vercel deployment (`npx vercel`) are run by the customer's agent itself, guided by the Jolly skill.
-    - Jolly never shells out to the Vercel CLI or `@saleor/configurator`, never reimplements them against raw provider APIs, holds no Vercel token, and makes no `api.vercel.com` request from its own code (see feature 020's amended "First-party hosts only").
+  Rule: Surface — composable plumbing commands; `start` orchestrates the official CLIs (decision 2026-06-13, amended 2026-06-14)
+    - `jolly create` still exposes only the deterministic-plumbing resources Jolly owns: `store` (Saleor Cloud store/project/environment via the Cloud API), `app-token` (Saleor app token via GraphQL), and `stripe` (writes Stripe test keys to `.env`). The separate tool-wrapping subcommands (storefront creation, recipe apply, deployment) stay retired AS SUBCOMMANDS.
+    - AMENDED 2026-06-14 ("Agent-supervised orchestration", feature 002): that orchestration now lives inside `jolly start`, which SPAWNS the official CLIs itself — `git` clone of `saleor/storefront`, `pnpm install`, `@saleor/configurator diff`/`deploy`, and `npx vercel` deploy + env-var setup — rather than handing the agent a playbook to run them. So the prior "Jolly never shells out to the Vercel CLI or `@saleor/configurator`" line is REVERSED for `start`.
+    - What survives: Jolly spawns official, current CLIs only — never reimplementing them against raw provider APIs. Each spawned CLI uses its own auth, so Jolly still holds no Vercel token and makes no `api.vercel.com` request from its OWN code (the spawned Vercel CLI does; see feature 020's "First-party hosts only", which governs Jolly's own request code).
+    - Interactive CLI steps run with stdio passed through (the user interacts with the CLI directly); `start` continues on the CLI's exit (0 → next; non-zero → stop honestly). Human-only gates (account creation, the Dashboard Stripe app, secret paste) are announced-and-waited-on.
     - The deprecated `saleor/cli` is never invoked.
 
   Rule: Create command boundaries

@@ -10,7 +10,82 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
-## CURRENT (2026-06-14, Captain — committed + released @dk/jolly v0.5.2): blank-environment provisioning DONE
+## CURRENT (2026-06-14, Captain — ARCHITECTURE PIVOT spec'd): `jolly start` becomes an agent-supervised orchestrator
+
+**Decision (customer, 2026-06-14): `jolly start` runs the setup end-to-end by spawning the
+official CLIs for the agent — reversing the "the agent runs the tools, not Jolly" stance.** This
+is a real re-architecture; specs are updated, IMPLEMENTATION IS NOT BUILT (src `start` still does
+the old bootstrap+playbook). Next is a QM/Crew cycle to build it.
+
+### Why (evidence from the live acceptance run, this session)
+Drove the current skill-driven flow against the live `jolly-store` to find where it actually
+breaks. It **works**: Paper deployed to Vercel, **public and browsing the live store** at
+`https://jolly-acceptance.vercel.app` (`/us/products` renders all 10 recipe products; product
+detail shows price + Add to bag). So the flow isn't broadly unreliable — it has **one fiddly,
+reliability-sensitive seam: the `@saleor/configurator` deploy** (correct flags, blank-vs-sample
+env, the 120-delete handling). The big remaining stages are dominated by **irreducibly-human**
+steps no orchestration removes: account creation, OAuth logins, and the **Saleor Dashboard Stripe
+app** (Paper takes no Stripe keys — it reads the publishable key from Saleor `paymentGatewayInitialize`
+at runtime). Also found: **Vercel Deployment Protection is on by default** and must be turned off
+for the store to be public (I disabled it via the Vercel API using the CLI's own token).
+
+### The model (now in the specs)
+`jolly start` = resumable end-to-end runner that **spawns** `git`/`pnpm`/`@saleor/configurator`/
+`npx vercel` (official CLIs only, never raw-API reimpl; each uses its OWN auth, so still no
+`JOLLY_VERCEL_TOKEN` and no api.vercel.com in Jolly's own request code). **Interactive CLI gates
+= stdio passthrough**, continue on the child's exit (0 → next; non-zero → stop honestly).
+**Non-CLI human gates** (account creation, Dashboard Stripe app, secret paste) = announce-and-wait.
+**Agent is the approval authority**: `start` emits the feature-021 `riskContext` and pauses before
+each high-risk stage (`create store`, configurator `deploy`, vercel deploy); `--yes` pre-approves.
+Composable per-stage commands stay; `start` chains them (feature 022). No fabrication — reports
+only stages actually performed.
+
+### Specs landed this Captain pass (UNCOMMITTED — see git status)
+- **AGENTS.md** — new "Agent-supervised orchestration" decision block (supersedes "thin CLI — the
+  agent runs the tools"); MVP flow paragraph + integrity rule + Network Boundaries + CLI-surface
+  bullet amended.
+- **features/002** — new Rule "Agent-supervised orchestration — `jolly start` runs the CLIs"; old
+  "Deployment tooling" rule marked superseded. **features/008** — "Thin surface" rule → "Surface —
+  `start` orchestrates". **features/021** — new Rule "`jolly start` pauses for approval at each
+  high-risk stage". **features/001** — `start` principle amended; playbook scenarios flagged for
+  regeneration.
+- **assets/homepage/setup.md** — "Who runs what" + Quick start flipped to the `start`-orchestrates
+  model. **assets/skills/jolly/SKILL.md** — superseding banner at top (full playbook body rewrite
+  still TODO — Captain).
+- **features/025** — eval task already = the real `/setup` paste; Stripe assertion removed (the
+  /setup run under safe creds stops at the Saleor gate before Stripe); 2 Then-steps reworded →
+  **2 undefined steps in the `eval` profile** (the QM marker).
+
+### QM/Crew worklist (FRESH session)
+1. **Crew — rebuild `jolly start` as the orchestrator** in `src/index.ts`: spawn the official CLIs
+   for clone/install/configurator/deploy + env-var setup; stdio passthrough for interactive CLI
+   logins, continue on exit (non-zero → honest stop); announce-and-wait at human gates; emit
+   `riskContext` + pause before each high-risk stage (`--yes` to pre-approve); resumable, skips
+   satisfied stages; no fabrication. Keep the composable commands. Configurator deploy must handle
+   the blank-vs-sample env (blank provisioning already shipped v0.5.2) and destructive-delete flags.
+2. **QM — regenerate step defs** for the reframed scenarios in 001/002 and the **025 eval** (the 2
+   new Then-steps: invoked `jolly start`; honest stop at a human/credential gate under safe creds).
+   012-incident safety throughout.
+3. **Verify** — `@logic`/units/typecheck green; default dry-run 0 undefined; `eval` profile back to
+   0 undefined; the `@eval` run drives the real `/setup` → `jolly start` orchestration.
+
+### Open Captain follow-up
+- Full `assets/skills/jolly/SKILL.md` playbook rewrite to the orchestration model (only a banner so far).
+- The live acceptance run's last human step: **Saleor Dashboard → Extensions → Stripe app**, add a
+  config with the `.env` test keys, **map to the `us` channel** (the adopt-on-green check that the
+  CLI-issued `sk_test_` key reaches checkout). Then re-verify checkout on `jolly-acceptance.vercel.app`.
+- Easter egg shipped: recipe now has an 11th product **"The Jolly"** (the boat the name comes from),
+  featured in Crew Favorites. Live store NOT re-deployed with it (re-deploy here = 120 destructive
+  deletes on this sample-data store, predates v0.5.2 blank provisioning); future blank-env setups get it.
+
+### Live deploy state (this session)
+`https://jolly-acceptance.vercel.app` (Vercel project `dmytri-kleiners-projects/jolly-acceptance`,
+Deployment Protection OFF) serving the live `jolly-store`. Storefront at
+`/home/exedev/acceptance/storefront` (deps installed, linked, prod env vars set).
+
+---
+
+## DONE (2026-06-14, Captain — committed + released @dk/jolly v0.5.2): blank-environment provisioning
 
 Findings #1 (v0.5.1) and #2 (v0.5.2) are both **DONE and released**. There is **no open QM worklist**
 — default dry-run is **0 undefined**. Next role is QM in a FRESH session only if new spec work lands.

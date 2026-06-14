@@ -56,7 +56,7 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompt
 - Module system: ES modules
 - Entry point: `src/index.ts`
 - CLI distribution target: executable via `npx` with package `@dk/jolly` — the only package name, everywhere (decision 2026-06-12); never mention any `@saleor/...` package, not even as "future/official" — `package.json` `engines` declares the Node requirement and must not require Bun
-- Thin CLI surface (decision 2026-06-13): the deterministic-plumbing commands only — `login`, `logout`, `auth status`, `init`, `start`, `doctor`, `upgrade`, `skills`, and `create store` / `create app-token` (Saleor Cloud API) plus `create stripe` (writes Stripe keys to `.env`). The tool-wrapping subcommands `create deployment`, `deploy`, `create recipe`, and `create storefront` are **retired** — the agent runs those CLIs itself, guided by the Jolly skill (see Product Vision and feature 008)
+- CLI surface (decision 2026-06-13, `start` behavior amended 2026-06-14): the command list is unchanged — `login`, `logout`, `auth status`, `init`, `start`, `doctor`, `upgrade`, `skills`, and `create store` / `create app-token` (Saleor Cloud API) plus `create stripe` (writes Stripe keys to `.env`). The separate tool-wrapping subcommands `create deployment`, `deploy`, `create recipe`, and `create storefront` stay **retired**; per the 2026-06-14 "Agent-supervised orchestration" decision, that orchestration now lives **inside `jolly start`**, which spawns the official CLIs (`git`/`pnpm`/`@saleor/configurator`/`npx vercel`) itself rather than handing the agent a playbook (see Product Vision and feature 008)
 - Package scripts (Node-native, decision 2026-06-13):
   - `npm start` runs the app (`node src/index.ts`)
   - `npm run dev` runs the app in watch mode (`node --watch src/index.ts`)
@@ -79,6 +79,11 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompt
 - **CLI:** Designed for agents first, not direct human use first. Executable via `npx` without a prior global install.
 - **Inspiration:** swamp.club.
 - **Core principle:** Jolly exists to empower the customer's own agent, not replace it. The customer's agent remains the primary orchestrator, explainer, and approval manager. Jolly provides capabilities, setup automation, wrappers, diagnostics, and local/project automation that make the agent more effective.
+- **SUPERSEDED 2026-06-14 by "Agent-supervised orchestration" below** — the bullet immediately
+  following reverses the "the agent runs the tools, not Jolly" stance for `jolly start`. The
+  parts that survive (spawn official CLIs only — never raw-API reimplementation; each CLI uses
+  its own auth so Jolly holds no new provider token; the deprecated `saleor/cli` stays banned)
+  are restated there. Read this bullet as historical context for that decision.
 - **Skill-driven, thin CLI — the agent runs the tools, not Jolly (decision 2026-06-13,
   superseding the same-day "Jolly runs the CLIs" drafts):** Jolly does not replace the agent
   and does not orchestrate the official tools itself. Where an official, maintained CLI exists
@@ -111,6 +116,54 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompt
   The one banned tool is the **deprecated** `saleor/cli` (study-only, never invoked). The
   first-party-host allowlist below governs only Jolly's *own* request-sending code; the CLIs the
   agent runs reach their own services under their own auth and are not Jolly's requests.
+- **Agent-supervised orchestration — `jolly start` runs the mechanical steps for the agent
+  (decision 2026-06-14, supersedes "the agent runs the tools, not Jolly" for `start`):** The
+  evidence from the live acceptance run is that the skill-driven flow *works* and produces a
+  real, browsable store, but has one genuinely fiddly, reliability-sensitive seam — the
+  `@saleor/configurator` deploy (correct flags, blank-vs-sample environment, destructive-delete
+  handling) — where a varied LLM re-improvising the choreography is the weak point. So `jolly
+  start` becomes a **resumable end-to-end runner that deterministically executes the mechanical
+  setup steps by spawning the official CLIs on the agent's behalf**, for reliability and honesty
+  (it runs real CLIs and reports their real results, instead of emitting a playbook and trusting
+  the agent re-derived it). Division of responsibility:
+  - **Jolly orchestrates the mechanical, no-decision steps** by spawning the official CLIs:
+    `git` clone of Paper, `pnpm install`, `@saleor/configurator diff`/`deploy` of the starter
+    recipe, and the `npx vercel` deploy + env-var setup — plus its own plumbing (`login`,
+    `create store`/`app-token`, the read-only `create stripe` import, `init`, `doctor`).
+  - **What survives from the thin-CLI model:** Jolly spawns *official, current* CLIs only — it
+    still **never reimplements** them against raw provider APIs. Each spawned CLI uses **its own
+    auth session** (`vercel login`, the Saleor app token Jolly manages, the Stripe keys), so
+    there is still **no `JOLLY_VERCEL_TOKEN`**, no Vercel token in Jolly's secrets, and
+    `api.vercel.com` is still **not** in Jolly's *own* request allowlist (the Vercel CLI makes
+    those calls). The deprecated `saleor/cli` stays banned.
+  - **Interactive CLI gates = stdio passthrough, continue on exit.** When a spawned CLI needs the
+    user (e.g. `vercel login`, `stripe login`), Jolly runs it with the terminal **passed straight
+    through** — the user interacts with that CLI exactly as it directs (its own prompts, URL,
+    browser-open, polling); Jolly needs zero per-CLI knowledge of the protocol. Jolly just
+    **waits for the child to exit**: exit 0 → continue to the next step; non-zero → stop honestly
+    (report the real failure, never fabricate success).
+  - **Non-CLI human gates = announce and wait.** The steps no CLI can perform — creating an
+    account (Saleor/Vercel/Stripe), **configuring Saleor's Stripe app in the Dashboard and
+    mapping it to the channel**, or pasting a secret no CLI hands over — Jolly cannot automate.
+    It prints the exact instruction/URL (in the feature 020 envelope so the agent can relay it),
+    **waits** for the human to complete it, verifies what it can, then resumes.
+  - **Agent stays the approval authority.** Before each high-risk Jolly-driven action (`create
+    store`, configurator `deploy`, the Vercel deploy) `start` emits the feature 021 `riskContext`
+    and **pauses for the agent to approve**, then resumes; an agent pre-authorization flag
+    (`--yes`/pre-approve) lets it run straight through when the agent's policy allows. "Agents in
+    charge" is preserved at the decision layer (the agent invokes `start`, approves each gate,
+    provides credentials, owns all post-setup iteration); Jolly owns only the mechanical
+    choreography between gates.
+  - **Composable commands stay.** Every stage `start` runs is still available as an independent
+    command the agent can call and mediate itself (feature 008 surface, feature 022
+    resumability); `start` chains them — it does not replace them.
+  - **Stripe enablement remains a Dashboard/human step** (Paper takes no Stripe keys; it reads
+    the publishable key from Saleor `paymentGatewayInitialize` at runtime, so the keys live in
+    Saleor's Dashboard Stripe app, not the storefront). `jolly create stripe` only imports the
+    test keys into `.env`; `start` announces-and-waits at the Dashboard Stripe step.
+  This applies to `jolly start` (feature 001/002); the retired `create deployment`/`deploy`/
+  `create recipe`/`create storefront` are **not** revived as separate fat commands — the
+  orchestration lives **inside `start`**, spawning the official CLIs.
 - **Install skills via `npx skills add` (decision 2026-06-13):** Jolly installs every skill —
   the Jolly skill and the Saleor agent-skills — through `npx skills add <ref>`, falling back to
   a Git-based install only for a skill not available that way (e.g. Paper's embedded skill,
@@ -168,10 +221,19 @@ with every claim verified and nothing fabricated. The acceptance bar mirrors fea
 "V1 operational readiness": the deployed URL works, product browsing works against Saleor
 Cloud data, cart works, and checkout progresses to the Stripe test payment step.
 
-The flow is **agent-driven**: `jolly start` bootstraps and hands the customer's agent an
-ordered playbook (the Jolly skill); the agent executes it, calling Jolly's thin helpers for
-plumbing and the official CLIs for the rest. Each side does **real** work and reports only
-verified results (no fabrication — see the integrity rule below):
+The flow is **agent-supervised orchestration** (decision 2026-06-14 — see "Agent-supervised
+orchestration" above; supersedes the prior "agent-driven playbook" framing of this paragraph):
+`jolly start` is a **resumable end-to-end runner** that deterministically executes the mechanical
+stages itself by **spawning the official CLIs** (`git`, `pnpm`, `@saleor/configurator`,
+`npx vercel`) plus its own plumbing, **pausing for the agent to approve each high-risk action**
+(feature 021 `riskContext`) and **announcing-and-waiting at the human gates** (account creation,
+OAuth/`vercel login`/`stripe login` — run with stdio passed through to the CLI and continued on
+its exit — and the Dashboard Stripe-app step). The agent stays the approval authority and
+credential provider; every stage is also a composable command the agent can run itself. Each
+side does **real** work and reports only verified results (no fabrication — see the integrity
+rule below). The numbered stages below describe the same end-to-end; under this decision stages
+5–8 are spawned by `start` (not hand-run by the agent), while remaining agent/human at the
+approval and interaction gates:
 
 1. **Bootstrap** — `jolly start` runs `jolly init` (install the Jolly skill + Saleor skills via
    `npx skills add`, write `.mcp.json`, scaffold), acquires auth as needed, runs `jolly doctor`,
@@ -211,7 +273,10 @@ set up and the playbook it emitted — never a completed deployment it did not p
 skill is real agent guidance, not a Jolly claim of having done the work. This applies feature
 020's "No fabricated success" to the surviving create subcommands (feature 008), `jolly start`
 (feature 001), and `jolly doctor` (feature 014); testable at `@logic` without credentials, with
-real end-to-end verified at `@sandbox`.
+real end-to-end verified at `@sandbox`. Under the 2026-06-14 orchestration decision, this
+applies per-stage: `jolly start` reports only the stages it actually performed (via the CLIs it
+spawned) and their real results — never a deployed store it did not deploy; a stage that was
+skipped, paused for approval, or is waiting at a human gate is reported as such, not as passed.
 
 **Launch credentials (as of 2026-06-13):** Jolly's own credentials are `JOLLY_SALEOR_CLOUD_TOKEN`
 and `JOLLY_STRIPE_PUBLISHABLE_KEY` / `JOLLY_STRIPE_SECRET_KEY` (Stripe **test mode** only).
@@ -247,10 +312,10 @@ code. Secrets travel only to their own service (Saleor tokens → Saleor hosts; 
 api.stripe.com; nothing to github.com). `JOLLY_SALEOR_CLOUD_API_URL` optionally overrides the
 Cloud API base (default `https://cloud.saleor.io/platform/api`) for proxy/self-routing setups.
 
-Delegated official CLIs are not Jolly's request code (decision 2026-06-13): per "Delegate to
-official tooling, exclusively" above, Jolly invokes the **Vercel CLI** (`npx vercel`) and
-**`@saleor/configurator`**, which contact their own services (api.vercel.com for Vercel; the
-customer's Saleor GraphQL endpoint for Configurator) under their own auth. `api.vercel.com` is
+Delegated official CLIs are not Jolly's request code (affirmed by the 2026-06-14
+"Agent-supervised orchestration" decision above): `jolly start` **spawns** the **Vercel CLI**
+(`npx vercel`) and **`@saleor/configurator`**, which contact their own services (api.vercel.com
+for Vercel; the customer's Saleor GraphQL endpoint for Configurator) under their own auth. `api.vercel.com` is
 therefore **no longer in Jolly's own allowlist** — it is reached by the Vercel CLI Jolly
 delegates to, never by Jolly's request-sending code, and there is no Vercel token in Jolly's
 secrets. This delegation to *current, official* CLIs is distinct from the ban on the

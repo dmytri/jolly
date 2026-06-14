@@ -5,6 +5,20 @@ description: End-to-end playbook for setting up a Saleor Cloud storefront with J
 
 # Jolly setup playbook
 
+> **UPDATED 2026-06-14 — `jolly start` now orchestrates the whole setup.** Under the
+> "Agent-supervised orchestration" decision (AGENTS.md), the primary path is: **run
+> `jolly start` and let it drive end-to-end.** It spawns the official CLIs for you (`git` clone
+> of Paper, `pnpm install`, `@saleor/configurator diff`/`deploy`, `npx vercel`) alongside its own
+> plumbing, **pausing for your approval** (a `riskContext`) before each create/deploy and
+> **waiting at the human gates**. Interactive logins (`vercel login`, `stripe login`) are run by
+> Jolly with the terminal handed to that CLI — you complete the login as it directs and `start`
+> continues on its exit. The stages below now describe **what `start` does and where it pauses**,
+> and remain the manual fallback (every stage is also a command you can run yourself). The
+> Saleor **Dashboard Stripe app** (configure + map to the channel) and **account creation** are
+> the steps no CLI can do — `start` announces and waits for you there. *(This banner supersedes
+> the "you run the official CLIs yourself" framing in the lines just below, which are pending a
+> full rewrite to the orchestration model.)*
+
 You are the customer's own agent. **Jolly does not replace you** — it gives you a thin CLI
 for plumbing (auth, store provisioning, secret writing, diagnostics) and this playbook. You
 run the official CLIs yourself. Jolly never shells out to the Vercel CLI or

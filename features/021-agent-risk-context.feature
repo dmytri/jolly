@@ -53,6 +53,19 @@ Feature: Structured agent risk context
     - `riskContext` should be carried inside the feature 020 output envelope, not a separate format.
     - Risk context must never include secret values; reference credentials by name only.
 
+  Rule: `jolly start` pauses for approval at each high-risk stage (decision 2026-06-14)
+    - Under "Agent-supervised orchestration" (feature 002), `jolly start` runs the high-risk
+      stages itself (`create store`, `@saleor/configurator deploy`, the `npx vercel` deploy).
+      Before EACH such stage it emits that stage's `riskContext` in the envelope and PAUSES for the
+      agent to approve, then resumes; it never self-approves.
+    - An agent pre-authorization flag (e.g. `--yes`) lets the agent approve the run up front and
+      have `start` proceed through the high-risk stages without per-stage pauses, when the agent's
+      policy allows. The `riskContext` is still emitted for each (for the record), identical to its
+      `--dry-run` form.
+    - This is distinct from the human-interaction gates `start` waits at (OAuth/`vercel login`
+      passthrough, account creation, the Dashboard Stripe app): those are completed by the human,
+      not approval decisions, and are not governed by this rule.
+
   Rule: Open questions
     - Whether `riskLevel` is derived deterministically from `categories` or set per action is deferred to CLI design.
     - Additional optional fields (for example estimated cost or affected record counts) are deferred to CLI design.

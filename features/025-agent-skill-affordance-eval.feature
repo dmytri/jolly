@@ -50,14 +50,23 @@ Feature: Agent skill affordance evaluation
       base (the "012 incident" discipline). So even if the agent invokes a
       create/deploy command, it cannot reach a real account, create a billable
       resource, or deploy.
-    - The task is scoped to the no-irreversible-action subset that succeeds
-      under safe credentials: install/locate the skills, `jolly init`, import
-      the Stripe test keys from a (dummy) already-logged-in Stripe CLI session
-      (`jolly create stripe`, which invokes the Stripe CLI read-only and only
-      writes `.env` — no network), and validate readiness with `--dry-run`
-      previews and `jolly doctor`. A live-store eval (real provisioning +
-      deploy) is a future, explicitly credentialed `@eval` extension — not this
-      scenario.
+    - The task is the REAL entry point, not a hand-held script: the agent is
+      given exactly the string the homepage copy box hands a customer's agent —
+      "Read https://jolly.cool/setup and follow the instructions to set up
+      Jolly" — and nothing more. The eval thus measures the affordance from the
+      true starting point (can a baseline agent, from that one pointer, discover
+      and drive Jolly?), not from a pre-decomposed worklist.
+    - Safety therefore does NOT come from a narrowed task. It comes entirely
+      from the forced-safe credentials and harness fakes above: even if the
+      agent attempts the full playbook (login, `create store`, deploy), the
+      `.invalid` Cloud API base and dummy `JOLLY_*` make every real-account
+      action fail honestly, and there is no Vercel auth to deploy with. A
+      live-store eval (real provisioning + deploy) is a future, explicitly
+      credentialed `@eval` extension — not this scenario.
+    - The agent reaches `https://jolly.cool/setup` over the network (a public,
+      static setup guide) and may install skills from github; these harmless
+      fetches are expected. The eval consequently also smoke-tests that the real
+      entry point is reachable.
     - The Stripe CLI on the workspace PATH is a harness fake that returns dummy
       `pk_test_`/`sk_test_` values (and contacts no network), standing in for a
       completed `stripe login`. So importing Stripe keys exercises the affordance
@@ -73,15 +82,20 @@ Feature: Agent skill affordance evaluation
       merged `.mcp.json`, a scaffolded `.env`, and the marker-merged `AGENTS.md`).
     - Jolly's diagnostics must have run and emitted the standard feature 020
       output envelope.
-    - Stripe affordance: with the workspace seeded as if `stripe login` was
-      already done (the harness-fake Stripe CLI above), the agent must reach
-      Stripe test keys in `.env` through Jolly without a fresh OAuth or a human
-      key-paste — Jolly importing them via the Stripe CLI is the afforded path.
-      The keys are dummy test-mode values, so this stays harmless.
+    - Stripe affordance (revised 2026-06-14): the fake Stripe CLI session is
+      still seeded, but this entry-point scenario no longer asserts Stripe keys
+      land in `.env`. Following the real `/setup` under forced-safe credentials,
+      the agent runs `jolly start`, which (per "Agent-supervised orchestration",
+      feature 002) reaches the Stripe stage only after the Saleor login/store
+      stages — and those stop at the human credential gate under the `.invalid`
+      safe creds, so the run never reaches Stripe. The Stripe-import affordance
+      (Jolly importing test keys via the read-only Stripe CLI, no fresh OAuth or
+      paste) is covered by feature 005 (`@logic`/`@sandbox`); re-add it here only
+      if `start` is built to import Stripe early, before the Saleor gate.
     - The eval must NOT assert a working deployed store, and must NOT assert
       artifacts Jolly does not produce (there is no `jolly.config.ts`).
 
-  Scenario: A baseline agent uses the Jolly skill to set up a project
+  Scenario: A baseline agent follows the published /setup entry point to set up a project
     Given a fresh per-run temporary workspace with the Jolly skill and CLI available
     And the baseline agent runs under a throwaway `$HOME` so its own config and credentials stay isolated
     And a Stripe CLI session is already present (a harness-fake Stripe CLI returning dummy test-mode keys), as if `npx @stripe/cli login` had been completed
@@ -89,16 +103,10 @@ Feature: Agent skill affordance evaluation
     And Jolly's CLI invocations in the workspace are traced
     When a baseline agent is given the task:
       """
-      Set up a Jolly storefront project in this directory using the documented
-      Jolly skill and CLI. Initialize the project and validate readiness with
-      Jolly's diagnostics. The Stripe CLI login was already completed, so get the
-      Stripe test keys into the project through Jolly without starting a new OAuth
-      or pasting keys. For anything that would create cloud resources or deploy,
-      use Jolly's dry-run previews only — do not create real resources and do not
-      deploy.
+      Read https://jolly.cool/setup and follow the instructions to set up Jolly
       """
-    Then the agent should have invoked Jolly's documented CLI commands
+    Then the agent should have invoked Jolly's documented CLI commands, including `jolly start`
     And the workspace should contain the local artifacts `jolly init` produces (the installed Jolly skill, a merged `.mcp.json`, a scaffolded `.env`, and the marker-merged `AGENTS.md`)
-    And the workspace `.env` should contain the Stripe test keys, imported through Jolly from the already-present Stripe CLI session, with no fresh OAuth or human paste
     And Jolly's diagnostics should have run and emitted the standard output envelope
+    And under the forced-safe credentials the run should stop honestly at a human/credential gate without fabricating success
     And no real cloud resource should have been created and nothing should have been deployed

@@ -19,11 +19,16 @@ tools you authenticate against.
 
 ## Who runs what
 
-- **Jolly (thin plumbing):** Saleor Cloud login and tokens, store/environment provisioning,
-  writing secrets to `.env`, installing skills, writing `.mcp.json`, and diagnostics.
-- **You (the agent), guided by the Jolly skill:** clone the Paper storefront with `git`,
-  configure the store with `@saleor/configurator`, and deploy with the Vercel CLI
-  (`npx vercel`). Jolly never runs those for you.
+- **Jolly (`jolly start`) runs the mechanical setup for you** — it spawns the official CLIs on
+  your behalf for reliability: Saleor login and tokens, store provisioning, cloning the Paper
+  storefront (`git`), `pnpm install`, applying the starter recipe (`@saleor/configurator`), and
+  deploying (`npx vercel`) — plus writing secrets to `.env`, installing skills, `.mcp.json`, and
+  diagnostics. It **pauses for your approval** before each create/deploy and **waits at the steps
+  only a human can do**.
+- **You (the agent) stay in charge:** you approve each high-risk action (Jolly shows you the risk
+  first and never decides for you), you provide credentials when a step asks, and you own
+  everything after setup. When a CLI needs a browser login, Jolly runs it and you complete the
+  login as that CLI directs; Jolly continues when it finishes.
 
 ## Hosts
 
@@ -68,38 +73,43 @@ Everything else you do yourself.
 npx @dk/jolly start --dry-run
 ```
 
-Prints exactly what `start` will do — skills installed, files written, hosts contacted —
-without changing anything. Review it, then proceed.
+Prints the full end-to-end plan — every CLI it will run, files written, hosts contacted, and
+the points where it will pause for your approval or a human step — without changing anything.
+Review it, then proceed.
 
-### Step 1 — Bootstrap
+### Step 1 — Run it
 
 ```
 npx @dk/jolly start
 ```
 
-`start` installs the Jolly skill and the Saleor agent-skills (via `npx skills add`), writes
-`.mcp.json` and scaffolds, runs `jolly doctor`, and prints the **playbook** — the ordered
-steps for you to run next, with the official CLIs they use. It reports only what it actually
-did; it does not claim a deployed store. It is idempotent: re-running detects existing work
-and resumes.
+`start` runs the whole setup end-to-end, **spawning the official CLIs for you** (clone Paper,
+`pnpm install`, apply the starter recipe with `@saleor/configurator`, deploy with `npx vercel`)
+alongside its own plumbing (login, store, app token, Stripe key import, `.mcp.json`, skills,
+`doctor`). It:
 
-### Step 2 — Follow the Jolly skill
+- **pauses and shows you a `riskContext`** before each create/deploy so you can approve — or
+  pass `--yes` to pre-approve and run straight through;
+- **runs interactive logins** (`vercel login`, `stripe login`) with the terminal handed to that
+  CLI — you complete the login exactly as it directs, and `start` continues when it exits;
+- **stops and waits at the steps only a human can do** (creating accounts; configuring Saleor's
+  Stripe app in the Dashboard and mapping it to your channel);
+- **reports only what it actually did** — never a deployed store it didn't deploy — and is
+  **resumable**: re-run and it skips finished stages.
 
-Restart your agent if needed to load the installed skills, then follow the Jolly skill. It
-carries you through, calling Jolly's helpers for plumbing and the official CLIs for the rest:
+### Step 2 — The human gates
 
-| # | Step | You run | 🧑 |
-|---|------|---------|----|
-| 1 | Authenticate | `npx @dk/jolly login` | OAuth consent |
-| 2 | Provision the store | `npx @dk/jolly create store [--create-environment]` | paste Cloud token if asked |
-| 3 | App token | `npx @dk/jolly create app-token` | |
-| 4 | Clone Paper | `git clone` saleor/storefront (`main`), strip `.git`, `pnpm install` | |
-| 5 | Configure the store | `@saleor/configurator` (diff → deploy) with the Jolly starter recipe (ships with the skill) | approve writes |
-| 6 | Stripe (test mode) | `npx @dk/jolly create stripe --publishable-key … --secret-key …`, then configure Saleor's Stripe app (Dashboard) on the `us` channel | paste Stripe keys |
-| 7 | Deploy | `npx vercel` (its own `vercel login` session) + set Vercel env vars | `vercel login` consent |
-| 8 | Verify | `npx @dk/jolly doctor` — store, storefront, deploy, checkout-to-Stripe-test | |
+When `start` pauses for one of these, do it and let `start` continue:
 
-On any failure, stop with an actionable message — never treat a failed step as success.
+| 🧑 | When |
+|----|------|
+| Create accounts | Saleor Cloud / Vercel / Stripe, if you don't already have them |
+| Approve browser logins | `vercel login`, `stripe login`, Saleor OAuth — `start` runs the CLI; you click through |
+| Configure Saleor's Stripe app | Dashboard → Extensions → Stripe, mapped to the `us` channel (no CLI can do this) |
+| Paste a secret | only when no CLI can hand it over |
+
+On any failure `start` stops with an actionable message — it never treats a failed step as
+success.
 
 ## Jolly command surface
 
@@ -114,8 +124,9 @@ npx @dk/jolly doctor               # checks env, store, deploy, MCP health
 npx @dk/jolly upgrade              # update skills and config
 ```
 
-Deployment, storefront cloning, and store configuration are **yours** to run (`npx vercel`,
-`git`, `@saleor/configurator`) — the Jolly skill tells you exactly how.
+`jolly start` runs storefront cloning, store configuration, and deployment for you by spawning
+the official CLIs (`git`, `@saleor/configurator`, `npx vercel`) — pausing for your approval and
+at human gates. You can also run any of those CLIs yourself; the Jolly skill tells you how.
 
 ## Skills installed
 
