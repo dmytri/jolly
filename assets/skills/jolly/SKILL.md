@@ -30,10 +30,10 @@ customer's policies — Jolly never hardcodes the decision. Parse `--json` outpu
 
 ## Stages
 
-1. **Bootstrap** — the customer ran `jolly start` (or you did). It installed this skill and the
-   Saleor agent-skills via `npx skills add`, wrote `.mcp.json` (local mcp-graphql against the
-   customer's own endpoint), scaffolded, ran `jolly doctor`, and emitted the playbook. Read its
-   `data` and `nextSteps`.
+1. **Bootstrap** — if `.mcp.json` and the `jolly:begin` block in `AGENTS.md` aren't already
+   present, run `jolly init` (or `jolly start`): it installs this skill + the Saleor agent-skills
+   via `npx skills add`, writes `.mcp.json` (local mcp-graphql), scaffolds, and runs `jolly
+   doctor`. Read its `data`/`nextSteps`; never overwrite Jolly's marked `AGENTS.md` section.
 
 2. **Authenticate to Saleor Cloud** — if not already authed, run `jolly login`. It prefers the
    browser OAuth flow and falls back to a pasted token; pause for the human's browser consent.
