@@ -85,6 +85,13 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompt
   for a job, **the customer's own agent runs it**, guided by the **Jolly skill** that Jolly
   installs. Jolly itself **never shells out to** the Vercel CLI or `@saleor/configurator`, never
   reimplements them against raw provider APIs, and holds no provider tokens those CLIs own.
+  **Narrow exception — read-only Stripe CLI import (decision 2026-06-13):** `jolly create stripe`
+  (no flags) may invoke the **Stripe CLI read-only** (`stripe config --list`) solely to import the
+  test-mode keys the human/agent already authorized via `stripe login`, writing them to `.env`.
+  This is a read of already-authorized local auth state, not orchestration: Jolly never runs the
+  Stripe CLI's `login`/OAuth (that stays the human/agent step), issues no mutating Stripe CLI
+  command, makes no network call by importing, and owns no Stripe token beyond the user's own keys
+  it places in `.env`. The Vercel CLI and `@saleor/configurator` get no such exception.
   Division of labor:
   - **Jolly (thin, deterministic plumbing only):** acquire Saleor Cloud auth (`jolly login`)
     and app tokens (`jolly create app-token`), provision the Saleor store/environment via the
@@ -182,8 +189,10 @@ verified results (no fabrication — see the integrity rule below):
    own `vercel login` session, sets Vercel env vars, and updates Saleor trusted origins, per the
    skill (feature 002). No Jolly Vercel token, no `api.vercel.com` in Jolly's code.
 8. **Stripe** — for 0-friction first-run, the agent obtains test keys via the official **Stripe
-   CLI** OAuth login (`npx @stripe/cli login`) and passes them to `jolly create stripe`, which
-   writes them to `.env` (*built*). These CLI keys are test-mode and expire (~90 days); the skill
+   CLI** OAuth login (`npx @stripe/cli login`), after which `jolly create stripe` (no flags)
+   imports them by invoking the Stripe CLI **read-only** (`stripe config --list`) and writes them
+   to `.env` — the agent never handles the secret. Explicit `--publishable-key`/`--secret-key`
+   flags override (durable Dashboard keys). These CLI keys are test-mode and expire (~90 days); the skill
    warns the agent to swap in durable Dashboard keys before expiry, and pasting Dashboard keys is
    the always-supported alternative. The agent then configures the Saleor Stripe app (Dashboard
    Extensions), mapped to the storefront channel, and verifies checkout readiness with
@@ -242,7 +251,9 @@ customer's Saleor GraphQL endpoint for Configurator) under their own auth. `api.
 therefore **no longer in Jolly's own allowlist** — it is reached by the Vercel CLI Jolly
 delegates to, never by Jolly's request-sending code, and there is no Vercel token in Jolly's
 secrets. This delegation to *current, official* CLIs is distinct from the ban on the
-*deprecated* `saleor/cli`, which Jolly must never invoke.
+*deprecated* `saleor/cli`, which Jolly must never invoke. The one CLI Jolly itself invokes —
+the **read-only Stripe CLI import** (`stripe config --list`, above) — adds no host to the
+allowlist: `config --list` reads local config and makes no network call.
 
 Informational mentions are not contacts: mcp.saleor.app (the read-only Saleor MCP
 server) is something Jolly *tells the agent about* for later use — Jolly never connects

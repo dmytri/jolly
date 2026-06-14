@@ -10,7 +10,82 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
-## DONE (2026-06-13, QM session): feature 025 @eval tier wired and live-verified — UNCOMMITTED
+## DONE (2026-06-14, Captain — committed): Jolly imports Stripe keys from the Stripe CLI session — features 005 + 025
+
+**Status: DELIVERED and committed.** The QM worklist below is complete; all tiers green —
+typecheck clean, units 43/43, `@logic` 54/54 (incl. the 2 new 005 scenarios), default dry-run
+**0 undefined**, eval dry-run 0 undefined; the live `@eval` passes (non-gating, flaky by design —
+see note). Crew implemented the import in `src/index.ts` (`readStripeCliKeys()` → read-only
+`stripe config --list`; `create stripe` flagless-import path; `doctor stripe` warning-not-fail).
+QM added `features/support/stripe-cli-fake.ts` (shared fake Stripe CLI), regenerated the 2 new
+005 `@logic` step defs (and made the existing "Agent collects…" scenario deterministic against a
+real installed Stripe CLI by shadowing it with a not-logged-in fake), and extended the 025 eval
+harness + step defs to seed the fake Stripe CLI on the agent PATH and assert the imported keys.
+
+**Open, minor (iterate later — NOT blocking):** the `@eval` is non-deterministic. In one of two
+live runs the baseline agent overwrote `AGENTS.md` after `jolly start` wrote its marker, failing
+the artifacts assertion — CLI verified correct (both `init` and `start` produce the marker
+deterministically; `start` re-merges idempotently, so it self-heals on a re-run). Left as-is at
+MVP per "don't chase edge cases." A future SKILL.md nudge (keep the agent's own notes out of the
+Jolly-managed `AGENTS.md` marker section) could steady the eval; deferred.
+
+**Separate Captain track still open (unchanged):** the MVP acceptance run — drive stages 6
+(recipe → `@saleor/configurator`), 8 (`npx vercel --prod`), 9 (trusted origins), 10 (`jolly
+doctor`) against the live `jolly-store`; verify Saleor's Stripe app accepts the CLI-issued
+`sk_test_` key (the last "adopt-on-green" unknown). See the acceptance-run sections below.
+
+(Historical worklist that produced this — now complete — follows.)
+
+**Decision (customer, 2026-06-13):** Jolly must recognize a completed `stripe login` instead of
+demanding pasted keys or reporting Stripe as missing (the friction surfaced in the acceptance
+run — `doctor` said `stripe-keys: fail` while the OAuth keys sat in the Stripe CLI's config).
+**Chosen mechanism:** Jolly invokes the **Stripe CLI read-only** (`stripe config --list`) to
+import the test-mode keys — it does NOT hand-parse `~/.config/stripe/config.toml`. This is a
+documented **narrow exception** to "the agent runs the tools" (read-only, no mutation, no network,
+no token ownership; Vercel/configurator get no such exception).
+
+Specs landed this Captain pass (UNCOMMITTED — see git status): features **005** (new rule "Stripe
+keys via the official CLI OAuth, imported by Jolly" + 2 new `@logic` scenarios) and **025** (eval
+seeds a fake Stripe CLI session + asserts the agent reaches keys with no fresh OAuth/paste);
+`assets/skills/jolly/SKILL.md` stage 7; `AGENTS.md` (Skill-driven principle exception + MVP stage 8
++ Network Boundaries); `CLAUDE.md` thin-CLI bullet. Default dry-run = the 2 new 005 scenarios
+undefined (the intended QM marker); `-p eval --dry-run` = 2 new undefined steps in 025.
+
+**QM worklist (fresh session):**
+1. **Crew — `jolly create stripe` import.** With no `--publishable-key`/`--secret-key`, invoke the
+   Stripe CLI read-only (`stripe config --list`; re-check exact cmd/output vs current upstream),
+   read the default profile's `test_mode_pub_key`/`test_mode_api_key`, write to `.env` (secret never
+   printed, never passed through the agent). Flags still override. With neither flags nor a logged-in
+   Stripe CLI (missing / not logged in / keys expired), error `MISSING_STRIPE_KEYS` with remediation
+   naming both paths (`npx @stripe/cli login`, or paste Dashboard keys). Detect a missing/unauthed
+   Stripe CLI gracefully. NEVER run `stripe login`/OAuth or any mutating Stripe CLI command.
+2. **Crew — `jolly doctor stripe` recognition.** When `.env` lacks `JOLLY_STRIPE_*` but the Stripe
+   CLI is logged in with test-mode keys, `stripe-keys` = `warning` (not `fail`), next step
+   `jolly create stripe`. (src/index.ts ~1570 currently checks only `.env`/`process.env`.)
+3. **QM — regenerate 005 step defs** for the 2 new `@logic` scenarios. Harness must fake a logged-in
+   Stripe CLI deterministically: a fake `stripe` on a scenario-scoped PATH that emits dummy
+   `pk_test_`/`sk_test_` via `config --list`, under an isolated `$HOME`/PATH so the real Stripe CLI
+   and `~/.config/stripe` are never touched. 012-incident safety still applies (dummy `JOLLY_*` +
+   `.invalid` Cloud base on any side-effecting path).
+4. **QM — extend the 025 eval harness** (`features/support/eval.ts` + 025 step defs): seed a
+   harness-fake `stripe` on the workspace PATH returning dummy test keys (stands in for a completed
+   `stripe login`, no network); wire the new Given ("a Stripe CLI session is already present…") and
+   the new Then (".env contains the Stripe keys, imported through Jolly, no fresh OAuth/paste").
+5. **Verify:** `@logic`/units/typecheck green; the 2 new `@logic` 005 scenarios pass; default
+   dry-run back to **0 undefined**; eval profile parses and skips cleanly without
+   `HARNESS_OPENROUTER_API_KEY`. Re-run `npm run test:eval` if the key is staged.
+
+**Separate Captain track — the MVP acceptance run is mid-validation (NOT QM's job, flagged so it's
+not lost):** `jolly-store` (env key `FotDY4VH`, org `dmytris-organization-1`) is **LIVE and billing**;
+Paper cloned at `/home/exedev/acceptance/storefront` (Node 24 ✓, engines node 24.x/pnpm ≥9.4);
+`pnpm 11.6` / `vercel` (authed `dmytri`) / Stripe CLI / git all present; **real Stripe test keys
+already bridged into the repo `.env`** via the flag path (`pk_test_…m7ytx` / `sk_test_…UlSaX`,
+expire 2026-09-11), so `doctor stripe` passes today. Still to drive by hand: stage 6
+(recipe → `@saleor/configurator`), 8 (`npx vercel --prod`), 9 (trusted origins), 10 (`jolly doctor`).
+The Saleor Dashboard Stripe-app install + `us`-channel map is the one human gate to full checkout —
+where the still-open unknown (Saleor accepts the CLI-issued `sk_test_` key) gets verified.
+
+## DONE (2026-06-13, committed e5f5abc — released @dk/jolly v0.3.0): feature 025 @eval tier wired and live-verified
 
 The skill-behavior affordance eval (feature 025) is **built, executable, and verified by a
 real baseline-agent run.** It is an opt-in `@eval` tier, OFF the default worklist, never a

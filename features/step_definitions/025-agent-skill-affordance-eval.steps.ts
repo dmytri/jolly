@@ -31,6 +31,11 @@ import {
   type TraceRecord,
 } from "../support/eval.ts";
 import { UNROUTABLE_CLOUD_API } from "../support/logic-env.ts";
+import {
+  FAKE_STRIPE_PUBLISHABLE_KEY,
+  FAKE_STRIPE_SECRET_KEY,
+  readStripeTrace,
+} from "../support/stripe-cli-fake.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 // A live LLM agent run is slow; the When step that runs it carries an explicit
@@ -84,6 +89,26 @@ Given(
     const home = ctx(this).fakeHome;
     assert.ok(existsSync(home), "the throwaway $HOME must exist");
     assert.notEqual(home, process.env.HOME, "the agent $HOME must not be the real home");
+  },
+);
+
+Given(
+  "a Stripe CLI session is already present \\(a harness-fake Stripe CLI returning dummy test-mode keys), as if `npx @stripe\\/cli login` had been completed",
+  function (this: JollyWorld) {
+    // The fake Stripe CLI was installed onto the agent's PATH (shimDir) with the
+    // context; confirm the `stripe` shim and its (initially empty) trace exist,
+    // and that the seeded workspace .env carries NO Stripe keys yet — so the
+    // agent must import them through Jolly from this session.
+    const c = ctx(this);
+    assert.ok(existsSync(join(c.shimDir, "stripe")), "the fake `stripe` CLI must be on the agent PATH");
+    assert.ok(existsSync(c.stripeTraceFile), "the Stripe CLI invocation trace must exist");
+    const envContents = readFileSync(join(c.workspace, ".env"), "utf8");
+    assert.ok(
+      !/JOLLY_STRIPE_(PUBLISHABLE|SECRET)_KEY=\S/.test(envContents),
+      "the seeded .env must not pre-contain Stripe keys; they are imported via Jolly",
+    );
+    this.trackSecret(FAKE_STRIPE_PUBLISHABLE_KEY);
+    this.trackSecret(FAKE_STRIPE_SECRET_KEY);
   },
 );
 
@@ -218,6 +243,50 @@ Then(
       !existsSync(join(ws, "jolly.config.ts")),
       "Jolly does not produce a jolly.config.ts; it must not appear",
     );
+  },
+);
+
+Then(
+  "the workspace `.env` should contain the Stripe test keys, imported through Jolly from the already-present Stripe CLI session, with no fresh OAuth or human paste",
+  function (this: JollyWorld) {
+    const envFile = join(ctx(this).workspace, ".env");
+    assert.ok(existsSync(envFile), "the workspace .env must exist");
+    const contents = readFileSync(envFile, "utf8");
+    // The keys must be the FAKE Stripe CLI session's values — proving they were
+    // imported from the session, not pre-seeded or pasted.
+    assert.match(
+      contents,
+      new RegExp(`^JOLLY_STRIPE_PUBLISHABLE_KEY=${FAKE_STRIPE_PUBLISHABLE_KEY}$`, "m"),
+      ".env must carry the publishable key imported from the Stripe CLI session",
+    );
+    assert.match(
+      contents,
+      new RegExp(`^JOLLY_STRIPE_SECRET_KEY=${FAKE_STRIPE_SECRET_KEY}$`, "m"),
+      ".env must carry the secret key imported from the Stripe CLI session",
+    );
+    // Imported, not pasted: a traced `jolly create stripe` invocation that did
+    // NOT carry the key flags (the secret never passed through the agent).
+    const createStripe = trace(this).filter(
+      (r) => subcommandOf(r) === "create" && r.argv.includes("stripe"),
+    );
+    assert.ok(
+      createStripe.length > 0,
+      "the agent must have run `jolly create stripe` to import the keys",
+    );
+    assert.ok(
+      createStripe.some(
+        (r) =>
+          !r.argv.includes("--secret-key") && !r.argv.includes("--publishable-key"),
+      ),
+      "the keys must be imported (no --publishable-key/--secret-key paste through the agent)",
+    );
+    // No fresh OAuth: the fake Stripe CLI was only ever asked to list config.
+    for (const argv of readStripeTrace(ctx(this).stripeTraceFile)) {
+      assert.ok(
+        !argv.includes("login"),
+        "no fresh `stripe login`/OAuth — the import path is read-only",
+      );
+    }
   },
 );
 

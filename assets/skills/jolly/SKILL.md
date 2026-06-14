@@ -68,10 +68,12 @@ customer's policies — Jolly never hardcodes the decision. Parse `--json` outpu
      browser (one click). If they have no Stripe account, send them to
      https://dashboard.stripe.com/register first (test mode works immediately after signup —
      no business details needed). The CLI cannot create the account; that signup is the human's.
-   - Read the test-mode keys from the CLI config (`npx @stripe/cli config --list` /
-     `~/.config/stripe/config.toml`): `test_mode_pub_key` (`pk_test_…`) and `test_mode_api_key`
-     (`sk_test_…`). Pass them to `jolly create stripe --publishable-key … --secret-key …`, which
-     writes them to `.env` (never printed). Jolly never runs the Stripe CLI itself — you do.
+   - Then run `jolly create stripe` — with no flags it imports the test-mode keys from your
+     Stripe CLI session for you: it invokes the Stripe CLI read-only (`stripe config --list`) and
+     writes `test_mode_pub_key`/`test_mode_api_key` to `.env` (never printed). You don't read or
+     handle the secret yourself. Pass `--publishable-key …/--secret-key …` only to override (e.g.
+     durable Dashboard keys). Jolly runs the Stripe CLI only read-only, to import keys — it never
+     runs the `login`/OAuth (that one browser click is yours).
    - **These CLI-issued keys are test-mode and expire (~90 days — see `test_mode_key_expires_at`).**
      That is the right tradeoff to get started fast, but the expiry is yours to handle: before it
      hits, generate durable keys in the Stripe Dashboard (Developers → API keys), re-run

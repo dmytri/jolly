@@ -37,6 +37,24 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     And .env should not contain any Stripe key values
     And the output should not be written to .env
 
+  @logic
+  Scenario: Jolly create stripe imports keys from the Stripe CLI session when none are passed
+    Given the Stripe CLI is logged in with test-mode keys
+    And Jolly does not have Stripe credentials in .env
+    When the agent runs `jolly create stripe --json`
+    Then Jolly should import the test-mode keys by invoking the Stripe CLI read-only (`stripe config --list`)
+    And .env should contain JOLLY_STRIPE_PUBLISHABLE_KEY and JOLLY_STRIPE_SECRET_KEY matching the Stripe CLI session
+    And Jolly should not print either key value
+    And the output should report that the keys were imported from the Stripe CLI session
+
+  @logic
+  Scenario: Jolly doctor recognizes Stripe keys available from the Stripe CLI session
+    Given the Stripe CLI is logged in with test-mode keys in its config
+    And Jolly does not have Stripe credentials in .env
+    When the agent runs `jolly doctor stripe --json`
+    Then the stripe-keys check should be "warning", not "fail"
+    And its next step should be to run `jolly create stripe` to import the keys
+
   @sandbox
   Scenario: Agent configures Saleor for Stripe
     Given Stripe credentials are available in .env
@@ -74,20 +92,34 @@ Feature: Stripe checkout setup for the Jolly starter storefront
       the Stripe app is the agent's step, guided by the Jolly skill. `jolly doctor` verifies that
       checkout can progress to the Stripe test payment step.
 
-  Rule: Stripe keys via official CLI OAuth (decision 2026-06-13)
-    - To minimize first-run friction ("0 friction to wow"), the primary way the agent obtains the
-      two test keys is the official Stripe CLI's browser OAuth login (`npx @stripe/cli login`),
-      reading `test_mode_pub_key`/`test_mode_api_key` from the CLI config and passing them to
-      `jolly create stripe`. Jolly never runs the Stripe CLI itself — the agent does, guided by
-      the Jolly skill (same delegation model as the Vercel CLI; the Stripe CLI cannot create a
-      Stripe account, so signup stays a human step).
-    - CLI-issued keys are test-mode and expire (~90 days; `test_mode_key_expires_at`). The skill
-      warns the agent and trusts it to replace them with durable Dashboard keys (re-run
-      `jolly create stripe`, update the Saleor Stripe app) before expiry. v1 accepts this
-      "fast to start, agent owns the 90-day follow-up" tradeoff.
-    - Pasting standard Dashboard keys stays a fully supported path (durable from the start; and
-      required for live mode, which is out of v1 scope). `jolly create stripe`'s interface is
-      unchanged either way — it writes the two values to `.env`; how the agent obtained them is
-      the skill's concern, not Jolly's behavior (so this rule adds no new Jolly-observable steps).
+  Rule: Stripe keys via the official CLI OAuth, imported by Jolly (decision 2026-06-13; amended 2026-06-13)
+    - The primary way the agent gets the two test keys is the official Stripe CLI's browser OAuth
+      login (`npx @stripe/cli login`) — a one-time human consent. The Stripe CLI cannot create a
+      Stripe account, so signup stays a human step; live mode (Dashboard keys) is out of v1 scope.
+    - Jolly recognizes that login and imports the keys itself, so a completed `stripe login` is
+      never mistaken for "no Stripe keys". Run with no `--publishable-key`/`--secret-key`,
+      `jolly create stripe` invokes the Stripe CLI **read-only** (`stripe config --list`), reads
+      the default profile's `test_mode_pub_key`/`test_mode_api_key`, and writes them to `.env`.
+      The agent never reads or handles the secret value — it goes Stripe CLI → `.env`, never through
+      the agent or a process argument. Jolly uses the Stripe CLI's own interface; it does not parse
+      the Stripe CLI's config file directly. (The exact command/output format is re-checked against
+      the current Stripe CLI at implementation time.)
+    - This is a narrow, read-only exception to "the agent runs the tools, not Jolly": Jolly never
+      runs the Stripe CLI's `login`/OAuth (the human/agent does), issues no mutating Stripe CLI
+      command, makes no network call by importing (`config --list` is local), and owns no Stripe
+      token beyond the user's own keys it places in `.env`. The Vercel CLI and `@saleor/configurator`
+      get no such exception — they stay agent-run.
+    - Explicit `--publishable-key`/`--secret-key` flags always override the import (durable Dashboard
+      keys). With neither flags nor a logged-in Stripe CLI holding test-mode keys (CLI missing, not
+      logged in, or keys expired), `jolly create stripe` errors honestly (`MISSING_STRIPE_KEYS`) with
+      remediation naming both paths: run `npx @stripe/cli login`, or paste Dashboard keys.
+    - `jolly doctor stripe`: when `.env` has no `JOLLY_STRIPE_*` but the Stripe CLI is logged in with
+      test-mode keys, the `stripe-keys` check is a `warning` (not `fail`) whose next step is
+      `jolly create stripe` to import them. Jolly must not report Stripe as simply missing when the
+      OAuth was already done.
+    - CLI-issued keys are test-mode and expire (~90 days; `test_mode_key_expires_at`). Jolly surfaces
+      that expiry from the Stripe CLI output; the skill warns the agent and trusts it to replace them
+      with durable Dashboard keys (re-run `jolly create stripe`, update the Saleor Stripe app) before
+      expiry. v1 accepts this "fast to start, agent owns the 90-day follow-up" tradeoff.
     - Open validation (acceptance run): confirm Saleor's Stripe app accepts the CLI-issued
       `sk_test_` key and that its permissions suffice for checkout. Adopt-on-green.

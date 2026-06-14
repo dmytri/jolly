@@ -139,7 +139,10 @@ DOM checks (storefront) use happy-dom; the homepage has no test coverage (Captai
   `npx skills add`, does deterministic plumbing (`login`, `create store`/`app-token`/`stripe`,
   `init`, `start`, `doctor`), and emits a playbook. The **customer's agent runs the official
   CLIs** (`npx vercel`, `@saleor/configurator`, `git`, `pnpm`); Jolly never shells out to
-  Vercel or configurator. `create deployment`, `deploy`, `create recipe`, `create storefront`
+  Vercel or configurator. **Narrow exception (decision 2026-06-13):** `jolly create stripe`
+  (no flags) may invoke the Stripe CLI **read-only** (`stripe config --list`) to import
+  already-authorized test keys into `.env`; Jolly never runs the Stripe CLI's `login`/OAuth
+  (the agent does). `create deployment`, `deploy`, `create recipe`, `create storefront`
   are **retired** subcommands. See AGENTS.md "Skill-driven, thin CLI" and features 006/008.
 
 ## Secrets & environment

@@ -38,6 +38,7 @@ import { fileURLToPath } from "node:url";
 import { findEnvelope, type Envelope } from "./envelope.ts";
 import { DUMMY, logicSafeEnv } from "./logic-env.ts";
 import { makeNamespace } from "./sandbox.ts";
+import { writeFakeStripeCli } from "./stripe-cli-fake.ts";
 
 const REPO_ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const JOLLY_BIN = join(REPO_ROOT, "bin", "jolly");
@@ -121,6 +122,8 @@ export interface EvalContext {
   traceFile: string;
   /** The real Jolly skill directory made available to the agent. */
   skillDir: string;
+  /** JSONL file the fake Stripe CLI appends one argv record per invocation to. */
+  stripeTraceFile: string;
 }
 
 /**
@@ -267,19 +270,37 @@ export function setupEvalContext(
   // Forced-safe credentials as a seeded workspace `.env`: dummy JOLLY_* values
   // and an unroutable `.invalid` Cloud API base. This is the "scaffolded `.env`"
   // artifact and the file-form safety net (Jolly reads .env via loadEnvValues);
-  // env overrides on the agent process below are the second layer.
+  // env overrides on the agent process below are the second layer. The Stripe
+  // keys are deliberately omitted so the agent must IMPORT them through Jolly
+  // from the fake Stripe CLI session below (feature 025 Stripe affordance).
   writeFileSync(join(workspace, ".env"), safeEnvFileContents());
 
   const traceFile = join(root, "jolly-trace.jsonl");
   writeFileSync(traceFile, "");
   writeShims(shimDir, traceFile);
 
-  return { workspace, fakeHome, shimDir, traceFile, skillDir };
+  // A harness-fake Stripe CLI on the agent's PATH (shimDir is first on PATH in
+  // runBaselineAgent), standing in for a completed `stripe login`. It answers
+  // `stripe config --list` read-only with dummy test keys and contacts no
+  // network, so `jolly create stripe` can import them safely (feature 025).
+  const stripeTraceFile = join(root, "stripe-trace.jsonl");
+  writeFileSync(stripeTraceFile, "");
+  writeFakeStripeCli(shimDir, { traceFile: stripeTraceFile });
+
+  return { workspace, fakeHome, shimDir, traceFile, skillDir, stripeTraceFile };
 }
 
-/** The forced-safe `.env` contents (dummy creds + unroutable Cloud API base). */
+/**
+ * The forced-safe `.env` contents (dummy creds + unroutable Cloud API base).
+ * The Stripe keys are omitted so the eval genuinely exercises importing them
+ * through Jolly from the fake Stripe CLI session, rather than finding them
+ * pre-seeded (feature 025 Stripe affordance).
+ */
 export function safeEnvFileContents(): string {
-  const safe = logicSafeEnv();
+  const safe = logicSafeEnv({
+    JOLLY_STRIPE_PUBLISHABLE_KEY: undefined,
+    JOLLY_STRIPE_SECRET_KEY: undefined,
+  });
   return (
     Object.entries(safe)
       .filter(([, v]) => v !== undefined)
@@ -311,6 +332,11 @@ export function runBaselineAgent(ctx: EvalContext, task: string): AgentRun {
   for (const [k, v] of Object.entries(logicSafeEnv())) {
     if (v !== undefined) env[k] = v;
   }
+  // Drop any Stripe keys (real ones loaded from the repo .env, or the dummy
+  // overrides above) so the agent must IMPORT them through Jolly from the fake
+  // Stripe CLI session — cloud safety overrides above are untouched.
+  delete env.JOLLY_STRIPE_PUBLISHABLE_KEY;
+  delete env.JOLLY_STRIPE_SECRET_KEY;
   // Isolation + routing.
   env.HOME = ctx.fakeHome;
   env.XDG_CONFIG_HOME = join(ctx.fakeHome, ".config");

@@ -51,10 +51,17 @@ Feature: Agent skill affordance evaluation
       create/deploy command, it cannot reach a real account, create a billable
       resource, or deploy.
     - The task is scoped to the no-irreversible-action subset that succeeds
-      under safe credentials: install/locate the skills, `jolly init`, and
-      validate readiness with `--dry-run` previews and `jolly doctor`. A
-      live-store eval (real provisioning + deploy) is a future, explicitly
-      credentialed `@eval` extension — not this scenario.
+      under safe credentials: install/locate the skills, `jolly init`, import
+      the Stripe test keys from a (dummy) already-logged-in Stripe CLI session
+      (`jolly create stripe`, which invokes the Stripe CLI read-only and only
+      writes `.env` — no network), and validate readiness with `--dry-run`
+      previews and `jolly doctor`. A live-store eval (real provisioning +
+      deploy) is a future, explicitly credentialed `@eval` extension — not this
+      scenario.
+    - The Stripe CLI on the workspace PATH is a harness fake that returns dummy
+      `pk_test_`/`sk_test_` values (and contacts no network), standing in for a
+      completed `stripe login`. So importing Stripe keys exercises the affordance
+      without any real Stripe account or live key.
     - The per-run workspace and the fake `$HOME` (and anything created in them)
       are removed in teardown; the eval never touches resources outside them.
 
@@ -66,23 +73,32 @@ Feature: Agent skill affordance evaluation
       merged `.mcp.json`, a scaffolded `.env`, and the marker-merged `AGENTS.md`).
     - Jolly's diagnostics must have run and emitted the standard feature 020
       output envelope.
+    - Stripe affordance: with the workspace seeded as if `stripe login` was
+      already done (the harness-fake Stripe CLI above), the agent must reach
+      Stripe test keys in `.env` through Jolly without a fresh OAuth or a human
+      key-paste — Jolly importing them via the Stripe CLI is the afforded path.
+      The keys are dummy test-mode values, so this stays harmless.
     - The eval must NOT assert a working deployed store, and must NOT assert
       artifacts Jolly does not produce (there is no `jolly.config.ts`).
 
   Scenario: A baseline agent uses the Jolly skill to set up a project
     Given a fresh per-run temporary workspace with the Jolly skill and CLI available
     And the baseline agent runs under a throwaway `$HOME` so its own config and credentials stay isolated
+    And a Stripe CLI session is already present (a harness-fake Stripe CLI returning dummy test-mode keys), as if `npx @stripe/cli login` had been completed
     And the agent is run with forced safe credentials so no real cloud resources can be created
     And Jolly's CLI invocations in the workspace are traced
     When a baseline agent is given the task:
       """
       Set up a Jolly storefront project in this directory using the documented
       Jolly skill and CLI. Initialize the project and validate readiness with
-      Jolly's diagnostics. For anything that would create cloud resources or
-      deploy, use Jolly's dry-run previews only — do not create real resources
-      and do not deploy.
+      Jolly's diagnostics. The Stripe CLI login was already completed, so get the
+      Stripe test keys into the project through Jolly without starting a new OAuth
+      or pasting keys. For anything that would create cloud resources or deploy,
+      use Jolly's dry-run previews only — do not create real resources and do not
+      deploy.
       """
     Then the agent should have invoked Jolly's documented CLI commands
     And the workspace should contain the local artifacts `jolly init` produces (the installed Jolly skill, a merged `.mcp.json`, a scaffolded `.env`, and the marker-merged `AGENTS.md`)
+    And the workspace `.env` should contain the Stripe test keys, imported through Jolly from the already-present Stripe CLI session, with no fresh OAuth or human paste
     And Jolly's diagnostics should have run and emitted the standard output envelope
     And no real cloud resource should have been created and nothing should have been deployed

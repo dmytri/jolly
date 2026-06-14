@@ -1204,10 +1204,76 @@ function stripeRiskContext(): RiskContext {
   };
 }
 
+/**
+ * Read the default profile's test-mode keys from a logged-in Stripe CLI session
+ * via its own read-only interface (`stripe config --list`). Returns the parsed
+ * keys, or undefined when the CLI is missing, not logged in, or holds no
+ * test-mode keys. Read-only and side-effect free; never runs `login`/OAuth and
+ * makes no network call. The parser tolerates single/double/no quotes and the
+ * `sk_test_`/`rk_test_` secret-key forms (feature 005).
+ */
+function readStripeCliKeys():
+  | { publishable?: string; secret?: string; expiresAt?: string }
+  | undefined {
+  let result;
+  try {
+    // Bare command name so PATH resolves the Stripe CLI (or the harness fake).
+    result = spawnSync("stripe", ["config", "--list"], { encoding: "utf8" });
+  } catch {
+    return undefined;
+  }
+  if (result.error || result.status !== 0 || typeof result.stdout !== "string") {
+    return undefined;
+  }
+
+  const unquote = (raw: string): string => {
+    const trimmed = raw.trim();
+    if (
+      (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'"))
+    ) {
+      return trimmed.slice(1, -1);
+    }
+    return trimmed;
+  };
+
+  let publishable: string | undefined;
+  let secret: string | undefined;
+  let expiresAt: string | undefined;
+  // Parse the [default] profile only; stop if another profile table begins.
+  let inDefault = false;
+  for (const line of result.stdout.split("\n")) {
+    const trimmed = line.trim();
+    const table = /^\[(.+)\]$/.exec(trimmed);
+    if (table) {
+      inDefault = table[1] === "default";
+      continue;
+    }
+    if (!inDefault) continue;
+    const kv = /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(trimmed);
+    if (!kv) continue;
+    const [, key, rawValue] = kv;
+    const value = unquote(rawValue);
+    if (key === "test_mode_pub_key" && /^pk_test_/.test(value)) publishable = value;
+    else if (key === "test_mode_api_key" && /^(sk_test_|rk_test_)/.test(value)) secret = value;
+    else if (key === "test_mode_key_expires_at" && value) expiresAt = value;
+  }
+
+  if (!publishable && !secret && !expiresAt) return undefined;
+  return { publishable, secret, expiresAt };
+}
+
 function commandCreateStripe(args: ParsedArgs): Envelope {
   const command = "create stripe";
-  const publishable = args.options["publishable-key"];
-  const secret = args.options["secret-key"];
+  const flagPublishable = args.options["publishable-key"];
+  const flagSecret = args.options["secret-key"];
+
+  // Flags always override the import (durable Dashboard keys). With neither
+  // flag, import from a logged-in Stripe CLI session (read-only).
+  const fromCli = !flagPublishable && !flagSecret ? readStripeCliKeys() : undefined;
+  const publishable = flagPublishable ?? fromCli?.publishable;
+  const secret = flagSecret ?? fromCli?.secret;
+  const imported = !flagPublishable && !flagSecret && Boolean(publishable && secret);
 
   if (!publishable || !secret) {
     return errorEnvelope(
@@ -1216,8 +1282,10 @@ function commandCreateStripe(args: ParsedArgs): Envelope {
       [
         {
           code: "MISSING_STRIPE_KEYS",
-          message: "create stripe needs --publishable-key <pk_test_...> and --secret-key <sk_test_...>.",
-          remediation: "Copy both test-mode keys from the Stripe Dashboard and pass them as flags.",
+          message:
+            "create stripe found no Stripe test-mode keys: pass --publishable-key <pk_test_...> and --secret-key <sk_test_...>, or log in to the Stripe CLI so Jolly can import them.",
+          remediation:
+            "Run `npx @stripe/cli login` to complete the Stripe CLI OAuth (then re-run `jolly create stripe`), or copy both test-mode keys from the Stripe Dashboard and pass them as --publishable-key/--secret-key.",
         },
       ],
       { data: { riskContext: stripeRiskContext() } },
@@ -1244,16 +1312,37 @@ function commandCreateStripe(args: ParsedArgs): Envelope {
     JOLLY_STRIPE_SECRET_KEY: secret,
   });
 
+  const expiresAt = imported ? fromCli?.expiresAt : undefined;
   return envelope({
     command,
     status: "success",
-    summary:
-      "Stored Stripe test-mode keys as JOLLY_STRIPE_PUBLISHABLE_KEY and JOLLY_STRIPE_SECRET_KEY.",
-    data: { stored: true, riskContext: stripeRiskContext() },
+    summary: imported
+      ? "Imported Stripe test-mode keys from the Stripe CLI session into .env as JOLLY_STRIPE_PUBLISHABLE_KEY and JOLLY_STRIPE_SECRET_KEY."
+      : "Stored Stripe test-mode keys as JOLLY_STRIPE_PUBLISHABLE_KEY and JOLLY_STRIPE_SECRET_KEY.",
+    data: {
+      stored: true,
+      imported,
+      ...(imported ? { source: "stripe-cli" } : {}),
+      ...(expiresAt ? { expiresAt } : {}),
+      riskContext: stripeRiskContext(),
+    },
     checks: [
-      { id: "stripe-keys-stored", status: "pass", description: "Stripe test-mode keys written to .env." },
+      {
+        id: "stripe-keys-stored",
+        status: "pass",
+        description: imported
+          ? "Stripe test-mode keys imported from the Stripe CLI session and written to .env."
+          : "Stripe test-mode keys written to .env.",
+      },
     ],
     nextSteps: [
+      ...(expiresAt
+        ? [
+            {
+              description: `These Stripe CLI test-mode keys expire ${expiresAt}; before then, replace them with durable Stripe Dashboard keys (re-run jolly create stripe).`,
+            },
+          ]
+        : []),
       {
         description:
           "Configure Saleor's Stripe integration via @saleor/configurator, guided by the Jolly skill.",
@@ -1574,13 +1663,28 @@ function commandDoctor(args: ParsedArgs): Envelope {
     const hasSecret = Boolean(
       values["JOLLY_STRIPE_SECRET_KEY"] ?? process.env["JOLLY_STRIPE_SECRET_KEY"],
     );
-    checks.push({
-      id: "stripe-keys",
-      status: hasPub && hasSecret ? "pass" : "fail",
-      description:
-        hasPub && hasSecret ? "Stripe test-mode keys present in .env." : "Stripe keys not configured.",
-      command: hasPub && hasSecret ? undefined : "jolly create stripe --publishable-key <pk> --secret-key <sk>",
-    });
+    if (hasPub && hasSecret) {
+      checks.push({
+        id: "stripe-keys",
+        status: "pass",
+        description: "Stripe test-mode keys present in .env.",
+      });
+    } else {
+      // No .env keys: if the Stripe CLI is logged in with test-mode keys, Jolly
+      // can import them — surface a warning (not a fail) pointing at the import.
+      const cliKeys = readStripeCliKeys();
+      const cliHasKeys = Boolean(cliKeys?.publishable && cliKeys?.secret);
+      checks.push({
+        id: "stripe-keys",
+        status: cliHasKeys ? "warning" : "fail",
+        description: cliHasKeys
+          ? "Stripe test-mode keys are available from the logged-in Stripe CLI session; run jolly create stripe to import them into .env."
+          : "Stripe keys not configured.",
+        command: cliHasKeys
+          ? "jolly create stripe"
+          : "jolly create stripe --publishable-key <pk> --secret-key <sk>",
+      });
+    }
   }
 
   const hasFail = checks.some((c) => c.status === "fail");

@@ -18,6 +18,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { logicSafeEnv } from "../support/logic-env.ts";
 import { findRiskContexts, assertRiskContextShape } from "../support/envelope.ts";
+import {
+  FAKE_STRIPE_PUBLISHABLE_KEY,
+  FAKE_STRIPE_SECRET_KEY,
+  readStripeTrace,
+  writeFakeStripeCli,
+} from "../support/stripe-cli-fake.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 // --- Background (capability statements) -------------------------------------
@@ -36,8 +42,19 @@ Given("v1 uses Stripe test mode only", function () {});
 // the customer must supply — which is what these steps pin.
 
 Given("the setup flow reaches payment configuration", function (this: JollyWorld) {
-  // create stripe with no keys is the deterministic "needs the two values" path.
-  this.runCli(["create", "stripe", "--json"], { env: logicSafeEnv() });
+  // create stripe with no flags is the "needs the two values" path. Since the
+  // no-flags path now tries to import from a logged-in Stripe CLI, shadow any
+  // real `stripe` with a NOT-logged-in fake (no test-mode keys) so the import
+  // finds nothing and Jolly errors honestly — deterministic on any machine.
+  const shimDir = this.newTempDir("stripe-cli-empty");
+  writeFakeStripeCli(shimDir, { loggedIn: false });
+  this.runCli(["create", "stripe", "--json"], {
+    env: logicSafeEnv({
+      JOLLY_STRIPE_PUBLISHABLE_KEY: undefined,
+      JOLLY_STRIPE_SECRET_KEY: undefined,
+      PATH: `${shimDir}:${process.env.PATH ?? ""}`,
+    }),
+  });
 });
 
 When("the agent handles Stripe setup", function (this: JollyWorld) {
@@ -322,5 +339,132 @@ Then(
   function (this: JollyWorld) {
     // doctor surfaces actionable guidance via nextSteps / check commands.
     assert.ok(Array.isArray(this.envelope.nextSteps), "doctor must carry a nextSteps channel");
+  },
+);
+
+// --- Scenario: create stripe imports keys from the Stripe CLI session (@logic) -
+//
+// Decision 2026-06-13: a completed `stripe login` must never read as "no Stripe
+// keys". With no --publishable-key/--secret-key, `jolly create stripe` invokes
+// the Stripe CLI READ-ONLY (`stripe config --list`), reads the default profile's
+// test-mode keys, and writes them to .env — the secret never passes through a
+// process argument or the agent. The harness fakes a logged-in Stripe CLI: a
+// `stripe` executable on a scenario-scoped PATH that answers `config --list`
+// with dummy test keys and traces its argv (so we can assert it was read-only).
+// Safety: the run carries logicSafeEnv() with the Stripe vars REMOVED, so Jolly
+// must take the import path rather than reading keys from the environment.
+
+function stripeImportEnv(world: JollyWorld): Record<string, string | undefined> {
+  return logicSafeEnv({
+    // Remove the env-provided Stripe keys so the import path is exercised.
+    JOLLY_STRIPE_PUBLISHABLE_KEY: undefined,
+    JOLLY_STRIPE_SECRET_KEY: undefined,
+    // The fake `stripe` shim must resolve first on PATH.
+    PATH: `${String(world.notes.stripeShimDir)}:${process.env.PATH ?? ""}`,
+  });
+}
+
+function seedFakeStripeCli(this: JollyWorld): void {
+  const shimDir = this.newTempDir("stripe-cli");
+  const traceFile = join(shimDir, "stripe-trace.jsonl");
+  writeFakeStripeCli(shimDir, { traceFile });
+  this.notes.stripeShimDir = shimDir;
+  this.notes.stripeTraceFile = traceFile;
+  // These are values Jolly will write to .env; track them so the no-leak
+  // assertions cover them.
+  this.trackSecret(FAKE_STRIPE_PUBLISHABLE_KEY);
+  this.trackSecret(FAKE_STRIPE_SECRET_KEY);
+}
+
+Given("the Stripe CLI is logged in with test-mode keys", seedFakeStripeCli);
+Given("the Stripe CLI is logged in with test-mode keys in its config", seedFakeStripeCli);
+
+When("the agent runs `jolly create stripe --json`", function (this: JollyWorld) {
+  this.runCli(["create", "stripe", "--json"], { env: stripeImportEnv(this) });
+});
+
+Then(
+  "Jolly should import the test-mode keys by invoking the Stripe CLI read-only \\(`stripe config --list`)",
+  function (this: JollyWorld) {
+    assert.equal(this.envelope.status, "success");
+    const calls = readStripeTrace(String(this.notes.stripeTraceFile));
+    assert.ok(calls.length > 0, "Jolly must have invoked the Stripe CLI");
+    assert.ok(
+      calls.some((argv) => argv[0] === "config" && argv.includes("--list")),
+      "Jolly must invoke `stripe config --list`",
+    );
+    // Read-only exception: Jolly must never run `login`/OAuth or any mutating
+    // Stripe CLI command.
+    for (const argv of calls) {
+      assert.ok(
+        !argv.includes("login"),
+        "Jolly must never run `stripe login`/OAuth (read-only import only)",
+      );
+    }
+  },
+);
+
+Then(
+  ".env should contain JOLLY_STRIPE_PUBLISHABLE_KEY and JOLLY_STRIPE_SECRET_KEY matching the Stripe CLI session",
+  function (this: JollyWorld) {
+    const text = readFileSync(join(this.projectDir, ".env"), "utf8");
+    assert.match(
+      text,
+      new RegExp(`^JOLLY_STRIPE_PUBLISHABLE_KEY=${FAKE_STRIPE_PUBLISHABLE_KEY}$`, "m"),
+      ".env must carry the publishable key imported from the Stripe CLI session",
+    );
+    assert.match(
+      text,
+      new RegExp(`^JOLLY_STRIPE_SECRET_KEY=${FAKE_STRIPE_SECRET_KEY}$`, "m"),
+      ".env must carry the secret key imported from the Stripe CLI session",
+    );
+  },
+);
+
+Then("Jolly should not print either key value", function (this: JollyWorld) {
+  this.assertNoSecretsIn(this.lastRun!.stdout, "stdout");
+  this.assertNoSecretsIn(this.lastRun!.stderr, "stderr");
+});
+
+Then(
+  "the output should report that the keys were imported from the Stripe CLI session",
+  function (this: JollyWorld) {
+    const text = JSON.stringify(this.envelope).toLowerCase();
+    assert.ok(
+      text.includes("stripe cli") && text.includes("import"),
+      "the envelope should report that the keys were imported from the Stripe CLI session",
+    );
+  },
+);
+
+// --- Scenario: doctor recognizes Stripe keys from the Stripe CLI session (@logic) -
+//
+// When .env has no JOLLY_STRIPE_* but the Stripe CLI is logged in with test-mode
+// keys, `jolly doctor stripe` must report the stripe-keys check as `warning`
+// (not `fail`) whose next step is `jolly create stripe` to import them — Jolly
+// must not report Stripe as simply missing when the OAuth was already done.
+
+When("the agent runs `jolly doctor stripe --json`", function (this: JollyWorld) {
+  this.runCli(["doctor", "stripe", "--json"], { env: stripeImportEnv(this) });
+});
+
+Then(
+  "the stripe-keys check should be {string}, not {string}",
+  function (this: JollyWorld, want: string, notWant: string) {
+    const check = this.envelope.checks.find((c) => c.id === "stripe-keys");
+    assert.ok(check, "doctor stripe must report a stripe-keys check");
+    assert.equal(check!.status, want, `stripe-keys should be "${want}"`);
+    assert.notEqual(check!.status, notWant, `stripe-keys must not be "${notWant}"`);
+  },
+);
+
+Then(
+  "its next step should be to run `jolly create stripe` to import the keys",
+  function (this: JollyWorld) {
+    const steps = this.envelope.nextSteps;
+    assert.ok(
+      steps.some((s) => String((s as { command?: unknown }).command) === "jolly create stripe"),
+      "doctor should direct the agent to `jolly create stripe` (no flags) to import the keys",
+    );
   },
 );
