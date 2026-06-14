@@ -157,21 +157,16 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompt
   - **Composable commands stay.** Every stage `start` runs is still available as an independent
     command the agent can call and mediate itself (feature 008 surface, feature 022
     resumability); `start` chains them — it does not replace them.
-  - **Stripe — the app install + key entry + channel map are ALL a guided human Dashboard gate**
-    (verified 2026-06-14, feature 005; corrected from "Jolly installs via `appInstall`"). Neither
-    `@saleor/configurator` nor the Cloud API can touch the Stripe app. The Saleor GraphQL
-    `appInstall` mutation exists, but it is **staff-only** — called with Jolly's app token it returns
-    `PermissionDenied` ("authenticated as a staff member"), and Jolly holds no store staff token, so
-    **Jolly cannot install the Stripe app in v1.** No public API sets the keys or maps the app to a
-    channel either — that lives in the app's Dashboard form. So the `start` Stripe stage =
-    (1) **human installs** the Stripe app (Dashboard → Extensions; the one-click runs `appInstall`
-    as the staff user) — Jolly announces-and-waits, then verifies the app is present; (2) the recipe
-    sets the channel payment flow; (3) Jolly runs a precise guided walk-through for the keys +
-    `us`-channel mapping (deep link + "paste this here, assign to the `us` channel", keys by name
-    only) and waits; (4) Jolly probes `paymentGatewayInitialize`/checkout to verify. Paper takes no
-    Stripe keys (it reads the publishable key from Saleor at runtime); `jolly create stripe` only
-    imports the test keys into `.env`. (A staff-token path that lets Jolly run `appInstall` itself
-    is post-MVP.)
+  - **Stripe — Jolly automates what the APIs allow; the key entry is a guided gate** (verified
+    2026-06-14, feature 005). `@saleor/configurator` and the Cloud API cannot touch the Stripe
+    app; the Saleor GraphQL `appInstall` mutation CAN install it (HANDLE_PAYMENTS), but no public
+    API sets its keys or maps it to a channel — that lives in the app's Dashboard form. So the
+    `start` Stripe stage = (1) Jolly installs the app via `appInstall`; (2) the recipe sets the
+    channel payment flow; (3) Jolly runs a precise guided walk-through for the keys (deep link +
+    "paste this here, assign to the `us` channel", keys by name only) and waits; (4) Jolly probes
+    `paymentGatewayInitialize`/checkout to verify. Paper takes no Stripe keys (it reads the
+    publishable key from Saleor at runtime); `jolly create stripe` only imports the test keys into
+    `.env`.
   This applies to `jolly start` (feature 001/002); the retired `create deployment`/`deploy`/
   `create recipe`/`create storefront` are **not** revived as separate fat commands — the
   orchestration lives **inside `start`**, spawning the official CLIs.

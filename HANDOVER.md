@@ -84,23 +84,10 @@ error). `https://jolly-acceptance.vercel.app` is now a buyable store.
 3. **Verify** — `@logic`/units/typecheck green; default dry-run back to 0 undefined; on a
    creds-present VM the `@sandbox` scenario seeds stock and the `us` checkout clears.
 
-**Acceptance finding #2 — Stripe app install is ALSO a human Dashboard step (2026-06-14, attempted
-live):** tried to install the Stripe app via Saleor GraphQL `appInstall` (manifest
-`https://stripe.saleor.app/api/manifest`) with Jolly's app token → `PermissionDenied`: "You need to
-be authenticated as a staff member to perform this action." `appInstall` is **staff-only**; an app
-token can't call it even with `MANAGE_APPS`, and Jolly holds no store staff token. **So Jolly cannot
-install the Stripe app in v1** — this reverses the committed feature-005 claim that "Jolly automates
-the install via appInstall." Spec'd correction landed this pass: **feature 005** (the Stripe-app-path
-Rule — install is now a human Dashboard step; staff-token path is post-MVP), **AGENTS.md** (the
-Stripe orchestration bullet), and **SKILL.md** (stage 7). Net: the entire Stripe stage (install +
-keys + `us`-channel map) is a guided human Dashboard gate; Jolly's role is announce-and-wait then
-verify via `paymentGatewayInitialize`/checkout. Not QM's job — no code path to build (it was never
-implemented; `start`'s Stripe stage stays a guided gate).
-
-**Remaining acceptance gate (human/Dashboard):** in the Saleor Dashboard, **install** the Stripe app
-(Extensions), add a configuration with the `.env` test keys, and **map it to the `us` channel**, then
-confirm checkout offers Stripe and reaches the test payment step. All three are the irreducible
-Dashboard steps.
+**Remaining acceptance gate (unchanged, human/Dashboard — not QM's job):** install + configure the
+Saleor Stripe app and **map it to the `us` channel** (keys + mapping have no public API), then
+confirm checkout offers Stripe and reaches the test payment step. `appInstall` is automatable
+(feature 005); the keys/channel-map is the irreducible Dashboard step.
 
 ---
 

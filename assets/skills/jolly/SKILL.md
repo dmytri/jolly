@@ -96,10 +96,9 @@ and mediate it yourself. The order and the load-bearing specifics:
    every recipe variant in the recipe warehouse via Saleor GraphQL, because `@saleor/configurator`
    cannot set stock or `trackInventory` (it hardcodes `trackInventory: true`). Without this the
    catalog has zero stock and checkout fails with `INSUFFICIENT_STOCK` before reaching payment.
-7. **Stripe (test mode)** — the recipe sets the channel payment flow, but installing Saleor's
-   Stripe app, entering its keys, and mapping it to the `us` channel are **all a human Dashboard
-   gate** (`start` announces and waits). Jolly cannot install the app for you: the Saleor GraphQL
-   `appInstall` mutation is **staff-only** and Jolly holds no staff token. So this stage is guided:
+7. **Stripe (test mode)** — `start` installs Saleor's Stripe app for you via the Saleor GraphQL
+   `appInstall` mutation (HANDLE_PAYMENTS); the recipe sets the channel payment flow. The keys and
+   the channel mapping have **no public API**, so this stage is a guided gate:
    - Get test keys the fast way: `npx @stripe/cli login` (one browser click — if there's no Stripe
      account, sign up at https://dashboard.stripe.com/register first; test mode works immediately).
      Then `jolly create stripe` with no flags imports the keys read-only from the CLI session
@@ -110,10 +109,9 @@ and mediate it yourself. The order and the load-bearing specifics:
      keys), re-run `jolly create stripe`, and update the Stripe app config. Don't let checkout
      silently break at the 90-day mark.
    - Then the **Dashboard Stripe app** (human gate `start` waits at): Saleor Dashboard →
-     Extensions → **install the Stripe app** (the one-click install — required, since `appInstall`
-     is staff-only and Jolly can't do it), then add a configuration with those keys and **map it to
-     the `us` channel**. The app registers its own Stripe webhooks. The configurator does **not**
-     touch payments — this is the Saleor-supported path.
+     Extensions → the Stripe app, add a configuration with those keys, and **map it to the `us`
+     channel**. The app registers its own Stripe webhooks. The configurator does **not** touch
+     payments — this is the Saleor-supported path.
 8. **Deploy to Vercel** — the official Vercel CLI, spawned by `start`: `npx vercel`. Auth is the
    CLI's own `vercel login` session (if `npx vercel whoami` fails, `start` runs `vercel login`
    with the terminal handed through, then resumes). Set the project env vars
