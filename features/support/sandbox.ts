@@ -73,6 +73,14 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
     "saleorEndpoint",
     "saleorAppToken",
   ],
+  // The configurator-deploy stage spawns `npx @saleor/configurator deploy` of
+  // Jolly's bundled recipe against the store URL + app token (derivable from the
+  // Cloud token via per-run provisioning). No CLI auth beyond the Saleor app
+  // token the configurator uses; no Vercel/Stripe credential.
+  "Jolly start deploys the starter recipe with @saleor/configurator": [
+    "saleorEndpoint",
+    "saleorAppToken",
+  ],
   // 005-stripe-checkout-setup
   "Agent configures Saleor for Stripe": [
     "saleorEndpoint",

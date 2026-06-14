@@ -20,6 +20,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createHash, randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
 
@@ -2050,12 +2051,14 @@ function startPlan(): PlanStage[] {
       },
       riskContext: {
         action: "spawn @saleor/configurator deploy",
-        target: "Saleor Cloud store configuration (config-as-code)",
+        target:
+          "Saleor Cloud store configuration (config-as-code) from Jolly's bundled starter recipe assets/skills/jolly/recipe.yml, deployed to the store at NEXT_PUBLIC_SALEOR_API_URL with JOLLY_SALEOR_APP_TOKEN",
         riskLevel: "high",
         categories: ["production configuration changes"],
         reversible: false,
         sideEffects: [
-          "Spawns `npx @saleor/configurator deploy` to apply the starter recipe to the store",
+          "Spawns `npx @saleor/configurator deploy --config <bundled assets/skills/jolly/recipe.yml> --url <NEXT_PUBLIC_SALEOR_API_URL> --token <JOLLY_SALEOR_APP_TOKEN> --fail-on-delete --fail-on-breaking` to apply the starter recipe to the store (store URL and app token referenced by name only; values never printed)",
+          "A `--plan` preview shows the configurator diff without applying changes; the `--fail-on-delete`/`--fail-on-breaking` guards block a destructive apply over a non-blank store",
         ],
         dryRunAvailable: true,
       },
@@ -2169,6 +2172,129 @@ interface StartStage {
   stage: string;
   status: StageStatus;
   riskContext?: RiskContext;
+}
+
+/**
+ * Resolve Jolly's bundled starter recipe (`assets/skills/jolly/recipe.yml`)
+ * relative to Jolly's own module path. Works in both dev (`src/index.ts`) and
+ * the published bundle (`dist/index.js`): both sit one level under the package
+ * root, and `assets/skills/` ships in package `files`.
+ */
+function bundledRecipePath(): string {
+  return fileURLToPath(new URL("../assets/skills/jolly/recipe.yml", import.meta.url));
+}
+
+/**
+ * Genuinely perform the configurator-deploy stage (feature 004 Rule
+ * "Configurator deploy is a genuinely-executing stage"). This is the FIRST
+ * spawned-CLI `jolly start` stage: Jolly SPAWNS `npx @saleor/configurator deploy`
+ * of its bundled starter recipe against the store, never reimplementing it
+ * against raw APIs. Resolves the store GraphQL endpoint and app token from
+ * .env/process.env (first-party Saleor host only — the same creds Jolly already
+ * manages); if either is missing it pushes a skipped check and blocks rather
+ * than fabricating. Passes `--fail-on-delete --fail-on-breaking` so a
+ * destructive apply over a non-blank store is blocked (exit 6/7), not silently
+ * destructive. Reads the configurator's EXIT CODE and reports honestly:
+ * `completed`/`pass` only when it exited 0; `blocked`/`fail` (with the real
+ * error) on any non-zero exit or a configurator that cannot be spawned — never
+ * a fabricated deploy.
+ */
+async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
+  const values = loadEnvValues(projectDir());
+  const endpoint =
+    process.env["NEXT_PUBLIC_SALEOR_API_URL"] ?? values["NEXT_PUBLIC_SALEOR_API_URL"] ?? "";
+  const token =
+    process.env["JOLLY_SALEOR_APP_TOKEN"] ?? values["JOLLY_SALEOR_APP_TOKEN"] ?? "";
+
+  if (!endpoint || !token) {
+    checks.push({
+      id: "recipe-deployed",
+      status: "skipped",
+      description:
+        "Cannot deploy the starter recipe: NEXT_PUBLIC_SALEOR_API_URL and/or JOLLY_SALEOR_APP_TOKEN are not configured.",
+      remediation:
+        "Complete the store stage so the endpoint and app token are in .env, then re-run jolly start --yes.",
+    });
+    return "blocked";
+  }
+
+  const recipePath = bundledRecipePath();
+  if (!existsSync(recipePath)) {
+    checks.push({
+      id: "recipe-deployed",
+      status: "fail",
+      description: `Cannot deploy the starter recipe: bundled recipe not found at ${recipePath}.`,
+      remediation: "Reinstall jolly so the bundled assets/skills/jolly/recipe.yml is present.",
+    });
+    return "blocked";
+  }
+
+  const result = spawnSync(
+    "npx",
+    [
+      "--yes",
+      "@saleor/configurator",
+      "deploy",
+      "--config",
+      recipePath,
+      "--url",
+      endpoint,
+      "--token",
+      token,
+      "--fail-on-delete",
+      "--fail-on-breaking",
+    ],
+    {
+      encoding: "utf8",
+      timeout: 600_000,
+      env: { ...process.env, SALEOR_URL: endpoint, SALEOR_TOKEN: token },
+    },
+  );
+
+  if (result.error || result.status === null) {
+    const reason = result.error ? result.error.message : "the configurator could not be spawned";
+    checks.push({
+      id: "recipe-deployed",
+      status: "fail",
+      description: `Did not deploy the starter recipe: ${reason}.`,
+      remediation:
+        "Verify npx can reach @saleor/configurator and NEXT_PUBLIC_SALEOR_API_URL/JOLLY_SALEOR_APP_TOKEN reach the store, then re-run jolly start --yes.",
+    });
+    return "blocked";
+  }
+
+  if (result.status === 0) {
+    checks.push({
+      id: "recipe-deployed",
+      status: "pass",
+      description: "Deployed the starter recipe via @saleor/configurator deploy.",
+    });
+    return "completed";
+  }
+
+  const stderr = (result.stderr ?? "").toString().slice(0, 2000);
+  if (result.status === 6 || result.status === 7) {
+    checks.push({
+      id: "recipe-deployed",
+      status: "fail",
+      description:
+        result.status === 6
+          ? `Did not deploy the starter recipe: the configurator detected deletions over a non-blank store (blocked by --fail-on-delete).${stderr ? ` ${stderr}` : ""}`
+          : `Did not deploy the starter recipe: the configurator detected breaking changes over a non-blank store (blocked by --fail-on-breaking).${stderr ? ` ${stderr}` : ""}`,
+      remediation:
+        "Review the destructive diff. Deploying over an existing catalog without the --fail-on-delete/--fail-on-breaking guard requires the customer's explicit approval; the happy path is a freshly created blank Saleor environment.",
+    });
+    return "blocked";
+  }
+
+  checks.push({
+    id: "recipe-deployed",
+    status: "fail",
+    description: `Did not deploy the starter recipe: @saleor/configurator deploy exited ${result.status}.${stderr ? ` ${stderr}` : ""}`,
+    remediation:
+      "Verify NEXT_PUBLIC_SALEOR_API_URL and JOLLY_SALEOR_APP_TOKEN reach the store, then re-run jolly start --yes.",
+  });
+  return "blocked";
 }
 
 /**
@@ -2344,7 +2470,14 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
       // it is pre-approved and would proceed (and fail at the network layer
       // under the unroutable logic-safe base — which is fine, just not a gate).
       if (args.yes) {
-        status = "pending";
+        // The recipe stage is the FIRST spawned-CLI `jolly start` stage to
+        // genuinely execute (decision 2026-06-14, iteration 2 / fourth
+        // convergence): Jolly spawns `npx @saleor/configurator deploy` of its
+        // bundled starter recipe. With --yes (pre-approved) and the gate unset,
+        // it executes; reported honestly (`completed` only when the configurator
+        // exited 0, never fabricated). Other high-risk stages (store, deploy)
+        // are not yet built as spawned-CLI stages and stay pending under --yes.
+        status = planStage.stage === "recipe" ? await runRecipeStage(checks) : "pending";
       } else {
         status = "awaiting-approval";
         gate = {

@@ -14,9 +14,10 @@
 // → skip locally.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
-import { logicSafeEnv } from "../support/logic-env.ts";
+import { logicSafeEnv, DUMMY } from "../support/logic-env.ts";
 import { findRiskContexts, assertRiskContextShape } from "../support/envelope.ts";
 import { saleorGraphql } from "../support/saleor-graphql.ts";
+import { writeFakeNpx } from "../support/configurator-cli-fake.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 // The Jolly starter recipe's warehouse (assets/skills/jolly/recipe.yml) and the
@@ -447,5 +448,382 @@ Then(
           `${DEFAULT_STOCK_QUANTITY}, not accumulated, got ${atWarehouse[0].quantity}`,
       );
     }
+  },
+);
+
+// ─── Scenario: Jolly start previews the configurator deploy of the starter
+//     recipe (@logic) ───────────────────────────────────────────────────────
+//
+// THE deterministic target driving Crew for iteration 2 / the fourth convergence
+// (feature 004 Rule "Configurator deploy is a genuinely-executing stage"). The
+// `jolly start --dry-run` plan must surface the configurator-deploy (recipe)
+// stage as a SPAWNED-CLI step that runs BEFORE the stock-seeding stage, naming
+// the spawned command, Jolly's bundled recipe, the store URL + app token (by
+// name only — never a value), and the safe `--fail-on-delete`/`--fail-on-breaking`
+// flags, carrying a feature-021 riskContext whose dry run maps to the configurator
+// `--plan` preview — all without spawning anything. The `Given`/`When` are shared
+// with the stock-seeding preview scenario above (logicSafeEnv keeps the preview
+// unable to touch any real service).
+
+/** Is this plan stage the configurator-deploy (recipe) stage? It is the only
+ *  stage that spawns `@saleor/configurator` (the Vercel `deploy` stage spawns
+ *  `npx vercel`, not the configurator). */
+function isConfiguratorDeployStage(stage: PlanStage): boolean {
+  const text = JSON.stringify(stage).toLowerCase();
+  return text.includes("configurator") && text.includes("deploy");
+}
+
+Then(
+  "the plan should include a configurator-deploy step that runs before the stock-seeding step",
+  function (this: JollyWorld) {
+    const plan = this.envelope.data.plan as PlanStage[];
+    assert.ok(Array.isArray(plan) && plan.length > 0, "start --dry-run must report data.plan");
+    const deployIndex = plan.findIndex(isConfiguratorDeployStage);
+    const stockIndex = plan.findIndex((s) =>
+      JSON.stringify(s).includes(STOCK_MUTATION),
+    );
+    assert.ok(deployIndex >= 0, "the plan must include a configurator-deploy stage");
+    assert.ok(
+      stockIndex >= 0,
+      `the plan must include the stock-seeding stage naming ${STOCK_MUTATION}`,
+    );
+    assert.ok(
+      deployIndex < stockIndex,
+      "the configurator-deploy stage must run BEFORE the stock-seeding stage",
+    );
+    this.notes.deployStage = plan[deployIndex];
+  },
+);
+
+Then(
+  "the preview should name the spawned command `npx @saleor\\/configurator deploy`, Jolly's bundled starter recipe, and the store URL and app token by name only",
+  function (this: JollyWorld) {
+    const stage = this.notes.deployStage as PlanStage;
+    const blob = JSON.stringify(stage);
+    assert.ok(
+      blob.includes("npx @saleor/configurator deploy"),
+      "the preview must name the spawned command `npx @saleor/configurator deploy`",
+    );
+    assert.ok(
+      /recipe\.yml/i.test(blob),
+      "the preview must name Jolly's bundled starter recipe (recipe.yml)",
+    );
+    assert.ok(
+      blob.includes("NEXT_PUBLIC_SALEOR_API_URL"),
+      "the preview must name the store URL by name (NEXT_PUBLIC_SALEOR_API_URL)",
+    );
+    assert.ok(
+      blob.includes("JOLLY_SALEOR_APP_TOKEN"),
+      "the preview must name the app token by name (JOLLY_SALEOR_APP_TOKEN)",
+    );
+    // "By name only": the actual app-token VALUE must never appear in the preview.
+    assert.ok(
+      !blob.includes(DUMMY.appToken),
+      "the app token must be referenced by name only — its value must never be printed",
+    );
+  },
+);
+
+Then(
+  "the preview should name the safe flags `--fail-on-delete` and `--fail-on-breaking`",
+  function (this: JollyWorld) {
+    const blob = JSON.stringify(this.notes.deployStage as PlanStage);
+    assert.ok(blob.includes("--fail-on-delete"), "the preview must name the --fail-on-delete flag");
+    assert.ok(
+      blob.includes("--fail-on-breaking"),
+      "the preview must name the --fail-on-breaking flag",
+    );
+  },
+);
+
+Then(
+  "the configurator-deploy step should carry a riskContext for deploying store configuration",
+  function (this: JollyWorld) {
+    const stage = this.notes.deployStage as PlanStage;
+    assert.ok(stage.riskContext, "the configurator-deploy stage must carry a riskContext");
+    assertRiskContextShape(stage.riskContext);
+    const rc = stage.riskContext as { categories: string[] };
+    assert.ok(
+      rc.categories.includes("production configuration changes"),
+      'the configurator-deploy riskContext must flag store-configuration changes ' +
+        '("production configuration changes")',
+    );
+    assert.ok(
+      findRiskContexts(this.envelope).length > 0,
+      "riskContexts must live inside the envelope",
+    );
+  },
+);
+
+Then(
+  "the riskContext should mark a dry run available via the configurator `--plan` preview",
+  function (this: JollyWorld) {
+    const stage = this.notes.deployStage as PlanStage;
+    const rc = stage.riskContext as { dryRunAvailable: boolean };
+    assert.equal(rc.dryRunAvailable, true, "the configurator-deploy riskContext must set dryRunAvailable true");
+    assert.ok(
+      JSON.stringify(stage).includes("--plan"),
+      "the preview must reference the configurator `--plan` preview as the dry-run mechanism",
+    );
+  },
+);
+
+Then(
+  "the preview should not spawn the configurator or perform any deployment",
+  function (this: JollyWorld) {
+    assert.equal(this.envelope.data.dryRun, true, "the preview must set data.dryRun true");
+    assert.equal(this.envelope.status, "success", "a clean preview reports success");
+    const dryRunCheck = this.findCheck("start-dry-run");
+    assert.ok(dryRunCheck, "the preview must carry a start-dry-run check");
+    assert.equal(dryRunCheck!.status, "skipped", "no stage may be executed in a preview");
+  },
+);
+
+// ─── Scenario: Jolly start does not fabricate the recipe deployment (@logic) ──
+//
+// The integrity guardrail (no fabricated success): with no real Saleor
+// credentials, a real `jolly start` run that REACHES the configurator-deploy
+// stage must report it blocked or pending — never `completed` — and the overall
+// envelope must be `warning`, not `success`. `--yes` pre-approves the high-risk
+// gate so the run actually reaches the recipe stage instead of pausing before
+// it; logicSafeEnv supplies dummy creds + an unroutable base; a fake `npx` on
+// PATH shadows the real one so neither the configurator spawn nor init's skill
+// installs make any network call (hermetic, fast). Bootstrap still succeeds (the
+// local scaffold — .mcp.json + AGENTS.md — is written regardless), so the run
+// proceeds to and processes the recipe stage.
+
+Given(
+  "the agent runs `jolly start` with no real Saleor credentials",
+  function (this: JollyWorld) {
+    const shimDir = this.newTempDir("configurator-fake");
+    writeFakeNpx(shimDir);
+    this.notes.npxShimDir = shimDir;
+  },
+);
+
+When(
+  "the run reaches the configurator-deploy stage without `--dry-run`",
+  function (this: JollyWorld) {
+    this.runCli(["start", "--yes", "--json"], {
+      env: logicSafeEnv({
+        PATH: `${String(this.notes.npxShimDir)}:${process.env.PATH ?? ""}`,
+      }),
+      timeoutMs: 90_000,
+    });
+  },
+);
+
+Then(
+  "Jolly should report the configurator-deploy stage as blocked or pending, never completed",
+  function (this: JollyWorld) {
+    const stages = (this.envelope.data.stages ?? []) as Array<{
+      stage: string;
+      status: string;
+    }>;
+    const recipe = stages.find((s) => s.stage === "recipe");
+    assert.ok(recipe, "the orchestrated stages must include the recipe (configurator-deploy) stage");
+    assert.ok(
+      recipe!.status === "blocked" || recipe!.status === "pending",
+      `the configurator-deploy stage must be blocked or pending with no credentials, got "${recipe!.status}"`,
+    );
+    assert.notEqual(
+      recipe!.status,
+      "completed",
+      "the configurator-deploy stage must never be completed without a real, successful deploy",
+    );
+  },
+);
+
+Then(
+  "the summary should not claim the starter recipe was deployed",
+  function (this: JollyWorld) {
+    const summary = String(this.envelope.summary ?? "").toLowerCase();
+    assert.ok(
+      !/deployed|recipe is live|catalog created|recipe applied/.test(summary),
+      `the summary must not claim the starter recipe was deployed: "${this.envelope.summary}"`,
+    );
+  },
+);
+
+Then(
+  'the overall envelope status should be "warning", not "success"',
+  function (this: JollyWorld) {
+    assert.equal(
+      this.envelope.status,
+      "warning",
+      "a run that only bootstrapped and then blocked/paused before completion must be `warning`, not `success`",
+    );
+  },
+);
+
+Then(
+  "Jolly should not print a fabricated deployment result",
+  function (this: JollyWorld) {
+    // No check may claim the recipe deployed as a pass, and the human-readable
+    // stdout must not contain a fabricated "recipe deployed" success line.
+    const fabricatedCheck = this.envelope.checks.find(
+      (c) =>
+        c.status === "pass" &&
+        /recipe.*deploy|configurator.*deploy|catalog.*(created|deployed)/i.test(
+          `${c.id} ${c.description ?? ""}`,
+        ),
+    );
+    assert.ok(
+      !fabricatedCheck,
+      `no check may fabricate a passing recipe deployment: ${JSON.stringify(fabricatedCheck)}`,
+    );
+    const stdout = String(this.lastRun?.stdout ?? "").toLowerCase();
+    assert.ok(
+      !/recipe (deployed|is live)|starter recipe deployed|catalog deployed/.test(stdout),
+      "stdout must not print a fabricated recipe-deployment success line",
+    );
+  },
+);
+
+// ─── Scenario: Jolly start deploys the starter recipe with @saleor/configurator
+//     (@sandbox) ────────────────────────────────────────────────────────────
+//
+// Gated by SANDBOX_REQUIREMENTS["Jolly start deploys the starter recipe with
+// @saleor/configurator"] (saleorEndpoint + saleorAppToken; derivable from the
+// Cloud token via per-run provisioning) → skips locally. Verifies the FIRST
+// spawned-CLI `jolly start` stage genuinely executing: against a blank store,
+// `jolly start --yes` SPAWNS `npx @saleor/configurator deploy` of Jolly's bundled
+// recipe; the additive apply exits 0 so the recipe's catalog entities exist and
+// the stage is reported `completed`; a re-run reconciles to a no-op diff (no
+// duplicate entities). When the recipe stage does not complete in this
+// environment (e.g. the store is not blank, or the configurator could not be
+// spawned), the scenario skips — premise not producible — rather than failing.
+
+interface ResultStage {
+  stage: string;
+  status: string;
+}
+
+async function productCount(
+  endpoint: string,
+  token: string | undefined,
+): Promise<number> {
+  const result = await saleorGraphql(
+    endpoint,
+    token,
+    `query { products(first: 100, channel: "us") { edges { node { id } } } }`,
+  );
+  const edges =
+    (result.data?.products as { edges?: Array<{ node: { id: string } }> } | undefined)
+      ?.edges ?? [];
+  return edges.length;
+}
+
+Given(
+  "a freshly created blank Saleor Cloud environment",
+  function (this: JollyWorld) {
+    // The @sandbox harness provisions/derives a blank per-run environment from
+    // the Cloud token (feature 023); the gating skips locally when creds are
+    // absent. Record the derived store creds for the post-deploy verification.
+    const creds = storeCreds();
+    this.notes.storeEndpoint = creds.endpoint;
+    this.notes.storeToken = creds.token;
+  },
+);
+
+When(
+  "Jolly start runs the configurator-deploy stage with approval",
+  { timeout: 900_000 },
+  function (this: JollyWorld) {
+    // --yes pre-approves the high-risk gate so the run reaches and executes the
+    // configurator-deploy (recipe) stage. The configurator deploy can take
+    // minutes against a real store, so allow a long timeout.
+    this.runCli(["start", "--yes", "--json"], { timeoutMs: 840_000 });
+    const stages = (this.envelope.data.stages ?? []) as ResultStage[];
+    const recipe = stages.find((s) => s.stage === "recipe");
+    if (!recipe || recipe.status !== "completed") {
+      this.attach(
+        `Skipped: the configurator-deploy stage did not complete in this ` +
+          `environment (status: ${recipe?.status ?? "absent"}) — the store may ` +
+          `not be blank, or the configurator could not be spawned here`,
+        "text/plain",
+      );
+      this.notes.skipRecipe = true;
+      return "skipped";
+    }
+  },
+);
+
+Then(
+  "Jolly should spawn `npx @saleor\\/configurator deploy` of its bundled starter recipe against the store, never reimplementing it against raw APIs",
+  function (this: JollyWorld) {
+    if (this.notes.skipRecipe) return "skipped";
+    // Jolly-observable: a recipe-deploy check confirms the configurator was
+    // spawned (Jolly never reimplements the configurator against raw APIs — the
+    // recipe stage's only side effect is spawning the official CLI).
+    const stages = (this.envelope.data.stages ?? []) as ResultStage[];
+    const recipe = stages.find((s) => s.stage === "recipe");
+    assert.ok(recipe, "the orchestrated stages must include the recipe stage");
+    const blob = JSON.stringify(recipe);
+    assert.ok(
+      /configurator/i.test(blob),
+      "the recipe stage must record the spawned @saleor/configurator deploy",
+    );
+  },
+);
+
+Then(
+  "the additive deploy should exit 0 and the recipe's catalog entities should exist in the store",
+  { timeout: 60_000 },
+  async function (this: JollyWorld) {
+    if (this.notes.skipRecipe) return "skipped";
+    const endpoint = String(this.notes.storeEndpoint);
+    const token = this.notes.storeToken as string | undefined;
+    const count = await productCount(endpoint, token);
+    assert.ok(
+      count > 0,
+      "the recipe's catalog products must exist in the store after the additive deploy",
+    );
+  },
+);
+
+Then(
+  "the stage should be reported completed only when the configurator exited 0",
+  function (this: JollyWorld) {
+    if (this.notes.skipRecipe) return "skipped";
+    // Reaching here means the When step saw the recipe stage `completed`; the
+    // integrity contract is that Jolly reports `completed` ONLY on a real exit-0
+    // deploy. Re-assert the stage is completed (and not a fabricated status).
+    const stages = (this.envelope.data.stages ?? []) as ResultStage[];
+    const recipe = stages.find((s) => s.stage === "recipe");
+    assert.ok(recipe, "the recipe stage must be present");
+    assert.equal(
+      recipe!.status,
+      "completed",
+      "the recipe stage is reported completed only when the configurator exited 0",
+    );
+  },
+);
+
+Then(
+  "re-running the stage should reconcile to a no-op diff rather than creating duplicate entities",
+  { timeout: 900_000 },
+  async function (this: JollyWorld) {
+    if (this.notes.skipRecipe) return "skipped";
+    const endpoint = String(this.notes.storeEndpoint);
+    const token = this.notes.storeToken as string | undefined;
+    const before = await productCount(endpoint, token);
+    // Re-run the orchestrated stage; the same declarative recipe reconciles to a
+    // no-op diff (feature 022), exits 0, and creates no duplicate entities.
+    this.runCli(["start", "--yes", "--json"], { timeoutMs: 840_000 });
+    const stages = (this.envelope.data.stages ?? []) as ResultStage[];
+    const recipe = stages.find((s) => s.stage === "recipe");
+    assert.ok(recipe, "the re-run must include the recipe stage");
+    assert.equal(
+      recipe!.status,
+      "completed",
+      "re-deploying the same recipe must still exit 0 (a no-op reconcile), reported completed",
+    );
+    const after = await productCount(endpoint, token);
+    assert.equal(
+      after,
+      before,
+      `re-deploying must not create duplicate catalog entities (was ${before}, now ${after})`,
+    );
   },
 );

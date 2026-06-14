@@ -41,6 +41,35 @@ Feature: Jolly Configurator starter recipe
     And a checkout in the `us` channel should not be blocked by INSUFFICIENT_STOCK
     And re-running the stage should update the quantities idempotently rather than creating duplicate stock
 
+  @logic
+  Scenario: Jolly start previews the configurator deploy of the starter recipe
+    Given the agent runs `jolly start --dry-run`
+    When Jolly plans the recipe stage
+    Then the plan should include a configurator-deploy step that runs before the stock-seeding step
+    And the preview should name the spawned command `npx @saleor/configurator deploy`, Jolly's bundled starter recipe, and the store URL and app token by name only
+    And the preview should name the safe flags `--fail-on-delete` and `--fail-on-breaking`
+    And the configurator-deploy step should carry a riskContext for deploying store configuration
+    And the riskContext should mark a dry run available via the configurator `--plan` preview
+    And the preview should not spawn the configurator or perform any deployment
+
+  @logic
+  Scenario: Jolly start does not fabricate the recipe deployment
+    Given the agent runs `jolly start` with no real Saleor credentials
+    When the run reaches the configurator-deploy stage without `--dry-run`
+    Then Jolly should report the configurator-deploy stage as blocked or pending, never completed
+    And the summary should not claim the starter recipe was deployed
+    And the overall envelope status should be "warning", not "success"
+    And Jolly should not print a fabricated deployment result
+
+  @sandbox
+  Scenario: Jolly start deploys the starter recipe with @saleor/configurator
+    Given a freshly created blank Saleor Cloud environment
+    When Jolly start runs the configurator-deploy stage with approval
+    Then Jolly should spawn `npx @saleor/configurator deploy` of its bundled starter recipe against the store, never reimplementing it against raw APIs
+    And the additive deploy should exit 0 and the recipe's catalog entities should exist in the store
+    And the stage should be reported completed only when the configurator exited 0
+    And re-running the stage should reconcile to a no-op diff rather than creating duplicate entities
+
   Rule: Starter recipe goals
     - Make a freshly created Saleor Cloud environment immediately useful with Paper.
     - Use a playful pirate-themed demo catalog: stuff that pirates would buy.
@@ -66,7 +95,7 @@ Feature: Jolly Configurator starter recipe
     - The recipe is a complete *declarative* `@saleor/configurator` config: a `deploy` reconciles
       the store to match it, which means it deletes catalog entities the recipe does not declare.
     - It therefore assumes a freshly created, empty Saleor environment, where the apply is purely
-      additive (creates only) and `--fail-on-breaking`/`--failOnDelete` passes cleanly.
+      additive (creates only) and `--fail-on-breaking`/`--fail-on-delete` passes cleanly.
     - On a store that already holds catalog data, the first apply is destructive — the safe guard
       correctly blocks it (observed live: applying the recipe over Saleor's sample data was 20
       creates + 120 deletes, `hasDestructiveOperations: true`). On such a store the agent must
@@ -107,4 +136,43 @@ Feature: Jolly Configurator starter recipe
       vercel) remain plan-and-gate and agent-driven via the Jolly skill until later iterations build
       them. The full in-process orchestrator of features 001/002 stays the goal; it is built
       incrementally, stock-seeding first.
+
+  Rule: Configurator deploy is a genuinely-executing stage (decision 2026-06-14, iteration 2 / fourth convergence)
+    - `jolly start` performs the recipe deploy itself by SPAWNING `npx @saleor/configurator deploy` —
+      the FIRST spawned-CLI stage to converge (after the GraphQL-only stock-seeding and Stripe app
+      stages). Jolly spawns the official, current CLI and never reimplements it against raw APIs.
+    - It deploys Jolly's own bundled starter recipe (`assets/skills/jolly/recipe.yml`, resolved
+      relative to Jolly's module path — the same bundled-asset mechanism `init` uses to install the
+      skill), so the stage is decoupled from the not-yet-built `git`-clone stage and converges on its
+      own. The agent's reviewable in-repo copy (Rule "Recipe artifact") is unchanged for ongoing
+      iteration.
+    - Re-verified upstream 2026-06-14 (per "re-check upstream at implementation time"): the deploy
+      flags are `--url <store GraphQL>`, `--token <app token Jolly manages>`, `--config <recipe>`,
+      `--fail-on-delete` (exit code 6), `--fail-on-breaking` (exit code 7), `--plan` (preview without
+      changes), `--json`, `--quiet`; env `SALEOR_URL`/`SALEOR_TOKEN`. `@saleor/configurator`
+      auto-activates non-interactive mode in a non-TTY subprocess, so Jolly spawns it as a
+      non-interactive batch command and reads its EXIT CODE — no stdio passthrough (unlike the
+      deferred interactive `vercel login`/`stripe login` gates).
+    - Jolly passes `--fail-on-delete --fail-on-breaking` so a destructive apply over a non-blank store
+      is BLOCKED, not silently destructive; on the happy path (the `create store` blank env, Rule
+      "Recipe targets a clean environment") the apply is additive and exits 0.
+    - High-risk → approval: the stage emits the feature 021 `riskContext` (deploy store configuration)
+      and pauses for the agent to approve; `--yes` pre-approves. `--dry-run` previews the stage by
+      naming the spawned command, the bundled recipe, the store URL + app token (by name only), and
+      the safe flags, with `dryRunAvailable` mapping to the configurator `--plan` preview — performing
+      no deployment and spawning nothing.
+    - Honest reporting (integrity rule): the stage is reported `completed` ONLY when the configurator
+      exited 0; on exit 6/7 (deletions/breaking changes — i.e. a non-blank store) it is `blocked` with
+      the destructive diff surfaced and an explicit-approval requirement to deploy without the guard;
+      any other non-zero exit, or a configurator that cannot be spawned, is reported `blocked`/`failed`
+      honestly with the configurator's real error — never a fabricated `completed` or "recipe deployed".
+    - Idempotent and resumable (feature 022): re-deploying the same declarative recipe reconciles the
+      store to the same state (a no-op diff once deployed), creating no duplicates; `jolly start` may
+      skip the stage when the store already matches the recipe.
+    - It runs BEFORE the stock-seeding stage (Rule "Recipe products need seeded stock"): the deploy
+      makes the recipe catalog exist, the seed makes it buyable, so `create store` → configurator
+      deploy → stock-seed is an all-Jolly-executable chain. The remaining spawned-CLI stages (git
+      clone, pnpm install, vercel deploy) stay agent-driven via the Jolly skill until later
+      iterations. The full in-process orchestrator of features 001/002 stays the goal; built
+      incrementally, honesty-first.
 

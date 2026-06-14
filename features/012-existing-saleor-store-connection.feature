@@ -148,7 +148,7 @@ Feature: Existing Saleor store connection
     - Reason (MVP acceptance-run finding 2026-06-14): the starter recipe (feature 004) is a
       complete declarative config that `@saleor/configurator deploy` reconciles the store to
       match, deleting any undeclared entity. Against Saleor's sample data that was ~120 deletes,
-      which the skill-mandated `--fail-on-breaking`/`--failOnDelete` correctly blocks. A blank
+      which the skill-mandated `--fail-on-breaking`/`--fail-on-delete` correctly blocks. A blank
       environment makes the recipe deploy purely additive, so the happy path never needs a
       destructive deploy. Pairs with feature 004 Rule "Recipe targets a clean environment".
     - v1 has no database-template override flag: provisioning is always blank. Re-introducing a

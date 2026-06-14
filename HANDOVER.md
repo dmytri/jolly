@@ -10,10 +10,112 @@ Agent tool works — dispatch a general-purpose subagent under an explicit Crew 
 charter (read feature + step defs first; minimal src/ change; no spec/test/asset
 edits; report blockers). The QM-implements fallback remains a last resort.
 
-## DONE (2026-06-14, QM+Crew+Bosun — checkout-readiness verify probe): committed locally this Bosun pass
+## DONE (2026-06-14, QM+Crew+Bosun — configurator deploy GENUINELY EXECUTES): committed locally, NOT pushed
 
-Iteration 1 (the worklist below) is **complete, verified, and committed locally** (committing is Bosun's
-custody; pushing/releasing stays the Captain/customer action). `jolly doctor` now genuinely probes
+Iteration 2 / the fourth convergence (the HANDOFF below) is **complete, verified, and committed
+locally** (not pushed — pushing is the Captain/customer action). `jolly start` now performs the
+recipe deploy itself by SPAWNING `npx @saleor/configurator deploy` — the **first spawned-CLI stage**
+to converge. All deterministic tiers green: typecheck clean, units **43/43**, `test:logic` **64/64**
+(487 steps), default `--dry-run` **0 undefined**. `@sandbox`/`test:bdd` NOT run locally (billable) —
+deferred to a creds-present/CI run.
+
+**What landed:**
+- **Crew — `src/index.ts`:** enriched the single-source `startPlan()` recipe-stage riskContext so the
+  dry-run preview names the spawned command (`npx @saleor/configurator deploy`), Jolly's bundled
+  `recipe.yml`, the store URL + app token by name only (`NEXT_PUBLIC_SALEOR_API_URL` /
+  `JOLLY_SALEOR_APP_TOKEN`, values never printed), the `--fail-on-delete`/`--fail-on-breaking` guards,
+  and the `--plan` dry-run mechanism (dry-run riskContext stays deep-equal to the real run, 021). Added
+  `bundledRecipePath()` (resolves `assets/skills/jolly/recipe.yml` via `import.meta.url` — works in dev
+  and the published `dist/` bundle) and `runRecipeStage()` (spawns the configurator non-interactively,
+  reads its **exit code**: 0 → `completed`; 6/7 → `blocked` with the destructive-diff/explicit-approval
+  remediation; other non-zero or un-spawnable → `blocked` with the real stderr — never a fabricated
+  `completed`). Wired into the `commandStart` `--yes` path (runs before the `stock` stage); `store`/
+  `deploy` stay `pending` as not-yet-built spawned-CLI stages.
+- **QM — `features/step_definitions/004-…steps.ts` + `features/support/`:** the 18 step defs for the 3
+  new feature-004 scenarios (the configurator-deploy preview `@logic` was the deterministic target that
+  drove Crew; the no-fabrication `@logic` guardrail; the `@sandbox` real spawn). New
+  `features/support/configurator-cli-fake.ts` (`writeFakeNpx` hermetic PATH-shim, mirrors
+  `stripe-cli-fake.ts`) and a `sandbox.ts` gating entry for the new `@sandbox` scenario.
+- **Bosun — hygiene:** reattached the `runStockStage` doc comment that the insertion had orphaned; no
+  behavior change.
+
+**Remaining real-world verification (environmental, not a code blocker):** the positive deploy path is
+sandbox-only — it truly passes on a creds-present **blank** store (additive apply, exit 0, idempotent
+no-op re-run); locally and on non-blank stores it skips/blocks honestly. Confirm on CI / the acceptance
+store.
+
+---
+
+## HANDOFF (2026-06-14, Captain → QM): make the `@saleor/configurator` deploy a GENUINELY-EXECUTING `jolly start` stage (iteration 2 / fourth convergence) — the FIRST spawned-CLI stage — COMPLETE, see DONE above
+
+**Next role: QM in a FRESH/cleared session** (Captain→QM context firewall).
+
+**Branch state (pushed this Captain session):** iteration 1 (checkout-readiness probe, `9bc58e6`) and a
+Bosun hygiene commit (`06ed0a3`, ignore agent tooling dirs + untrack `skills-lock.json`) are now
+**committed AND pushed** to `origin/feature/start-stock-seeding` — clean deck, nothing in custody.
+
+**The iteration (decision 2026-06-14, "push first, then spec iteration 2"):** the fourth convergence —
+the **first spawned-CLI stage**. Until now every genuinely-executing stage (stock-seed, Stripe install,
+checkout probe) was Jolly's own Saleor GraphQL. This one makes `jolly start` **spawn
+`npx @saleor/configurator deploy`** of Jolly's own bundled starter recipe, so `create store` →
+configurator deploy → stock-seed becomes an all-Jolly-executable chain. It runs **before** the
+stock-seeding stage (deploy makes the catalog exist; seed makes it buyable).
+
+**Re-verified upstream this Captain pass (2026-06-14):** `@saleor/configurator deploy` flags are
+`--url <store GraphQL>`, `--token <app token>`, `--config <recipe>`, `--fail-on-delete` (exit **6**),
+`--fail-on-breaking` (exit **7**), `--plan` (preview without changes), `--json`, `--quiet`; env
+`SALEOR_URL`/`SALEOR_TOKEN`. **Non-interactive mode auto-activates in a non-TTY subprocess**, so Jolly
+spawns it as a batch command and reads the **exit code** — NO stdio passthrough (that's for the deferred
+interactive `vercel login`/`stripe login` gates). Corrected the old `--failOnDelete` casing →
+`--fail-on-delete` in features 004/012.
+
+**Decision/contracts:** **feature 004** new Rule "Configurator deploy is a genuinely-executing stage";
+AGENTS.md MVP stage 6 + "MVP sequencing" fourth-convergence bullet. Deploy from Jolly's **bundled**
+`assets/skills/jolly/recipe.yml` (resolved relative to Jolly's module path — same mechanism `init` uses
+to install the bundled skill), decoupling this stage from the not-yet-built `git`-clone stage. Safe
+flags `--fail-on-delete --fail-on-breaking` block a destructive apply over a non-blank store; the
+`create store` blank env keeps the happy path additive (exit 0). High-risk → feature 021 riskContext +
+approval (`--yes` pre-approves). Idempotent (re-deploy = no-op diff, feature 022).
+
+**Specs landed this Captain pass (committed by Bosun next pass):** feature 004 — 3 new scenarios (2
+`@logic`, 1 `@sandbox`) + the new Rule; features 004/012 flag-casing fix; AGENTS.md stage 6 + MVP
+sequencing. Default `cucumber-js --dry-run` now shows **3 undefined scenarios / 18 undefined steps**
+(all feature 004) — the intended QM marker.
+
+**QM/Crew worklist (iteration 2):**
+1. **Crew — make `jolly start` SPAWN the configurator deploy** (`src/index.ts`, the recipe stage,
+   running before the existing `stock` stage). When the run reaches the recipe stage with approval
+   (`--yes` / gate cleared), spawn `npx @saleor/configurator deploy --config <bundled recipe.yml>
+   --url <store GraphQL> --token <app token Jolly manages> --fail-on-delete --fail-on-breaking`
+   (resolve the bundled recipe relative to Jolly's module path, like the skill install; reuse the
+   existing app-token/endpoint resolution). Capture the **exit code**: 0 → stage `completed`; 6/7 →
+   `blocked` with the destructive diff surfaced + explicit-approval remediation; other non-zero or
+   un-spawnable → `blocked`/`failed` honestly with the configurator's real error. **Never fabricate
+   `completed`.** `--dry-run` previews by naming the spawned command + bundled recipe + store URL/app
+   token (by name) + the safe flags, with `dryRunAvailable` = configurator `--plan`; spawns nothing.
+   Keep the single `startPlan()` source so the dry-run riskContext is deep-equal to the real-run
+   stage's (021). Fail fast / no hang.
+2. **QM — step defs** for the 3 new feature-004 scenarios. The 2 `@logic` are the deterministic
+   targets: the dry-run preview (plan lists a configurator-deploy step BEFORE stock-seeding, names the
+   spawned command/recipe/flags/risk, spawns nothing) and the no-fabrication one (under logicSafeEnv,
+   the configurator-deploy stage reports blocked/pending, never completed; envelope `warning`; no
+   fabricated "recipe deployed"). For hermetic determinism, fake the configurator on a scenario-scoped
+   PATH (mirror `features/support/stripe-cli-fake.ts`) or assert no-spawn/blocked — your call. The
+   `@sandbox` asserts the real spawn on a blank env (recipe entities exist; `completed` only on exit 0;
+   idempotent re-run = no-op) and skips without creds.
+3. **Verify** — `@logic`/units/typecheck green; default dry-run back to **0 undefined**; on a
+   creds-present blank store the `@sandbox` deploy succeeds and re-runs as a no-op.
+
+**Scope guard (MVP-then-iterate):** iteration 2 is the **configurator-deploy spawn + honest exit-code
+reporting** only. Do NOT also build the git-clone / pnpm / vercel stages this cycle — they stay
+agent-driven via the Jolly skill until a later iteration.
+
+---
+
+## DONE (2026-06-14, QM+Crew+Bosun — checkout-readiness verify probe): committed locally, NOW PUSHED (see HANDOFF above)
+
+Iteration 1 (the worklist below) is **complete, verified, committed, and now pushed** to
+`origin/feature/start-stock-seeding` (`9bc58e6`) — see the iteration-2 HANDOFF above. `jolly doctor` now genuinely probes
 checkout readiness — the third convergence onto honest, genuinely-executing behavior (AGENTS.md "MVP
 sequencing"). All deterministic tiers green: typecheck clean, units **43/43**, `test:logic` **62/62**
 (473 steps), default `--dry-run` **0 undefined**. `@sandbox`/`test:bdd` NOT run locally (billable) —

@@ -202,12 +202,33 @@ Do not recreate `/captain`, `/qm`, `/crew`, `/bosun`, `/clearrole`, or generic r
     decision 2026-06-14): `jolly doctor` creates a harmless, reverted `us` test checkout and inspects
     the available payment gateways to confirm the Stripe payment step is reachable — closing the
     feature 002 acceptance bar in Jolly's own first-party-host code. It is cheap (Jolly's own Saleor
-    GraphQL, no CLI spawn). The **agreed-next (fourth) convergence is making the `@saleor/configurator`
-    deploy a genuinely-executing `jolly start` stage** — Jolly spawns `npx @saleor/configurator deploy`
-    (stdio passthrough, the blank-vs-sample env, destructive-delete flags), gated for approval — the
-    first spawned-CLI stage to converge. Its exact configurator flags/behavior are re-verified against
-    current upstream when it becomes the active iteration (per "re-check upstream at implementation
-    time"); until then the recipe deploy stays agent-driven via the Jolly skill.
+    GraphQL, no CLI spawn). The **fourth convergence is making the `@saleor/configurator` deploy a
+    genuinely-executing `jolly start` stage** — the **first spawned-CLI stage** (feature 004 Rule
+    "Configurator deploy is a genuinely-executing stage"; **spec'd this Captain pass 2026-06-14,
+    pending QM/Crew build**). `jolly start` spawns `npx @saleor/configurator deploy` of Jolly's own
+    bundled starter recipe (`assets/skills/jolly/recipe.yml`, resolved relative to Jolly's module
+    path — the same bundled-asset mechanism as skill install), so the stage is **decoupled from the
+    not-yet-built `git`-clone stage** and converges independently; the agent's reviewable in-repo copy
+    (feature 004 "Recipe artifact") is unchanged for ongoing iteration. **Re-verified upstream
+    2026-06-14:** the deploy flags are `--url <store GraphQL>`, `--token <app token Jolly manages>`,
+    `--config <recipe>`, `--fail-on-delete` (exit code 6), `--fail-on-breaking` (exit code 7),
+    `--plan` (preview without changes), `--json`, `--quiet`; env `SALEOR_URL`/`SALEOR_TOKEN`. Unlike
+    `vercel login`/`stripe login` (the truly-interactive stdio-passthrough gates, still deferred),
+    `@saleor/configurator` **auto-activates non-interactive mode in a non-TTY subprocess**, so Jolly
+    spawns it as a non-interactive batch command and reads its **exit code** — no stdio passthrough
+    needed. Jolly passes `--fail-on-delete --fail-on-breaking` so a destructive apply over a non-blank
+    store is **blocked, not silently destructive**; on the happy path (the `create store` blank env)
+    the apply is additive and exits 0. **Honest reporting:** the stage is `completed` only on exit 0;
+    on exit 6/7 it is `blocked` with the destructive diff surfaced and an explicit-approval
+    requirement to deploy without the guard; any other non-zero exit (or an un-spawnable configurator)
+    is reported `blocked`/`failed` honestly with the configurator's real error — never a fabricated
+    `completed`. Gated for approval (feature 021 `riskContext`; `--yes` pre-approves) and idempotent
+    (re-deploying the same declarative recipe reconciles to a no-op diff, feature 022). It runs
+    **before** the stock-seeding stage — deploy makes the recipe catalog exist, seeding makes it
+    buyable — so `create store` → configurator deploy → stock-seed becomes an all-Jolly-executable
+    chain. Until built, the recipe deploy stays agent-driven via the Jolly skill; the remaining
+    spawned-CLI stages (git clone, pnpm install, vercel deploy) stay agent-driven until later
+    iterations.
 - **Install skills via `npx skills add` (decision 2026-06-13):** Jolly installs every skill —
   the Jolly skill and the Saleor agent-skills — through `npx skills add <ref>`, falling back to
   a Git-based install only for a skill not available that way (e.g. Paper's embedded skill,
@@ -297,11 +318,15 @@ approval and interaction gates:
 4. **App token** — `jolly create app-token` via Saleor GraphQL (Jolly plumbing, feature 024).
 5. **Storefront (agent)** — the agent clones `saleor/storefront` (Paper) from `main` with
    `git`, strips `.git`, fresh `git init`, `pnpm` install, per the Jolly skill (feature 002/003).
-6. **Recipe (agent)** — the agent applies the Jolly starter recipe via `@saleor/configurator`'s
-   safe workflow, per the skill (feature 004). **Then `jolly start` seeds stock** for every recipe
-   variant (default 100 each) into the recipe warehouse via Saleor GraphQL, because configurator
-   cannot set stock or `trackInventory` and hardcodes `trackInventory: true` — without this the
-   catalog has zero stock and `us` checkout fails with `INSUFFICIENT_STOCK` before payment
+6. **Recipe** — `jolly start` deploys the Jolly starter recipe by **spawning `@saleor/configurator
+   deploy`** of its own bundled `recipe.yml` against the store URL + app token, with
+   `--fail-on-delete --fail-on-breaking` so a destructive apply over a non-blank store is blocked;
+   gated for approval, honest exit-code reporting (the first spawned-CLI stage — **spec'd 2026-06-14,
+   feature 004 Rule "Configurator deploy is a genuinely-executing stage", pending QM/Crew build**;
+   until built it stays agent-driven via the skill). **Then `jolly start` seeds stock** for every
+   recipe variant (default 100 each) into the recipe warehouse via Saleor GraphQL, because
+   configurator cannot set stock or `trackInventory` and hardcodes `trackInventory: true` — without
+   this the catalog has zero stock and `us` checkout fails with `INSUFFICIENT_STOCK` before payment
    (acceptance-run finding 2026-06-14; see feature 004 Rule "Recipe products need seeded stock").
 7. **Deployment (agent)** — the agent deploys with the **Vercel CLI** (`npx vercel`) under its
    own `vercel login` session, sets Vercel env vars, and updates Saleor trusted origins, per the
