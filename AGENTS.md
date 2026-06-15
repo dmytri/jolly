@@ -80,6 +80,7 @@ Test tiers:
 - `@logic` — pure local behavior; no accounts; always runs.
 - `@sandbox` — real-account behavior against real services; uses runtime `JOLLY_*` credentials only.
 - `@eval` — opt-in skill-affordance evaluation; excluded from default worklist; skips when its agent/model credential is absent; never a green/red gate.
+- `@iteration` — scenarios deferred past the v1 launch bar; combined with a tier tag (`@logic`/`@sandbox`). Excluded from the default worklist and the `@logic`/`@sandbox` profiles; run `cucumber-js -p iteration` to work the backlog. Preserved as intent, not a v1 gate.
 
 **Sandbox tests must be harmless by design — production-safe — and this applies to every `@sandbox` test on every feature.** When you write or run a sandbox test:
 
