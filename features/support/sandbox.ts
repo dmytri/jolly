@@ -68,6 +68,13 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   ],
   "Jolly start creates a deployable storefront from Saleor Paper": ["saleorEndpoint"],
   "Jolly start deploys to Vercel by spawning the official Vercel CLI": ["saleorEndpoint"],
+  // The live-storefront acceptance check requires an actual deployed storefront
+  // URL, which only a full (human-gated) `jolly start` produces — the harness
+  // cannot derive it. So it takes NO JOLLY credential group via the hook; the
+  // step gates entirely on the harness-provided HARNESS_DEPLOYED_STOREFRONT_URL
+  // (+ the served store's NEXT_PUBLIC_SALEOR_API_URL), skipping when absent.
+  // This avoids provisioning a throwaway env that would not match the URL.
+  "The deployed storefront serves the Saleor catalog and a working cart": [],
   // 003-saleor-source-repositories-and-integration
   "Use Saleor Paper as the storefront baseline": ["saleorEndpoint"],
   "Use Saleor Configurator directly for store configuration": [

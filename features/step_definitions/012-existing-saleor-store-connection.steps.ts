@@ -611,6 +611,122 @@ Then(
   },
 );
 
+// ─── Scenario: reports ENVIRONMENT_LIMIT_REACHED when the sandbox limit is hit ─
+// @logic: drive the REAL create-environment path against a LOCAL in-process
+// Cloud API that answers the read GETs (org/projects/envs/services) but rejects
+// the environment-creation POST with a 4xx "limit" payload — exactly the
+// condition Jolly maps to the stable ENVIRONMENT_LIMIT_REACHED code. The shared
+// When (002 step file) runs the real command against this harness under
+// logicSafeEnv, so no real account is touched.
+
+interface LimitHarness {
+  server: Server;
+  baseUrl: string;
+  /** Writes (POST/PUT/DELETE) the run issued; only the env-create POST is expected. */
+  writes: Array<{ method: string; url: string }>;
+}
+
+async function startLimitRejectingCloudApi(
+  world: JollyWorld,
+): Promise<LimitHarness> {
+  const writes: Array<{ method: string; url: string }> = [];
+  const server = createServer((req, res) => {
+    const method = req.method ?? "GET";
+    const url = req.url ?? "/";
+    res.setHeader("Content-Type", "application/json");
+    if (method === "POST" && /\/environments\/?($|\?)/.test(url)) {
+      // The org's sandbox environment limit is reached: reject the creation.
+      writes.push({ method, url });
+      res.statusCode = 403;
+      res.end(
+        JSON.stringify({
+          detail:
+            "You have reached the sandbox environment limit for this organization.",
+        }),
+      );
+      return;
+    }
+    if (method !== "GET") {
+      writes.push({ method, url });
+      res.statusCode = 500;
+      res.end(JSON.stringify({ detail: "unexpected write during limit scenario" }));
+      return;
+    }
+    res.statusCode = 200;
+    // Order: /services/ before /projects/ (the services path also contains
+    // "/projects/"). Return an existing project so creation REUSES it (no
+    // project-creation POST), then an empty environment list, so the run
+    // proceeds straight to the rejected environment-creation POST.
+    if (/\/services\/?($|\?)/.test(url)) {
+      res.end(JSON.stringify([]));
+      return;
+    }
+    if (/\/projects\/?($|\?)/.test(url)) {
+      res.end(JSON.stringify([{ name: "jolly-store", slug: "jolly-store" }]));
+      return;
+    }
+    if (/\/environments\/?($|\?)/.test(url)) {
+      res.end(JSON.stringify([]));
+      return;
+    }
+    if (/\/organizations\/?($|\?)/.test(url)) {
+      res.end(JSON.stringify([{ slug: "demo-org", name: "Demo Org" }]));
+      return;
+    }
+    res.end(JSON.stringify([]));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const baseUrl = `http://127.0.0.1:${port}/platform/api`;
+  world.cleanup.register(`limit-rejecting Cloud API server :${port}`, () => {
+    return new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+  return { server, baseUrl, writes };
+}
+
+Given(
+  "the Cloud API rejects environment creation because the organization's sandbox environment limit is reached",
+  async function (this: JollyWorld) {
+    const harness = await startLimitRejectingCloudApi(this);
+    // The shared When (002 step file) runs the real create-environment against
+    // this harness when notes.limitHarness is set.
+    this.notes.limitHarness = { baseUrl: harness.baseUrl };
+  },
+);
+
+Then(
+  "the envelope status should be {string} with the stable code `ENVIRONMENT_LIMIT_REACHED`",
+  function (this: JollyWorld, status: string) {
+    assert.equal(this.envelope.status, status);
+    assert.ok(
+      this.envelope.errors.some((e) => e.code === "ENVIRONMENT_LIMIT_REACHED"),
+      `expected a stable ENVIRONMENT_LIMIT_REACHED error; got ${JSON.stringify(
+        this.envelope.errors,
+      )}`,
+    );
+  },
+);
+
+Then(
+  "the message should guide the customer to delete an unused environment or upgrade the plan",
+  function (this: JollyWorld) {
+    const limitError = this.envelope.errors.find(
+      (e) => e.code === "ENVIRONMENT_LIMIT_REACHED",
+    );
+    assert.ok(limitError, "expected the ENVIRONMENT_LIMIT_REACHED error");
+    const text = `${String(limitError!.message ?? "")} ${String(
+      limitError!.remediation ?? "",
+    )}`.toLowerCase();
+    assert.match(
+      text,
+      /delete.*(unused|environment)/,
+      "guidance must mention deleting an unused environment",
+    );
+    assert.match(text, /upgrade.*plan/, "guidance must mention upgrading the plan");
+  },
+);
+
 // ─── @sandbox: creates a Saleor Cloud environment ──────────────────────────
 // saleorCloud-gated. Namespace + teardown registered BEFORE creation.
 

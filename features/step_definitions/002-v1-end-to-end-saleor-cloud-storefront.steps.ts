@@ -24,6 +24,7 @@ import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { logicSafeEnv } from "../support/logic-env.ts";
 import { findRiskContexts, assertRiskContextShape } from "../support/envelope.ts";
+import { saleorGraphql } from "../support/saleor-graphql.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 // --- Background (capability statements) -------------------------------------
@@ -100,9 +101,26 @@ Given("`JOLLY_SALEOR_CLOUD_TOKEN` is set for an organization with no project", f
   this.notes.registerBranch = true;
 });
 
-When("the agent runs `jolly create store --create-environment --json`", function (this: JollyWorld) {
-  // Jolly-observable preview of the registration plumbing (no real provisioning
-  // in the preview; the real path is exercised by features 012/024).
+When("the agent runs `jolly create store --create-environment --json`", async function (this: JollyWorld) {
+  // Two scenarios share this exact step text:
+  //   - 002 "register a new store" (@sandbox): a Jolly-observable PREVIEW of the
+  //     registration plumbing — run as --dry-run so the preview never provisions
+  //     (the real path is exercised by features 012/024), against the scenario's
+  //     real env so the @sandbox run resolves the real org.
+  //   - 012 "reports ENVIRONMENT_LIMIT_REACHED" (@logic): the REAL create path,
+  //     which must reach a Cloud API that rejects creation. Its Given starts an
+  //     in-process loopback Cloud API that 4xx-rejects the POST with a "limit"
+  //     payload and stashes it on notes.limitHarness; run the real command
+  //     against that harness under logicSafeEnv (so no real account is touched)
+  //     via runCliAsync (loopback server → spawnSync would deadlock).
+  const limitHarness = this.notes.limitHarness as { baseUrl: string } | undefined;
+  if (limitHarness) {
+    await this.runCliAsync(
+      ["create", "store", "--create-environment", "--json"],
+      { env: logicSafeEnv({ JOLLY_SALEOR_CLOUD_API_URL: limitHarness.baseUrl }) },
+    );
+    return;
+  }
   this.runCli(["create", "store", "--create-environment", "--dry-run", "--json"]);
 });
 
@@ -660,3 +678,176 @@ Then("it should not fabricate that the human-run step was completed", function (
     `the summary must not fabricate that the human-run step happened: "${this.envelope.summary}"`,
   );
 });
+
+// --- Scenario: The deployed storefront serves the Saleor catalog and a working cart (@sandbox) ---
+//
+// Live operational-readiness acceptance for the DEPLOYED storefront. The deployed
+// URL only exists after a full (human-gated) `jolly start` runs `npx vercel`, so
+// the harness cannot derive it. The scenario therefore gates on a harness knob:
+//   - HARNESS_DEPLOYED_STOREFRONT_URL — the live storefront URL, and
+//   - NEXT_PUBLIC_SALEOR_API_URL — the Saleor store it serves.
+// Absent the URL, the scenario SKIPS (never fails) — exactly the credential-gate
+// discipline. When provided: opening the URL must respond; the served store's
+// catalog must list products; and the cart mechanism the storefront uses (a
+// Saleor checkout) must update when a product is added — verified at the same
+// Saleor data layer the storefront reads/writes, against the live store, with
+// the ephemeral checkout deleted in teardown (harmless by design). Optional
+// HARNESS_STOREFRONT_CHANNEL overrides the channel slug (default "default-channel").
+
+const STOREFRONT_TIMEOUT_MS = 30_000;
+
+async function fetchWithTimeout(url: string, ms: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { signal: controller.signal, redirect: "follow" });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function deployedSkipReason(): string | undefined {
+  if (!process.env["HARNESS_DEPLOYED_STOREFRONT_URL"]) {
+    return "HARNESS_DEPLOYED_STOREFRONT_URL is not set; a live deployed storefront URL is required (produced only by a full `jolly start` Vercel deploy)";
+  }
+  if (!process.env["NEXT_PUBLIC_SALEOR_API_URL"]) {
+    return "NEXT_PUBLIC_SALEOR_API_URL (the Saleor store the storefront serves) is not set";
+  }
+  return undefined;
+}
+
+Given(
+  "`jolly start` has deployed the storefront to Vercel against the configured Saleor Cloud store",
+  function (this: JollyWorld) {
+    const reason = deployedSkipReason();
+    if (reason) {
+      this.attach(`Skipped: ${reason}`, "text/plain");
+      return "skipped" as const;
+    }
+    this.notes.deployedUrl = process.env["HARNESS_DEPLOYED_STOREFRONT_URL"];
+    this.notes.storeEndpoint = process.env["NEXT_PUBLIC_SALEOR_API_URL"];
+    this.notes.channel = process.env["HARNESS_STOREFRONT_CHANNEL"] ?? "default-channel";
+  },
+);
+
+When(
+  "the deployed storefront URL is opened",
+  { timeout: STOREFRONT_TIMEOUT_MS + 5_000 },
+  async function (this: JollyWorld) {
+    if (deployedSkipReason()) return "skipped" as const;
+    const url = String(this.notes.deployedUrl);
+    const res = await fetchWithTimeout(url, STOREFRONT_TIMEOUT_MS);
+    this.notes.deployedStatus = res.status;
+    this.notes.deployedBody = await res.text();
+  },
+);
+
+Then("the URL should respond successfully", function (this: JollyWorld) {
+  if (deployedSkipReason()) return "skipped" as const;
+  const status = Number(this.notes.deployedStatus);
+  assert.ok(
+    status >= 200 && status < 400,
+    `the deployed storefront URL must respond successfully; got HTTP ${status}`,
+  );
+});
+
+Then(
+  "it should list products from the Saleor Cloud catalog",
+  { timeout: STOREFRONT_TIMEOUT_MS },
+  async function (this: JollyWorld) {
+    if (deployedSkipReason()) return "skipped" as const;
+    // The storefront lists the catalog it reads from the served Saleor store:
+    // verify that store publishes a buyable catalog in the storefront's channel.
+    const endpoint = String(this.notes.storeEndpoint);
+    const channel = String(this.notes.channel);
+    const result = await saleorGraphql(
+      endpoint,
+      undefined,
+      `query Products($channel: String!) {
+        products(first: 5, channel: $channel) {
+          edges { node { id name variants { id quantityAvailable } } }
+        }
+      }`,
+      { channel },
+    );
+    assert.ok(!result.errors, `products query failed: ${JSON.stringify(result.errors)}`);
+    const products = (result.data?.products as { edges?: Array<{ node: Record<string, unknown> }> } | undefined)
+      ?.edges ?? [];
+    assert.ok(
+      products.length > 0,
+      `the served Saleor catalog must list products in channel "${channel}"`,
+    );
+    // Stash a buyable variant for the cart step.
+    for (const edge of products) {
+      const variants = (edge.node["variants"] ?? []) as Array<{ id?: string }>;
+      if (variants[0]?.id) {
+        this.notes.variantId = variants[0].id;
+        break;
+      }
+    }
+  },
+);
+
+Then(
+  "adding a product to the cart should update the cart",
+  { timeout: STOREFRONT_TIMEOUT_MS },
+  async function (this: JollyWorld) {
+    if (deployedSkipReason()) return "skipped" as const;
+    const variantId = this.notes.variantId as string | undefined;
+    assert.ok(
+      variantId,
+      "no buyable product variant was found in the catalog to add to the cart",
+    );
+    const endpoint = String(this.notes.storeEndpoint);
+    const channel = String(this.notes.channel);
+    // The storefront's cart is a Saleor checkout. Create one (an ephemeral
+    // draft — not an order, never customer-visible), add a line, and assert the
+    // cart reflects it. Register deletion before asserting (harmless by design).
+    const created = await saleorGraphql(
+      endpoint,
+      undefined,
+      `mutation CreateCart($input: CheckoutCreateInput!) {
+        checkoutCreate(input: $input) {
+          checkout { id quantity lines { id quantity } }
+          errors { field message }
+        }
+      }`,
+      { input: { channel, lines: [{ quantity: 1, variantId }], email: `${this.namespace}@example.test` } },
+    );
+    const createErrors = (created.data?.checkoutCreate as { errors?: unknown[] } | undefined)?.errors ?? [];
+    assert.ok(!created.errors && createErrors.length === 0, `checkoutCreate failed: ${JSON.stringify(created.errors ?? createErrors)}`);
+    const checkout = (created.data?.checkoutCreate as { checkout?: Record<string, unknown> } | undefined)?.checkout;
+    assert.ok(checkout?.["id"], "checkoutCreate must return a checkout id");
+    const checkoutId = String(checkout!["id"]);
+    this.cleanup.register(`storefront cart checkout ${checkoutId}`, async () => {
+      await saleorGraphql(
+        endpoint,
+        undefined,
+        `mutation DeleteCart($id: ID!) { checkoutDelete(id: $id) { errors { message } } }`,
+        { id: checkoutId },
+      );
+    });
+    const initialQty = Number(checkout!["quantity"] ?? 0);
+    assert.ok(initialQty >= 1, "creating the cart with one line must set quantity >= 1");
+    // Adding another unit must update the cart's total quantity.
+    const added = await saleorGraphql(
+      endpoint,
+      undefined,
+      `mutation AddToCart($id: ID!, $lines: [CheckoutLineInput!]!) {
+        checkoutLinesAdd(id: $id, lines: $lines) {
+          checkout { id quantity }
+          errors { field message }
+        }
+      }`,
+      { id: checkoutId, lines: [{ quantity: 1, variantId }] },
+    );
+    const addErrors = (added.data?.checkoutLinesAdd as { errors?: unknown[] } | undefined)?.errors ?? [];
+    assert.ok(!added.errors && addErrors.length === 0, `checkoutLinesAdd failed: ${JSON.stringify(added.errors ?? addErrors)}`);
+    const updated = (added.data?.checkoutLinesAdd as { checkout?: Record<string, unknown> } | undefined)?.checkout;
+    const updatedQty = Number(updated?.["quantity"] ?? 0);
+    assert.ok(
+      updatedQty > initialQty,
+      `adding a product must update the cart quantity (was ${initialQty}, now ${updatedQty})`,
+    );
+  },
+);

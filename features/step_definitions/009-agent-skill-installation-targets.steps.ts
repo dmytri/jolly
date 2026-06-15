@@ -173,3 +173,66 @@ Then(
     );
   },
 );
+
+// ─── Scenario: Detection falls back to generic when no agent marker is present ─
+//
+// With no recognized agent marker present, Jolly writes the agent-agnostic
+// (generic) glue and reports that no specific agent was detected — never
+// guessing an agent. Skills are seeded under the universal `.agents/skills/`
+// location (Jolly's own install target, not a user agent marker) so init
+// verifies them on disk offline; no per-agent marker (CLAUDE.md, .claude/,
+// .cursor/rules/, .zed/, .pi/, .opencode/) is created.
+
+/** Seed skills under the universal `.agents/skills/<id>/` install location. */
+function seedSkillsUnderAgents(world: JollyWorld): void {
+  for (const id of DEFAULT_SKILL_IDS) {
+    const dir = join(world.projectDir, ".agents", "skills", id);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "SKILL.md"), `# ${id}\n`);
+  }
+}
+
+Given(
+  "a project containing no known agent directory or marker",
+  function (this: JollyWorld) {
+    // Bare project: only Jolly's universal skill install is seeded, so init
+    // verifies offline without any user agent marker being present.
+    seedSkillsUnderAgents(this);
+  },
+);
+
+When("Jolly determines the agent environment", function (this: JollyWorld) {
+  // init writes the agent glue (AGENTS.md) and is where agent detection lands.
+  this.runCli(["init", "--json"], { env: logicSafeEnv() });
+});
+
+Then("it should write generic glue", function (this: JollyWorld) {
+  assert.equal(
+    this.envelope.data["agentsMdMerged"],
+    true,
+    "init must write the agent-agnostic (generic) glue, AGENTS.md",
+  );
+  const path = join(this.projectDir, "AGENTS.md");
+  assert.ok(existsSync(path), "the generic glue file (AGENTS.md) must exist");
+  assert.ok(
+    readFileSync(path, "utf8").includes("jolly:begin"),
+    "the generic glue must carry the Jolly marker section",
+  );
+});
+
+Then(
+  "it should report that no specific agent was detected",
+  function (this: JollyWorld) {
+    const data = this.envelope.data as Record<string, unknown>;
+    assert.ok(
+      "detectedAgent" in data,
+      "init must report the agent-detection result as data.detectedAgent",
+    );
+    const detected = data["detectedAgent"];
+    assert.ok(
+      detected === null || detected === "generic" || detected === "none",
+      `with no marker present, detectedAgent must be the generic fallback ` +
+        `(null/"generic"/"none"); got ${JSON.stringify(detected)}`,
+    );
+  },
+);

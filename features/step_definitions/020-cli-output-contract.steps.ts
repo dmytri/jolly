@@ -11,12 +11,14 @@
 // path can reach a real account (the "012 incident" lesson).
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   CHECK_STATUSES,
   ENVELOPE_STATUSES,
 } from "../support/envelope.ts";
 import { logicSafeEnv, DUMMY } from "../support/logic-env.ts";
-import type { JollyWorld } from "../support/world.ts";
+import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
 
 // --- Background ------------------------------------------------------------
 
@@ -363,5 +365,124 @@ Then(
   function (this: JollyWorld) {
     // Reaffirm no value leaked across the modes run in this scenario.
     this.assertNoSecretsIn(this.lastRun!.stdout, "stdout");
+  },
+);
+
+// --- Scenario: Jolly's request code contacts only first-party hosts ---------
+//
+// The first-party-hosts allowlist is a security contract: Jolly's own
+// request-sending code contacts ONLY auth.saleor.io, cloud.saleor.io, the
+// customer's *.saleor.cloud domains, api.stripe.com, github.com, and 127.0.0.1,
+// plus any JOLLY_SALEOR_CLOUD_API_URL override. To make "the hosts it can
+// contact" enumerable and "exactly" assertable, Jolly declares the allowlist in
+// one canonical module (src/lib/hosts.ts) that the request layer honors — the
+// enumeration reads that declaration. The forbidden api.vercel.com and the
+// retired id.saleor.online / api.saleor.cloud are checked by scanning the whole
+// of src (Jolly's code). Long Then patterns use RegExp so Cucumber Expressions
+// don't mis-parse "127.0.0.1" as a {float}.{float} parameter.
+
+/** Concatenate every TypeScript file under src (Jolly's own code) for scanning. */
+function allSrcText(): string {
+  const root = join(REPO_ROOT, "src");
+  const parts: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith(".ts")) parts.push(readFileSync(full, "utf8"));
+    }
+  };
+  walk(root);
+  return parts.join("\n");
+}
+
+const EXPECTED_FIRST_PARTY_HOSTS = [
+  "auth.saleor.io",
+  "cloud.saleor.io",
+  "api.stripe.com",
+  "github.com",
+  "127.0.0.1",
+].sort();
+
+Given("Jolly's own network-request-sending code", function (this: JollyWorld) {
+  this.notes.srcText = allSrcText();
+});
+
+When("the hosts it can contact are enumerated", async function (this: JollyWorld) {
+  // The canonical allowlist Jolly's request layer declares. Imported
+  // dynamically so a missing declaration fails ONLY this scenario (not the
+  // whole step-file load).
+  try {
+    this.notes.hostsModule = await import("../../src/lib/hosts.ts");
+  } catch (err) {
+    this.notes.hostsImportError = err instanceof Error ? err.message : String(err);
+  }
+});
+
+Then(
+  /^they should be exactly auth\.saleor\.io, cloud\.saleor\.io, the customer's `\*\.saleor\.cloud` domains, api\.stripe\.com, github\.com, and 127\.0\.0\.1, plus any `JOLLY_SALEOR_CLOUD_API_URL` override$/,
+  function (this: JollyWorld) {
+    const mod = this.notes.hostsModule as
+      | { FIRST_PARTY_HOSTS?: unknown; isFirstPartyHost?: (h: string) => boolean }
+      | undefined;
+    assert.ok(
+      mod,
+      "Jolly must declare its first-party host allowlist in a canonical module " +
+        `(src/lib/hosts.ts) so contactable hosts are enumerable; import failed: ${String(
+          this.notes.hostsImportError,
+        )}`,
+    );
+    // The fixed exact hosts must be exactly the declared set.
+    const declared = mod!.FIRST_PARTY_HOSTS;
+    assert.ok(Array.isArray(declared), "FIRST_PARTY_HOSTS must be an array of host strings");
+    assert.deepEqual(
+      [...(declared as string[])].sort(),
+      EXPECTED_FIRST_PARTY_HOSTS,
+      "the declared fixed first-party hosts must be exactly the allowlist",
+    );
+    // The *.saleor.cloud domains and the JOLLY_SALEOR_CLOUD_API_URL override are
+    // covered by the predicate, not the fixed list.
+    const isFirstParty = mod!.isFirstPartyHost;
+    assert.equal(typeof isFirstParty, "function", "hosts module must export isFirstPartyHost");
+    assert.ok(isFirstParty!("demo.saleor.cloud"), "a customer's *.saleor.cloud domain must be first-party");
+    assert.ok(isFirstParty!("any-store.eu.saleor.cloud"), "any *.saleor.cloud domain must be first-party");
+    // The override host is honored when JOLLY_SALEOR_CLOUD_API_URL is set.
+    const prev = process.env["JOLLY_SALEOR_CLOUD_API_URL"];
+    try {
+      process.env["JOLLY_SALEOR_CLOUD_API_URL"] = "https://cloud.example.test/platform/api";
+      assert.ok(
+        isFirstParty!("cloud.example.test"),
+        "the JOLLY_SALEOR_CLOUD_API_URL override host must be first-party",
+      );
+    } finally {
+      if (prev === undefined) delete process.env["JOLLY_SALEOR_CLOUD_API_URL"];
+      else process.env["JOLLY_SALEOR_CLOUD_API_URL"] = prev;
+    }
+    // A non-first-party host is rejected.
+    assert.equal(isFirstParty!("api.vercel.com"), false, "api.vercel.com must NOT be first-party");
+  },
+);
+
+Then(
+  /^api\.vercel\.com should not appear in Jolly's own request code — Vercel is reached only by the spawned Vercel CLI$/,
+  function (this: JollyWorld) {
+    const src = String(this.notes.srcText);
+    assert.ok(
+      !src.includes("api.vercel.com"),
+      "api.vercel.com must not appear in Jolly's own code — Vercel is reached only by the spawned Vercel CLI",
+    );
+  },
+);
+
+Then(
+  /^the retired hosts id\.saleor\.online and api\.saleor\.cloud should not appear anywhere in Jolly's code or output$/,
+  function (this: JollyWorld) {
+    const src = String(this.notes.srcText);
+    for (const retired of ["id.saleor.online", "api.saleor.cloud"]) {
+      assert.ok(
+        !src.includes(retired),
+        `the retired host ${retired} must not appear anywhere in Jolly's code`,
+      );
+    }
   },
 );

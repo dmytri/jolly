@@ -782,7 +782,8 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
     return envelope({
       command,
       status: "success",
-      summary: "Stored the Saleor GraphQL endpoint as NEXT_PUBLIC_SALEOR_API_URL.",
+      summary:
+        "Wrote NEXT_PUBLIC_SALEOR_API_URL to .env; the endpoint is stored, not verified.",
       data: {
         stored: true,
         envVar: "NEXT_PUBLIC_SALEOR_API_URL",
@@ -792,7 +793,8 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
         {
           id: "saleor-endpoint-stored",
           status: "pass",
-          description: "NEXT_PUBLIC_SALEOR_API_URL written to .env.",
+          description:
+            "NEXT_PUBLIC_SALEOR_API_URL written to .env; the endpoint is stored, not verified.",
         },
       ],
       nextSteps: [
@@ -1175,7 +1177,8 @@ async function commandCreateAppToken(args: ParsedArgs): Promise<Envelope> {
     return envelope({
       command,
       status: "success",
-      summary: "App token acquired and stored as JOLLY_SALEOR_APP_TOKEN.",
+      summary:
+        "Wrote the app token to .env as JOLLY_SALEOR_APP_TOKEN; the token is stored, not verified.",
       data: {
         appTokenStored: true,
         instanceUrl,
@@ -1185,7 +1188,8 @@ async function commandCreateAppToken(args: ParsedArgs): Promise<Envelope> {
         {
           id: "app-token-acquired",
           status: "pass",
-          description: "App token created via GraphQL and stored.",
+          description:
+            "App token written to .env as JOLLY_SALEOR_APP_TOKEN; the token is stored, not verified.",
         },
       ],
     });
@@ -1334,8 +1338,8 @@ function commandCreateStripe(args: ParsedArgs): Envelope {
     command,
     status: "success",
     summary: imported
-      ? "Imported Stripe test-mode keys from the Stripe CLI session into .env as JOLLY_STRIPE_PUBLISHABLE_KEY and JOLLY_STRIPE_SECRET_KEY."
-      : "Stored Stripe test-mode keys as JOLLY_STRIPE_PUBLISHABLE_KEY and JOLLY_STRIPE_SECRET_KEY.",
+      ? "Wrote Stripe test-mode keys from the Stripe CLI session into .env as JOLLY_STRIPE_PUBLISHABLE_KEY and JOLLY_STRIPE_SECRET_KEY; the keys are stored, not verified."
+      : "Wrote Stripe test-mode keys to .env as JOLLY_STRIPE_PUBLISHABLE_KEY and JOLLY_STRIPE_SECRET_KEY; the keys are stored, not verified.",
     data: {
       stored: true,
       imported,
@@ -1348,8 +1352,8 @@ function commandCreateStripe(args: ParsedArgs): Envelope {
         id: "stripe-keys-stored",
         status: "pass",
         description: imported
-          ? "Stripe test-mode keys imported from the Stripe CLI session and written to .env."
-          : "Stripe test-mode keys written to .env.",
+          ? "Stripe test-mode keys from the Stripe CLI session written to .env; the keys are stored, not verified."
+          : "Stripe test-mode keys written to .env; the keys are stored, not verified.",
       },
     ],
     nextSteps: [
@@ -1510,6 +1514,25 @@ ${end}`;
   writeFileSync(path, existing);
 }
 
+// Agent detection (feature 009, Rule "Agent detection"): inspect the project
+// root for a recognized user agent marker and report which agent environment we
+// detected. v1 only needs the generic fallback: when no recognized marker is
+// present we return null. NOTE: Jolly's own universal install location
+// `.agents/skills/` is NOT a user agent marker, so we never treat a bare
+// `.agents/` directory as a detection signal. The per-marker detection matrix
+// is deferred to @iteration.
+function detectAgent(): string | null {
+  const root = projectDir();
+  if (existsSync(join(root, "CLAUDE.md")) || existsSync(join(root, ".claude"))) {
+    return "claude";
+  }
+  if (existsSync(join(root, ".cursor", "rules"))) return "cursor";
+  if (existsSync(join(root, ".zed"))) return "zed";
+  if (existsSync(join(root, ".pi"))) return "pi";
+  if (existsSync(join(root, ".opencode"))) return "opencode";
+  return null;
+}
+
 function commandInit(_args: ParsedArgs): Envelope {
   const command = "init";
   const checks: Check[] = [];
@@ -1574,6 +1597,7 @@ function commandInit(_args: ParsedArgs): Envelope {
       skills: DEFAULT_SKILLS.map((s) => s.id),
       mcpMerged: mcp.merged,
       agentsMdMerged: true,
+      detectedAgent: detectAgent(),
     },
     checks,
     nextSteps: [
