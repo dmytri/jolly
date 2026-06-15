@@ -29,7 +29,7 @@
 //                                scrubbing HARNESS_OPENROUTER_API_KEY. Unset →
 //                                kept nowhere (the throwaway temp dir as today).
 //                                Observability only; never changes pass/fail.
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   cpSync,
   existsSync,
@@ -52,6 +52,16 @@ const JOLLY_BIN = join(REPO_ROOT, "bin", "jolly");
 const JOLLY_DIST = join(REPO_ROOT, "dist", "index.js");
 const SKILL_SRC = join(REPO_ROOT, "assets", "skills", "jolly");
 const PI_BIN = join(REPO_ROOT, "node_modules", ".bin", "pi");
+
+/**
+ * The published live entry point the canonical scenario points the agent at
+ * (the string the homepage copy box hands a customer's agent). `jolly.cool/setup`
+ * is served — via a Vercel rewrite — from `assets/homepage/setup.md`.
+ */
+export const PUBLISHED_SETUP_URL = "https://jolly.cool/setup";
+
+/** The local source the live URL is published from (Vercel rewrite target). */
+const LOCAL_SETUP_MD = join(REPO_ROOT, "assets", "homepage", "setup.md");
 
 /** The default skill set `jolly init` verifies on disk (mirrors src DEFAULT_SKILLS). */
 const DEFAULT_SKILL_IDS = [
@@ -391,6 +401,104 @@ export function runBaselineAgent(ctx: EvalContext, task: string): AgentRun {
     durationMs,
     timedOut,
   };
+}
+
+/**
+ * Opt-in local-setup mode (HARNESS_EVAL_SETUP_LOCAL): point the eval agent at
+ * the LOCAL `assets/homepage/setup.md` instead of the live `jolly.cool/setup`,
+ * so the setup guide can be iterated on and validated locally before redeploying
+ * jolly.cool. Unset (default) → the canonical scenario keeps verifying the real
+ * published entry point, unchanged.
+ */
+export function evalSetupLocal(): boolean {
+  const raw = process.env.HARNESS_EVAL_SETUP_LOCAL;
+  return raw !== undefined && raw.trim() !== "" && raw.trim() !== "0";
+}
+
+/**
+ * Resolve the agent task string. Default: returned unchanged (the live
+ * `jolly.cool/setup` URL the scenario docstring carries). With the opt-in
+ * HARNESS_EVAL_SETUP_LOCAL knob set: serve `assets/homepage/setup.md` over an
+ * ephemeral 127.0.0.1 HTTP server for the run and substitute that local URL into
+ * the task in place of the live URL, so the agent fetches the LOCAL guide. The
+ * server is registered for teardown with the supplied cleanup register.
+ *
+ * 127.0.0.1 is first-party, so Jolly's NON_FIRST_PARTY_HOST guard never refuses
+ * it, and the agent's documented network rules are unchanged — only the URL the
+ * task points at moves from the published mirror to its local source.
+ */
+export function resolveEvalTask(
+  task: string,
+  register: (description: string, fn: () => void) => void,
+): string {
+  if (!evalSetupLocal()) return task;
+
+  // Serve the local guide from a SEPARATE Node process, not an in-process
+  // server: the agent run goes through a blocking spawnSync (runBaselineAgent),
+  // which would freeze an in-process server's event loop and deadlock the
+  // agent's fetch. The child binds an ephemeral 127.0.0.1 port and writes it to
+  // a file; we block (without the event loop) until it appears.
+  const portFile = join(mkdtempSync(join(tmpdir(), "jolly-setup-srv-")), "port");
+  const child = spawn(
+    process.execPath,
+    ["-e", LOCAL_SETUP_SERVER_SRC, LOCAL_SETUP_MD, portFile],
+    { stdio: "ignore", detached: false },
+  );
+  register(`eval local-setup server (pid ${child.pid})`, () => {
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // best-effort
+    }
+    rmSync(portFile, { force: true });
+  });
+
+  const port = waitForPortFile(portFile);
+  const localUrl = `http://127.0.0.1:${port}/setup`;
+  return task.split(PUBLISHED_SETUP_URL).join(localUrl);
+}
+
+/**
+ * The tiny setup-server program run in a child Node process (process.execPath
+ * `-e`). argv: [setupMdPath, portFile]. Binds an ephemeral 127.0.0.1 port,
+ * serves the file's current contents (read per request, so guide edits take
+ * effect without a restart) for any path, and writes the chosen port to
+ * portFile so the parent can discover it.
+ */
+const LOCAL_SETUP_SERVER_SRC = `
+const http = require("node:http");
+const fs = require("node:fs");
+const [mdPath, portFile] = process.argv.slice(1);
+const server = http.createServer((req, res) => {
+  let body = "";
+  try { body = fs.readFileSync(mdPath, "utf8"); } catch (e) { body = String(e); }
+  res.writeHead(200, { "content-type": "text/markdown; charset=utf-8" });
+  res.end(body);
+});
+server.listen(0, "127.0.0.1", () => {
+  fs.writeFileSync(portFile, String(server.address().port));
+});
+`;
+
+/**
+ * Block — without spinning the event loop (Atomics.wait), so it works even
+ * though the surrounding step later calls a blocking spawnSync — until the
+ * child setup-server has written its chosen port, then return it.
+ */
+function waitForPortFile(portFile: string): number {
+  const sleeper = new Int32Array(new SharedArrayBuffer(4));
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    if (existsSync(portFile)) {
+      const raw = readFileSync(portFile, "utf8").trim();
+      const port = Number.parseInt(raw, 10);
+      if (Number.isFinite(port) && port > 0) return port;
+    }
+    Atomics.wait(sleeper, 0, 0, 25);
+  }
+  throw new Error(
+    `local-setup server did not report its port within 5s (${portFile})`,
+  );
 }
 
 /** The opt-in transcript directory, or undefined when the knob is unset. */

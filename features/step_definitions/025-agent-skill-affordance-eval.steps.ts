@@ -26,6 +26,7 @@ import {
   envelopeFromTrace,
   parseTrace,
   persistEvalTranscript,
+  resolveEvalTask,
   runBaselineAgent,
   setupEvalContext,
   subcommandOf,
@@ -148,7 +149,14 @@ When(
   "a baseline agent is given the task:",
   { timeout: AGENT_STEP_TIMEOUT_MS },
   function (this: JollyWorld, task: string) {
-    const run = runBaselineAgent(ctx(this), task);
+    // Default: the live `jolly.cool/setup` URL the docstring carries, unchanged.
+    // Opt-in HARNESS_EVAL_SETUP_LOCAL: serve `assets/homepage/setup.md` over an
+    // ephemeral 127.0.0.1 server (torn down via the scenario cleanup registry)
+    // and point the task at it, so the setup guide can be iterated locally.
+    const resolvedTask = resolveEvalTask(task, (description, fn) =>
+      this.cleanup.register(description, fn),
+    );
+    const run = runBaselineAgent(ctx(this), resolvedTask);
     this.notes[RUN] = run;
     const records = parseTrace(ctx(this).traceFile);
     this.notes[TRACE] = records;
