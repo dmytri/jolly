@@ -4,24 +4,22 @@ Feature: Jolly iteration phase support
   So that I can iterate on my store without needing to re-run setup or lose what Jolly configured
 
   Background:
-    Given the customer has completed Jolly setup and has a working deployed storefront
-    And the customer's agent is the primary interface for all ongoing commerce work
-    And Jolly's role in the iteration phase is diagnostics, tooling config, and update management
+    Given `jolly init` has completed
+    And a deployed storefront URL in .env
 
   @sandbox
   Scenario: Agent has live store access from day one
     Given jolly init has completed
-    When the agent needs to query or modify the live Saleor store
+    When the agent runs a products query through mcp-graphql
     Then jolly init should have written an mcp-graphql config pointing to the customer's Saleor GraphQL endpoint
     And the config should use the stored app token
-    And the agent should be able to query products, orders, channels, and store configuration through mcp-graphql
-    And the agent should be able to make mutations through mcp-graphql where the app token permissions allow
+    And the `.mcp.json` saleor-graphql entry should target the customer's Saleor GraphQL endpoint with the stored app token
 
   @logic
   Scenario: Agent runs ongoing health checks
     Given the storefront has been deployed
-    When the customer or agent wants to verify everything is working correctly
-    Then the agent should run jolly doctor at any time without side effects
+    When the agent runs `jolly doctor --json`
+    Then `jolly doctor` should make no local or remote changes
     And jolly doctor should detect configuration drift, missing env vars, and connectivity problems
     And it should report actionable next steps for any issues found
     And it should support --json for structured output the agent can parse
@@ -29,8 +27,8 @@ Feature: Jolly iteration phase support
   @logic
   Scenario: Agent upgrades Jolly-managed assets
     Given skills or agent guidance may become outdated over time
-    When the agent wants to keep the project current
-    Then it should run jolly upgrade to update Jolly-managed skills and agent guidance
+    When the agent runs `jolly upgrade --json`
+    Then the envelope should report the updated skills and guidance
     And Jolly should report what changed and what the agent should review
     And Jolly should not automatically apply Paper storefront migrations in v1
     And it should generate an upgrade plan for Paper changes and present it to the agent

@@ -7,30 +7,35 @@ Feature: Jolly CLI output contract
     Given Jolly is executable via `npx`
     And every command supports `--json`, `--quiet`, and (for side-effecting commands) `--dry-run`
 
-  @logic
-  Scenario: Agent parses any command through one envelope
-    Given the agent invokes any Jolly command with `--json`
-    When the command completes
+  @logic @property
+  Scenario Outline: Every command emits one envelope on --json stdout
+    When the agent runs `<command>`
     Then stdout should contain a single JSON envelope and nothing else
     And the envelope should include a `command` identifier
     And the envelope should include a top-level `status` of `success`, `warning`, or `error`
     And the envelope should include a human `summary` string
     And the envelope should include a command-specific `data` object
+    And the envelope should include a `checks` array
     And the envelope should include a `nextSteps` array
     And the envelope should include an `errors` array that is empty on success
-    And the agent should be able to parse the same shape regardless of which command produced it
+
+    Examples:
+      | command                                |
+      | jolly doctor --json                    |
+      | jolly auth status --json               |
+      | jolly create store --dry-run --json    |
 
   @logic
   Scenario: Default output combines human text and the envelope
-    Given the agent invokes a Jolly command without `--json`
+    Given the agent runs `jolly doctor`
     When the command completes
-    Then Jolly should print concise human-readable text for a developer reading along
-    And it should still include the machine-readable envelope for the agent
-    And `--quiet` should reduce nonessential human text without removing the envelope
+    Then stdout should contain human-readable text in addition to the envelope
+    And stdout should still include the machine-readable envelope
+    And running `jolly doctor --quiet` should trim only the human text and still include the envelope
 
   @logic
   Scenario: Commands that run checks reuse the doctor vocabulary
-    Given a command performs verification such as `jolly start` or `jolly doctor`
+    Given the agent runs `jolly doctor --json`
     When it reports check results in the envelope
     Then each check should appear in a `checks` array
     And each check should carry a stable check id
@@ -39,17 +44,29 @@ Feature: Jolly CLI output contract
 
   @logic
   Scenario: Agent branches on stable codes
-    Given a command fails or partially succeeds
+    Given the agent runs `jolly login --token "" --json`
     When the agent inspects the envelope
     Then each entry in `errors` should include a stable `code`, a `message`, and optional `remediation`
     And the documented `code` and check id strings should remain stable so the agent can branch on them programmatically
 
-  @logic
-  Scenario: Output never exposes secrets
-    Given a command handles secret values such as tokens or API keys
-    When it produces output in any mode
-    Then no field in the envelope or human text should contain a secret value
-    And secrets should be referenced by name only
+  @logic @property
+  Scenario Outline: Output never exposes secrets
+    When the agent runs `<command>` in default, `--json`, and `--quiet` modes
+    Then no field in the envelope or human text should contain the secret value
+    And the secret should be referenced by name only
+
+    Examples:
+      | command                                      |
+      | jolly login --token <value>                  |
+      | jolly create stripe --secret-key <value>     |
+
+  @logic @property
+  Scenario: Jolly's request code contacts only first-party hosts
+    Given Jolly's own network-request-sending code
+    When the hosts it can contact are enumerated
+    Then they should be exactly auth.saleor.io, cloud.saleor.io, the customer's `*.saleor.cloud` domains, api.stripe.com, github.com, and 127.0.0.1, plus any `JOLLY_SALEOR_CLOUD_API_URL` override
+    And api.vercel.com should not appear in Jolly's own request code — Vercel is reached only by the spawned Vercel CLI
+    And the retired hosts id.saleor.online and api.saleor.cloud should not appear anywhere in Jolly's code or output
 
   Rule: Output envelope principles
     - Every command should emit one consistent top-level JSON envelope.
@@ -92,7 +109,7 @@ Feature: Jolly CLI output contract
       Jolly's request-sending code.
     - api.vercel.com is NOT in this allowlist: Vercel is reached only
       by the official Vercel CLI (`npx vercel`) that Jolly delegates to, never by Jolly's
-      own request-sending code (see feature 008 Rule "Official CLIs only, no reimplementation").
+      own request-sending code (see feature 008 Rule "Surface — composable plumbing commands; `start` orchestrates the official CLIs").
     - Secrets travel only to their own service: Saleor tokens only to auth.saleor.io,
       cloud.saleor.io, or the customer's *.saleor.cloud domains; Stripe keys only to
       api.stripe.com. No secret is ever sent to github.com or any host not on this list.

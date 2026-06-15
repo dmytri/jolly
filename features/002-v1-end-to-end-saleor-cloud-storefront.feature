@@ -15,39 +15,25 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
 
   @logic
   Scenario: Agent starts the Saleor Cloud setup journey
-    Given the customer has copied the Jolly onboarding prompt into their agent
-    When the agent begins the V1 setup journey
-    Then it should ask whether the customer already has a Saleor store or wants to register one
-    And it should identify which steps require human action outside the agent
+    Given a fresh project directory with no store URL configured
+    When the agent runs `jolly start --json` with no store URL
+    Then `nextSteps` should name both the register-new and connect-existing paths
 
   @sandbox
-  Scenario: Agent helps register a new Saleor Cloud store
-    Given the customer says they want to register a Saleor store
-    When the agent proceeds with the registration branch
-    Then Jolly should use Saleor Cloud APIs programmatically where possible
-    And Jolly should support browser OAuth authentication when the environment can open a browser and receive the callback
-    And Jolly should support a headless token flow when browser OAuth is unavailable or undesirable
-    And Jolly should reuse an existing Saleor Cloud organization when available
-    And Jolly should create a Saleor Cloud project and environment as needed for the new store
-    And Jolly should use `saleor/configurator` recipes as the default mechanism for initial store configuration
-    And Jolly should provide or select a Jolly-specific starter recipe optimized for making the Paper storefront immediately operational
-    And the agent should clearly pause for any browser, email, payment, or account-verification step that cannot be completed programmatically
-    And for new Saleor Cloud account creation, Jolly should direct the customer to cloud.saleor.io for the browser signup flow
-    And Jolly should resume automatically once the customer provides the new store URL
-    And Jolly should not attempt to automate the browser account signup itself
+  Scenario: Jolly registers a new Saleor Cloud store via the Cloud API
+    Given `JOLLY_SALEOR_CLOUD_TOKEN` is set for an organization with no project
+    When the agent runs `jolly create store --create-environment --json`
+    Then the envelope `data` should report the created project and environment
+    And the `data` should include the new store's `*.saleor.cloud` URL
+    And `nextSteps` should direct new-account signup to cloud.saleor.io
+    And Jolly's code should send no signup request and contact only first-party hosts
 
   @sandbox
-  Scenario: Agent connects an existing Saleor store as automatically as possible
-    Given the customer says they already have a Saleor store
-    When the agent needs to connect the storefront to Saleor
-    Then Jolly should accept a Saleor URL from the customer and normalize it to the GraphQL endpoint where possible
-    And Jolly should validate the GraphQL endpoint using an introspection-style request before proceeding
-    And when Saleor Cloud authentication is available, Jolly should infer the organization and environment by matching the instance host against Saleor Cloud environments
-    And Jolly should ask only for missing details it cannot infer automatically
-    And Jolly should require an app token or equivalent credential for full existing-store setup
-    And Jolly should acquire or create the app token automatically where Saleor APIs allow
-    And Jolly should guide the customer to obtain required credentials from Saleor Dashboard only when automation is not available
-    And it should verify connectivity before proceeding to storefront setup
+  Scenario: Jolly connects an existing Saleor store and verifies connectivity
+    Given a store URL `https://example.saleor.cloud` and a valid app token
+    When the agent runs `jolly init --json` with that store URL
+    Then `data` should report the normalized GraphQL endpoint `https://example.saleor.cloud/graphql/`
+    And a `saleor-connectivity` check should report status "pass"
 
   @sandbox
   Scenario: Jolly start creates a deployable storefront from Saleor Paper
@@ -57,10 +43,17 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And it should only pause if the default directory already exists and ask how to resolve the collision
     And it should clone Saleor's official `saleor/storefront` Paper template from `main` by spawning `git`, remove the upstream `.git` history, and initialize a fresh repository
     And it should install Paper's dependencies by spawning `pnpm`
-    And it should validate the local Node.js version against Paper's current requirements and give actionable guidance on a mismatch, without installing or switching Node.js itself
-    And it should give actionable guidance if `pnpm` is missing, optionally installing it where the agent/customer allows
-    And `jolly doctor storefront --full-validation` should run full Paper validation such as generate, typecheck, build, or tests where feasible
-    And it should preserve Paper's intended architecture and default presentation rather than rewriting or re-theming it unnecessarily
+    And on a too-old Node.js version a `node-version` check should report status "fail" naming the required version, and Jolly should not install or switch Node.js itself
+    And when `pnpm` is missing a `pnpm-available` check should report status "fail", and Jolly should not install Node.js itself
+    And `jolly doctor storefront --full-validation` should run Paper's generate, typecheck, and build steps and report each as a check
+    And it should leave Paper's source and theme files unmodified after the clone and install
+
+  @sandbox
+  Scenario: jolly start resumes and skips an already-completed storefront stage
+    Given a `storefront/` directory already cloned and installed from a previous run
+    When the agent runs `jolly start --json` again
+    Then the storefront stage should report status "skipped" or detected-as-done
+    And it should not clone the storefront a second time
 
   @sandbox
   Scenario: Jolly start deploys to Vercel by spawning the official Vercel CLI
@@ -72,15 +65,15 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And Jolly's own code should send no request to api.vercel.com and hold no Vercel token
     And it should not fall back to any other deployment mechanism such as a guided Git import flow
     And it should configure the required environment variables on the Vercel project through the Vercel CLI
-    And it should surface Vercel Deployment Protection (on by default) for the human or agent to disable so the store is publicly reachable
-    And it should update Saleor allowed/trusted origins for the deployed storefront URL where APIs allow
+    And `nextSteps` should include disabling Vercel Deployment Protection so the store is publicly reachable
+    And it should add the deployed storefront URL to Saleor's trusted origins via the Cloud API
     And `jolly doctor` should verify that the deployed storefront can reach Saleor Cloud
-    And it should report the deployed URL and any remaining manual steps
+    And the envelope `data` should report the deployed URL and `nextSteps` should list the remaining human gates
 
   @logic
   Scenario: Jolly start previews the storefront clone and install
-    Given the agent runs `jolly start --dry-run`
-    When Jolly plans the storefront stage
+    Given a fresh empty project directory
+    When the agent runs `jolly start --dry-run --json`
     Then the plan should include a storefront step that spawns `git` to clone Saleor Paper and `pnpm` to install
     And the preview should name the default target directory `storefront` and the `saleor/storefront` Paper template from `main`
     And the storefront step should carry a riskContext for cloning and installing the storefront
@@ -95,8 +88,8 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
 
   @logic
   Scenario: Jolly start previews the Vercel deploy
-    Given the agent runs `jolly start --dry-run`
-    When Jolly plans the deploy stage
+    Given a fresh empty project directory
+    When the agent runs `jolly start --dry-run --json`
     Then the plan should include a deploy step that spawns the official Vercel CLI `npx vercel`
     And the preview should state Jolly holds no Vercel token and sends no request to api.vercel.com
     And the deploy step should carry a riskContext for a live Vercel deployment
@@ -187,6 +180,14 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
   Rule: Git provider for optional source control
     - GitHub is the default Git provider for optional source-control setup; other providers are deferred to v2.
     - Git setup is convenience, not the deployment mechanism — deployment is always the official Vercel CLI (`npx vercel`), spawned by `jolly start` (see "jolly start orchestrates the setup by spawning the official CLIs"). The durable Vercel invariants (official CLI only, its own `vercel login` session, no `JOLLY_VERCEL_TOKEN`, no `api.vercel.com` in Jolly's own code) live in that rule and feature 020's "First-party hosts only".
+
+  @sandbox
+  Scenario: The deployed storefront serves the Saleor catalog and a working cart
+    Given `jolly start` has deployed the storefront to Vercel against the configured Saleor Cloud store
+    When the deployed storefront URL is opened
+    Then the URL should respond successfully
+    And it should list products from the Saleor Cloud catalog
+    And adding a product to the cart should update the cart
 
   Rule: V1 operational readiness
     - The deployed storefront URL must work.

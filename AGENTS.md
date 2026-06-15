@@ -1,5 +1,9 @@
 # Agent Instructions
 
+This is the authoritative **agent/tooling configuration** for this repository, shared by every agent. It is not product intent, a roadmap, or a worklist. Product intent lives in `features/*.feature` and referenced `assets/**`.
+
+This repo is **spec-driven**: `src/` (CLI entry `src/index.ts`) is disposable — built by Crew Mates, driven by failing tests, and regenerated whenever specs change. `assets/**` is human-authored durable material, not specified in `.feature` files, not covered by tests, and never edited by QM or Crew.
+
 ## Shipshape Workflow
 
 This repository uses Shipshape for agent workflow. Shipshape owns the generic `/captain`, `/qm`, `/crew`, `/bosun`, and `/clearrole` role prompts; do not recreate them locally.
@@ -12,8 +16,6 @@ npx skills add dmytri/shipshape --agent claude-code --skill '*'
 npx skills add dmytri/shipshape --agent zed --skill '*'
 pi install npm:pi-shipshape
 ```
-
-`AGENTS.md` is agent/tooling configuration only. It is not product intent, a roadmap, or a worklist. Captain-only notes live in `CAPTAIN.md`; only Captain may read or edit that file. QM, Crew, and Bosun must not read `CAPTAIN.md`.
 
 ## Project Configuration
 
@@ -31,7 +33,7 @@ pi install npm:pi-shipshape
 
 ## Runtime and Build
 
-- Node.js >= 23 + npm. Bun is not a dependency, requirement, or fallback.
+- Node.js >= 23 + npm.
 - TypeScript, ES modules.
 - Source entry point: `src/index.ts`.
 - Published CLI bundle: `dist/index.js`, built with esbuild.
@@ -68,25 +70,47 @@ node --test tests/sandbox.test.ts
 - Each feature maps to `features/step_definitions/<feature-slug>.steps.ts`.
 - Shared hooks, world, sandbox setup/teardown, and credential gating live in `features/support/`.
 - Logic-tier unit tests live in `tests/` and run via `node --test`.
-- Feature `023-test-architecture` is a `@meta` harness charter and is excluded from the BDD worklist; do not write step definitions for it.
-- DOM-level storefront checks use happy-dom.
-- The homepage and Jolly skill content under `assets/**` are not covered by the BDD suite.
+- DOM-level checks use happy-dom.
+- Content under `assets/**` is not covered by the BDD suite.
+
+**Prefer sandbox over mocks.** Exercise real behavior against real accounts; reach for a mock only to reproduce a condition a sandbox genuinely cannot produce. Sandbox scenarios are **skipped, not failed** when credentials cannot be derived, so the suite always runs locally; CI supplies credentials. This preference holds on every feature.
 
 Test tiers:
 
 - `@logic` — pure local behavior; no accounts; always runs.
-- `@sandbox` — real Saleor Cloud, Configurator, Vercel, or Stripe behavior; uses runtime `JOLLY_*` credentials only.
+- `@sandbox` — real-account behavior against real services; uses runtime `JOLLY_*` credentials only.
 - `@eval` — opt-in skill-affordance evaluation; excluded from default worklist; skips when its agent/model credential is absent; never a green/red gate.
-- `@meta` — descriptive harness specs excluded from the BDD worklist.
 
-Prefer fast focused checks and isolated slow checks. If slow checks can run safely in parallel, document and use the command. Cached verification may be used only when project tooling defines it; reports must distinguish fresh results from cache-backed results.
+**Sandbox tests must be harmless by design — production-safe — and this applies to every `@sandbox` test on every feature.** When you write or run a sandbox test:
+
+- Never modify or delete a resource the run did not itself create. Read pre-existing resources only via read-only, non-mutating queries, and only where a spec requires verifying live access with the configured credentials.
+- Namespace every created resource with the unique per-run identifier, and leave it unpublished/inactive where the platform allows, so it is never customer-visible.
+- Change a shared setting only when the change is additive and is reverted during teardown.
+- Use test card numbers only for payment flows, so the worst case against live payment credentials is a declined transaction, never a real charge.
+- Register idempotent, best-effort teardown for everything created; report by namespaced identifier anything it could not remove.
+- Do not detect or refuse "production" targets — the customer is trusted to choose the accounts. Safety comes from the rules above, not from target detection.
+
+These rules are the binding work-discipline; they hold regardless of which feature you are working on. This document — not any feature file — is their home.
+
+Sandbox harness mechanics (the machinery in `features/support/`):
+
+- **Provision instead of skip.** When a sandbox run needs a Saleor endpoint or app token that is not configured and `JOLLY_SALEOR_CLOUD_TOKEN` is present, the harness provisions one shared environment for the run under the per-run `jolly-test` namespace (passed via the `--name`/`--domain-label` overrides), derives the missing `NEXT_PUBLIC_SALEOR_API_URL`/`JOLLY_SALEOR_APP_TOKEN` from it, and registers its teardown **before** creating — so a run never permanently consumes a sandbox slot even if it times out or crashes.
+- **Leftover handling.** Before creating, the harness checks for leftover `jolly-test`-namespaced environments from previous runs; if one exists it does not create another — interactively it may delete the leftover only with explicit approval, otherwise it skips and names the leftover. It never deletes an environment it cannot positively identify as test-created.
+- **Skip-not-fail conditions.** `@sandbox` tests are skipped (not failed), with a clear reason, only when needed credentials are absent and cannot be derived (`JOLLY_SALEOR_CLOUD_TOKEN` itself, or third-party Vercel/Stripe credentials). Capacity-limit rejections (e.g. an org's sandbox-environment limit) are environmental skips too.
+- **Mocks are a narrow last resort.** Use a test double only to inject a failure/unavailable-capability condition a sandbox cannot reasonably produce; a mock never replaces sandbox coverage of the normal path.
+- **Eval transcript keeping (opt-in observability).** When `HARNESS_EVAL_TRANSCRIPT_DIR` is set (default unset → throwaway temp dir), the eval harness persists the run's evidence (agent stdout/stderr, the Jolly-invocation and Stripe-CLI traces, the final workspace `.env`) under a per-run namespaced subdir before teardown, scrubbing `HARNESS_OPENROUTER_API_KEY`. Observability only — it never changes pass/fail.
+
+Prefer fast focused checks and isolated slow checks, and run independent checks in parallel for fast worklists/status. The logic tier runs in parallel: `cucumber-js -p logic` (configured in `cucumber.js`). Cached verification may be used only when project tooling defines it; reports must distinguish fresh results from cache-backed results.
+
+## Scenario writing
+
+All `.feature` scenarios and steps must follow the **scenario-writing guide — see `SCENARIO_WRITING.md`.** In short: every scenario describes a real feature testable explicitly (a named command/input + a concrete, falsifiable observable); concrete `Given/When/Then` (a named command in `When`, never a circular trigger); no faux/abstract-subject/actor-asserting/hedge-word steps; behavior lives in steps, not `Rule:` prose; cross-cutting invariants are verified at each concrete site.
 
 ## Role-Specific Configuration
 
 ### Captain
 
 - Reads `AGENTS.md` for tooling rules only.
-- May read/write `CAPTAIN.md` for non-binding private notes.
 - Writes binding product behavior to `features/*.feature` and referenced `assets/**`.
 - Must not update `AGENTS.md` as part of feature/spec work.
 - May create/update `assets/**` for durable human-approved source material.
@@ -118,30 +142,18 @@ Prefer fast focused checks and isolated slow checks. If slow checks can run safe
 
 ## Durable Assets
 
-`assets/**` is human/Captain-authored durable material and shipped content:
+`assets/**` is human-authored durable material. Its boundaries:
 
-- `assets/homepage/` — homepage + setup guide deployed at https://jolly.cool.
-- `assets/skills/jolly/` — Jolly skill and starter recipe shipped with the CLI.
+- QM and Crew may read `assets/**` when a scenario references it, but must not edit or delete it.
+- Bosun may remove assets only when specs retire them.
 
-QM and Crew may read `assets/**` when a scenario references it, but must not edit or delete it. Bosun may remove assets only when specs retire them.
+What lives under `assets/**` and what it contains is product intent — see the relevant `features/*.feature`.
 
 ## Secrets and Environment
 
 - Local secrets live in `.env`, which must stay Git-ignored.
-- Jolly workflow credentials use `JOLLY_*` names.
-- Generated/cloned storefront runtime variables use the target project's expected names, such as `NEXT_PUBLIC_SALEOR_API_URL` and `SALEOR_APP_TOKEN`.
+- Workflow credentials use `JOLLY_*` names.
+- Generated runtime variables use the target project's own expected names.
 - Harness-only knobs use `HARNESS_*`, never `JOLLY_*`.
-- Tests use the same runtime `JOLLY_*` names as Jolly itself; there is no test-only credential namespace.
-- Vercel auth is not a Jolly credential. Deployment sandbox checks gate on `npx vercel whoami`, not `JOLLY_VERCEL_TOKEN`.
+- Tests use the same runtime `JOLLY_*` names as the application itself; there is no test-only credential namespace.
 - Never print secret values.
-
-## Network and Source Boundaries
-
-Jolly's own request-sending code may contact only first-party/current workflow hosts specified by executable specs, including Saleor Cloud/auth, customer `*.saleor.cloud` endpoints, Stripe API, GitHub, and localhost OAuth callbacks. Delegated official CLIs such as Vercel CLI and `@saleor/configurator` contact their own services under their own auth.
-
-- There is no `JOLLY_VERCEL_TOKEN`.
-- `api.vercel.com` is reached only by the Vercel CLI, not by Jolly request code.
-- `mcp.saleor.app` is informational only; Jolly configures local `mcp-graphql` against the customer's own store endpoint.
-- `id.saleor.online` and `api.saleor.cloud` are retired and must not appear in code, output, or specs.
-- Treat `saleor/cli` as deprecated source material only; do not depend on it, require it, shell out to it, or instruct customers to install it.
-- Re-check upstream Saleor repositories at implementation time because commands, branches, and setup flows may change.

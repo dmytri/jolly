@@ -126,7 +126,7 @@ and mediate it yourself. The order and the load-bearing specifics:
 
 ## If a step fails or you're unsure
 
-Run `npx @dk/jolly doctor` — it names what is wrong and the concrete next action (a command, a CLI
+Run `jolly doctor` — it names what is wrong and the concrete next action (a command, a CLI
 to authenticate, a value to ask your human for). Fix that, then re-run `jolly start`; it resumes
 from the first outstanding stage. Never treat a failed command as success.
 

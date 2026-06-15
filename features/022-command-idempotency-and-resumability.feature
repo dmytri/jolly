@@ -4,29 +4,34 @@ Feature: Command idempotency and resumability
   So that I can retry after interruptions and compose subcommands in any order without creating duplicates
 
   Background:
-    Given `jolly start` bootstraps setup and emits the playbook; the agent then runs the official CLIs per the Jolly skill
+    Given `jolly start` bootstraps setup and runs the mechanical stages by spawning official CLIs
     And the agent may also invoke individual `jolly create` subcommands at its own discretion
 
   @sandbox
-  Scenario: Re-running a create subcommand detects existing work
-    Given a `jolly create` subcommand has already completed its resource
-    When the agent invokes the same subcommand again
+  Scenario Outline: Re-running a create subcommand detects existing work
+    Given `<command>` has already completed its resource
+    When the agent runs `<command>` again
     Then Jolly should detect the already-completed work
-    And it should not create a duplicate store, clone, recipe, or deployment
+    And it should not create a duplicate resource
     And it should report the detected existing state through the standard output envelope
     And it should not fail merely because the resource already exists
 
+    Examples:
+      | command                 |
+      | jolly create store      |
+      | jolly create app-token  |
+
   @sandbox
-  Scenario: Jolly start resumes bootstrap and reflects playbook progress
+  Scenario: Jolly start resumes bootstrap and reflects stage progress
     Given a previous `jolly start` run completed some bootstrap work but not all
     When the agent runs `jolly start` again
     Then Jolly should detect which bootstrap work is already satisfied (skills, `.mcp.json`, scaffold) and skip it
-    And it should detect end-to-end progress the agent already made with the official CLIs — a cloned storefront directory, a configured store, a Vercel deployment — and report those steps as done in the emitted playbook
-    And it should point the playbook at the first step still outstanding rather than redoing completed work
+    And it should detect end-to-end progress already present in observable artifacts — a cloned storefront directory, a configured store, a Vercel deployment — and report those stages as done
+    And it should continue from the first stage still outstanding rather than redoing completed work
 
   @sandbox
-  Scenario: Jolly recognizes work the agent did with the official CLIs
-    Given the agent has already cloned the storefront, configured the store, or deployed using the official CLIs
+  Scenario: Jolly recognizes externally-produced work
+    Given a cloned storefront, configured store, or deployment already exists — whether produced by `jolly start` or by the agent running a stage itself
     When the agent later runs `jolly doctor` or `jolly start`
     Then Jolly should detect that state from its observable artifacts (the storefront directory, the store configuration, the deployment) and treat it as satisfied
     And it should not ask the agent to redo it
@@ -40,9 +45,9 @@ Feature: Command idempotency and resumability
 
   @logic
   Scenario: Collisions pause instead of overwriting
-    Given a step would otherwise overwrite existing local or remote state it did not create
-    When the conflict is detected
-    Then Jolly should pause and ask how to resolve the collision
+    Given a non-empty `storefront/` directory Jolly did not create
+    When `jolly start` reaches the storefront clone stage
+    Then Jolly should stop without overwriting and emit a collision `riskContext`
     And it should not silently overwrite the existing state
     And this should follow the same collision handling as the storefront target directory in feature 002
 
@@ -51,7 +56,7 @@ Feature: Command idempotency and resumability
     - Commands should detect already-completed work and report detected state rather than erroring on "already exists".
     - `jolly start` should be resumable, skipping satisfied stages and continuing from the first incomplete one.
     - Work done by individual subcommands and by `jolly start` should be mutually recognized as the same state.
-    - Completed work includes state the agent produced with the official CLIs (a cloned storefront directory, a configured store, a Vercel deployment); `jolly doctor` and `jolly start` detect it from observable artifacts so the playbook resumes without redoing it. Detection stays simple for v1 — observe the obvious artifacts; deeper detection iterates later.
+    - Completed work includes observable state from official CLIs (a cloned storefront directory, a configured store, a Vercel deployment); `jolly doctor` and `jolly start` detect it from artifacts so setup resumes without redoing it. Detection stays simple for v1 — observe the obvious artifacts; deeper detection iterates later.
     - This generalizes feature 007's "init is safe to rerun" and feature 002's storefront directory collision handling to all create and start stages.
     - Destructive resolution of a collision is an impactful action and should expose risk context per feature 021 for the agent to decide.
 

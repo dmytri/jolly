@@ -5,15 +5,15 @@ Feature: Agent-first Jolly onboarding and CLI
 
   @sandbox
   Scenario: Jolly start orchestrates the setup by spawning the official CLIs
-    Given the agent runs `jolly start` with the credentials and approvals the run needs
-    When `jolly start` performs the setup end-to-end
-    Then it should bootstrap first (install skills, write `.mcp.json`, scaffold, acquire auth as needed)
-    And it should run the mechanical stages itself by spawning the official CLIs (`git`, `pnpm`, `@saleor/configurator`, `npx vercel`), never reimplementing them against raw APIs
+    Given a project directory with `JOLLY_SALEOR_CLOUD_TOKEN` set and `--yes` passed
+    When `jolly start --json` runs to completion
+    Then it should bootstrap first (install skills, write `.mcp.json`, scaffold, acquire auth)
+    And the run should spawn `git`, `pnpm`, `@saleor/configurator`, and `npx vercel` as child processes
     And before each high-risk stage (`create store`, configurator `deploy`, the Vercel deploy) it should emit that stage's feature 021 `riskContext` and pause for the agent to approve
     And at interactive CLI gates (`vercel login`, `stripe login`) it should pass stdio straight through and continue on the child's exit
     And at non-CLI human gates (account creation, the Dashboard Stripe app, pasting a secret) it should announce the exact step and wait, then resume
     And it should run `jolly doctor` automatically to verify the result
-    And its output should include a concise summary, machine-readable stdout data, key URLs and statuses, the doctor verification results, and next-step guidance, with no secret values
+    And the envelope should carry `summary`, `data`, `checks`, and `nextSteps`, and print no secret values
     And it should report only the stages it actually performed and never claim a deployed storefront or any stage it did not perform
 
   @logic
@@ -29,7 +29,7 @@ Feature: Agent-first Jolly onboarding and CLI
 
   @logic
   Scenario: Jolly start --dry-run previews the orchestrated plan without side effects
-    Given the agent runs Jolly in a fresh project directory
+    Given a fresh empty project directory
     When the agent runs `jolly start --dry-run --json`
     Then the output envelope data should mark the run as a dry run
     And the data should include a per-stage plan of intended effects: directories created, files written, network hosts contacted, and repositories cloned
@@ -67,7 +67,7 @@ Feature: Agent-first Jolly onboarding and CLI
     - Jolly should make full use of subcommands, including `init`, `create`, and `start` concepts.
     - Agent instructions and skills are part of the product experience, not afterthought documentation.
     - Skill management is fully automated by the Jolly CLI — `jolly start` installs ALL skills automatically. There is no separate optional skill-install step for the agent.
-    - The skills Jolly installs are the **Jolly skill** (the end-to-end playbook teaching the agent to drive the official CLIs) plus the Saleor agent-skills `saleor-storefront`, `saleor-configurator`, `storefront-builder`, `saleor-core`, `saleor-app`, plus Paper's embedded `saleor-paper-storefront` skill when a storefront exists.
+    - The skills Jolly installs are the **Jolly skill** (the end-to-end playbook for supervising `jolly start` as it spawns the official CLIs) plus the Saleor agent-skills `saleor-storefront`, `saleor-configurator`, `storefront-builder`, `saleor-core`, `saleor-app`, plus Paper's embedded `saleor-paper-storefront` skill when a storefront exists.
     - All skills are installed via `npx skills add <ref>`, falling back to a Git-based install only for a skill not available that way (such as Paper's embedded skill, which arrives with the cloned storefront).
     - `jolly start` installs all skills as part of the bootstrap. The standalone `jolly skills install` and `jolly skills update` commands remain available for post-setup maintenance.
     - Skill installation should use standard project-local locations where possible, plus agent-specific glue/instructions for supported environments.

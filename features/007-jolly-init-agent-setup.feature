@@ -14,12 +14,12 @@ Feature: Jolly init for local agent setup
     When the agent invokes `jolly init`
     Then Jolly should install or check the full default skill set via `npx skills add`
     And the default skill set should include the Jolly skill plus `saleor-storefront`, `saleor-configurator`, `storefront-builder`, `saleor-core`, and `saleor-app`
-    And the Jolly skill should be the end-to-end playbook that teaches the agent to drive the official CLIs
+    And the Jolly skill should be the end-to-end playbook for supervising `jolly start` as it spawns the official CLIs
     And it should include Paper's embedded `saleor-paper-storefront` skill (Git-installed with the cloned storefront) when a storefront exists
     And Jolly should report each skill as actually verified on disk, not unconditionally claim success
     And Jolly should write agent-specific glue files or instructions for supported environments
     And the glue files should actually exist on disk under standard project-local skill locations
-    And Jolly should explain what was installed or updated
+    And the envelope `data` should list the installed skill ids
     And Jolly should not create remote Saleor Cloud or Vercel resources
     And Jolly should not store secrets
 
@@ -29,11 +29,11 @@ Feature: Jolly init for local agent setup
     When the agent invokes `jolly init` in the same directory again
     Then Jolly should detect the existing skills and guidance from the first run
     And it should report the existing state in the output envelope rather than erroring
-    And it should update outdated managed guidance when appropriate
-    And it should avoid overwriting unrelated user-authored instructions without approval
+    And it should update outdated managed guidance when the managed version differs
+    And user-authored lines in AGENTS.md outside the Jolly marker should remain unchanged
     And it should merge, not replace, any existing .mcp.json, adding the Jolly MCP server entry to the existing servers object rather than writing a fresh object
     And it should merge, not replace, any existing AGENTS.md or agent glue file, inserting or updating the Jolly section without removing user-authored content
-    And it should produce a concise summary of changes
+    And the envelope `data` should summarize the changes made
 
   @logic
   Scenario: Agent init is safe to rerun in a clean directory
@@ -64,6 +64,14 @@ Feature: Jolly init for local agent setup
     When it installs the default skill set with no network
     Then the Jolly skill should be installed under `.agents/skills/jolly/` from the bundled copy
     And the installed Jolly skill content should match the bundled copy
+
+  @sandbox
+  Scenario: A failed skill install surfaces the error and exits non-zero
+    Given a default skill whose clone or install step fails
+    When `jolly init` installs the default skill set
+    Then Jolly should surface that step's stderr
+    And `jolly init` should exit non-zero
+    And it must not report that skill as installed or verified on disk
 
   Rule: Skill installation is non-interactive and agent-agnostic
     - `jolly init`/`start` install skills with no interactive prompts and no dependence on a TTY,

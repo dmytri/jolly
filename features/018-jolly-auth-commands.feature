@@ -76,23 +76,31 @@ Feature: Jolly auth commands
     And Jolly should not print the token value
 
   @logic
+  Scenario: login --browser errors with --token guidance when no browser path is available
+    Given no native browser can be opened and Playwright is not available
+    When the agent runs `jolly login --browser`
+    Then Jolly should error rather than hang
+    And the message should direct the agent to use `jolly login --token <value>`
+    And it should not write any value to .env
+
+  @logic
   Scenario: Agent logs out
-    Given Jolly has Saleor Cloud authentication state available
+    Given .env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token
     When the agent invokes `jolly logout`
-    Then Jolly should remove or invalidate Jolly-managed Saleor Cloud auth values in `.env` where applicable
-    And it should not remove unrelated environment variables or third-party credentials without explicit intent
-    And it should load the updated `.env` values for the current command flow where possible
-    And it should report the result clearly
+    Then Jolly should remove JOLLY_SALEOR_CLOUD_TOKEN from .env
+    And any non-JOLLY_ variable in .env should remain unchanged
+    And it should load the updated `.env` values for the current command flow
+    And the envelope status should be "success"
 
   @logic
   Scenario: Agent checks auth status
-    Given the agent needs to know whether Saleor Cloud auth is available
+    Given .env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token
     When it invokes `jolly auth status`
     Then Jolly should report whether Saleor Cloud authentication is configured
     And when .env contains JOLLY_SALEOR_ORGANIZATION, it should report that value as the account context
     And when no organization is stored, it should report the account context as unknown rather than failing
-    And it should avoid exposing secret token values
-    And it should support `--json`, `--quiet`, and other global output flags
+    And the output should not contain the token value
+    And it should support `--json` and `--quiet`
 
   @logic
   Scenario: Jolly login --dry-run does not write to .env
@@ -119,8 +127,8 @@ Feature: Jolly auth commands
     - If both native browser and Playwright are unavailable, Jolly directs the user to create a token at cloud.saleor.io/tokens and pass it via `jolly login --token <value>`.
     - `jolly login --browser` forces the browser-based path: first tries native browser, then falls back to Playwright, then errors with guidance to use `--token`.
     - `jolly login --token <value>` is the headless/CI/VM fallback that always works regardless of browser availability.
-    - Native browser detection: `child_process.execSync` of the platform-appropriate open command (`open`, `xdg-open`, `start`). If the process exits with code 0, the browser is available.
-    - Playwright detection checks whether the `playwright` npm package can be imported AND the chromium browser binary exists at Playwright's expected path. Fast synchronous check, no browser launch.
+    - Native browser detection attempts the platform-appropriate open command (`open`/`xdg-open`/`start`); a successful (zero-exit) launch means the browser is available.
+    - Playwright detection checks that the `playwright` package and its chromium binary are both present, without launching a browser.
     - Playwright is a headless fallback only — on a machine with a display, the native browser is always preferred.
     - The registered Keycloak client is `saleor-cli` (realm `saleor-cloud` on auth.saleor.io). Jolly may use this client or register its own in future versions.
     - Jolly should not depend on the deprecated Saleor CLI for authentication.

@@ -4,9 +4,7 @@ Feature: Jolly upgrade
   So that the project can keep up with Jolly, skills, and upstream Saleor guidance over time
 
   Background:
-    Given Jolly manages skill installation and agent guidance
-    And Jolly uses Saleor Paper as the storefront baseline
-    And Paper includes its own migrations and `paper-version.json`
+    Given a project that has run `jolly init`
 
   @logic
   Scenario: Agent upgrades Jolly-managed skills and guidance
@@ -14,25 +12,32 @@ Feature: Jolly upgrade
     When the agent invokes `jolly upgrade`
     Then Jolly should check for updates to Jolly-managed skills
     And it should check for updates to Jolly-managed agent guidance
-    And it should summarize available changes before applying them when appropriate
-    And it should avoid overwriting unrelated user-authored instructions without approval or an explicit strategy
+    And the envelope `data` should list the available changes before any are applied
+    And user-authored lines in AGENTS.md outside the Jolly marker should remain unchanged
 
   @logic
   Scenario: Upgrade includes skill update behavior
     Given Jolly has a dedicated `jolly skills update` command
     When the agent invokes `jolly upgrade`
-    Then `jolly upgrade` may call or orchestrate `jolly skills update`
-    And it should report which skills were updated, unchanged, skipped, or failed
+    Then the envelope should report which skills were updated, unchanged, skipped, or failed
 
   @logic
   Scenario: Upgrade considers Paper baseline updates
     Given a cloned Paper storefront exists
     When the agent invokes `jolly upgrade`
-    Then Jolly should detect the Paper baseline where possible
-    And it should detect Paper's embedded migration guidance where available
-    And it should not blindly rewrite the customer's customized storefront
+    Then the envelope `data` should report the detected Paper baseline version
+    And it should read `paper-version.json` to determine the baseline
+    And it should not modify any file in the storefront directory
     And it should generate an upgrade plan from Paper's migration guidance
     And it should not apply Paper migrations automatically in v1
+
+  @logic
+  Scenario: Upgrade auto-applies a safe Jolly-managed skill update
+    Given a Jolly-managed skill has a newer version available
+    And applying it does not overwrite user-authored content
+    When the agent invokes `jolly upgrade`
+    Then Jolly should apply the skill update automatically
+    And it should report the skill as updated
 
   Rule: Upgrade principles
     - `jolly upgrade` is included in v1.

@@ -1,8 +1,8 @@
 # Jolly Setup Guide (for agents)
 
 Ahoy, agent. Your human wants a Saleor Cloud storefront. Jolly empowers **you** to set
-one up end-to-end — it does not replace you. You stay in control: you run the official
-CLIs, you decide what needs your human's approval. Jolly installs a skill that walks you
+one up end-to-end — it does not replace you. You stay in control: you supervise as Jolly
+runs the official CLIs, and you decide what needs your human's approval. Jolly installs a skill that walks you
 through it, plus a few thin helper commands for plumbing. Nothing here asks you to run
 unexplained code or hand secrets to anyone but the official Saleor, Vercel, and Stripe
 tools you authenticate against.
@@ -41,7 +41,7 @@ Jolly itself only contacts:
 - `127.0.0.1` — local OAuth callback during login
 - `api.stripe.com` — Stripe test-mode payment configuration
 
-The official CLIs **you** run reach their own services under their own auth: the Vercel CLI
+The official CLIs Jolly spawns reach their own services under their own auth: the Vercel CLI
 → `api.vercel.com`; `@saleor/configurator` → your `*.saleor.cloud` endpoint; `git` →
 `github.com`; `npx` → the npm registry. If your environment is locked down, allowlist the
 union of these.
@@ -54,7 +54,7 @@ Only three moments require your human. Stop and ask when you reach them:
 - 🧑 Browser OAuth / `vercel login` consent
 - 🧑 Pasting secret values (`JOLLY_SALEOR_CLOUD_TOKEN`, Stripe keys)
 
-Everything else you do yourself.
+Everything else Jolly does for you.
 
 ## Prerequisites
 
@@ -116,7 +116,7 @@ success.
 ```
 npx @dk/jolly login | logout | auth status
 npx @dk/jolly init                 # install skills, write .mcp.json, scaffold (run by start)
-npx @dk/jolly start                # bootstrap + playbook
+npx @dk/jolly start                # bootstrap + end-to-end setup
 npx @dk/jolly create store [--create-environment]
 npx @dk/jolly create app-token
 npx @dk/jolly create stripe --publishable-key <pk_test_…> --secret-key <sk_test_…>

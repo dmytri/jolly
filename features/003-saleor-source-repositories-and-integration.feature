@@ -5,13 +5,11 @@ Feature: Saleor source repositories and integration boundaries
 
   @sandbox
   Scenario: Use Saleor Paper as the storefront baseline
-    Given Jolly needs to create a storefront project
-    When the customer's agent reaches the storefront creation step
-    Then it should clone or directly use `saleor/storefront`
-    And it should treat Paper as the first storefront baseline
-    And it should preserve Paper's architecture unless the customer explicitly asks for customization
-    And it should install and preserve Paper's agent guidance where applicable
-    And it should not require the deprecated Saleor CLI to create the storefront
+    Given a fresh empty project directory
+    When the agent runs `jolly start --dry-run --json`
+    Then the plan's storefront stage should name `saleor/storefront` as the baseline to clone
+    And the plan should preserve Paper's embedded `AGENTS.md` and `skills/saleor-paper-storefront/SKILL.md`
+    And the plan should not name the deprecated `saleor` CLI as required to create the storefront
 
   Rule: `saleor/storefront` research notes
     - Repository: https://github.com/saleor/storefront
@@ -28,14 +26,11 @@ Feature: Saleor source repositories and integration boundaries
     - Paper includes checkout, cart, product pages, product listings, navigation, SEO, caching, customer profile, authentication, and API resilience features.
     - Paper's Saleor Cloud Paper app can provide cache invalidation webhooks and Dashboard preview affordances; Jolly should not assume this is installed without checking.
 
-  @sandbox
-  Scenario: Use Saleor Configurator directly for store configuration
-    Given Jolly needs to inspect, plan, or apply Saleor store configuration
-    When the agent has a Saleor Cloud GraphQL URL and app token
-    Then the customer's agent should run `saleor/configurator` directly, guided by the Jolly skill — Jolly itself never shells out to it
-    And it should prefer configurator's safe workflow of validate, diff, plan, and deploy
-    And they should parse structured output when available
-    And they should require human approval before applying destructive or write operations
+  @logic
+  Scenario: Use Saleor Configurator through the official CLI
+    Given a fresh empty project directory
+    When the agent runs `jolly start --dry-run --json`
+    Then the plan's recipe stage should name the spawned command `npx @saleor/configurator deploy`
 
   Rule: `saleor/configurator` research notes
     - Repository: https://github.com/saleor/configurator
@@ -54,14 +49,6 @@ Feature: Saleor source repositories and integration boundaries
     - Reports may be saved under `.configurator/reports/<command>/`.
     - Configurator ships portable skills: `configurator-cli`, `configurator-schema`, `saleor-domain`, `product-modeling`, `configurator-recipes`, `data-importer`, `agent-output-parsing`, `configurator-workflow`, and `configurator-troubleshoot`.
 
-  @logic
-  Scenario: Install or reference universal Saleor agent skills
-    Given the customer's agent environment supports agent skills
-    When Jolly onboarding prepares the agent
-    Then it should direct the agent to install relevant skills from `saleor/agent-skills`
-    And it should include Paper's embedded skill after the storefront is cloned
-    And it should explain which skills are mandatory, recommended, or situational
-
   Rule: `saleor/agent-skills` research notes
     - Repository: https://github.com/saleor/agent-skills
     - Install command shape: `npx skills add saleor/agent-skills --skill <skill-name>`.
@@ -73,13 +60,11 @@ Feature: Saleor source repositories and integration boundaries
     - `saleor-app` is relevant only if Jolly creates or configures Saleor apps, webhooks, or Dashboard iframe apps; it is not core to the first storefront-only path unless Paper's Saleor Cloud app setup becomes in scope.
 
   @logic
-  Scenario: Study the deprecated Saleor CLI without depending on it
-    Given some Saleor Cloud registration and setup behavior is poorly documented elsewhere
-    When Jolly needs examples of legacy flows
-    Then implementation agents may study `saleor/cli`
-    But Jolly must not shell out to it
-    And Jolly must not require customers or agents to install it
-    And Jolly should avoid copying deprecated UX or removed commands without validating them against current Saleor Cloud behavior
+  Scenario: Jolly never depends on the deprecated Saleor CLI
+    Given a fresh empty project directory
+    When the agent runs `jolly start --dry-run --json`
+    Then no planned stage should spawn the `saleor` CLI binary
+    And no planned stage should require the `saleor` CLI to be installed
 
   Rule: Deprecated `saleor/cli` research notes
     - Repository: https://github.com/saleor/cli
@@ -105,7 +90,8 @@ Feature: Saleor source repositories and integration boundaries
     - Legacy Vercel login used a Saleor CLI Vercel integration OAuth flow; Jolly should validate modern Vercel setup separately.
 
   Rule: Jolly integration principles
-    - The customer's agent runs the official tools — `git` (cloning `saleor/storefront` from `main` unless the customer chooses another ref), `@saleor/configurator`, `pnpm`, and the Vercel CLI — guided by the Jolly skill. Jolly never shells out to `@saleor/configurator` or the Vercel CLI.
+    - V1 targets Saleor Cloud only — no self-hosted Saleor. Jolly assumes a Saleor Cloud environment for store creation, configuration, and app-token acquisition; self-hosted Saleor is out of v1 scope.
+    - `jolly start` delegates mechanical setup to official tools — `git` (cloning `saleor/storefront` from `main` unless the customer chooses another ref), `@saleor/configurator`, `pnpm`, and the Vercel CLI — while never reimplementing them against raw provider APIs.
     - All skills (the Jolly skill and the Saleor agent-skills) are installed via `npx skills add <ref>`, falling back to a Git-based install only for a skill not available that way (such as Paper's embedded skill, which arrives with the cloned storefront).
     - Use the deprecated `saleor/cli` only as research evidence for flows that are not otherwise documented; never invoke it.
     - Preserve upstream agent instructions and skills rather than duplicating all Saleor knowledge inside Jolly.

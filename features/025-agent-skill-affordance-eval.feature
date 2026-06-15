@@ -2,7 +2,7 @@
 # Opt-in skill-behavior evaluation. NOT part of the default green/red worklist:
 # it drives a live baseline agent over the shipped Jolly skill, so it is
 # non-deterministic, credentialed, and slow. Tagged @eval and EXCLUDED from the
-# default profile (cucumber.js: `not @meta and not @eval`); it runs only via an
+# default profile (cucumber.js: `not @eval`); it runs only via an
 # explicit `eval` profile/command. It is a separate opt-in tier, never a gate on
 # normal CI.
 Feature: Agent skill affordance evaluation
@@ -23,8 +23,8 @@ Feature: Agent skill affordance evaluation
     And feature 007 defines the local artifacts `jolly init` produces
 
   Rule: Opt-in, outside the default worklist
-    - The eval is tagged `@eval` and excluded from the default BDD profile, the
-      way `@meta` (feature 023) is; it never gates normal green/red CI.
+    - The eval is tagged `@eval` and excluded from the default BDD profile; it
+      never gates normal green/red CI.
     - It runs only through an explicit `eval` profile / command, on demand.
 
   Rule: Driven by a baseline agent, skip-not-fail when unavailable

@@ -1,12 +1,12 @@
 Feature: Jolly create subcommands
   As a customer's AI agent
   I want `jolly create` to expose a few focused, plumbing-only resource subcommands
-  So that I can create the Saleor and secret resources Jolly owns, while I run the official CLIs myself for everything else
+  So that I have focused plumbing commands for the resources Jolly owns, while `jolly start` orchestrates the official CLIs for everything else
 
   Background:
     Given Jolly is executable via `npx`
-    And Jolly is a thin CLI that does not wrap or shell out to the Vercel CLI or `@saleor/configurator`
-    And the customer's own agent runs the official CLIs, guided by the Jolly skill
+    And `jolly create` is a thin plumbing surface that never wraps the Vercel CLI or `@saleor/configurator`
+    And `jolly start` orchestrates the official CLIs by spawning them under their own auth, guided by the Jolly skill
 
   @logic
   Scenario: Agent discovers create subcommands
@@ -14,16 +14,48 @@ Feature: Jolly create subcommands
     When it inspects `jolly create --help`
     Then it should see only the plumbing subcommands `store`, `app-token`, and `stripe`
     And each subcommand should have a clear resource boundary
-    And the help output should be understandable to both agents and humans
-    And it should not list `deployment`, `deploy`, `recipe`, or `storefront` — those are run by the agent via the official CLIs per the Jolly skill
+    And it should not list `deployment`, `deploy`, `recipe`, or `storefront` — that orchestration lives inside `jolly start`, which spawns the official CLIs
 
   @logic
-  Scenario: Jolly create subcommands never report a resource they did not produce
-    Given the agent runs a `jolly create` subcommand whose preconditions are unmet or whose work cannot be performed
+  Scenario Outline: Jolly create subcommands never report a resource they did not produce
+    Given `jolly create <subcommand>` is run with its preconditions unmet
     When the command runs with `--json`
     Then the envelope status should be "error" with a stable error code
     And the output must not report a created, configured, or stored resource it did not produce
     And no check should report "pass" for work that did not happen
+
+    Examples:
+      | subcommand |
+      | store      |
+      | app-token  |
+      | stripe     |
+
+  @logic
+  Scenario Outline: An unverified value is reported as exactly "stored, not verified"
+    Given `jolly create <subcommand>` stores a value it cannot verify in this run
+    When it reports the result with `--json`
+    Then the output should describe that value as exactly "stored, not verified"
+    And it should not report the value as created, configured, or verified
+
+    Examples:
+      | subcommand |
+      | store      |
+      | app-token  |
+      | stripe     |
+
+  @logic
+  Scenario Outline: create --dry-run shows the real request without performing it
+    Given the agent runs `jolly create <subcommand> --dry-run`
+    When the preview is produced
+    Then it should name the real request it would send — host, path, and resolved identifiers
+    And it should not claim the work was done
+    And it should not create, configure, or store anything
+
+    Examples:
+      | subcommand |
+      | store      |
+      | app-token  |
+      | stripe     |
 
   Rule: No fabricated create results
     - This Rule applies feature 020's "No fabricated success" contract to every `jolly create` subcommand.

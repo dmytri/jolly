@@ -4,12 +4,16 @@ Feature: Existing Saleor store connection
   So that my agent can configure and deploy a Paper storefront without re-registering Saleor Cloud resources
 
   @logic
-  Scenario: Agent accepts a pasted Saleor URL
-    Given the customer says they already have a Saleor store
-    When the agent asks for the store connection
-    Then the customer may paste a Saleor Dashboard URL, storefront API URL, root Saleor Cloud URL, or GraphQL URL
-    And Jolly should normalize the input to a Saleor GraphQL endpoint where possible
-    And Jolly should ask a clarifying question only when the URL cannot be normalized safely
+  Scenario Outline: Agent normalizes a pasted Saleor URL to the GraphQL endpoint
+    Given a pasted Saleor URL <pasted>
+    When the agent runs `jolly create store --url <pasted> --json`
+    Then the envelope `data` should report the normalized endpoint `https://my-shop.saleor.cloud/graphql/`
+
+    Examples:
+      | pasted                                                      |
+      | https://my-shop.saleor.cloud/dashboard/                     |
+      | https://my-shop.saleor.cloud                                |
+      | https://my-shop.saleor.cloud/graphql/                       |
 
   @logic
   Scenario: Jolly create store writes the Saleor URL to .env
@@ -23,33 +27,19 @@ Feature: Existing Saleor store connection
 
   @sandbox
   Scenario: Jolly validates the GraphQL endpoint
-    Given Jolly has a candidate Saleor GraphQL endpoint
-    When it validates the endpoint
+    Given a candidate URL https://example.saleor.cloud/graphql/
+    When the agent runs `jolly create store --url https://example.saleor.cloud/graphql/ --json`
     Then it should perform an introspection-style GraphQL request or equivalent lightweight validation
     And it should fail with an actionable message if the endpoint is not reachable or not a GraphQL endpoint
     And it should not proceed to storefront configuration until connectivity is verified
 
   @sandbox
   Scenario: Jolly infers Saleor Cloud organization and environment
-    Given the customer has authenticated Jolly with Saleor Cloud
-    And Jolly has a verified Saleor GraphQL endpoint
-    When Jolly needs Saleor Cloud context
-    Then it should query available organizations and environments where APIs allow
-    And it should match the GraphQL endpoint host to a Saleor Cloud environment domain where possible
-    And it should avoid asking the customer to manually select organization or environment when the match is unambiguous
-    And it should ask the customer to choose only when multiple matches or no safe match exists
-
-  @sandbox
-  Scenario: Jolly acquires the required app token
-    Given the endpoint has been verified
-    When Jolly needs credentials for Configurator or privileged Saleor operations
-    Then an app token or equivalent credential should be required before continuing the full existing-store setup
-    And Jolly should detect whether the token is already available in environment variables
-    And if missing, Jolly should acquire or create the token automatically where Saleor APIs allow
-    And Jolly may follow the deprecated CLI's example flow of authenticating to Saleor Cloud, resolving the instance, selecting or creating a Saleor local app, and creating an app token via the Saleor GraphQL API
-    And if automation is unavailable, it should guide the customer through the current Saleor Dashboard token creation path
-    And it should avoid storing the token outside environment variables
-    And it should use the token to run Configurator introspection
+    Given the agent has a Saleor Cloud token authenticated via JOLLY_SALEOR_CLOUD_TOKEN
+    And a verified Saleor GraphQL endpoint whose host matches one Cloud environment domain
+    When the agent runs `jolly create store --url https://my-shop.saleor.cloud/graphql/ --json`
+    Then the envelope `data` should report the resolved organization slug
+    And the envelope `data` should report the resolved environment matching the GraphQL endpoint host
 
   @logic
   Scenario: Jolly create store --dry-run does not write to .env
@@ -115,6 +105,13 @@ Feature: Existing Saleor store connection
     And the created environment's name and domain label should carry the run's jolly-test namespace
     And teardown should delete the created environment right after the scenario
 
+  @logic
+  Scenario: Jolly create store reports ENVIRONMENT_LIMIT_REACHED when the sandbox limit is hit
+    Given the Cloud API rejects environment creation because the organization's sandbox environment limit is reached
+    When the agent runs `jolly create store --create-environment --json`
+    Then the envelope status should be "error" with the stable code `ENVIRONMENT_LIMIT_REACHED`
+    And the message should guide the customer to delete an unused environment or upgrade the plan
+
   Rule: Environment creation against in-use organizations
     - `jolly create store --create-environment` must work against organizations that already
       have projects and environments; it never requires an empty organization.
@@ -154,27 +151,6 @@ Feature: Existing Saleor store connection
     - v1 has no database-template override flag: provisioning is always blank. Re-introducing a
       `--database <sample|blank|snapshot>` pass-through is a post-MVP iteration only if a real
       need appears (blank-only for v1).
-
-  Rule: Environment-creation test runs are namespaced and self-cleaning
-    - Whenever a sandbox run needs a Saleor endpoint or app token that is not configured
-      and `JOLLY_SALEOR_CLOUD_TOKEN` is present, the harness provisions one shared
-      environment for the run rather than skipping (feature 023). The dedicated
-      environment-creation scenario likewise runs whenever the Cloud token is present;
-      skips remain only for missing underived credentials and capacity limits.
-    - The harness creates environments under the per-run `jolly-test` namespace
-      (feature 023), passing it as the environment name and domain label via the
-      `--name`/`--domain-label` overrides, so every test-created environment is identifiable
-      as such.
-    - Before creating, the harness checks for leftover `jolly-test`-namespaced environments
-      from previous runs. When one exists it does not create another: in an interactive
-      session it may ask the customer and delete the leftover only with explicit approval;
-      otherwise it skips, naming the leftover so the customer can remove it.
-    - Sandbox runs that create an environment must register its deletion in teardown
-      (feature 023) before the creation can begin, so the environment is cleaned up right
-      after the test run even when the run times out or crashes — a test run never
-      permanently consumes a sandbox slot.
-    - The harness never deletes an environment it cannot positively identify as
-      test-created (the `jolly-test` namespace); anything else is the customer's to delete.
 
   Rule: Existing-store automation principles
     - Validate the GraphQL endpoint before using it.

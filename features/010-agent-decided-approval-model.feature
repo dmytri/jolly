@@ -4,12 +4,11 @@ Feature: Agent-decided approval model
   So that Jolly can adapt to different agent environments, customer preferences, and risk levels without hardcoding one approval policy
 
   @logic
-  Scenario: Agent decides whether approval is needed
-    Given a Jolly workflow is about to perform a potentially impactful action
-    When the action could create, modify, deploy, delete, or expose remote resources
-    Then Jolly should provide enough structured context for the customer's agent to assess risk
-    And the customer's agent should decide whether to ask for human approval
-    And the decision should respect the customer's instructions and the current agent environment's policies
+  Scenario: Jolly surfaces risk context and does not self-approve
+    When `jolly create store --create-environment --json` runs without `--yes`
+    Then the envelope should carry a feature 021 `riskContext` for the action
+    And Jolly should not perform the impactful action without approval
+    And re-running the command with `--yes` should let it proceed, treating the flag as the approval
 
   Rule: Approval principles
     - Approval granularity is decided by the customer's agent, not hardcoded by Jolly.

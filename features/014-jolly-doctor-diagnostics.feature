@@ -5,49 +5,49 @@ Feature: Jolly doctor diagnostics
 
   @logic
   Scenario: Agent runs doctor during setup
-    Given the agent is setting up a Jolly storefront
+    Given a project directory with the Jolly CLI installed
     When it invokes `jolly doctor`
     Then Jolly should check local Jolly CLI availability and version
     And it should check skill installation status
-    And it should check supported agent guidance status where possible
-    And it should summarize findings in concise human text plus machine-readable output
+    And the checks should include an "agents-md" guidance check
+    And the envelope should contain a summary string and a checks array
 
   @sandbox
   Scenario: Doctor checks Saleor connectivity
-    Given Jolly has or can infer a Saleor GraphQL endpoint
+    Given .env contains a Saleor GraphQL endpoint URL
     When `jolly doctor` checks Saleor
     Then it should validate GraphQL connectivity
     And it should check whether required environment variables are present
     And it should check whether an app token is available when required
-    And it should run or recommend Configurator introspection where appropriate
+    And the saleor check should name Configurator introspection as its next step
     And it should report missing permissions or authentication failures with next steps
 
   @sandbox
   Scenario: Doctor checks storefront readiness
-    Given a Paper storefront exists locally
+    Given a Paper storefront directory exists locally
     When `jolly doctor` checks the storefront
     Then it should verify required Paper environment variables
     And it should verify the local Node.js version against Paper's current requirements
     And it should identify whether the Jolly starter recipe exists in the cloned storefront repository
-    And it should report whether product browsing, cart, and checkout readiness checks can be performed
-    And it should distinguish lightweight validation from optional `--full-validation` checks such as generate, typecheck, build, or tests
-    And `jolly doctor storefront --full-validation` should run full storefront validation checks where feasible
+    And the checks should include browsing, cart, and checkout-readiness checks each with a concrete status
+    And the default storefront checks should not include the generate, typecheck, build, or test checks
+    And `jolly doctor storefront --full-validation` should add the generate, typecheck, and build checks
 
   @sandbox
   Scenario: Doctor checks deployment and payment readiness
-    Given the storefront may be deployed
+    Given a deployed storefront URL is configured in .env
     When `jolly doctor` checks remote readiness
-    Then it should check Vercel deployment configuration where credentials or context allow
+    Then the checks should include a "deployment" check with a concrete status
     And it should check whether required Vercel environment variables are configured
-    And it should check whether Saleor trusted origins include the deployed storefront URL where possible
-    And it should check Stripe test-mode setup status where possible
+    And the deployment check should report whether the deployed URL is in Saleor trusted origins
+    And the checks should include a "stripe" check with a concrete status
 
   @sandbox
   Scenario: Jolly start runs doctor automatically
     Given `jolly start` has completed setup steps
-    When it performs final verification
+    When the agent runs `jolly start --json`
     Then it should run `jolly doctor` automatically
-    And it should include doctor results in the final `jolly start` output
+    And the final start envelope should include the doctor check results
 
   @logic
   Scenario: Doctor reports pass only for checks it actually performed
@@ -58,11 +58,33 @@ Feature: Jolly doctor diagnostics
     And the summary must not claim storefront readiness that was not verified
 
   @logic
-  Scenario: Agent runs targeted doctor checks
-    Given the agent needs to diagnose a specific area
-    When it invokes a named `jolly doctor` check group
-    Then Jolly should run only the relevant checks for that group
-    And supported v1 groups should include skills, init, saleor, storefront, deployment, and stripe
+  Scenario Outline: Agent runs targeted doctor checks
+    Given a project directory with the Jolly CLI installed
+    When the agent runs `jolly doctor <group> --json`
+    Then only the <group> checks should run
+
+    Examples:
+      | group      |
+      | skills     |
+      | init       |
+      | saleor     |
+      | storefront |
+      | deployment |
+      | stripe     |
+
+  @logic
+  Scenario: jolly doctor --quiet keeps the envelope and checks
+    Given a project directory with the Jolly CLI installed
+    When the agent runs `jolly doctor --quiet --json`
+    Then the envelope and its checks array should still be present
+    And only nonessential human-readable text should be reduced
+
+  @logic
+  Scenario: Doctor with no group runs all check groups
+    Given the agent runs `jolly doctor --json` with no group argument
+    When doctor completes
+    Then it should run every supported check group, not just one
+    And the envelope checks should include results from each group
 
   @logic
   Scenario: Doctor flags a missing or overwritten bootstrap so the agent need not assume
@@ -89,7 +111,7 @@ Feature: Jolly doctor diagnostics
     - Doctor should distinguish between pass, warning, fail, skipped, and unknown checks.
     - Doctor should suggest concrete next commands or manual steps.
     - Doctor is the agent's recovery oracle during skill-driven setup: when a step fails or is incomplete, the relevant check should tell the agent what is wrong and the concrete next action (a command to run, a CLI to authenticate, a value to provide), so the agent can self-correct and resume via the Jolly skill.
-    - Doctor's checks should reflect end-to-end state produced by the agent's official-CLI steps (cloned storefront, configured store, deployment) — see feature 022 — so a re-run after agent work shows real progress, not just Jolly's own plumbing.
+    - Doctor's checks should reflect end-to-end state produced by `jolly start` spawning the official CLIs, or by the agent running a stage itself (cloned storefront, configured store, deployment) — see feature 022 — so a re-run shows real progress, not just Jolly's own plumbing.
     - Doctor verifies the local bootstrap artifacts `jolly init` produces (feature 007) under an `init` group — the merged `.mcp.json` saleor-graphql entry (`mcp-config`) and the `AGENTS.md` `jolly:begin` marker section (`agents-md`) — so the agent can machine-check whether bootstrap is done instead of assuming it. A missing `.mcp.json`, or an `AGENTS.md` that exists but lacks the Jolly marker, is `fail` with `jolly init` as the next step; both present is `pass`. `jolly init` re-merges idempotently to recover.
     - Doctor should be diagnostics-only in v1.
     - Doctor should not make local or remote changes in v1.

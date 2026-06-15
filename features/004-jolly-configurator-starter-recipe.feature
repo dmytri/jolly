@@ -4,30 +4,26 @@ Feature: Jolly Configurator starter recipe
   So that the Saleor store is configured to work with the Paper storefront immediately
 
   @sandbox
-  Scenario: Agent prepares the starter recipe
+  Scenario: Jolly prepares the starter recipe
     Given the customer has created or selected a Saleor Cloud environment
-    When the agent prepares the initial store configuration, guided by the Jolly skill
-    Then it should use the Jolly-authored starter recipe that Jolly ships
-    And the recipe should be optimized for Paper's required storefront features
-    And the agent should write the recipe into the cloned storefront repository
-    And the recipe should be reviewable before deployment
-    And the agent should deploy it through `@saleor/configurator`'s safe workflow — Jolly never shells out to the configurator itself
-    And the Saleor app token used for deployment should have all available permissions in v1
+    When the agent runs `jolly start --dry-run --json`
+    Then the plan should name the bundled starter recipe Jolly ships (`recipe.yml`)
+    And the plan should write the recipe to a file at a named path before deployment
+    And the plan should deploy it by spawning `npx @saleor/configurator deploy`
+    And the plan should name the Saleor app token used for deployment as having all available permissions in v1
 
   @sandbox
-  Scenario: Agent applies the starter recipe safely
-    Given the Jolly starter recipe is ready
-    When the agent applies it to Saleor Cloud
-    Then it should validate the configuration
-    And it should show a diff or deployment plan
-    And Jolly remote/action commands involved in recipe deployment should support `--dry-run` preview behavior
-    And the customer's agent should decide whether customer approval is needed before applying changes
-    And it should fail safely if destructive or breaking operations are detected
+  Scenario: Jolly blocks the recipe deploy on a destructive or breaking diff
+    Given a Saleor Cloud environment that already holds catalog data
+    When the agent runs `jolly start --yes` to apply the starter recipe to Saleor Cloud
+    Then the recipe stage should pass `--fail-on-delete` and `--fail-on-breaking` to `npx @saleor/configurator deploy`
+    And the configurator should exit 6 for deletions or exit 7 for breaking changes
+    And Jolly should report the recipe stage as "blocked", not "completed"
 
   @logic
   Scenario: Jolly start previews seeding stock for the recipe catalog
-    Given the agent runs `jolly start --dry-run`
-    When Jolly plans the recipe stage
+    Given a project with the recipe stage not yet applied
+    When the agent runs `jolly start --dry-run --json`
     Then the plan should include a stock-seeding step that runs after the `@saleor/configurator` deploy
     And the stock-seeding step should carry a riskContext for modifying catalog data
     And the preview should name the real Saleor GraphQL request, the recipe warehouse, and the default per-variant quantity
@@ -43,8 +39,8 @@ Feature: Jolly Configurator starter recipe
 
   @logic
   Scenario: Jolly start previews the configurator deploy of the starter recipe
-    Given the agent runs `jolly start --dry-run`
-    When Jolly plans the recipe stage
+    Given a project with the recipe stage not yet applied
+    When the agent runs `jolly start --dry-run --json`
     Then the plan should include a configurator-deploy step that runs before the stock-seeding step
     And the preview should name the spawned command `npx @saleor/configurator deploy`, Jolly's bundled starter recipe, and the store URL and app token by name only
     And the preview should name the safe flags `--fail-on-delete` and `--fail-on-breaking`
@@ -86,9 +82,7 @@ Feature: Jolly Configurator starter recipe
       `@saleor/configurator` config: shop settings, the `us` channel, a `Pirate Goods` product
       type, categories, a warehouse, a default US shipping zone, published USD-priced pirate
       products, a featured collection, and a navigation menu.
-    - The agent copies it into the cloned storefront (e.g. `saleor-config.yml`) and applies it
-      with the configurator safe workflow — `diff` to preview, then `deploy` with
-      `--fail-on-breaking` — passing the store URL and app token; Jolly never runs the configurator.
+    - `jolly start` applies the bundled recipe with the configurator safe workflow — `diff`/plan to preview, then `deploy` with safe flags — passing the store URL and app token through the official CLI.
     - The recipe's `us` channel slug is the storefront's `NEXT_PUBLIC_DEFAULT_CHANNEL`.
 
   Rule: Recipe targets a clean environment
@@ -162,4 +156,3 @@ Feature: Jolly Configurator starter recipe
     - It runs BEFORE the stock-seeding stage (Rule "Recipe products need seeded stock"): the deploy
       makes the recipe catalog exist, the seed makes it buyable, so `create store` → configurator
       deploy → stock-seed is an all-Jolly-executable chain.
-
