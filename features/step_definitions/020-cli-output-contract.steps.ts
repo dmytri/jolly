@@ -486,3 +486,67 @@ Then(
     }
   },
 );
+
+// --- Scenario: Jolly refuses a request to a non-first-party host ------------
+//
+// Pre-flight enforcement (the "First-party hosts only" rule): a customer-
+// supplied `--url` whose host is not first-party must be REFUSED before any
+// request is sent, with the stable code NON_FIRST_PARTY_HOST naming the host.
+// We run under logicSafeEnv() so even a guard bug cannot reach a real account
+// (the override host is jolly-test.invalid, never evil.example.com), and the
+// reused "nothing should be written to .env" step (feature 005) confirms the
+// refusal path is side-effect-free.
+
+Given("a Saleor Cloud token is configured", function (this: JollyWorld) {
+  // A Cloud token is present (the dummy logic-safe token), so the refusal
+  // below fires pre-flight on the --url host — not because auth is missing.
+  this.notes.appTokenEnv = logicSafeEnv();
+});
+
+When(
+  /^the agent runs `jolly create app-token --url https:\/\/evil\.example\.com\/graphql\/ --json`$/,
+  function (this: JollyWorld) {
+    const env = (this.notes.appTokenEnv as Record<string, string | undefined>)
+      ?? logicSafeEnv();
+    this.runCli(
+      [
+        "create",
+        "app-token",
+        "--url",
+        "https://evil.example.com/graphql/",
+        "--json",
+      ],
+      { env },
+    );
+  },
+);
+
+Then(
+  "the envelope status should be {string} with the stable code `NON_FIRST_PARTY_HOST`",
+  function (this: JollyWorld, status: string) {
+    assert.equal(
+      this.envelope.status,
+      status,
+      `envelope status must be "${status}" when a non-first-party host is refused`,
+    );
+    const codes = this.envelope.errors.map((e) => e.code);
+    assert.ok(
+      codes.includes("NON_FIRST_PARTY_HOST"),
+      `errors[] must carry the stable code NON_FIRST_PARTY_HOST; got ${JSON.stringify(codes)}`,
+    );
+  },
+);
+
+Then(
+  "the error message should name the refused host evil.example.com",
+  function (this: JollyWorld) {
+    const refusal = this.envelope.errors.find(
+      (e) => e.code === "NON_FIRST_PARTY_HOST",
+    );
+    assert.ok(refusal, "expected a NON_FIRST_PARTY_HOST error entry");
+    assert.ok(
+      String(refusal!.message).includes("evil.example.com"),
+      `the error message must name the refused host evil.example.com; got: ${String(refusal!.message)}`,
+    );
+  },
+);

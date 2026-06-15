@@ -68,6 +68,14 @@ Feature: Jolly CLI output contract
     And api.vercel.com should not appear in Jolly's own request code — Vercel is reached only by the spawned Vercel CLI
     And the retired hosts id.saleor.online and api.saleor.cloud should not appear anywhere in Jolly's code or output
 
+  @logic
+  Scenario: Jolly refuses a request to a non-first-party host instead of sending it
+    Given a Saleor Cloud token is configured
+    When the agent runs `jolly create app-token --url https://evil.example.com/graphql/ --json`
+    Then the envelope status should be "error" with the stable code `NON_FIRST_PARTY_HOST`
+    And the error message should name the refused host evil.example.com
+    And nothing should be written to .env
+
   Rule: Output envelope principles
     - Every command should emit one consistent top-level JSON envelope.
     - The envelope fields are `command`, `status`, `summary`, `data`, `checks`, `nextSteps`, and `errors`.
@@ -126,6 +134,13 @@ Feature: Jolly CLI output contract
       itself never sends requests (let alone secrets) to them. The .mcp.json Jolly
       writes configures a local mcp-graphql server against the customer's own store
       endpoint; it does not point at mcp.saleor.app.
+    - Enforcement is pre-flight, not just by-construction: when a request target's host is
+      not first-party — not on the allowlist, not a `*.saleor.cloud` domain, and not the
+      `JOLLY_SALEOR_CLOUD_API_URL` override — Jolly refuses with the stable error code
+      `NON_FIRST_PARTY_HOST` and sends nothing; it never silently contacts a foreign host.
+      The customer-supplied instance URL (`--url`) is the exposed injection point this
+      guards (see the scenario above). The canonical allowlist + predicate live in one
+      place in Jolly's code so "hosts Jolly can contact" stays enumerable and enforced.
     - `JOLLY_SALEOR_CLOUD_API_URL` (feature 018) may redirect the Cloud API base; secrets
       then go where the customer explicitly pointed them.
     - The retired saleor/cli-era hosts id.saleor.online and api.saleor.cloud must not

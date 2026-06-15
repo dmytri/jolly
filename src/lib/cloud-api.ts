@@ -28,7 +28,34 @@
 // with the Cloud token (Bearer), select an existing local app or create one,
 // and create an app token via the Saleor GraphQL API.
 
+import { isFirstPartyHost } from "./hosts.ts";
+
 const DEFAULT_CLOUD_API_BASE = "https://cloud.saleor.io/platform/api";
+
+/**
+ * Pre-flight first-party host guard (feature 020 Rule "First-party hosts only").
+ * Refuses — before any fetch — to turn a URL into an outbound request when its
+ * host is not first-party (the customer-supplied `--url` is the injection point
+ * this guards). Throws CloudApiError with the stable code NON_FIRST_PARTY_HOST,
+ * naming the refused host. Reuses the canonical allowlist in hosts.ts.
+ */
+function assertFirstPartyUrl(url: string): void {
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    throw new CloudApiError(
+      `Refusing to send a request to an unparseable URL: ${url}`,
+      "NON_FIRST_PARTY_HOST",
+    );
+  }
+  if (!isFirstPartyHost(host)) {
+    throw new CloudApiError(
+      `Refusing to send a request to non-first-party host ${host}.`,
+      "NON_FIRST_PARTY_HOST",
+    );
+  }
+}
 
 /**
  * The Cloud API base URL for this request: the JOLLY_SALEOR_CLOUD_API_URL
@@ -379,6 +406,7 @@ async function graphqlFetch(
   query: string,
   variables?: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
+  assertFirstPartyUrl(graphqlUrl);
   const response = await fetch(graphqlUrl, {
     method: "POST",
     headers: {
