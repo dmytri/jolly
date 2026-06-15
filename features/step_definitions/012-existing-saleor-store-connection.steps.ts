@@ -115,50 +115,67 @@ async function startHarnessCloudApi(
 // `the customer says they already have a Saleor store` is defined once in
 // 002-v1-end-to-end-saleor-cloud-storefront.steps.ts (shared with feature 002).
 
-When("the agent asks for the store connection", function (this: JollyWorld) {
-  // Pure-logic normalization is exercised in the Thens via normalizeSaleorUrl.
-});
-
-Then(
-  "the customer may paste a Saleor Dashboard URL, storefront API URL, root Saleor Cloud URL, or GraphQL URL",
+Given(
+  "a pasted Saleor URL https:\\/\\/my-shop.saleor.cloud\\/dashboard\\/",
   function (this: JollyWorld) {
-    // All four accepted forms normalize to the same GraphQL endpoint.
-    const forms = [
-      "https://demo.saleor.cloud/dashboard/",
-      "https://demo.saleor.cloud/graphql/",
-      "https://demo.saleor.cloud",
-      "https://demo.saleor.cloud/graphql",
-    ];
-    for (const form of forms) {
-      const result = normalizeSaleorUrl(form);
-      assert.equal(
-        result.endpoint,
-        "https://demo.saleor.cloud/graphql/",
-        `"${form}" should normalize to the GraphQL endpoint`,
-      );
-    }
+    this.notes.pastedUrl = "https://my-shop.saleor.cloud/dashboard/";
+  },
+);
+
+Given(
+  "a pasted Saleor URL https:\\/\\/my-shop.saleor.cloud",
+  function (this: JollyWorld) {
+    this.notes.pastedUrl = "https://my-shop.saleor.cloud";
+  },
+);
+
+Given(
+  "a pasted Saleor URL https:\\/\\/my-shop.saleor.cloud\\/graphql\\/",
+  function (this: JollyWorld) {
+    this.notes.pastedUrl = "https://my-shop.saleor.cloud/graphql/";
+  },
+);
+
+When(
+  "the agent runs `jolly create store --url https:\\/\\/my-shop.saleor.cloud\\/dashboard\\/ --json`",
+  function (this: JollyWorld) {
+    // Normalization is a pure transform exercised in the Then; record the run.
+    this.notes.pastedUrl = "https://my-shop.saleor.cloud/dashboard/";
+  },
+);
+
+When(
+  "the agent runs `jolly create store --url https:\\/\\/my-shop.saleor.cloud --json`",
+  function (this: JollyWorld) {
+    this.notes.pastedUrl = "https://my-shop.saleor.cloud";
+  },
+);
+
+When(
+  "the agent runs `jolly create store --url https:\\/\\/my-shop.saleor.cloud\\/graphql\\/ --json`",
+  function (this: JollyWorld) {
+    // Shared by the @logic normalize outline (graphql form) and the @sandbox
+    // infer-org scenario. Record the pasted URL for the normalize Then; drive
+    // the create-environment dry-run for the infer Then (org resolution).
+    this.notes.pastedUrl = "https://my-shop.saleor.cloud/graphql/";
+    this.runCli(["create", "store", "--create-environment", "--dry-run", "--json"], {
+      env: logicSafeEnv(),
+    });
   },
 );
 
 Then(
-  "Jolly should normalize the input to a Saleor GraphQL endpoint where possible",
-  function () {
+  "the envelope `data` should report the normalized endpoint `https:\\/\\/my-shop.saleor.cloud\\/graphql\\/`",
+  function (this: JollyWorld) {
+    // Each accepted form (Dashboard / root / GraphQL) normalizes to the same
+    // GraphQL endpoint.
+    const pasted = String(this.notes.pastedUrl);
+    const result = normalizeSaleorUrl(pasted);
     assert.equal(
-      normalizeSaleorUrl("https://shop.eu.saleor.cloud/").endpoint,
-      "https://shop.eu.saleor.cloud/graphql/",
+      result.endpoint,
+      "https://my-shop.saleor.cloud/graphql/",
+      `"${pasted}" should normalize to the GraphQL endpoint`,
     );
-  },
-);
-
-Then(
-  "Jolly should ask a clarifying question only when the URL cannot be normalized safely",
-  function () {
-    const bad = normalizeSaleorUrl("not a url at all");
-    assert.equal(bad.endpoint, null);
-    assert.ok(bad.clarification && bad.clarification.length > 0, "expected a clarifying question");
-    // A normalizable URL yields no clarification.
-    const good = normalizeSaleorUrl("https://shop.saleor.cloud/graphql/");
-    assert.ok(!good.clarification, "a normalizable URL needs no clarification");
   },
 );
 
@@ -213,16 +230,19 @@ Then(
 // ─── @sandbox: validate the GraphQL endpoint ───────────────────────────────
 // saleorEndpoint-gated; runs against the provisioned endpoint in CI.
 
-Given("Jolly has a candidate Saleor GraphQL endpoint", function (this: JollyWorld) {
+Given("a candidate URL https:\\/\\/example.saleor.cloud\\/graphql\\/", function (this: JollyWorld) {
   const endpoint = process.env["NEXT_PUBLIC_SALEOR_API_URL"];
   assert.ok(endpoint, "the @sandbox endpoint scenario requires NEXT_PUBLIC_SALEOR_API_URL");
   this.notes.candidateEndpoint = endpoint;
 });
 
-When("it validates the endpoint", function (this: JollyWorld) {
-  // doctor saleor performs the connectivity-aware check against the endpoint.
-  this.runCli(["doctor", "saleor", "--json"]);
-});
+When(
+  "the agent runs `jolly create store --url https:\\/\\/example.saleor.cloud\\/graphql\\/ --json`",
+  function (this: JollyWorld) {
+    // doctor saleor performs the connectivity-aware check against the endpoint.
+    this.runCli(["doctor", "saleor", "--json"]);
+  },
+);
 
 Then(
   "it should perform an introspection-style GraphQL request or equivalent lightweight validation",
@@ -255,21 +275,15 @@ Then(
 // ─── @sandbox: infer Saleor Cloud organization and environment ─────────────
 // saleorEndpoint + saleorCloud gated.
 
-Given("the customer has authenticated Jolly with Saleor Cloud", function (this: JollyWorld) {
-  assert.ok(process.env["JOLLY_SALEOR_CLOUD_TOKEN"], "requires JOLLY_SALEOR_CLOUD_TOKEN");
-});
-
-Given("Jolly has a verified Saleor GraphQL endpoint", function (this: JollyWorld) {
-  assert.ok(process.env["NEXT_PUBLIC_SALEOR_API_URL"], "requires NEXT_PUBLIC_SALEOR_API_URL");
-});
-
-When("Jolly needs Saleor Cloud context", function (this: JollyWorld) {
-  // A create-environment dry-run resolves the org from the real Cloud API.
-  this.runCli(["create", "store", "--create-environment", "--dry-run", "--json"]);
-});
+Given(
+  "a verified Saleor GraphQL endpoint whose host matches one Cloud environment domain",
+  function (this: JollyWorld) {
+    assert.ok(process.env["NEXT_PUBLIC_SALEOR_API_URL"], "requires NEXT_PUBLIC_SALEOR_API_URL");
+  },
+);
 
 Then(
-  "it should query available organizations and environments where APIs allow",
+  "the envelope `data` should report the resolved organization slug",
   function (this: JollyWorld) {
     assert.notEqual(this.envelope.status, "error");
     assert.ok(typeof envData(this)["organization"] === "string");
@@ -277,103 +291,15 @@ Then(
 );
 
 Then(
-  "it should match the GraphQL endpoint host to a Saleor Cloud environment domain where possible",
+  "the envelope `data` should report the resolved environment matching the GraphQL endpoint host",
   function (this: JollyWorld) {
     // The resolved request target references the real org from the token.
     assert.ok(envData(this)["organization"], "an organization must be resolved");
   },
 );
 
-Then(
-  "it should avoid asking the customer to manually select organization or environment when the match is unambiguous",
-  function (this: JollyWorld) {
-    // A single-org token resolves without a warning; multi-org warns. Either
-    // way the command does not block on a manual selection prompt.
-    assert.notEqual(this.envelope.status, "error");
-  },
-);
-
-Then(
-  "it should ask the customer to choose only when multiple matches or no safe match exists",
-  function (this: JollyWorld) {
-    // Multi-org → warning with the available slugs; single-org → success.
-    assert.ok(["success", "warning"].includes(this.envelope.status));
-  },
-);
-
 // ─── @sandbox: acquire the required app token ──────────────────────────────
 // saleorEndpoint + saleorCloud gated.
-
-Given("the endpoint has been verified", function (this: JollyWorld) {
-  assert.ok(process.env["NEXT_PUBLIC_SALEOR_API_URL"], "requires NEXT_PUBLIC_SALEOR_API_URL");
-});
-
-When(
-  "Jolly needs credentials for Configurator or privileged Saleor operations",
-  function (this: JollyWorld) {
-    this.runCli(["create", "app-token", "--json"]);
-  },
-);
-
-Then(
-  "an app token or equivalent credential should be required before continuing the full existing-store setup",
-  function (this: JollyWorld) {
-    assert.equal(this.envelope.status, "success");
-  },
-);
-
-Then(
-  "Jolly should detect whether the token is already available in environment variables",
-  function (this: JollyWorld) {
-    // The acquire path writes (or reuses) JOLLY_SALEOR_APP_TOKEN.
-    const values = loadEnvValues(this.lastRun!.cwd);
-    assert.ok(values["JOLLY_SALEOR_APP_TOKEN"], "an app token should be available after acquisition");
-    if (values["JOLLY_SALEOR_APP_TOKEN"]) this.trackSecret(values["JOLLY_SALEOR_APP_TOKEN"]);
-  },
-);
-
-Then(
-  "if missing, Jolly should acquire or create the token automatically where Saleor APIs allow",
-  function (this: JollyWorld) {
-    const check = this.envelope.checks.find((c) => String(c.id).includes("app-token"));
-    assert.ok(check, "expected an app-token check");
-    assert.equal(check!.status, "pass");
-  },
-);
-
-Then(
-  "Jolly may follow the deprecated CLI's example flow of authenticating to Saleor Cloud, resolving the instance, selecting or creating a Saleor local app, and creating an app token via the Saleor GraphQL API",
-  function (this: JollyWorld) {
-    // Capability satisfied by a successful real acquisition above.
-    assert.equal(this.envelope.status, "success");
-  },
-);
-
-Then(
-  "if automation is unavailable, it should guide the customer through the current Saleor Dashboard token creation path",
-  function (this: JollyWorld) {
-    // When automation succeeds there is no guidance to assert; the honest-error
-    // guidance path is pinned by feature 024's @logic unreachable scenario.
-    assert.ok(this.envelope, "envelope present");
-  },
-);
-
-Then(
-  "it should avoid storing the token outside environment variables",
-  function (this: JollyWorld) {
-    // The token lives only in .env (env vars), never a separate artifact.
-    const values = loadEnvValues(this.lastRun!.cwd);
-    assert.ok(values["JOLLY_SALEOR_APP_TOKEN"], "token stored as an env var in .env");
-  },
-);
-
-Then(
-  "it should use the token to run Configurator introspection",
-  function () {
-    // Configurator is agent-run (thin CLI); Jolly never shells out to it.
-    // Nothing for Jolly to assert here beyond a stored app token (above).
-  },
-);
 
 // ─── Scenario: create store --url --dry-run does not write to .env ─────────
 

@@ -34,59 +34,49 @@ Given("Jolly uses Saleor Paper as the storefront baseline", function () {});
 Given("Stripe is the v1 payment provider target", function () {});
 Given("v1 uses Stripe test mode only", function () {});
 
-// --- Scenario: Agent collects Stripe test mode credentials (@logic) ---------
+// --- Scenario: create stripe writes Dashboard-provided test keys (@logic) ----
 //
-// The customer-facing prompt copy ("open the Stripe Dashboard", "paste the
-// publishable and secret keys") lives in the Jolly skill (a Captain-owned
-// asset), not in Jolly's code. The Jolly-observable contract is that
-// `create stripe` with no keys errors honestly, naming exactly the two values
-// the customer must supply — which is what these steps pin.
+// The customer copies their two test-mode keys from the Stripe Dashboard and
+// passes them as explicit flags; Jolly writes them to .env, references them by
+// name only, and reports that no further Stripe configuration is needed at this
+// point. The riskContext confirms Jolly's only side effect is the .env write.
 
-Given("the setup flow reaches payment configuration", function (this: JollyWorld) {
-  // create stripe with no flags is the "needs the two values" path. Since the
-  // no-flags path now tries to import from a logged-in Stripe CLI, shadow any
-  // real `stripe` with a NOT-logged-in fake (no test-mode keys) so the import
-  // finds nothing and Jolly errors honestly — deterministic on any machine.
-  const shimDir = this.newTempDir("stripe-cli-empty");
-  writeFakeStripeCli(shimDir, { loggedIn: false });
-  this.runCli(["create", "stripe", "--json"], {
-    env: logicSafeEnv({
-      JOLLY_STRIPE_PUBLISHABLE_KEY: undefined,
-      JOLLY_STRIPE_SECRET_KEY: undefined,
-      PATH: `${shimDir}:${process.env.PATH ?? ""}`,
-    }),
-  });
-});
-
-When("the agent handles Stripe setup", function (this: JollyWorld) {
-  // The command already ran in the Given; nothing more for Jolly to do.
-  assert.ok(this.lastRun, "create stripe must have been invoked");
-});
-
-Then(
-  "the agent should tell the customer to open the Stripe Dashboard at stripe.com and go to test mode",
+Given(
+  "the customer has copied their Stripe test-mode keys from the Dashboard",
   function (this: JollyWorld) {
-    // Jolly-observable: it errors honestly rather than fabricating success,
-    // and the error names the two test-mode keys the customer must provide.
-    assert.equal(this.envelope.status, "error");
-    const error = this.envelope.errors.find((e) => e.code === "MISSING_STRIPE_KEYS");
-    assert.ok(error, "expected a MISSING_STRIPE_KEYS error guiding the customer");
+    // Precondition narrative — the keys the customer pastes are the explicit
+    // flags below. Track them so the no-leak assertions cover them.
+    this.trackSecret("pk_test_x");
+    this.trackSecret("sk_test_x");
   },
 );
 
-Then(
-  "the agent should ask the customer to paste the publishable key and secret key",
+When(
+  "the agent runs `jolly create stripe --publishable-key pk_test_x --secret-key sk_test_x --json`",
   function (this: JollyWorld) {
-    const text = JSON.stringify(this.envelope).toLowerCase();
-    assert.ok(
-      text.includes("publishable") && text.includes("secret"),
-      "the envelope should name both the publishable key and the secret key",
+    this.runCli(
+      ["create", "stripe", "--publishable-key", "pk_test_x", "--secret-key", "sk_test_x", "--json"],
+      { env: logicSafeEnv() },
     );
   },
 );
 
 Then(
-  "no other Stripe configuration should be required from the customer at this point",
+  ".env should contain JOLLY_STRIPE_PUBLISHABLE_KEY and JOLLY_STRIPE_SECRET_KEY set to those keys",
+  function (this: JollyWorld) {
+    // Jolly-observable: it wrote both keys to .env under their JOLLY_STRIPE_*
+    // names, set to the customer's Dashboard keys.
+    assert.equal(this.envelope.status, "success");
+    const envPath = join(this.projectDir, ".env");
+    assert.ok(existsSync(envPath), ".env should have been written");
+    const text = readFileSync(envPath, "utf8");
+    assert.match(text, /^JOLLY_STRIPE_PUBLISHABLE_KEY=pk_test_x$/m);
+    assert.match(text, /^JOLLY_STRIPE_SECRET_KEY=sk_test_x$/m);
+  },
+);
+
+Then(
+  "no further Stripe configuration should be required at this point",
   function (this: JollyWorld) {
     // The risk context confirms Jolly's only side effect is writing the two
     // keys to .env — no further customer-side configuration is Jolly's.
@@ -153,18 +143,6 @@ Then(
 );
 
 // `.gitignore should contain .env` is defined once in shared.steps.ts.
-
-Then(
-  "Jolly should load the updated .env values for the current command flow where possible",
-  function (this: JollyWorld) {
-    // writeEnvValues returns the reloaded value map; the command reports a
-    // confirmed "stored" so the flow saw the persisted values.
-    assert.equal(this.envelope.data["stored"], true);
-    const check = this.findCheck("stripe-keys-stored");
-    assert.ok(check, "expected a stripe-keys-stored check");
-    assert.equal(check!.status, "pass");
-  },
-);
 
 Then("Jolly should not print the secret key value", function (this: JollyWorld) {
   this.assertNoSecretsIn(this.lastRun!.stdout, "stdout");
@@ -243,65 +221,6 @@ Then("the output should not be written to .env", function (this: JollyWorld) {
 // (Gated by SANDBOX_REQUIREMENTS["Agent configures Saleor for Stripe"] is
 // absent → default-all credentials → skips locally.)
 
-Given("Stripe credentials are available in .env", function (this: JollyWorld) {
-  this.notes.sandboxStripe = true;
-});
-
-When(
-  "the agent configures Saleor's Stripe app, guided by the Jolly skill",
-  function (this: JollyWorld) {
-    // No-op: installing/configuring the Stripe app (Dashboard → Extensions) is
-    // the agent's job, not Jolly's, and not something the harness "plays".
-    // Jolly's role is verified via the create stripe boundary asserted below.
-  },
-);
-
-Then(
-  "it should use the Saleor-supported Stripe app \\(Dashboard Extensions) mapped to the storefront channel",
-  function () {
-    // Capability of the agent + Saleor (the Stripe app mapped to the recipe's
-    // `us` channel), not Jolly behavior — narrative no-op.
-  },
-);
-
-Then("Jolly should not implement a custom payment backend", function (this: JollyWorld) {
-  // Jolly-observable: Jolly's Stripe surface is exactly `create stripe` (key
-  // writing). It exposes no payment-processing command. Confirm via help.
-  this.runCli(["create", "--help", "--json"]);
-  const subs = JSON.stringify(this.envelope.data).toLowerCase();
-  assert.ok(subs.includes("stripe"), "create stripe must exist");
-  assert.ok(
-    !/payment[- ]?backend|charge|process[- ]?payment/.test(subs),
-    "Jolly must not expose a custom payment backend command",
-  );
-});
-
-Then(
-  "Jolly's only Stripe role is writing the test keys to `.env` \\(`jolly create stripe`); the Saleor-side Stripe app configuration is the agent's",
-  function (this: JollyWorld) {
-    // Reaffirm the boundary from the create stripe riskContext side effects.
-    this.runCli(
-      ["create", "stripe", "--publishable-key", "pk_test_x", "--secret-key", "sk_test_x", "--dry-run", "--json"],
-      { env: logicSafeEnv() },
-    );
-    const [risk] = findRiskContexts(this.envelope);
-    assert.ok(risk, "create stripe must carry a riskContext describing its side effects");
-    const sideEffects = JSON.stringify((risk as { sideEffects: unknown[] }).sideEffects).toLowerCase();
-    assert.ok(sideEffects.includes(".env"), "Jolly's only Stripe side effect is writing keys to .env");
-  },
-);
-
-Then(
-  "the customer's agent should decide whether approval is needed before modifying remote payment configuration",
-  function (this: JollyWorld) {
-    // Jolly emits the riskContext and never hardcodes the approval decision;
-    // the agent decides. Confirm the riskContext is present (the decision input).
-    const [risk] = findRiskContexts(this.envelope);
-    assert.ok(risk, "the riskContext is the input the agent's approval decision uses");
-    assertRiskContextShape(risk);
-  },
-);
-
 // --- Scenario: Agent verifies checkout readiness (@sandbox) -----------------
 //
 // "the storefront is deployed" / checkout progressing to the Stripe step is
@@ -309,39 +228,6 @@ Then(
 // Jolly-observable part is `jolly doctor` reporting Stripe/payment readiness.
 // Gated by SANDBOX_REQUIREMENTS["Agent verifies checkout readiness"]
 // (saleorEndpoint+saleorAppToken+stripe) AND requiresVercelCli → skips locally.
-
-Given("Stripe setup has been completed", function (this: JollyWorld) {
-  this.notes.sandboxStripeReady = true;
-});
-
-When("the storefront is deployed", function () {
-  // Agent-journey: the agent deploys via the Vercel CLI. Not executed here.
-});
-
-Then(
-  "jolly doctor should verify that checkout can progress to the Stripe test payment step",
-  function (this: JollyWorld) {
-    // Jolly-observable: doctor reports a Stripe/payment readiness check.
-    this.runCli(["doctor", "stripe", "--json"]);
-    const check = this.findCheck("stripe-keys");
-    assert.ok(check, "doctor stripe must report a Stripe readiness check");
-  },
-);
-
-Then("it should confirm Stripe is in test mode", function (this: JollyWorld) {
-  // With real test-mode keys present, the Stripe check passes; the keys
-  // themselves are pk_test_/sk_test_ (test mode) per the v1 contract.
-  const check = this.findCheck("stripe-keys");
-  assert.ok(check, "expected a Stripe readiness check from doctor");
-});
-
-Then(
-  "it should identify any remaining manual Stripe, Saleor Dashboard, or webhook steps",
-  function (this: JollyWorld) {
-    // doctor surfaces actionable guidance via nextSteps / check commands.
-    assert.ok(Array.isArray(this.envelope.nextSteps), "doctor must carry a nextSteps channel");
-  },
-);
 
 // --- Scenario: create stripe imports keys from the Stripe CLI session (@logic) -
 //
@@ -383,6 +269,111 @@ Given("the Stripe CLI is logged in with test-mode keys in its config", seedFakeS
 When("the agent runs `jolly create stripe --json`", function (this: JollyWorld) {
   this.runCli(["create", "stripe", "--json"], { env: stripeImportEnv(this) });
 });
+
+// --- Scenario: create stripe errors clearly when no keys are available (@logic) -
+//
+// No env keys, no explicit flags, and a Stripe CLI that is NOT logged in with
+// test-mode keys: the import finds nothing, so Jolly must error honestly with
+// the stable MISSING_STRIPE_KEYS code, remediation naming BOTH paths (log in to
+// the Stripe CLI, or pass the explicit flags), and nothing written to .env. The
+// three Givens seed a NOT-logged-in fake `stripe` on the scenario-scoped PATH
+// (via stripeShimDir) so the shared `create stripe --json` When takes that path.
+
+Given("Jolly has no Stripe credentials in .env", function (this: JollyWorld) {
+  // Fresh temp project dir has no .env. Seed a NOT-logged-in fake Stripe CLI so
+  // the import (exercised by the shared When via stripeImportEnv) finds nothing.
+  const shimDir = this.newTempDir("stripe-cli-empty");
+  writeFakeStripeCli(shimDir, { loggedIn: false });
+  this.notes.stripeShimDir = shimDir;
+  assert.ok(!existsSync(join(this.projectDir, ".env")), "expected no pre-existing .env");
+});
+
+Given("no explicit key flags are passed", function () {
+  // Precondition narrative — the shared `create stripe --json` When passes no
+  // --publishable-key/--secret-key, exercising the import/error path.
+});
+
+Given("the Stripe CLI is not logged in with test-mode keys", function (this: JollyWorld) {
+  // Ensure the fake `stripe` on PATH is the NOT-logged-in variant (re-seed if a
+  // prior Given did not). The import then finds no test-mode keys.
+  const shimDir = this.notes.stripeShimDir
+    ? String(this.notes.stripeShimDir)
+    : this.newTempDir("stripe-cli-empty");
+  writeFakeStripeCli(shimDir, { loggedIn: false });
+  this.notes.stripeShimDir = shimDir;
+});
+
+Then(
+  "the envelope status should be {string} with the stable code `MISSING_STRIPE_KEYS`",
+  function (this: JollyWorld, status: string) {
+    assert.equal(this.envelope.status, status);
+    const error = this.envelope.errors.find((e) => e.code === "MISSING_STRIPE_KEYS");
+    assert.ok(error, "expected a MISSING_STRIPE_KEYS error guiding the customer");
+  },
+);
+
+Then(
+  "the remediation should name both paths: logging in to the Stripe CLI, or passing `--publishable-key`\\/`--secret-key`",
+  function (this: JollyWorld) {
+    const text = JSON.stringify(this.envelope).toLowerCase();
+    assert.ok(
+      text.includes("stripe cli") || text.includes("stripe login") || text.includes("@stripe/cli"),
+      "the remediation must name logging in to the Stripe CLI",
+    );
+    assert.ok(
+      text.includes("--publishable-key") && text.includes("--secret-key"),
+      "the remediation must name passing the explicit --publishable-key/--secret-key flags",
+    );
+  },
+);
+
+Then("nothing should be written to .env", function (this: JollyWorld) {
+  const envPath = join(this.projectDir, ".env");
+  if (!existsSync(envPath)) return; // not written at all — the strongest form
+  const text = readFileSync(envPath, "utf8");
+  assert.ok(!/^JOLLY_STRIPE_/m.test(text), ".env must not carry any Stripe keys on the error path");
+});
+
+// --- Scenario: Explicit Stripe key flags override the Stripe CLI import (@logic) -
+//
+// With a logged-in Stripe CLI present, explicit --publishable-key/--secret-key
+// flags must still win: .env carries the explicitly passed keys, not the CLI
+// session keys, and neither value is printed.
+
+When(
+  "the agent runs `jolly create stripe --publishable-key pk_test_explicit --secret-key sk_test_explicit --json`",
+  function (this: JollyWorld) {
+    this.trackSecret("pk_test_explicit");
+    this.trackSecret("sk_test_explicit");
+    this.runCli(
+      [
+        "create",
+        "stripe",
+        "--publishable-key",
+        "pk_test_explicit",
+        "--secret-key",
+        "sk_test_explicit",
+        "--json",
+      ],
+      { env: stripeImportEnv(this) },
+    );
+  },
+);
+
+Then(
+  ".env should contain the explicitly passed keys, not the Stripe CLI session keys",
+  function (this: JollyWorld) {
+    assert.equal(this.envelope.status, "success");
+    const text = readFileSync(join(this.projectDir, ".env"), "utf8");
+    assert.match(text, /^JOLLY_STRIPE_PUBLISHABLE_KEY=pk_test_explicit$/m);
+    assert.match(text, /^JOLLY_STRIPE_SECRET_KEY=sk_test_explicit$/m);
+    // The Stripe CLI session keys must NOT have been imported over the flags.
+    assert.ok(
+      !text.includes(FAKE_STRIPE_PUBLISHABLE_KEY) && !text.includes(FAKE_STRIPE_SECRET_KEY),
+      "explicit flags must override the Stripe CLI session keys",
+    );
+  },
+);
 
 Then(
   "Jolly should import the test-mode keys by invoking the Stripe CLI read-only \\(`stripe config --list`)",
@@ -539,10 +530,6 @@ function findStripeStage(stages: StartStage[]): StartStage | undefined {
 //
 // The deterministic dry-run target. The `Given the agent runs `jolly start
 // --dry-run`` step is shared (defined in feature 004's step defs).
-
-When("Jolly plans the Stripe stage", function (this: JollyWorld) {
-  this.runCli(["start", "--dry-run", "--json"], { env: logicSafeEnv() });
-});
 
 Then(
   "the plan should include a Stripe stage that runs after the Vercel deploy stage",

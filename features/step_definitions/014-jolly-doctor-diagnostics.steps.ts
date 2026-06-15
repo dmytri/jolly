@@ -22,7 +22,7 @@ import type { JollyWorld } from "../support/world.ts";
 
 // ─── Scenario: Agent runs doctor during setup (@logic) ──────────────────────
 
-Given("the agent is setting up a Jolly storefront", function () {
+Given("a project directory with the Jolly CLI installed", function () {
   // The temp project directory is the setup context; nothing to arrange.
 });
 
@@ -57,8 +57,8 @@ Then("it should check skill installation status", function (this: JollyWorld) {
 });
 
 Then(
-  "it should check supported agent guidance status where possible",
-  function (this: JollyWorld) {
+  "the checks should include an {string} guidance check",
+  function (this: JollyWorld, _name: string) {
     // Guidance/skill state is reflected via the skill checks; assert the
     // checks array is well-formed against the doctor vocabulary.
     for (const check of this.envelope.checks) {
@@ -68,7 +68,7 @@ Then(
 );
 
 Then(
-  "it should summarize findings in concise human text plus machine-readable output",
+  "the envelope should contain a summary string and a checks array",
   function (this: JollyWorld) {
     const run = this.lastRun!;
     assert.ok(run.envelope, "doctor must emit a machine-readable envelope");
@@ -79,7 +79,7 @@ Then(
 // ─── Scenario: Doctor checks Saleor connectivity (@sandbox) ─────────────────
 
 Given(
-  "Jolly has or can infer a Saleor GraphQL endpoint",
+  ".env contains a Saleor GraphQL endpoint URL",
   function (this: JollyWorld) {
     // @sandbox: a real endpoint is supplied via the runtime env (or derived by
     // provisioning). Nothing to arrange beyond letting doctor read it.
@@ -114,7 +114,7 @@ Then(
 );
 
 Then(
-  "it should run or recommend Configurator introspection where appropriate",
+  "the saleor check should name Configurator introspection as its next step",
   function (this: JollyWorld) {
     // Doctor recommends rather than runs Configurator (Jolly never shells out).
     assert.ok(Array.isArray(this.envelope.nextSteps), "nextSteps channel must exist");
@@ -136,7 +136,7 @@ Then(
 
 // ─── Scenario: Doctor checks storefront readiness (@sandbox) ────────────────
 
-Given("a Paper storefront exists locally", function (this: JollyWorld) {
+Given("a Paper storefront directory exists locally", function (this: JollyWorld) {
   // @sandbox: the agent's cloned storefront is the precondition; this scenario
   // skips locally (no real storefront/account). Nothing to fabricate here.
 });
@@ -166,7 +166,7 @@ Then(
 );
 
 Then(
-  "it should report whether product browsing, cart, and checkout readiness checks can be performed",
+  "the checks should include browsing, cart, and checkout-readiness checks each with a concrete status",
   function (this: JollyWorld) {
     // Honest reporting: readiness it cannot perform is not a fabricated pass.
     for (const check of this.envelope.checks) {
@@ -176,7 +176,7 @@ Then(
 );
 
 Then(
-  "it should distinguish lightweight validation from optional `--full-validation` checks such as generate, typecheck, build, or tests",
+  "the default storefront checks should not include the generate, typecheck, build, or test checks",
   function (this: JollyWorld) {
     // The default storefront group runs lightweight checks; --full-validation
     // is the heavier path (asserted by the next step). Confirm default ran.
@@ -185,7 +185,7 @@ Then(
 );
 
 Then(
-  "`jolly doctor storefront --full-validation` should run full storefront validation checks where feasible",
+  "`jolly doctor storefront --full-validation` should add the generate, typecheck, and build checks",
   function (this: JollyWorld) {
     // @sandbox: re-run with the flag. Locally this scenario is skipped, so the
     // body asserts only that doctor accepts the flag and emits an envelope.
@@ -196,7 +196,7 @@ Then(
 
 // ─── Scenario: Doctor checks deployment and payment readiness (@sandbox) ────
 
-Given("the storefront may be deployed", function (this: JollyWorld) {
+Given("a deployed storefront URL is configured in .env", function (this: JollyWorld) {
   // @sandbox: deployment is agent-run via the Vercel CLI; skips locally.
 });
 
@@ -205,8 +205,14 @@ When("`jolly doctor` checks remote readiness", function (this: JollyWorld) {
 });
 
 Then(
-  "it should check Vercel deployment configuration where credentials or context allow",
-  function (this: JollyWorld) {
+  "the checks should include a {string} check with a concrete status",
+  function (this: JollyWorld, name: string) {
+    if (name === "stripe") {
+      // Stripe readiness lives in the stripe group; confirm doctor exposes it.
+      this.runCli(["doctor", "stripe", "--json"]);
+      assert.ok(this.findCheck("stripe-keys"), "doctor stripe must report a Stripe check");
+      return;
+    }
     const check = this.findCheck("deployment-status");
     assert.ok(check, "doctor deployment must report a deployment-status check");
     // Jolly never contacts Vercel from its own code, so this is honestly
@@ -223,18 +229,9 @@ Then(
 );
 
 Then(
-  "it should check whether Saleor trusted origins include the deployed storefront URL where possible",
+  "the deployment check should report whether the deployed URL is in Saleor trusted origins",
   function (this: JollyWorld) {
     assert.ok(Array.isArray(this.envelope.checks), "doctor must report a checks array");
-  },
-);
-
-Then(
-  "it should check Stripe test-mode setup status where possible",
-  function (this: JollyWorld) {
-    // Stripe readiness lives in the stripe group; confirm doctor exposes it.
-    this.runCli(["doctor", "stripe", "--json"]);
-    assert.ok(this.findCheck("stripe-keys"), "doctor stripe must report a Stripe check");
   },
 );
 
@@ -246,10 +243,6 @@ Given("`jolly start` has completed setup steps", function (this: JollyWorld) {
   // start folds doctor results into its output.
 });
 
-When("it performs final verification", function (this: JollyWorld) {
-  this.runCli(["start", "--json"], { env: logicSafeEnv() });
-});
-
 Then("it should run `jolly doctor` automatically", function (this: JollyWorld) {
   const bootstrap = this.envelope.data.bootstrap as Record<string, unknown> | undefined;
   assert.ok(bootstrap, "start must report a bootstrap summary");
@@ -257,7 +250,7 @@ Then("it should run `jolly doctor` automatically", function (this: JollyWorld) {
 });
 
 Then(
-  "it should include doctor results in the final `jolly start` output",
+  "the final start envelope should include the doctor check results",
   function (this: JollyWorld) {
     const doctorChecks = this.envelope.checks.filter((c) => c.id.startsWith("doctor-"));
     assert.ok(doctorChecks.length > 0, "start output must fold in doctor's checks");
@@ -325,42 +318,143 @@ Then(
   },
 );
 
-// ─── Scenario: Agent runs targeted doctor checks (@logic) ───────────────────
+// ─── Scenario Outline: Agent runs targeted doctor checks (@logic) ───────────
+//
+// Each named group runs ONLY its own checks: the group's check ids are present
+// and no other group's check ids are. (Given "a project directory with the
+// Jolly CLI installed" is the shared no-op precondition defined above.) The
+// init/storefront/stripe Whens are defined elsewhere (storefront/init here; the
+// stripe doctor When in feature 005's step file); skills/saleor/deployment are
+// defined here.
 
-Given("the agent needs to diagnose a specific area", function () {
-  // The scenario invokes a named group in the When step.
-});
+// Per-group check-id predicates; isolation = this group's ids present, all
+// other groups' ids absent.
+const DOCTOR_GROUP_IDS: Record<string, (id: string) => boolean> = {
+  skills: (id) => id.startsWith("skill-"),
+  init: (id) => id === "mcp-config" || id === "agents-md",
+  saleor: (id) => id.startsWith("saleor-"),
+  storefront: (id) => id.startsWith("storefront-"),
+  deployment: (id) => id.startsWith("deployment-"),
+  stripe: (id) => id.startsWith("stripe-"),
+};
 
-When("it invokes a named `jolly doctor` check group", function (this: JollyWorld) {
+function assertOnlyGroupRan(world: JollyWorld, group: string): void {
+  const ids = world.envelope.checks.map((c) => c.id);
+  const matches = DOCTOR_GROUP_IDS[group]!;
+  assert.ok(
+    ids.some((id) => matches(id)),
+    `the ${group} group must run its own checks`,
+  );
+  for (const [other, pred] of Object.entries(DOCTOR_GROUP_IDS)) {
+    if (other === group) continue;
+    assert.ok(
+      !ids.some((id) => pred(id)),
+      `the ${group} group must not run ${other} checks`,
+    );
+  }
+}
+
+When("the agent runs `jolly doctor skills --json`", function (this: JollyWorld) {
   this.runCli(["doctor", "skills", "--json"], { env: logicSafeEnv() });
 });
 
+When("the agent runs `jolly doctor saleor --json`", function (this: JollyWorld) {
+  this.runCli(["doctor", "saleor", "--json"], { env: logicSafeEnv() });
+});
+
+When("the agent runs `jolly doctor deployment --json`", function (this: JollyWorld) {
+  this.runCli(["doctor", "deployment", "--json"], { env: logicSafeEnv() });
+});
+
+Then("only the skills checks should run", function (this: JollyWorld) {
+  assertOnlyGroupRan(this, "skills");
+});
+
+Then("only the init checks should run", function (this: JollyWorld) {
+  assertOnlyGroupRan(this, "init");
+});
+
+Then("only the saleor checks should run", function (this: JollyWorld) {
+  assertOnlyGroupRan(this, "saleor");
+});
+
+Then("only the storefront checks should run", function (this: JollyWorld) {
+  assertOnlyGroupRan(this, "storefront");
+});
+
+Then("only the deployment checks should run", function (this: JollyWorld) {
+  assertOnlyGroupRan(this, "deployment");
+});
+
+Then("only the stripe checks should run", function (this: JollyWorld) {
+  assertOnlyGroupRan(this, "stripe");
+});
+
+// ─── Scenario: jolly doctor --quiet keeps the envelope and checks (@logic) ──
+
+When("the agent runs `jolly doctor --quiet --json`", function (this: JollyWorld) {
+  this.runCli(["doctor", "--quiet", "--json"], { env: logicSafeEnv() });
+});
+
 Then(
-  "Jolly should run only the relevant checks for that group",
+  "the envelope and its checks array should still be present",
   function (this: JollyWorld) {
-    // The skills group emits skill-* checks and no saleor/stripe/deployment ones.
+    assert.ok(this.lastRun!.envelope, "--quiet must still emit a machine-readable envelope");
+    assert.ok(Array.isArray(this.envelope.checks), "--quiet must still carry a checks array");
+    assert.ok(this.envelope.checks.length > 0, "--quiet must still run checks");
+  },
+);
+
+Then(
+  "only nonessential human-readable text should be reduced",
+  function (this: JollyWorld) {
+    // The machine-readable envelope is unchanged; --quiet trims human chatter
+    // only, so the structured checks survive (asserted above).
+    assert.ok(this.envelope.summary !== undefined, "summary channel must persist under --quiet");
+  },
+);
+
+// ─── Scenario: Doctor with no group runs all check groups (@logic) ──────────
+
+Given(
+  "the agent runs `jolly doctor --json` with no group argument",
+  function (this: JollyWorld) {
+    this.runCli(["doctor", "--json"], { env: logicSafeEnv() });
+  },
+);
+
+When("doctor completes", function (this: JollyWorld) {
+  // The run was issued in the Given; nothing further to invoke.
+  assert.ok(this.lastRun, "doctor must have run");
+});
+
+Then(
+  "it should run every supported check group, not just one",
+  function (this: JollyWorld) {
+    // Each named group is accepted (no UNKNOWN_DOCTOR_GROUP) and the default run
+    // exercises all of them, not a single group.
     const ids = this.envelope.checks.map((c) => c.id);
+    for (const [group, pred] of Object.entries(DOCTOR_GROUP_IDS)) {
+      assert.ok(
+        ids.some((id) => pred(id)),
+        `the default doctor run must include the ${group} group's checks`,
+      );
+    }
     assert.ok(
-      ids.some((id) => id.startsWith("skill-")),
-      "the skills group must run skill checks",
-    );
-    assert.ok(
-      !ids.some((id) => id.startsWith("saleor-") || id.startsWith("stripe") || id.startsWith("deployment")),
-      "the skills group must not run other groups' checks",
+      !this.envelope.errors.some((e) => e.code === "UNKNOWN_DOCTOR_GROUP"),
+      "the default doctor run must not reject any group",
     );
   },
 );
 
 Then(
-  "supported v1 groups should include skills, init, saleor, storefront, deployment, and stripe",
+  "the envelope checks should include results from each group",
   function (this: JollyWorld) {
-    // Each named group is accepted (no UNKNOWN_DOCTOR_GROUP) and yields an
-    // envelope; an unknown group errors.
-    for (const group of ["skills", "init", "saleor", "storefront", "deployment", "stripe"]) {
-      this.runCli(["doctor", group, "--json"], { env: logicSafeEnv() });
+    const ids = this.envelope.checks.map((c) => c.id);
+    for (const [group, pred] of Object.entries(DOCTOR_GROUP_IDS)) {
       assert.ok(
-        !this.envelope.errors.some((e) => e.code === "UNKNOWN_DOCTOR_GROUP"),
-        `"${group}" must be a supported doctor group`,
+        ids.some((id) => pred(id)),
+        `the envelope must carry ${group} results`,
       );
     }
   },

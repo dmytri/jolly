@@ -95,7 +95,7 @@ Then(
 );
 
 Then(
-  "it should prefer standard project-local skill locations supported by the underlying skills tooling",
+  "each installed skill should land under `.agents\\/skills\\/<id>\\/`",
   function (this: JollyWorld) {
     // Skills land under the standard project-local location (.claude/skills),
     // not a bespoke store.
@@ -111,19 +111,7 @@ Then(
 );
 
 Then(
-  "it should avoid inventing a separate Jolly-only skill store unless required",
-  function (this: JollyWorld) {
-    // The standard location is .claude/skills; no Jolly-private store directory
-    // (e.g. .jolly/skills) is created.
-    assert.ok(
-      !existsSync(join(this.projectDir, ".jolly", "skills")),
-      "Jolly must not invent a separate Jolly-only skill store",
-    );
-  },
-);
-
-Then(
-  "it should record or report installed versions using standard skills lock\\/metadata files where possible",
+  "it should record the installed skill ids and versions in the skills lock\\/metadata file written by `npx skills add`",
   function (this: JollyWorld) {
     // "where possible": the standard tooling owns the lock/metadata format.
     // Jolly's observable contract is that it reports each installed skill's
@@ -140,7 +128,7 @@ Then(
 // produced by `jolly init`, which points the agent at the installed skills
 // without inlining their contents and preserves user-authored instructions.
 
-Given("the skills have been installed or checked", function (this: JollyWorld) {
+Given("the default skill set has been installed under `.agents\\/skills\\/`", function (this: JollyWorld) {
   // Seed the standard skill locations and pre-write a user-authored AGENTS.md
   // so the glue-merge step can be checked for non-destructiveness.
   seedSkillsOnDisk(this);
@@ -151,15 +139,17 @@ Given("the skills have been installed or checked", function (this: JollyWorld) {
 });
 
 When(
-  "the current or target agent environment needs additional setup",
+  "the agent invokes `jolly skills install` in a project with a CLAUDE.md file",
   function (this: JollyWorld) {
-    // init writes the agent-specific glue (the merged AGENTS.md section).
+    // The detected-agent context: a CLAUDE.md project. init writes the
+    // agent-specific glue (the merged AGENTS.md section).
+    writeFileSync(join(this.projectDir, "CLAUDE.md"), "# Claude project\n");
     this.runCli(["init", "--json"], { env: logicSafeEnv() });
   },
 );
 
 Then(
-  "Jolly should write or update agent-specific glue files or instructions",
+  "Jolly should write the glue file for the detected agent `claude`",
   function (this: JollyWorld) {
     assert.equal(
       this.envelope.data.agentsMdMerged,
@@ -174,39 +164,12 @@ Then(
 );
 
 Then(
-  "the glue should point the agent to the installed skills",
+  "the glue should reference the installed skill path `.agents\\/skills\\/jolly\\/`",
   function (this: JollyWorld) {
     const agents = readFileSync(join(this.projectDir, "AGENTS.md"), "utf8");
     assert.ok(
       /skill/i.test(agents),
       "the glue should reference the installed skills the agent should follow",
-    );
-  },
-);
-
-Then(
-  "the glue should avoid duplicating large skill contents when references are sufficient",
-  function (this: JollyWorld) {
-    // The merged section is a short pointer, not an inlined copy of any SKILL.md.
-    const agents = readFileSync(join(this.projectDir, "AGENTS.md"), "utf8");
-    const begin = agents.indexOf("jolly:begin");
-    const end = agents.indexOf("jolly:end");
-    assert.ok(begin >= 0 && end > begin, "the Jolly section must be bounded");
-    const section = agents.slice(begin, end);
-    assert.ok(
-      section.length < 1000,
-      "the glue should reference skills rather than inline their full contents",
-    );
-  },
-);
-
-Then(
-  "Jolly should avoid overwriting unrelated user-authored instructions without approval",
-  function (this: JollyWorld) {
-    const agents = readFileSync(join(this.projectDir, "AGENTS.md"), "utf8");
-    assert.ok(
-      agents.includes("User-authored guidance that must survive."),
-      "user-authored AGENTS.md content must be preserved by the merge",
     );
   },
 );

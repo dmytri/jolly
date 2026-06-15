@@ -19,14 +19,14 @@ import type { JollyWorld } from "../support/world.ts";
 // `Jolly is executable via \`npx\`` is defined in 020's step file (shared).
 
 Given(
-  "Jolly is a thin CLI that does not wrap or shell out to the Vercel CLI or `@saleor\\/configurator`",
+  "`jolly create` is a thin plumbing surface that never wraps the Vercel CLI or `@saleor\\/configurator`",
   function () {
     // Capability statement; the thin surface is verified by the help scenario.
   },
 );
 
 Given(
-  "the customer's own agent runs the official CLIs, guided by the Jolly skill",
+  "`jolly start` orchestrates the official CLIs by spawning them under their own auth, guided by the Jolly skill",
   function () {
     // Capability statement.
   },
@@ -80,17 +80,7 @@ Then(
 );
 
 Then(
-  "the help output should be understandable to both agents and humans",
-  function (this: JollyWorld) {
-    // Hybrid output: machine-readable envelope (asserted above) plus a
-    // human-readable summary string.
-    assert.equal(typeof this.envelope.summary, "string");
-    assert.ok(this.envelope.summary.length > 0, "summary must be non-empty");
-  },
-);
-
-Then(
-  "it should not list `deployment`, `deploy`, `recipe`, or `storefront` — those are run by the agent via the official CLIs per the Jolly skill",
+  "it should not list `deployment`, `deploy`, `recipe`, or `storefront` — that orchestration lives inside `jolly start`, which spawns the official CLIs",
   function (this: JollyWorld) {
     const names = helpSubcommandNames(this);
     for (const retired of ["deployment", "deploy", "recipe", "storefront"]) {
@@ -105,13 +95,14 @@ Then(
 // --- Scenario: never report a resource they did not produce ----------------
 
 Given(
-  "the agent runs a `jolly create` subcommand whose preconditions are unmet or whose work cannot be performed",
-  function (this: JollyWorld) {
-    // `create app-token` with no instance URL and an unroutable Cloud API is a
-    // precondition-unmet path: there is no Saleor GraphQL endpoint to reach, so
-    // the command must error honestly. logicSafeEnv points everything at
-    // `.invalid` and the temp project has no NEXT_PUBLIC_SALEOR_API_URL.
-    this.runCli(["create", "app-token", "--json"], {
+  "`jolly create {word}` is run with its preconditions unmet",
+  function (this: JollyWorld, subcommand: string) {
+    // Each create subcommand, run under logicSafeEnv with no instance URL and an
+    // unroutable Cloud API, is a precondition-unmet path: there is no real
+    // endpoint to reach, so the command must error honestly. logicSafeEnv points
+    // everything at `.invalid` and the temp project has no
+    // NEXT_PUBLIC_SALEOR_API_URL.
+    this.runCli(["create", subcommand, "--json"], {
       env: logicSafeEnv({ NEXT_PUBLIC_SALEOR_API_URL: undefined }),
     });
   },
@@ -143,12 +134,21 @@ Then(
   function (this: JollyWorld) {
     const env = this.envelope;
     assert.notEqual(env.status, "success", "an unmet-precondition run must not succeed");
-    const haystack = JSON.stringify(env.data).toLowerCase() + " " + env.summary.toLowerCase();
-    // No fabricated success language for work that did not happen.
-    for (const claim of ["created", "configured", "stored ", "acquired", "provisioned"]) {
+    // Scan summary + data, but EXCLUDE the feature-021 `riskContext`: it is a
+    // forward-looking preview of what the action *would* do ("Creates a Saleor
+    // Cloud project…"), not a report of completed work.
+    const { riskContext: _ignored, ...data } = env.data as Record<string, unknown>;
+    let scan = (JSON.stringify(data) + " " + env.summary).toLowerCase();
+    // Honest negations ("nothing was created", "nothing was stored") are not
+    // claims of production — strip them before checking for fabricated claims.
+    scan = scan.replace(
+      /\b(nothing(?: was)?|no|not|never|without)\b[^.;:]*?\b(created|configured|stored|acquired|provisioned)\b/g,
+      "",
+    );
+    for (const claim of ["created", "configured", "stored", "acquired", "provisioned"]) {
       assert.ok(
-        !haystack.includes(claim),
-        `error output must not claim a resource was ${claim.trim()}; summary/data: ${haystack}`,
+        !new RegExp(`\\b${claim}\\b`).test(scan),
+        `error output must not claim a resource was ${claim}; summary/data: ${scan}`,
       );
     }
   },

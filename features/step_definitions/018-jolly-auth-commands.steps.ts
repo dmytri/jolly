@@ -514,12 +514,12 @@ Then(
 // ─── Scenario: Agent logs out (generic) ────────────────────────────────────
 
 Given(
-  "Jolly has Saleor Cloud authentication state available",
+  ".env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token",
   function (this: JollyWorld) {
     // Seed a .env with managed auth vars plus an unrelated third-party var.
     writeFileSync(
       join(this.projectDir, ".env"),
-      "JOLLY_SALEOR_CLOUD_TOKEN=seed-token\nTHIRD_PARTY_KEY=keep-me\n",
+      "JOLLY_SALEOR_CLOUD_TOKEN=some-token\nTHIRD_PARTY_KEY=keep-me\n",
     );
   },
 );
@@ -529,7 +529,7 @@ When("the agent invokes `jolly logout`", function (this: JollyWorld) {
 });
 
 Then(
-  "Jolly should remove or invalidate Jolly-managed Saleor Cloud auth values in `.env` where applicable",
+  "Jolly should remove JOLLY_SALEOR_CLOUD_TOKEN from .env",
   function (this: JollyWorld) {
     const values = loadEnvValues(this.lastRun!.cwd);
     assert.ok(!("JOLLY_SALEOR_CLOUD_TOKEN" in values), "the managed Cloud token must be removed");
@@ -537,7 +537,7 @@ Then(
 );
 
 Then(
-  "it should not remove unrelated environment variables or third-party credentials without explicit intent",
+  "any non-JOLLY_ variable in .env should remain unchanged",
   function (this: JollyWorld) {
     const values = loadEnvValues(this.lastRun!.cwd);
     assert.equal(values["THIRD_PARTY_KEY"], "keep-me", "unrelated vars must be preserved");
@@ -545,24 +545,13 @@ Then(
 );
 
 Then(
-  "it should load the updated `.env` values for the current command flow where possible",
+  "it should load the updated `.env` values for the current command flow",
   function (this: JollyWorld) {
     assert.equal(this.envelope.status, "success");
   },
 );
 
-Then("it should report the result clearly", function (this: JollyWorld) {
-  assert.ok(this.envelope.summary.length > 0);
-});
-
 // ─── Scenario: Agent checks auth status ────────────────────────────────────
-
-Given(
-  "the agent needs to know whether Saleor Cloud auth is available",
-  function (this: JollyWorld) {
-    // No .env in the temp project ⇒ unconfigured baseline.
-  },
-);
 
 When("it invokes `jolly auth status`", function (this: JollyWorld) {
   // Seed an organization so the accountContext-from-org assertion can hold,
@@ -612,14 +601,14 @@ Then(
   },
 );
 
-Then("it should avoid exposing secret token values", function (this: JollyWorld) {
+Then("the output should not contain the token value", function (this: JollyWorld) {
   this.trackSecret("seed-token");
   this.assertNoSecretsIn(this.lastRun!.stdout, "stdout");
   this.assertNoSecretsIn(this.lastRun!.stderr, "stderr");
 });
 
 Then(
-  "it should support `--json`, `--quiet`, and other global output flags",
+  "it should support `--json` and `--quiet`",
   function (this: JollyWorld) {
     const dir = this.newTempDir("flags");
     writeFileSync(join(dir, ".env"), "JOLLY_SALEOR_CLOUD_TOKEN=seed-token\n");

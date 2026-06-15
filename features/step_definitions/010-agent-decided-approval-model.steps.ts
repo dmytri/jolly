@@ -30,8 +30,8 @@ function onlyRiskContext(world: JollyWorld): RiskContext {
 
 // ─── Scenario: Agent decides whether approval is needed ──────────────────────
 
-Given(
-  "a Jolly workflow is about to perform a potentially impactful action",
+When(
+  "`jolly create store --create-environment --json` runs without `--yes`",
   function (this: JollyWorld) {
     // `create store --create-environment` is a representative impactful action
     // (creates a remote Saleor Cloud environment). The --dry-run preview emits
@@ -40,19 +40,13 @@ Given(
       ["create", "store", "--create-environment", "--dry-run", "--json"],
       { env: logicSafeEnv() },
     );
-  },
-);
-
-When(
-  "the action could create, modify, deploy, delete, or expose remote resources",
-  function (this: JollyWorld) {
     assert.ok(this.lastRun?.envelope, "expected an envelope for the impactful action");
   },
 );
 
 Then(
-  "Jolly should provide enough structured context for the customer's agent to assess risk",
-  function (this: JollyWorld) {
+  "the envelope should carry a feature {int} `riskContext` for the action",
+  function (this: JollyWorld, _feature: number) {
     // The full feature 021 riskContext shape is present (action/target/
     // riskLevel/categories/reversible/sideEffects/dryRunAvailable).
     onlyRiskContext(this);
@@ -60,7 +54,7 @@ Then(
 );
 
 Then(
-  "the customer's agent should decide whether to ask for human approval",
+  "Jolly should not perform the impactful action without approval",
   function (this: JollyWorld) {
     // Jolly never hardcodes the approval decision: the riskContext carries no
     // approve/deny verdict field — the decision is left to the agent.
@@ -77,7 +71,7 @@ Then(
 );
 
 Then(
-  "the decision should respect the customer's instructions and the current agent environment's policies",
+  "re-running the command with `--yes` should let it proceed, treating the flag as the approval",
   function (this: JollyWorld) {
     // Jolly defers the decision entirely to the agent: it surfaces the risk
     // level/categories the agent's policy keys off, and supports `--yes`/`-y`

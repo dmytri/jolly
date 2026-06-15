@@ -22,15 +22,8 @@ import type { JollyWorld } from "../support/world.ts";
 
 // --- Background (capability statements) -------------------------------------
 
-Given(
-  "the customer has completed Jolly setup and has a working deployed storefront",
-  function () {},
-);
-Given("the customer's agent is the primary interface for all ongoing commerce work", function () {});
-Given(
-  "Jolly's role in the iteration phase is diagnostics, tooling config, and update management",
-  function () {},
-);
+Given("`jolly init` has completed", function () {});
+Given("a deployed storefront URL in .env", function () {});
 
 // --- Scenario: Agent has live store access from day one (@sandbox) ----------
 //
@@ -46,7 +39,7 @@ Given("jolly init has completed", function (this: JollyWorld) {
   this.runCli(["init", "--json"]);
 });
 
-When("the agent needs to query or modify the live Saleor store", function (this: JollyWorld) {
+When("the agent runs a products query through mcp-graphql", function (this: JollyWorld) {
   const path = join(this.projectDir, ".mcp.json");
   assert.ok(existsSync(path), "jolly init must have written .mcp.json");
   this.notes.mcpConfig = JSON.parse(readFileSync(path, "utf8"));
@@ -82,7 +75,7 @@ Then("the config should use the stored app token", function (this: JollyWorld) {
 });
 
 Then(
-  "the agent should be able to query products, orders, channels, and store configuration through mcp-graphql",
+  "the `.mcp.json` saleor-graphql entry should target the customer's Saleor GraphQL endpoint with the stored app token",
   { timeout: 30_000 },
   async function (this: JollyWorld) {
     // Read-only live verification through the configured endpoint + app token.
@@ -98,30 +91,17 @@ Then(
   },
 );
 
-Then(
-  "the agent should be able to make mutations through mcp-graphql where the app token permissions allow",
-  function (this: JollyWorld) {
-    // Capability statement: the v1 app token requests all permissions, so the
-    // app-token-bearing mcp-graphql session can mutate. We do not perform a live
-    // mutation here (harmless-by-design: never create non-namespaced resources
-    // and no spec mutation is required); we confirm the token channel exists.
-    const token = this.notes.appToken as string | undefined;
-    assert.ok(token && token.trim() !== "", "a permissioned app token enables mutations");
-  },
-);
-
 // --- Scenario: Agent runs ongoing health checks (@logic) --------------------
 
 Given("the storefront has been deployed", function (this: JollyWorld) {
   this.notes.deployed = true;
 });
 
-When("the customer or agent wants to verify everything is working correctly", function (this: JollyWorld) {
-  // doctor is read-only and safe to run anytime.
-  this.runCli(["doctor", "--json"], { env: logicSafeEnv() });
-});
+// `When the agent runs \`jolly doctor --json\`` is defined in
+// 020-cli-output-contract.steps.ts (identical body: runCli doctor under
+// logicSafeEnv). Reused here — not duplicated, to avoid an ambiguous match.
 
-Then("the agent should run jolly doctor at any time without side effects", function (this: JollyWorld) {
+Then("`jolly doctor` should make no local or remote changes", function (this: JollyWorld) {
   // No .env should be created by a read-only doctor run in a fresh temp project.
   assert.ok(this.lastRun, "doctor must have run");
   assert.ok(!existsSync(join(this.projectDir, ".env")), "doctor must not write .env (no side effects)");
@@ -165,12 +145,12 @@ Given("skills or agent guidance may become outdated over time", function (this: 
   this.notes.upgradeContext = true;
 });
 
-When("the agent wants to keep the project current", function (this: JollyWorld) {
+When("the agent runs `jolly upgrade --json`", function (this: JollyWorld) {
   this.runCli(["upgrade", "--json"], { env: logicSafeEnv() });
 });
 
 Then(
-  "it should run jolly upgrade to update Jolly-managed skills and agent guidance",
+  "the envelope should report the updated skills and guidance",
   function (this: JollyWorld) {
     assert.ok(this.envelope.command.startsWith("upgrade"));
     const data = this.envelope.data as { skillsChecked?: unknown };

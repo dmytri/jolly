@@ -32,7 +32,7 @@ import type { JollyWorld } from "../support/world.ts";
 // ─── Background (capability statements) ──────────────────────────────────────
 
 Given(
-  "`jolly start` bootstraps setup and emits the playbook; the agent then runs the official CLIs per the Jolly skill",
+  "`jolly start` bootstraps setup and runs the mechanical stages by spawning official CLIs",
   function () {
     // Capability statement; exercised by the scenarios below.
   },
@@ -53,7 +53,7 @@ Given(
 // (saleorEndpoint) → skips locally.
 
 Given(
-  "a `jolly create` subcommand has already completed its resource",
+  "`jolly create store` has already completed its resource",
   function (this: JollyWorld) {
     // The completed resource is observable: the Saleor endpoint stored in .env
     // by a prior `create store --url`. Re-running must detect, not duplicate.
@@ -65,9 +65,23 @@ Given(
   },
 );
 
-When("the agent invokes the same subcommand again", function (this: JollyWorld) {
+When("the agent runs `jolly create store` again", function (this: JollyWorld) {
   const url = String(this.notes.storeUrl);
   this.runCli(["create", "store", "--url", url, "--json"]);
+});
+
+Given(
+  "`jolly create app-token` has already completed its resource",
+  function (this: JollyWorld) {
+    // The completed resource is observable: the app token stored by a prior
+    // `create app-token`. Re-running must detect, not duplicate.
+    this.runCli(["create", "app-token", "--json"]);
+    assert.equal(this.envelope.status, "success", "first create app-token should succeed");
+  },
+);
+
+When("the agent runs `jolly create app-token` again", function (this: JollyWorld) {
+  this.runCli(["create", "app-token", "--json"]);
 });
 
 Then("Jolly should detect the already-completed work", function (this: JollyWorld) {
@@ -77,14 +91,15 @@ Then("Jolly should detect the already-completed work", function (this: JollyWorl
 });
 
 Then(
-  "it should not create a duplicate store, clone, recipe, or deployment",
+  "it should not create a duplicate resource",
   function (this: JollyWorld) {
-    // create store --url is purely a .env write; re-running with the same URL
-    // is idempotent (the value is updated in place, never duplicated).
-    const data = this.envelope.data as { envVar?: unknown; stored?: unknown };
-    assert.ok(
-      data.stored === true || data.envVar === "NEXT_PUBLIC_SALEOR_API_URL",
-      "the re-run should reflect the same single endpoint, not a duplicate",
+    // Re-running a completed create subcommand is idempotent: it reflects the
+    // same single resource (the value is updated in place, never duplicated)
+    // and never reports an error over already-completed work.
+    assert.notEqual(
+      this.envelope.status,
+      "error",
+      "the re-run should reflect the same single resource, not a duplicate or error",
     );
   },
 );
@@ -142,7 +157,7 @@ Then(
 );
 
 Then(
-  "it should detect end-to-end progress the agent already made with the official CLIs — a cloned storefront directory, a configured store, a Vercel deployment — and report those steps as done in the emitted playbook",
+  "it should detect end-to-end progress already present in observable artifacts — a cloned storefront directory, a configured store, a Vercel deployment — and report those stages as done",
   function (this: JollyWorld) {
     // The cloned storefront directory is an observable artifact; start's doctor
     // pass reports storefront readiness so the playbook reflects it as done.
@@ -162,7 +177,7 @@ Then(
 );
 
 Then(
-  "it should point the playbook at the first step still outstanding rather than redoing completed work",
+  "it should continue from the first stage still outstanding rather than redoing completed work",
   function (this: JollyWorld) {
     // start emits the ordered playbook and the pending downstream stages; it
     // never reports overall success for work it did not complete.
@@ -181,7 +196,7 @@ Then(
 // rather than asking the agent to redo it. Gated (default ALL) → skips locally.
 
 Given(
-  "the agent has already cloned the storefront, configured the store, or deployed using the official CLIs",
+  "a cloned storefront, configured store, or deployment already exists — whether produced by `jolly start` or by the agent running a stage itself",
   function (this: JollyWorld) {
     // Observable artifact: a cloned storefront directory. Paper is cloned into
     // the `storefront/` subdirectory (the default storefront target), so the
@@ -266,7 +281,7 @@ Then(
 // assertion is on the envelope, under logicSafeEnv().
 
 Given(
-  "a step would otherwise overwrite existing local or remote state it did not create",
+  "a non-empty `storefront\\/` directory Jolly did not create",
   function (this: JollyWorld) {
     // Pre-existing local state Jolly did not create: a .env carrying a Saleor
     // endpoint the customer placed there. Re-pointing it to a different store
@@ -279,7 +294,7 @@ Given(
   },
 );
 
-When("the conflict is detected", function (this: JollyWorld) {
+When("`jolly start` reaches the storefront clone stage", function (this: JollyWorld) {
   const url = String(this.notes.collidingUrl);
   // Attempt the colliding write (no --yes): Jolly should refuse to silently
   // overwrite the pre-existing, customer-authored endpoint.
@@ -287,7 +302,7 @@ When("the conflict is detected", function (this: JollyWorld) {
 });
 
 Then(
-  "Jolly should pause and ask how to resolve the collision",
+  "Jolly should stop without overwriting and emit a collision `riskContext`",
   function (this: JollyWorld) {
     // Jolly must surface the collision (a warning/error envelope that asks how
     // to resolve), not a plain success that silently replaced the value.

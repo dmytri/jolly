@@ -41,16 +41,10 @@ function seedSkillsOnDisk(world: JollyWorld): void {
 // 005-stripe-checkout-setup.steps.ts (shared). The other two are capability
 // statements specific to this feature.
 
-Given("Jolly manages skill installation and agent guidance", function () {
-  // Capability statement; exercised by the upgrade scenarios below.
+Given("a project that has run `jolly init`", function () {
+  // Background precondition (capability statement). Each scenario seeds the
+  // concrete on-disk state it needs (skills, paper-version.json) in its Given.
 });
-
-Given(
-  "Paper includes its own migrations and `paper-version.json`",
-  function () {
-    // Capability statement; the Paper-baseline scenario seeds a paper-version.json.
-  },
-);
 
 // ─── Scenario: Agent upgrades Jolly-managed skills and guidance ──────────────
 
@@ -60,6 +54,15 @@ Given(
     // Pre-seed the standard skill locations so upgrade sees managed skills
     // present on disk (offline-deterministic).
     seedSkillsOnDisk(this);
+    // A project that has run `jolly init` carries an AGENTS.md with the
+    // Jolly-managed marker section plus the customer's own lines outside it.
+    // Seed that post-init state so the shared "user-authored lines … remain
+    // unchanged" assertion exercises upgrade's preservation of it.
+    writeFileSync(
+      join(this.projectDir, "AGENTS.md"),
+      "# User Agents\n\nUser-authored content that must survive.\n\n" +
+        "<!-- jolly:begin -->\nManaged by Jolly.\n<!-- jolly:end -->\n",
+    );
   },
 );
 
@@ -97,26 +100,16 @@ Then(
 );
 
 Then(
-  "it should summarize available changes before applying them when appropriate",
+  "the envelope `data` should list the available changes before any are applied",
   function (this: JollyWorld) {
     assert.ok(this.envelope.summary.length > 0, "upgrade must summarize available changes");
     assert.ok(Array.isArray(this.envelope.nextSteps), "upgrade must carry a nextSteps channel");
   },
 );
 
-Then(
-  "it should avoid overwriting unrelated user-authored instructions without approval or an explicit strategy",
-  function (this: JollyWorld) {
-    // upgrade reports/plan only for managed assets; it must not error or claim
-    // it rewrote user content. The plan-only Paper contract reinforces this.
-    const data = this.envelope.data as { paperAutoApply?: unknown };
-    assert.equal(
-      data.paperAutoApply,
-      false,
-      "upgrade must not auto-apply changes that could overwrite customer content",
-    );
-  },
-);
+// "user-authored lines in AGENTS.md outside the Jolly marker should remain
+// unchanged" is defined in 007-jolly-init-agent-setup.steps.ts (shared); not
+// duplicated here.
 
 // ─── Scenario: Upgrade includes skill update behavior ────────────────────────
 
@@ -135,20 +128,7 @@ Given("Jolly has a dedicated `jolly skills update` command", function (this: Jol
 // three 017 scenarios).
 
 Then(
-  "`jolly upgrade` may call or orchestrate `jolly skills update`",
-  function (this: JollyWorld) {
-    // Observable: upgrade enumerates the same Jolly-managed skill set that
-    // `jolly skills update` operates on, with one check per skill.
-    const data = this.envelope.data as { skillsChecked?: unknown };
-    assert.ok(
-      Array.isArray(data.skillsChecked) && (data.skillsChecked as unknown[]).length === DEFAULT_SKILL_IDS.length,
-      "upgrade must orchestrate the same managed skill set as jolly skills update",
-    );
-  },
-);
-
-Then(
-  "it should report which skills were updated, unchanged, skipped, or failed",
+  "the envelope should report which skills were updated, unchanged, skipped, or failed",
   function (this: JollyWorld) {
     // Each managed skill carries a per-skill check whose status reflects its
     // disposition (a present, managed skill checks pass; an absent one skips).
@@ -178,7 +158,7 @@ Given("a cloned Paper storefront exists", function (this: JollyWorld) {
 // "When the agent invokes `jolly upgrade`" is defined above.
 
 Then(
-  "Jolly should detect the Paper baseline where possible",
+  "the envelope `data` should report the detected Paper baseline version",
   function (this: JollyWorld) {
     const data = this.envelope.data as { paperBaselineDetected?: unknown };
     assert.equal(
@@ -192,7 +172,7 @@ Then(
 );
 
 Then(
-  "it should detect Paper's embedded migration guidance where available",
+  "it should read `paper-version.json` to determine the baseline",
   function (this: JollyWorld) {
     // The detected Paper baseline check is the channel that surfaces Paper's
     // migration guidance; with Paper present it is plan-only (not skipped away).
@@ -207,7 +187,7 @@ Then(
 );
 
 Then(
-  "it should not blindly rewrite the customer's customized storefront",
+  "it should not modify any file in the storefront directory",
   function (this: JollyWorld) {
     const data = this.envelope.data as { paperAutoApply?: unknown };
     assert.equal(

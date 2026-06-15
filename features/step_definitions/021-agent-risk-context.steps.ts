@@ -24,13 +24,6 @@ import type { JollyWorld } from "../support/world.ts";
 
 // --- Background ------------------------------------------------------------
 
-Given(
-  "approval granularity is decided by the customer's agent, not hardcoded by Jolly",
-  function () {
-    // Capability statement; verified by the riskContext-only contract below.
-  },
-);
-
 Given("side-effecting commands support `--dry-run`", function () {
   // Capability statement; exercised per-scenario.
 });
@@ -38,7 +31,7 @@ Given("side-effecting commands support `--dry-run`", function () {
 // --- Scenario: Jolly exposes risk context before an impactful action -------
 
 Given(
-  "a Jolly workflow is about to create, modify, deploy, delete, or expose a remote resource",
+  "the agent runs `jolly create store --create-environment --dry-run --json`",
   function (this: JollyWorld) {
     // `create store --create-environment --dry-run` is a representative
     // impactful action: it prepares a remote environment-creation request.
@@ -49,11 +42,6 @@ Given(
   },
 );
 
-When("Jolly prepares to perform the action", function (this: JollyWorld) {
-  // The action was prepared in the Given (dry-run preview).
-  assert.ok(this.lastRun?.envelope, "expected an envelope from the prepared action");
-});
-
 function onlyRiskContext(world: JollyWorld): RiskContext {
   const contexts = findRiskContexts(world.envelope);
   assert.ok(contexts.length > 0, "expected a riskContext inside the envelope");
@@ -63,7 +51,7 @@ function onlyRiskContext(world: JollyWorld): RiskContext {
 }
 
 Then(
-  "it should expose a structured `riskContext` for the agent to assess",
+  "the envelope should carry a `riskContext`",
   function (this: JollyWorld) {
     onlyRiskContext(this);
   },
@@ -95,7 +83,7 @@ Then(
 );
 
 Then(
-  "it should include the applicable risk `categories`",
+  "it should include the applicable risk `categories`, listed explicitly",
   function (this: JollyWorld) {
     const rc = onlyRiskContext(this);
     assert.ok(Array.isArray(rc.categories));
@@ -132,34 +120,16 @@ Then(
   },
 );
 
-Then(
-  "the customer's agent should decide whether to ask for human approval based on this context",
-  function (this: JollyWorld) {
-    // Jolly never hardcodes the approval decision: the envelope carries the
-    // riskContext but no approve/deny verdict field.
-    const rc = onlyRiskContext(this) as unknown as Record<string, unknown>;
-    for (const verdictKey of ["approved", "approve", "denied", "decision", "autoApprove"]) {
-      assert.ok(
-        !(verdictKey in rc),
-        `riskContext must not embed an approval verdict ("${verdictKey}")`,
-      );
-    }
-  },
-);
-
 // --- @sandbox: Risk context is consistent across preview and execution -----
 // Runs against a real endpoint; skips locally (saleorEndpoint gated). The body
 // is written for credentialed CI: the dry-run and real riskContexts must match.
 
-Given("a command supports `--dry-run`", function (this: JollyWorld) {
-  // The command under test is `create store --url ...`, which has a producible
-  // real execution (writes the endpoint to .env) and a --dry-run preview.
-  this.notes.riskContextUrl = "https://example.saleor.cloud/graphql/";
-});
-
-When(
-  "the agent previews the action with `--dry-run`",
+Given(
+  "the agent previews `jolly create store --create-environment --dry-run --json`",
   function (this: JollyWorld) {
+    // The command under test has a producible real execution and a --dry-run
+    // preview. Capture the preview's riskContext.
+    this.notes.riskContextUrl = "https://example.saleor.cloud/graphql/";
     const url = String(this.notes.riskContextUrl);
     this.runCli(["create", "store", "--url", url, "--dry-run", "--json"]);
     const preview = findRiskContexts(this.envelope);
@@ -168,8 +138,8 @@ When(
   },
 );
 
-Then(
-  "the `riskContext` shown in preview should match the `riskContext` for real execution",
+When(
+  "it later runs `jolly create store --create-environment --json` for real",
   function (this: JollyWorld) {
     const url = String(this.notes.riskContextUrl);
     // Real execution writes to the scenario's temp project .env (harmless).
@@ -177,21 +147,16 @@ Then(
     const real = findRiskContexts(this.envelope);
     assert.ok(real.length > 0, "real execution must carry a riskContext");
     this.notes.realRiskContext = real[0];
-    assert.deepEqual(
-      this.notes.realRiskContext,
-      this.notes.previewRiskContext,
-      "real-execution riskContext must equal the dry-run preview riskContext",
-    );
   },
 );
 
 Then(
-  "the real execution output must include a `riskContext` identical to the dry-run preview",
+  "the `riskContext` in the dry-run preview should match the `riskContext` in the real execution output",
   function (this: JollyWorld) {
     assert.deepEqual(
       this.notes.realRiskContext,
       this.notes.previewRiskContext,
-      "real-execution riskContext must be identical to the preview",
+      "real-execution riskContext must equal the dry-run preview riskContext",
     );
   },
 );
@@ -201,19 +166,10 @@ Then(
 
 // --- Scenario: Risk context travels in the standard envelope ---------------
 
-Given(
-  "a command produces output with `--json`",
-  function (this: JollyWorld) {
-    this.runCli(["create", "stripe", "--dry-run", "--json"], {
-      env: logicSafeEnv(),
-    });
-  },
-);
-
-// `When the output describes an impactful action` is defined in 020's steps.
+// `When the command completes` is defined in 020's steps.
 
 Then(
-  "the `riskContext` should be carried inside the output envelope `data` and\\/or `checks`",
+  "the envelope `data` and\\/or `checks` should carry the `riskContext`",
   function (this: JollyWorld) {
     // findRiskContexts only looks inside envelope.data and envelope.checks.
     const contexts = findRiskContexts(this.envelope);
@@ -225,7 +181,7 @@ Then(
 );
 
 Then(
-  "it should not use a separate ad hoc format outside the feature {int} envelope",
+  "the `riskContext` should not appear in a separate ad hoc format outside the feature {int} envelope",
   function (this: JollyWorld, _feature: number) {
     // The only JSON object on stdout is the envelope itself; the riskContext
     // lives inside it, never as a sibling top-level object.
@@ -240,55 +196,6 @@ Then(
 );
 
 // --- Scenario: High-risk categories are surfaced explicitly ----------------
-
-Given(
-  "an action falls into a high-risk category",
-  function (this: JollyWorld) {
-    // `create stripe` is payment setup + credential handling — two high-risk
-    // categories — making it a representative high-risk action.
-    this.runCli(
-      ["create", "stripe", "--publishable-key", "pk_test_x", "--secret-key", "sk_test_x", "--dry-run", "--json"],
-      { env: logicSafeEnv() },
-    );
-  },
-);
-
-When("Jolly builds its `riskContext`", function (this: JollyWorld) {
-  assert.ok(this.lastRun?.envelope, "expected an envelope carrying riskContext");
-});
-
-Then(
-  "the relevant categories should be listed explicitly",
-  function (this: JollyWorld) {
-    const rc = onlyRiskContext(this);
-    assert.ok(rc.categories.length > 0, "high-risk action must list categories");
-    for (const category of rc.categories) {
-      assert.ok(
-        RISK_CATEGORIES.includes(category as never),
-        `category "${category}" not in the high-risk list`,
-      );
-    }
-  },
-);
-
-Then(
-  "destructive operations, billing, payment setup, credential handling, live deployment, and production configuration changes should each map to a category",
-  function () {
-    // The feature-010 high-risk vocabulary is exactly the categories the
-    // envelope validator (RISK_CATEGORIES) enforces on every riskContext.
-    assert.deepEqual(
-      [...RISK_CATEGORIES].sort(),
-      [
-        "billing",
-        "credential handling",
-        "destructive operations",
-        "live deployment",
-        "payment setup",
-        "production configuration changes",
-      ],
-    );
-  },
-);
 
 // --- Scenario: Jolly start pauses for agent approval before each high-risk stage (@logic)
 //
@@ -360,7 +267,7 @@ Then(
 );
 
 Then(
-  "it should pause for the agent to approve and not self-approve or perform the action",
+  "Jolly should not perform the stage action until approval input is provided",
   function (this: JollyWorld) {
     const realEnvelope = this.notes.startEnvelope as typeof this.envelope;
     // Paused at a gate, never reported as success/completed.

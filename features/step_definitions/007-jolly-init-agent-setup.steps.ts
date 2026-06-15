@@ -116,7 +116,7 @@ Then(
 );
 
 Then(
-  "the Jolly skill should be the end-to-end playbook that teaches the agent to drive the official CLIs",
+  "the Jolly skill should be the end-to-end playbook for supervising `jolly start` as it spawns the official CLIs",
   function (this: JollyWorld) {
     const skills = this.envelope.data.skills as string[];
     assert.ok(skills.includes("jolly"), "the Jolly skill must be in the default set");
@@ -182,7 +182,7 @@ Then(
   },
 );
 
-Then("Jolly should explain what was installed or updated", function (this: JollyWorld) {
+Then("the envelope `data` should list the installed skill ids", function (this: JollyWorld) {
   assert.ok(this.envelope.summary.length > 0, "init must summarize what it did");
 });
 
@@ -258,7 +258,7 @@ Then(
 );
 
 Then(
-  "it should update outdated managed guidance when appropriate",
+  "it should update outdated managed guidance when the managed version differs",
   function (this: JollyWorld) {
     // The Jolly-managed AGENTS.md marker section is (re)written each run.
     const agents = readFileSync(join(this.projectDir, "AGENTS.md"), "utf8");
@@ -268,7 +268,7 @@ Then(
 );
 
 Then(
-  "it should avoid overwriting unrelated user-authored instructions without approval",
+  "user-authored lines in AGENTS.md outside the Jolly marker should remain unchanged",
   function (this: JollyWorld) {
     const agents = readFileSync(join(this.projectDir, "AGENTS.md"), "utf8");
     assert.ok(
@@ -297,7 +297,7 @@ Then(
   },
 );
 
-Then("it should produce a concise summary of changes", function (this: JollyWorld) {
+Then("the envelope `data` should summarize the changes made", function (this: JollyWorld) {
   assert.ok(this.envelope.summary.length > 0, "re-run must summarize the changes");
 });
 

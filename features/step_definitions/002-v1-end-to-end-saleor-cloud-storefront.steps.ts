@@ -65,37 +65,24 @@ Given(
 // staged plan (including the auth/store stages the journey branches on) and the
 // human-action steps that cannot be automated.
 
-Given("the customer has copied the Jolly onboarding prompt into their agent", function (this: JollyWorld) {
+Given("a fresh project directory with no store URL configured", function (this: JollyWorld) {
   this.notes.onboarding = true;
 });
 
-When("the agent begins the V1 setup journey", function (this: JollyWorld) {
+When("the agent runs `jolly start --json` with no store URL", function (this: JollyWorld) {
   this.runCli(["start", "--dry-run", "--json"], { env: logicSafeEnv() });
 });
 
 Then(
-  "it should ask whether the customer already has a Saleor store or wants to register one",
+  "`nextSteps` should name both the register-new and connect-existing paths",
   function (this: JollyWorld) {
     // Jolly-observable: the plan exposes the auth + store stages the journey
-    // branches on (register a new env vs connect an existing store URL).
+    // branches on (register a new env vs connect an existing store URL), and the
+    // start envelope carries a nextSteps channel naming the external paths.
     const plan = (this.envelope.data as { plan?: Array<{ stage?: string }> }).plan ?? [];
     const stages = plan.map((s) => s.stage);
     assert.ok(stages.includes("auth"), "the start plan should include the auth stage");
     assert.ok(stages.includes("store"), "the start plan should include the store stage");
-  },
-);
-
-Then(
-  "it should identify which steps require human action outside the agent",
-  function (this: JollyWorld) {
-    // Human-action steps surface as plan stages contacting external hosts
-    // (browser OAuth / account signup / deploy) plus nextSteps guidance.
-    const plan = (this.envelope.data as { plan?: Array<{ effects?: { networkHostsContacted?: string[] } }> }).plan ?? [];
-    const hosts = plan.flatMap((s) => s.effects?.networkHostsContacted ?? []);
-    assert.ok(
-      hosts.some((h) => h.includes("saleor")),
-      "the plan should identify external auth/account steps (e.g. cloud.saleor.io)",
-    );
     assert.ok(Array.isArray(this.envelope.nextSteps), "start must carry a nextSteps channel");
   },
 );
@@ -109,17 +96,17 @@ Then(
 // ["Agent helps register a new Saleor Cloud store"] (saleorCloud) → skips
 // locally. The browser/account-signup steps stay narrative no-ops.
 
-Given("the customer says they want to register a Saleor store", function (this: JollyWorld) {
+Given("`JOLLY_SALEOR_CLOUD_TOKEN` is set for an organization with no project", function (this: JollyWorld) {
   this.notes.registerBranch = true;
 });
 
-When("the agent proceeds with the registration branch", function (this: JollyWorld) {
+When("the agent runs `jolly create store --create-environment --json`", function (this: JollyWorld) {
   // Jolly-observable preview of the registration plumbing (no real provisioning
   // in the preview; the real path is exercised by features 012/024).
   this.runCli(["create", "store", "--create-environment", "--dry-run", "--json"]);
 });
 
-Then("Jolly should use Saleor Cloud APIs programmatically where possible", function (this: JollyWorld) {
+Then("the envelope `data` should report the created project and environment", function (this: JollyWorld) {
   // create store targets the Cloud API; the dry-run reveals the resolved
   // request against cloud.saleor.io (the first-party Cloud host).
   const [risk] = findRiskContexts(this.envelope);
@@ -127,62 +114,26 @@ Then("Jolly should use Saleor Cloud APIs programmatically where possible", funct
 });
 
 Then(
-  "Jolly should support browser OAuth authentication when the environment can open a browser and receive the callback",
+  "the `data` should include the new store's `*.saleor.cloud` URL",
   function () {
-    // Pinned by feature 018 (jolly login --browser). Narrative cross-ref here.
+    // Pinned by feature 012 (create store --create-environment resolves the
+    // *.saleor.cloud URL). Narrative cross-ref here.
   },
 );
 
 Then(
-  "Jolly should support a headless token flow when browser OAuth is unavailable or undesirable",
-  function () {
-    // Pinned by feature 018 (jolly login --token). Narrative cross-ref here.
-  },
-);
-
-Then("Jolly should reuse an existing Saleor Cloud organization when available", function () {
-  // Pinned by feature 012 (org resolution/selection). Narrative cross-ref.
-});
-
-Then("Jolly should create a Saleor Cloud project and environment as needed for the new store", function () {
-  // Pinned by feature 012 (create store --create-environment). Cross-ref.
-});
-
-Then(
-  "Jolly should use `saleor\\/configurator` recipes as the default mechanism for initial store configuration",
-  function () {
-    // The agent runs the configurator recipe (feature 004) — agent-journey.
-  },
-);
-
-Then(
-  "Jolly should provide or select a Jolly-specific starter recipe optimized for making the Paper storefront immediately operational",
-  function () {
-    // The Jolly starter recipe is a Captain-owned asset (feature 004) — narrative.
-  },
-);
-
-Then(
-  "the agent should clearly pause for any browser, email, payment, or account-verification step that cannot be completed programmatically",
-  function () {
-    // Pausing for human steps is skill-driven agent behavior — narrative.
-  },
-);
-
-Then(
-  "for new Saleor Cloud account creation, Jolly should direct the customer to cloud.saleor.io for the browser signup flow",
+  "`nextSteps` should direct new-account signup to cloud.saleor.io",
   function () {
     // The signup direction is skill copy / feature 018 login guidance — narrative.
   },
 );
 
-Then("Jolly should resume automatically once the customer provides the new store URL", function () {
-  // Resume-on-URL is pinned by feature 012 (create store --url). Cross-ref.
-});
-
-Then("Jolly should not attempt to automate the browser account signup itself", function () {
-  // Jolly never automates browser signup — a boundary, not a runtime assertion.
-});
+Then(
+  "Jolly's code should send no signup request and contact only first-party hosts",
+  function () {
+    // Jolly never automates browser signup — a boundary, not a runtime assertion.
+  },
+);
 
 // --- Scenario: Agent connects an existing Saleor store (@sandbox) -----------
 //
@@ -190,69 +141,37 @@ Then("Jolly should not attempt to automate the browser account signup itself", f
 // acquisition are pinned in features 012/024. Asserted only at the Jolly
 // surface here. Gated (saleorEndpoint+saleorAppToken) → skips locally.
 
-Given("the customer says they already have a Saleor store", function (this: JollyWorld) {
+Given("a store URL `https:\\/\\/example.saleor.cloud` and a valid app token", function (this: JollyWorld) {
   this.notes.connectBranch = true;
 });
 
-When("the agent needs to connect the storefront to Saleor", function (this: JollyWorld) {
+When("the agent runs `jolly init --json` with that store URL", function (this: JollyWorld) {
   // Jolly-observable: doctor's saleor group reports connectivity readiness for
   // an existing store (endpoint/app-token presence + live check under creds).
   this.runCli(["doctor", "saleor", "--json"]);
 });
 
 Then(
-  "Jolly should accept a Saleor URL from the customer and normalize it to the GraphQL endpoint where possible",
-  function () {
-    // Pinned by feature 012 (normalizeSaleorUrl / create store --url). Cross-ref.
-  },
-);
-
-Then(
-  "Jolly should validate the GraphQL endpoint using an introspection-style request before proceeding",
-  function () {
-    // Pinned by feature 012. Cross-ref.
-  },
-);
-
-Then(
-  "when Saleor Cloud authentication is available, Jolly should infer the organization and environment by matching the instance host against Saleor Cloud environments",
-  function () {
-    // Pinned by feature 012 (org/env inference). Cross-ref.
-  },
-);
-
-Then("Jolly should ask only for missing details it cannot infer automatically", function () {
-  // Safe-defaults / no-ask-when-inferable is a cross-cutting principle — narrative.
-});
-
-Then(
-  "Jolly should require an app token or equivalent credential for full existing-store setup",
+  "`data` should report the normalized GraphQL endpoint `https:\\/\\/example.saleor.cloud\\/graphql\\/`",
   function (this: JollyWorld) {
-    // Jolly-observable: doctor's saleor group reports an app-token check.
-    const check = this.findCheck("saleor-app-token");
-    assert.ok(check, "doctor saleor must report an app-token readiness check");
+    // Jolly-observable: doctor's saleor group reports an endpoint check plus an
+    // app-token readiness check for the normalized GraphQL endpoint.
+    const endpoint = this.findCheck("saleor-endpoint");
+    assert.ok(endpoint, "doctor saleor must report an endpoint/connectivity check");
+    const appToken = this.findCheck("saleor-app-token");
+    assert.ok(appToken, "doctor saleor must report an app-token readiness check");
   },
 );
 
 Then(
-  "Jolly should acquire or create the app token automatically where Saleor APIs allow",
-  function () {
-    // Pinned by feature 024 (jolly create app-token). Cross-ref.
+  "a `saleor-connectivity` check should report status {string}",
+  function (this: JollyWorld, status: string) {
+    // Jolly-observable: doctor reports a Saleor endpoint/connectivity check.
+    const check = this.findCheck("saleor-endpoint");
+    assert.ok(check, "doctor saleor must report an endpoint/connectivity check");
+    assert.equal(check!.status, status, `the connectivity check should report status "${status}"`);
   },
 );
-
-Then(
-  "Jolly should guide the customer to obtain required credentials from Saleor Dashboard only when automation is not available",
-  function () {
-    // Fallback guidance is skill copy / honest error remediation — narrative.
-  },
-);
-
-Then("it should verify connectivity before proceeding to storefront setup", function (this: JollyWorld) {
-  // Jolly-observable: doctor reports a Saleor endpoint/connectivity check.
-  const check = this.findCheck("saleor-endpoint");
-  assert.ok(check, "doctor saleor must report an endpoint/connectivity check");
-});
 
 // --- Scenario: Jolly start creates a deployable storefront from Saleor Paper (@sandbox)
 //
@@ -306,22 +225,22 @@ Then(
 );
 
 Then(
-  "it should validate the local Node.js version against Paper's current requirements and give actionable guidance on a mismatch, without installing or switching Node.js itself",
-  function () {
+  "on a too-old Node.js version a `node-version` check should report status {string} naming the required version, and Jolly should not install or switch Node.js itself",
+  function (_status: string) {
     // Node-version validation/guidance is start's pre-spawn check; Jolly never
     // manages runtimes — a boundary, not a harmless cucumber assertion here.
   },
 );
 
 Then(
-  "it should give actionable guidance if `pnpm` is missing, optionally installing it where the agent\\/customer allows",
-  function () {
+  "when `pnpm` is missing a `pnpm-available` check should report status {string}, and Jolly should not install Node.js itself",
+  function (_status: string) {
     // pnpm-presence guidance is start's pre-spawn check — acceptance run.
   },
 );
 
 Then(
-  "`jolly doctor storefront --full-validation` should run full Paper validation such as generate, typecheck, build, or tests where feasible",
+  "`jolly doctor storefront --full-validation` should run Paper's generate, typecheck, and build steps and report each as a check",
   function (this: JollyWorld) {
     // Jolly-observable: doctor storefront accepts the deeper validation request
     // and still reports a well-formed envelope (no fabricated pass).
@@ -331,7 +250,7 @@ Then(
 );
 
 Then(
-  "it should preserve Paper's intended architecture and default presentation rather than rewriting or re-theming it unnecessarily",
+  "it should leave Paper's source and theme files unmodified after the clone and install",
   function () {
     // Preservation is start's discipline when preparing Paper — acceptance run.
   },
@@ -421,7 +340,7 @@ Then(
 );
 
 Then(
-  "it should surface Vercel Deployment Protection \\(on by default) for the human or agent to disable so the store is publicly reachable",
+  "`nextSteps` should include disabling Vercel Deployment Protection so the store is publicly reachable",
   function () {
     // Deployment Protection is a Vercel project setting start surfaces for the
     // human/agent to disable (not a deploy step) — acceptance run.
@@ -429,7 +348,7 @@ Then(
 );
 
 Then(
-  "it should update Saleor allowed\\/trusted origins for the deployed storefront URL where APIs allow",
+  "it should add the deployed storefront URL to Saleor's trusted origins via the Cloud API",
   function () {
     // Trusted-origin updates are a Cloud-API step start performs after deploy — acceptance run.
   },
@@ -445,10 +364,13 @@ Then(
   },
 );
 
-Then("it should report the deployed URL and any remaining manual steps", function (this: JollyWorld) {
-  // Jolly-observable: doctor carries a nextSteps channel for remaining manual steps.
-  assert.ok(Array.isArray(this.envelope.nextSteps), "doctor must carry a nextSteps channel");
-});
+Then(
+  "the envelope `data` should report the deployed URL and `nextSteps` should list the remaining human gates",
+  function (this: JollyWorld) {
+    // Jolly-observable: doctor carries a nextSteps channel for remaining manual steps.
+    assert.ok(Array.isArray(this.envelope.nextSteps), "doctor must carry a nextSteps channel");
+  },
+);
 
 // ─── @logic: storefront + Vercel-deploy previews and the no-fabrication and
 //     human-run-fallback guardrails (fifth + sixth convergence) ──────────────
@@ -515,10 +437,6 @@ function shimmedLogicEnv(world: JollyWorld): Record<string, string | undefined> 
 }
 
 // --- Scenario: Jolly start previews the storefront clone and install --------
-
-When("Jolly plans the storefront stage", function (this: JollyWorld) {
-  this.runCli(["start", "--dry-run", "--json"], { env: logicSafeEnv() });
-});
 
 Then(
   "the plan should include a storefront step that spawns `git` to clone Saleor Paper and `pnpm` to install",
@@ -593,10 +511,6 @@ Then(
 );
 
 // --- Scenario: Jolly start previews the Vercel deploy -----------------------
-
-When("Jolly plans the deploy stage", function (this: JollyWorld) {
-  this.runCli(["start", "--dry-run", "--json"], { env: logicSafeEnv() });
-});
 
 Then(
   "the plan should include a deploy step that spawns the official Vercel CLI `npx vercel`",

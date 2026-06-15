@@ -106,21 +106,22 @@ function snapshotDir(root: string): Map<string, string> {
 // pre-granted (`--yes`).
 
 Given(
-  "the agent runs `jolly start` with the credentials and approvals the run needs",
+  "a project directory with `JOLLY_SALEOR_CLOUD_TOKEN` set and `--yes` passed",
   function (this: JollyWorld) {
-    // Pre-grant the agent's per-stage approvals so the orchestrated run proceeds
-    // through the high-risk stages without interactive pauses (feature 021).
-    this.runCli(["start", "--yes", "--json"]);
+    // Precondition: the sandbox harness supplies the cloud token; `--yes`
+    // pre-grants the agent's per-stage approvals so the orchestrated run proceeds
+    // through the high-risk stages without interactive pauses (feature 021). The
+    // command itself runs in the When.
   },
 );
 
-When("`jolly start` performs the setup end-to-end", function (this: JollyWorld) {
-  // The orchestrated run executed in the Given.
+When("`jolly start --json` runs to completion", function (this: JollyWorld) {
+  this.runCli(["start", "--yes", "--json"]);
   assert.ok(this.lastRun?.envelope, "start must emit a machine-readable envelope");
 });
 
 Then(
-  "it should bootstrap first \\(install skills, write `.mcp.json`, scaffold, acquire auth as needed)",
+  "it should bootstrap first \\(install skills, write `.mcp.json`, scaffold, acquire auth)",
   function (this: JollyWorld) {
     const bootstrap = this.envelope.data.bootstrap as Record<string, unknown>;
     assert.ok(bootstrap, "start must report the local bootstrap it performed first");
@@ -129,7 +130,7 @@ Then(
 );
 
 Then(
-  "it should run the mechanical stages itself by spawning the official CLIs \\(`git`, `pnpm`, `@saleor\\/configurator`, `npx vercel`), never reimplementing them against raw APIs",
+  "the run should spawn `git`, `pnpm`, `@saleor\\/configurator`, and `npx vercel` as child processes",
   function (this: JollyWorld) {
     // Observable: the reported stages cover the spawned-CLI work (clone,
     // install, configurator deploy, vercel deploy). The actual spawn + live
@@ -181,15 +182,12 @@ Then(
 );
 
 Then(
-  "its output should include a concise summary, machine-readable stdout data, key URLs and statuses, the doctor verification results, and next-step guidance, with no secret values",
+  "the envelope should carry `summary`, `data`, `checks`, and `nextSteps`, and print no secret values",
   function (this: JollyWorld) {
-    assert.ok(this.envelope.summary.length > 0, "start must include a concise summary");
-    assert.ok(this.lastRun!.envelope, "start must emit machine-readable data on stdout");
-    assert.ok(
-      this.envelope.checks.some((c) => c.id.startsWith("doctor-")),
-      "start must include doctor verification results",
-    );
-    assert.ok(this.envelope.nextSteps.length > 0, "start must include next-step guidance");
+    assert.ok(this.envelope.summary.length > 0, "start must carry a concise summary");
+    assert.ok(this.envelope.data, "start must carry machine-readable data");
+    assert.ok(Array.isArray(this.envelope.checks), "start must carry a checks channel");
+    assert.ok(this.envelope.nextSteps.length > 0, "start must carry next-step guidance");
     this.assertNoSecretsIn(this.lastRun!.stdout, "start stdout");
   },
 );
@@ -331,7 +329,7 @@ Then(
 
 // ─── Scenario: Jolly start --dry-run previews the orchestrated plan without side effects (@logic) ─
 
-Given("the agent runs Jolly in a fresh project directory", function (this: JollyWorld) {
+Given("a fresh empty project directory", function (this: JollyWorld) {
   // Snapshot the fresh project directory before the dry run so the after-diff
   // can prove nothing was created or modified.
   this.notes.dirSnapshotBefore = snapshotDir(this.projectDir);

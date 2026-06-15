@@ -62,7 +62,7 @@ function findGenuineNode(): string | null {
 // --- Scenario: Npx execution does not require Bun --------------------------
 
 Given(
-  "a machine with Node.js available but no Bun on the PATH",
+  "a machine with only Node.js available",
   function (this: JollyWorld) {
     // Build a clean PATH holding ONLY a `node` symlink — no `bun` resolvable.
     //
@@ -214,14 +214,14 @@ Given(
   },
 );
 
-When("the agent invokes the primary guided command", function (this: JollyWorld) {
+When("the agent runs `jolly start --json`", function (this: JollyWorld) {
   // `jolly start` is the primary guided command. Run under logicSafeEnv so the
   // bootstrap cannot reach a real account; the temp project is isolated.
   this.runCli(["start", "--json"], { env: logicSafeEnv() });
 });
 
 Then(
-  "`jolly start` should bootstrap setup \\(install the Jolly skill and Saleor skills, scaffold, run doctor) and emit the ordered playbook for the agent to execute",
+  "`jolly start` should bootstrap setup \\(install the Jolly skill and Saleor skills, scaffold, run doctor) and run the ordered mechanical setup stages",
   function (this: JollyWorld) {
     const data = this.envelope.data as {
       bootstrap?: { doctorRan?: unknown };
@@ -238,7 +238,7 @@ Then(
 );
 
 Then(
-  "the agent then drives the official CLIs \\(Vercel CLI, `@saleor\\/configurator`, `git`, `pnpm`) per the Jolly skill, calling Jolly's thin helpers for plumbing",
+  "it should spawn the official CLIs \\(Vercel CLI, `@saleor\\/configurator`, `git`, `pnpm`) under their own auth while using Jolly's thin helpers for plumbing",
   function (this: JollyWorld) {
     // The playbook directs the agent to the official CLIs; Jolly itself never
     // shells out to them. Assert the playbook references the agent-run tooling.

@@ -37,17 +37,32 @@ When("the command completes", function () {
   // The command is invoked in each scenario's Given; nothing to do here.
 });
 
-When("the output describes an impactful action", function () {
-  // The impactful command is invoked in the scenario's Given.
-});
+// --- Scenario Outline: Every command emits one envelope on --json stdout ---
+//
+// The outline substitutes each example command into the When; each row becomes
+// a distinct step. The runCli call (previously in a generic Given) now lives in
+// the named When, preserving the same envelope-shape assertions below.
 
-// --- Scenario: Agent parses any command through one envelope ---------------
-
-Given(
-  "the agent invokes any Jolly command with `--json`",
+When(
+  "the agent runs `jolly doctor --json`",
   function (this: JollyWorld) {
-    // `auth status` is read-only (configuration only) and representative.
+    this.runCli(["doctor", "--json"], { env: logicSafeEnv() });
+  },
+);
+
+When(
+  "the agent runs `jolly auth status --json`",
+  function (this: JollyWorld) {
     this.runCli(["auth", "status", "--json"], { env: logicSafeEnv() });
+  },
+);
+
+When(
+  "the agent runs `jolly create store --dry-run --json`",
+  function (this: JollyWorld) {
+    this.runCli(["create", "store", "--dry-run", "--json"], {
+      env: logicSafeEnv(),
+    });
   },
 );
 
@@ -107,6 +122,13 @@ Then(
 );
 
 Then(
+  "the envelope should include a `checks` array",
+  function (this: JollyWorld) {
+    assert.ok(Array.isArray(this.envelope.checks));
+  },
+);
+
+Then(
   "the envelope should include a `nextSteps` array",
   function (this: JollyWorld) {
     assert.ok(Array.isArray(this.envelope.nextSteps));
@@ -127,38 +149,18 @@ Then(
   },
 );
 
-Then(
-  "the agent should be able to parse the same shape regardless of which command produced it",
-  function (this: JollyWorld) {
-    // Cross-check a second, different command yields the identical shape.
-    this.runCli(["skills", "--json"], { env: logicSafeEnv() });
-    const other = this.envelope;
-    for (const key of [
-      "command",
-      "status",
-      "summary",
-      "data",
-      "checks",
-      "nextSteps",
-      "errors",
-    ]) {
-      assert.ok(key in other, `second command envelope missing "${key}"`);
-    }
-  },
-);
-
 // --- Scenario: Default output combines human text and the envelope ---------
 
 Given(
-  "the agent invokes a Jolly command without `--json`",
+  "the agent runs `jolly doctor`",
   function (this: JollyWorld) {
-    this.runCli(["auth", "status"], { env: logicSafeEnv() });
+    this.runCli(["doctor"], { env: logicSafeEnv() });
     this.notes.defaultStdout = this.lastRun!.stdout;
   },
 );
 
 Then(
-  "Jolly should print concise human-readable text for a developer reading along",
+  "stdout should contain human-readable text in addition to the envelope",
   function (this: JollyWorld) {
     const run = this.lastRun!;
     assert.ok(run.envelope, "default mode must still carry the envelope");
@@ -176,17 +178,17 @@ Then(
 );
 
 Then(
-  "it should still include the machine-readable envelope for the agent",
+  "stdout should still include the machine-readable envelope",
   function (this: JollyWorld) {
     assert.ok(this.lastRun!.envelope, "envelope must be present in default mode");
   },
 );
 
 Then(
-  "`--quiet` should reduce nonessential human text without removing the envelope",
+  "running `jolly doctor --quiet` should trim only the human text and still include the envelope",
   function (this: JollyWorld) {
     const defaultStdout = String(this.notes.defaultStdout ?? "");
-    this.runCli(["auth", "status", "--quiet"], { env: logicSafeEnv() });
+    this.runCli(["doctor", "--quiet"], { env: logicSafeEnv() });
     const quiet = this.lastRun!;
     assert.ok(quiet.envelope, "--quiet must keep the envelope");
     assert.ok(
@@ -197,15 +199,12 @@ Then(
 );
 
 // --- Scenario: Commands that run checks reuse the doctor vocabulary --------
-
-Given(
-  "a command performs verification such as `jolly start` or `jolly doctor`",
-  function (this: JollyWorld) {
-    // doctor runs read-only checks; the unroutable env yields fail/unknown
-    // checks (never a fabricated pass) but a well-formed checks array.
-    this.runCli(["doctor", "--json"], { env: logicSafeEnv() });
-  },
-);
+//
+// The `Given the agent runs `jolly doctor --json`` precondition reuses the
+// identical When defined above for the envelope outline (cucumber matches
+// Given/When/Then interchangeably) — doctor runs read-only checks and the
+// unroutable env yields fail/unknown checks (never a fabricated pass) but a
+// well-formed checks array.
 
 When("it reports check results in the envelope", function () {
   // Already produced by the Given.
@@ -265,11 +264,11 @@ Then(
 // --- Scenario: Agent branches on stable codes ------------------------------
 
 Given(
-  "a command fails or partially succeeds",
-  function (this: JollyWorld) {
-    // `create store` with no reachable account fails honestly (unroutable
-    // base) — an envelope with errors[].code, never fabricated success.
-    this.runCli(["create", "store", "--json"], { env: logicSafeEnv() });
+  "the agent runs `jolly login --token {string} --json`",
+  function (this: JollyWorld, token: string) {
+    // An empty token is junk input: login must fail honestly with an
+    // envelope carrying errors[].code, never fabricated success.
+    this.runCli(["login", "--token", token, "--json"], { env: logicSafeEnv() });
   },
 );
 
@@ -313,24 +312,45 @@ Then(
 
 // --- Scenario: Output never exposes secrets --------------------------------
 
-Given(
-  "a command handles secret values such as tokens or API keys",
+// Run a secret-handling command in default, --json, and --quiet modes,
+// asserting in each mode that the tracked secret never leaks. The dummy
+// secrets enter the child env via overrides (after the world snapshot), so
+// track them explicitly. Assertions are unchanged from the prior scenario;
+// the loop just exercises every mode named in the new step text.
+function assertNoLeakAcrossModes(
+  world: JollyWorld,
+  baseArgs: string[],
+): void {
+  for (const mode of [[], ["--json"], ["--quiet"]]) {
+    world.runCli([...baseArgs, ...mode], { env: logicSafeEnv() });
+    world.assertNoSecretsIn(world.lastRun!.stdout, "stdout");
+    world.assertNoSecretsIn(world.lastRun!.stderr, "stderr");
+  }
+}
+
+When(
+  "the agent runs `jolly login --token <value>` in default, `--json`, and `--quiet` modes",
   function (this: JollyWorld) {
-    // The dummy Cloud token is a stand-in secret; it enters the child env via
-    // overrides (after the world snapshot), so track it explicitly.
     this.trackSecret(DUMMY.cloudToken);
-    this.runCli(["auth", "status", "--json"], { env: logicSafeEnv() });
+    assertNoLeakAcrossModes(this, ["login", "--token", DUMMY.cloudToken]);
   },
 );
 
-When("it produces output in any mode", function (this: JollyWorld) {
-  // Also exercise default (non-json) mode for the same secret.
-  this.trackSecret(DUMMY.cloudToken);
-  this.runCli(["auth", "status"], { env: logicSafeEnv() });
-});
+When(
+  "the agent runs `jolly create stripe --secret-key <value>` in default, `--json`, and `--quiet` modes",
+  function (this: JollyWorld) {
+    this.trackSecret(DUMMY.stripeSecret);
+    assertNoLeakAcrossModes(this, [
+      "create",
+      "stripe",
+      "--secret-key",
+      DUMMY.stripeSecret,
+    ]);
+  },
+);
 
 Then(
-  "no field in the envelope or human text should contain a secret value",
+  "no field in the envelope or human text should contain the secret value",
   function (this: JollyWorld) {
     const run = this.lastRun!;
     this.assertNoSecretsIn(run.stdout, "stdout");
@@ -339,9 +359,9 @@ Then(
 );
 
 Then(
-  "secrets should be referenced by name only",
+  "the secret should be referenced by name only",
   function (this: JollyWorld) {
-    // Reaffirm no value leaked across both modes run in this scenario.
+    // Reaffirm no value leaked across the modes run in this scenario.
     this.assertNoSecretsIn(this.lastRun!.stdout, "stdout");
   },
 );
