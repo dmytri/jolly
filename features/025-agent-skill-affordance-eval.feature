@@ -62,6 +62,13 @@ Feature: Agent skill affordance evaluation
       environments, never by faking, and only `jolly-test`-namespaced resources
       are ever deleted. Stripe runs in test mode with test cards (worst case: a
       declined transaction, never a real charge).
+    - Best-effort teardown of created cloud resources is the DEFAULT (harmless).
+      An opt-in `HARNESS_EVAL_KEEP_STORE` knob (set → retain) skips that teardown
+      so the run's created store — the `jolly-test`-namespaced Saleor environment
+      and its Vercel deployment — is left standing and its reported URLs stay
+      usable for inspection. Retained resources keep the `jolly-test` namespace,
+      so the next run's leftover-reclamation removes them; the knob is operability
+      only and never changes pass/fail. Unset → normal best-effort teardown.
     - Capability gating, skip-not-fail: a live Vercel deploy needs a real
       `vercel login` session on the runner; absent it, the deploy step is gated
       (skipped, not failed). The run still exercises every stage its available
@@ -87,6 +94,12 @@ Feature: Agent skill affordance evaluation
       and honest gating where it is not — it never asserts an outcome the agent
       did not actually achieve. The Stripe-import affordance (Jolly importing real
       test-mode keys via the read-only Stripe CLI) is covered by feature 005.
+    - For each live stage the run completes, the eval surfaces the real endpoint
+      Jolly reported in its output envelope: the Saleor dashboard URL for the
+      `jolly-test`-namespaced environment it created, and the deployed storefront
+      URL when the Vercel deploy completed. These are observed from Jolly's own
+      output, never fabricated — a gated deploy yields no storefront URL and the
+      run reports its absence rather than inventing one.
     - The eval must NOT fabricate or assume outcomes (no working-store claim the
       run did not produce) and must NOT assert artifacts Jolly does not produce
       (there is no `jolly.config.ts`). Any cloud resource the agent created must
@@ -105,5 +118,6 @@ Feature: Agent skill affordance evaluation
     Then the agent should have invoked Jolly's documented CLI commands, including `jolly start`
     And the workspace should contain the local artifacts `jolly init` produces (the installed Jolly skill, a merged `.mcp.json`, a scaffolded `.env`, and the marker-merged `AGENTS.md`)
     And Jolly's diagnostics should have run and emitted the standard output envelope
+    And for each live stage it completed it should report the real URL Jolly emitted — the Saleor dashboard URL for the `jolly-test`-namespaced environment it created, and the deployed storefront URL when the Vercel deploy completed
     And the run should report only outcomes it actually achieved, stopping honestly at any remaining human gate without fabricating success
-    And every cloud resource the agent created should be `jolly-test`-namespaced and removed in teardown, with nothing outside that namespace touched
+    And every cloud resource the agent created should be `jolly-test`-namespaced and, unless retention is explicitly requested via `HARNESS_EVAL_KEEP_STORE`, removed in best-effort teardown, with nothing outside that namespace touched
