@@ -2,7 +2,7 @@
 # Descriptive harness charter. The harness in features/support/ and tests/ already
 # satisfies this; it is tagged @meta and excluded from the BDD worklist (cucumber.js).
 Feature: Test architecture and sandbox-first strategy
-  As the Quartermaster building executable coverage
+  As the test harness maintainer
   I want a clear, sandbox-first test architecture
   So that I can write durable tests against real Saleor, Vercel, and Stripe behavior without inventing conventions
 
@@ -95,7 +95,7 @@ Feature: Test architecture and sandbox-first strategy
     - Logic-tier unit tests live in `tests/` and run via `node --test` (using `node:test` + `node:assert`), separate from the Cucumber suite.
     - Package scripts are Node-native: `node --test` for units, Cucumber.js and `tsc` run under Node, and the published bundle built with esbuild. Node >= 23's native type stripping loads the TypeScript sources directly (project files, not under `node_modules`).
     - Each `.feature` maps to a step-definition file of the same slug; every required step has executable coverage.
-    - The QM owns creating and maintaining this harness, including the Cucumber configuration and test scripts.
+    - The harness includes the Cucumber configuration and test scripts needed for executable coverage.
 
   Rule: Open questions
     - CI wiring for providing sandbox credentials is deferred to implementation.

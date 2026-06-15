@@ -41,8 +41,8 @@ Feature: Agent-first Jolly onboarding and CLI
 
   Rule: Product principles
     - The homepage and agent setup guide (`assets/homepage/`, including `index.html`, styles, and
-      `setup.md`) are Captain-owned assets: not specified by `.feature` scenarios, not
-      covered by tests, and never worked on by Quartermaster or Crew Mate.
+      `setup.md`) are human-authored assets: not specified by `.feature` scenarios, not
+      covered by tests, and not part of CLI implementation work.
     - Jolly should inform the agent about the Saleor MCP server (mcp.saleor.app) in the setup guide and during setup. The MCP server is read-only and useful for querying live store data after setup is complete.
     - After setup, Jolly should write an mcp-graphql config for the agent's environment so the agent has live store access from day one.
     - The path from homepage copy to working deployed storefront must minimize human intervention. Only browser OAuth consent, new account creation, and secret values require human action; everything else should be automated with safe defaults.

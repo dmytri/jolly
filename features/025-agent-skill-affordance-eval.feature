@@ -1,6 +1,6 @@
 @eval
 # Opt-in skill-behavior evaluation. NOT part of the default green/red worklist:
-# it drives a live baseline agent over the Captain-owned Jolly skill, so it is
+# it drives a live baseline agent over the shipped Jolly skill, so it is
 # non-deterministic, credentialed, and slow. Tagged @eval and EXCLUDED from the
 # default profile (cucumber.js: `not @meta and not @eval`); it runs only via an
 # explicit `eval` profile/command. It is a separate opt-in tier, never a gate on
@@ -15,11 +15,11 @@ Feature: Agent skill affordance evaluation
   # eval asserts that the skill gave the agent the AFFORDANCES to use Jolly —
   # that it found and invoked Jolly's documented commands and reached the
   # documented local project state — not that it produced a perfect, deployed
-  # store. The skill's editorial quality stays a real-use concern (Captain-owned,
-  # otherwise untested); this tier tests the agent's ability to ACT on it.
+  # store. The skill's editorial quality stays a real-use concern outside normal
+  # deterministic testing; this tier tests the agent's ability to ACT on it.
 
   Background:
-    Given the actual published-shape Jolly CLI and the actual Captain-owned Jolly skill (no mocks)
+    Given the actual published-shape Jolly CLI and the actual shipped Jolly skill (no mocks)
     And feature 007 defines the local artifacts `jolly init` produces
 
   Rule: Opt-in, outside the default worklist

@@ -153,7 +153,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
       on disk, so the agent resumes from a working/partly-built store).
     - Honesty-first: a blocked/failed `jolly start` surfaces the human-run fallback in its `nextSteps`;
       it never fabricates that the human-run step was performed. The agent-facing guidance lives in the
-      Jolly skill (Captain-owned asset).
+      shipped Jolly skill asset.
 
   Rule: jolly start orchestrates the setup by spawning the official CLIs
     - The "Jolly start creates a deployable storefront" and "Jolly start deploys to Vercel"
