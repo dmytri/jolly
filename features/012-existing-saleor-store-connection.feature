@@ -105,7 +105,7 @@ Feature: Existing Saleor store connection
     And the created environment's name and domain label should carry the run's jolly-test namespace
     And teardown should delete the created environment right after the scenario
 
-  @logic
+  @logic @exceptional-double
   Scenario: Jolly create store reports ENVIRONMENT_LIMIT_REACHED when the sandbox limit is hit
     Given the Cloud API rejects environment creation because the organization's sandbox environment limit is reached
     When the agent runs `jolly create store --create-environment --json`

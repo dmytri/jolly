@@ -42,6 +42,21 @@ Feature: Jolly doctor diagnostics
     And the deployment check should report whether the deployed URL is in Saleor trusted origins
     And the checks should include a "stripe" check with a concrete status
 
+  @logic
+  Scenario: Doctor reads the Vercel CLI login state from the Vercel CLI itself
+    Given the Vercel CLI is not logged in on this runner
+    When the agent runs `jolly doctor deployment --json`
+    Then a "vercel-auth" check should read the login state by running `vercel whoami`
+    And with no Vercel CLI session the "vercel-auth" check should be "fail" or "unknown", never "pass"
+    And its next step should be to run `vercel login`
+
+  @sandbox
+  Scenario: Doctor confirms the Vercel CLI login state when a session exists
+    Given the Vercel CLI is logged in on this runner
+    When the agent runs `jolly doctor deployment --json`
+    Then the "vercel-auth" check should read the session by running `vercel whoami`
+    And the "vercel-auth" check should be "pass"
+
   @sandbox
   Scenario: Jolly start runs doctor automatically
     Given `jolly start` has completed setup steps
@@ -111,6 +126,7 @@ Feature: Jolly doctor diagnostics
     - Doctor should distinguish between pass, warning, fail, skipped, and unknown checks.
     - Doctor should suggest concrete next commands or manual steps.
     - Doctor is the agent's recovery oracle during skill-driven setup: when a step fails or is incomplete, the relevant check should tell the agent what is wrong and the concrete next action (a command to run, a CLI to authenticate, a value to provide), so the agent can self-correct and resume via the Jolly skill.
+    - Doctor is the single readiness oracle: its auth/readiness checks read login and credential state by delegating to the upstream tool's own CLI (the Vercel CLI's `vercel whoami`, the Stripe CLI) — never by Jolly reimplementing that service's authentication — so "are we ready" has one source of truth that callers (including the test harness) consult instead of duplicating.
     - Doctor's checks should reflect end-to-end state produced by `jolly start` spawning the official CLIs, or by the agent running a stage itself (cloned storefront, configured store, deployment) — see feature 022 — so a re-run shows real progress, not just Jolly's own plumbing.
     - Doctor verifies the local bootstrap artifacts `jolly init` produces (feature 007) under an `init` group — the merged `.mcp.json` saleor-graphql entry (`mcp-config`) and the `AGENTS.md` `jolly:begin` marker section (`agents-md`) — so the agent can machine-check whether bootstrap is done instead of assuming it. A missing `.mcp.json`, or an `AGENTS.md` that exists but lacks the Jolly marker, is `fail` with `jolly init` as the next step; both present is `pass`. `jolly init` re-merges idempotently to recover.
     - Doctor should be diagnostics-only in v1.

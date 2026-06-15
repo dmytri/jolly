@@ -3,7 +3,7 @@ Feature: Jolly auth commands
   I want explicit Jolly auth commands
   So that Saleor Cloud authentication can be managed independently from the full setup flow
 
-  @logic
+  @logic @exceptional-double
   Scenario: Jolly login stores a token honestly when verification is unreachable
     Given the Saleor Cloud API is unreachable
     And the agent has a Saleor Cloud token value "jolly-login-test-token-abc"
