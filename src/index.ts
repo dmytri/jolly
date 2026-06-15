@@ -1427,13 +1427,30 @@ async function commandCreate(args: ParsedArgs): Promise<Envelope> {
 
 // ─── init (feature 007) ───────────────────────────────────────────────────
 
+/**
+ * Resolve Jolly's bundled skill directory (`assets/skills/jolly`) relative to
+ * Jolly's own module path — the same scheme as bundledRecipePath(). The Jolly
+ * skill ships inside the package, so installing it needs no network and does
+ * not depend on the repo being pushed (feature 007 Rule "Jolly skill source").
+ */
+function bundledJollySkillPath(): string {
+  return fileURLToPath(new URL("../assets/skills/jolly", import.meta.url));
+}
+
 function installSkill(skill: SkillSpec): { installed: boolean; stderr?: string } {
-  // npx skills add <ref> — best effort; verification is on-disk below.
-  const result = spawnSync("npx", ["--yes", "skills", "add", skill.ref], {
-    cwd: projectDir(),
-    encoding: "utf8",
-    timeout: 60_000,
-  });
+  // The Jolly skill installs from its bundled local copy (no network); the
+  // Saleor skills install from their own refs (feature 007 Rule "Jolly skill
+  // source"). Pass the skills CLI's OWN non-interactive flags — `--yes` skips
+  // the scope prompt, `--skill '*'` skips the skill picker — and no `--agent`,
+  // so it never opens a picker and always writes the universal
+  // `.agents/skills/<id>/` location (Rule "Skill installation is
+  // non-interactive and agent-agnostic"). Verification is on-disk below.
+  const source = skill.id === "jolly" ? bundledJollySkillPath() : skill.ref;
+  const result = spawnSync(
+    "npx",
+    ["--yes", "skills", "add", source, "--yes", "--skill", "*"],
+    { cwd: projectDir(), encoding: "utf8", timeout: 60_000 },
+  );
   return { installed: result.status === 0, stderr: result.stderr ?? undefined };
 }
 

@@ -49,6 +49,14 @@ const FULL_END_TO_END: CredentialGroup[] = [
  * fully credentialed environment.
  */
 export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
+  // 007-jolly-init-agent-setup
+  // The non-interactive skill install reproduces a fresh machine (no agent
+  // runtime, no TTY); it touches only `npx skills add` over the network and
+  // needs no Saleor credentials.
+  "Skills install non-interactively with no agent runtime present": [],
+  // The bundled Jolly skill installs from a local path with the network
+  // blocked, so it needs no credentials and no reachable host.
+  "The Jolly skill installs from the bundled copy with no network": [],
   // 001-agent-first-cli-and-onboarding
   "Jolly start completes successfully": FULL_END_TO_END,
   "Jolly start orchestrates the setup by spawning the official CLIs": FULL_END_TO_END,
