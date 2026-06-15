@@ -21,10 +21,22 @@ Only Captain may read or edit this file. QM, Crew, and Bosun must not. Binding b
 
 - **Remaining outbound work:** publish `@dk/jolly@0.6.1`, then run one real paste→live-store acceptance pass on a clean machine to the feature 002 operational-readiness bar — deployed URL works, browsing/cart against Saleor Cloud, checkout reaches the Stripe test payment step, and `jolly doctor` checkout probe passes. Prefer a fresh blank Saleor environment; a non-blank store makes configurator deploy block honestly instead of applying.
 - **Done (commit `ec28720`, local-only):** the orphaned step-definition re-sync to the audit-reworded scenarios — assertions preserved, no behavior change; 44 orphaned step defs pruned. Undefined steps 448 → 212. `cucumber-js -p logic` green (84 passed, 0 failed); typecheck clean.
-- **New-behavior worklist (the 212 undefined):** the audit also *added* genuinely-new scenarios beyond rewording, with no implementation — these are the forward QM→Crew worklist, and need a v1-scope triage (MVP e2e path vs breadth to defer):
-  - *Crew (impl missing):* `009` per-agent env detection; `006` exact `--help` command surface / global-flag acceptance / old-Node launcher / "@dk/jolly-only" naming; `018` `login --browser` → `--token` guidance; `017` auto-apply safe skill update; `020` first-party-hosts allowlist.
-  - *QM scaffolding (impl exists, needs fixture/step):* `012` `ENVIRONMENT_LIMIT_REACHED`; `008` "stored, not verified" + `create --dry-run` outlines.
-  - *@sandbox / acceptance:* `002` resume-skip + deployed-storefront-serves-catalog; `003` Paper guidance preservation; `007` failed-skill-install.
+- **New-behavior worklist (the 212 undefined) — v1-scope triage.** The audit also *added* genuinely-new scenarios beyond rewording, with no implementation. Triaged against the launch bar + MVP-first:
+  - **V1 (on the launch-bar path / non-negotiable honesty+trust):**
+    - `002` deployed storefront serves catalog + working cart — the launch bar; acceptance/@sandbox.
+    - `008` "stored, not verified" + `create --dry-run` preview — honesty on the create stages setup uses; impl likely exists (QM scaffolding).
+    - `012` `ENVIRONMENT_LIMIT_REACHED` — real store-creation failure; src already emits the code, needs a fixture.
+    - `020` first-party-hosts allowlist — trust/security contract under the homepage handoff.
+    - `009` generic-fallback detection only ("no marker → generic glue") — the baseline single-agent path.
+  - **Defer to iteration (breadth / robustness / blocked):**
+    - `009` multi-agent detection matrix (opencode/.cursor/.zed/.pi/…) + first-match order — breadth across 7 envs.
+    - `006` exact command surface, global-flag matrix, old-Node launcher error, "@dk/jolly-only" naming — surface-stability/robustness.
+    - `007` failed-skill-install surfacing — error-path robustness.
+    - `017` auto-apply safe skill update — **blocked** on the open question "exact safety rules for auto-applying Jolly-managed updates"; resolve first.
+    - `018` `login --browser` → `--token` guidance — narrow auth-UX edge; agent path already uses `--token`.
+    - `003` Paper guidance preservation-in-plan — minor plan-detail assertion.
+    - `002` resume-skip already-completed storefront — resumability robustness (feature 022).
+  - **Deferral mechanism (open):** how to park deferred scenarios so the v1 worklist can reach green without losing them as intent — likely a tag excluded from the default profile (a `cucumber.js` tooling change, not a spec edit). Decide before acting.
 
 ## File-placement principle
 
