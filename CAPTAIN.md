@@ -27,7 +27,7 @@ Only Captain may read or edit this file. QM, Crew, and Bosun must not. Binding b
 - **Harness (QM cycle):** rip out `logic-env.ts` (`logicSafeEnv`/`DUMMY`/`.invalid`) from ~20 step files + `dotenv`/`eval`; delete `stripe-cli-fake.ts` + `configurator-cli-fake.ts`; rewire every tier to the real `.env` services with namespace+teardown.
 
 **Operational realities to honor (not optional):**
-- **Env limits:** ~94 scenarios cannot each provision a Saleor Cloud environment (org limit → `ENVIRONMENT_LIMIT_REACHED`). Reuse the existing `@sandbox` discipline: ONE shared per-run `jolly-test`-namespaced environment, teardown-registered-before-create. Live `@logic` must share, not multiply, environments.
+- **Env limits — cannon fodder (dk):** environments in this test org are disposable. When the org limit is hit (`ENVIRONMENT_LIMIT_REACHED`), the harness reclaims capacity by DELETING `jolly-test`-namespaced environments and proceeds — it is NOT a skip. The `jolly-test-` prefix (`features/support/sandbox.ts:293`, `makeNamespace` → `jolly-test-${runId}`) IS the protection boundary: only `jolly-test-*` envs are deletable cannon fodder; the configured `jolly-store` (the `.env` endpoint) and any future non-test env are never deleted. Sharing one per-run env is allowed as efficiency, not required.
 - **Vercel:** live deploy needs a one-time interactive `vercel login` (browser) on the runner; absent it, deploy-touching tests skip-not-fail (capability gate), as `@sandbox` already does for `vercel whoami`.
 - **Stripe:** real `@stripe/cli` + real test-mode keys; test cards only (worst case = declined, never a real charge).
 

@@ -43,37 +43,36 @@ Feature: Agent skill affordance evaluation
       SKIPPED with a clear reason, never failed — exactly like `@sandbox`
       credential gating. Logic-tier tests are unaffected.
 
-  Rule: Harmless by design — bounded, no real cloud
-    - The agent runs in a unique per-run temporary workspace, with FORCED SAFE
-      credentials: dummy `JOLLY_*` values and an unroutable `.invalid` Cloud API
-      base (the "012 incident" discipline). So even if the agent invokes a
-      create/deploy command, it cannot reach a real account, create a billable
-      resource, or deploy.
+  Rule: Live by design — real integrated test env, namespaced and disposable
+    - The agent runs in a unique per-run temporary workspace seeded with the
+      REAL integrated test-env credentials (the runtime `JOLLY_*` Saleor Cloud /
+      Stripe values and the real Saleor endpoint). There are NO fakes: no dummy
+      credentials, no `.invalid` endpoints, no fake Stripe/configurator CLIs. The
+      agent acts against the real services exactly as a customer's agent would.
     - The task is the REAL entry point, not a hand-held script: the agent is
       given exactly the string the homepage copy box hands a customer's agent —
       "Read https://jolly.cool/setup and follow the instructions to set up
-      Jolly" — and nothing more. The eval thus measures the affordance from the
-      true starting point (can a baseline agent, from that one pointer, discover
-      and drive Jolly?), not from a pre-decomposed worklist.
-    - Safety therefore does NOT come from a narrowed task. It comes entirely
-      from the forced-safe credentials and harness fakes above: even if the
-      agent attempts the full playbook (login, `create store`, deploy), the
-      `.invalid` Cloud API base and dummy `JOLLY_*` make every real-account
-      action fail honestly, and there is no Vercel auth to deploy with. A
-      live-store eval (real provisioning + deploy) is a future, explicitly
-      credentialed `@eval` extension — not this scenario.
-    - The agent reaches `https://jolly.cool/setup` over the network (a public,
-      static setup guide) and may install skills from github; these harmless
-      fetches are expected. The eval consequently also smoke-tests that the real
-      entry point is reachable.
-    - The Stripe CLI on the workspace PATH is a harness fake that returns dummy
-      `pk_test_`/`sk_test_` values (and contacts no network), standing in for a
-      completed `stripe login`. So importing Stripe keys exercises the affordance
-      without any real Stripe account or live key.
-    - The per-run workspace and the fake `$HOME` (and anything created in them)
-      are removed in teardown; the eval never touches resources outside them.
+      Jolly" — and nothing more (the `HARNESS_EVAL_SETUP_LOCAL` knob may point it
+      at the local source of that same page for pre-deploy iteration). The eval
+      thus measures the affordance from the true starting point.
+    - Safety is harmless-by-design, NOT faking (see AGENTS.md): every resource
+      the agent creates is `jolly-test`-namespaced and removed in best-effort
+      teardown; Saleor Cloud environments are disposable cannon fodder, so an
+      environment-limit rejection is reclaimed by deleting `jolly-test`-namespaced
+      environments, never by faking, and only `jolly-test`-namespaced resources
+      are ever deleted. Stripe runs in test mode with test cards (worst case: a
+      declined transaction, never a real charge).
+    - Capability gating, skip-not-fail: a live Vercel deploy needs a real
+      `vercel login` session on the runner; absent it, the deploy step is gated
+      (skipped, not failed). The run still exercises every stage its available
+      credentials and capabilities allow.
+    - The agent reaches `https://jolly.cool/setup` (or the local source) over the
+      network and may install skills from github; these fetches are expected, and
+      the eval also smoke-tests that the entry point is reachable.
+    - The per-run workspace and the throwaway `$HOME` are removed in teardown;
+      the eval never touches resources outside its `jolly-test` namespace.
 
-  Rule: Assert affordances and real artifacts, never fabricated outcomes
+  Rule: Assert affordances and real live artifacts, never fabricated outcomes
     - Affordance is observed two ways: (1) the agent actually INVOKED Jolly's
       documented CLI commands, captured by a PATH shim that logs argv and then
       execs the real binary; and (2) the documented local artifacts Jolly
@@ -81,23 +80,23 @@ Feature: Agent skill affordance evaluation
       merged `.mcp.json`, a scaffolded `.env`, and the marker-merged `AGENTS.md`).
     - Jolly's diagnostics must have run and emitted the standard feature 020
       output envelope.
-    - Stripe affordance: the fake Stripe CLI session is seeded, but this
-      entry-point scenario does not assert Stripe keys land in `.env`. Following
-      the real `/setup` under forced-safe credentials, the agent runs `jolly
-      start`, which (per "Agent-supervised orchestration", feature 002) reaches
-      the Stripe stage only after the Saleor login/store stages — and those stop
-      at the human credential gate under the `.invalid` safe creds, so the run
-      never reaches Stripe. The Stripe-import affordance (Jolly importing test
-      keys via the read-only Stripe CLI, no fresh OAuth or paste) is covered by
-      feature 005 (`@logic`/`@sandbox`).
-    - The eval must NOT assert a working deployed store, and must NOT assert
-      artifacts Jolly does not produce (there is no `jolly.config.ts`).
+    - With the real Saleor token present the agent authenticates and can proceed
+      through the live stages (create a `jolly-test`-namespaced store, deploy the
+      recipe, seed stock), so the eval may observe real namespaced resources, not
+      just local files. It asserts the live result WHERE the capability is present
+      and honest gating where it is not — it never asserts an outcome the agent
+      did not actually achieve. The Stripe-import affordance (Jolly importing real
+      test-mode keys via the read-only Stripe CLI) is covered by feature 005.
+    - The eval must NOT fabricate or assume outcomes (no working-store claim the
+      run did not produce) and must NOT assert artifacts Jolly does not produce
+      (there is no `jolly.config.ts`). Any cloud resource the agent created must
+      be `jolly-test`-namespaced and cleaned up.
 
   Scenario: A baseline agent follows the published /setup entry point to set up a project
     Given a fresh per-run temporary workspace with the Jolly skill and CLI available
     And the baseline agent runs under a throwaway `$HOME` so its own config and credentials stay isolated
-    And a Stripe CLI session is already present (a harness-fake Stripe CLI returning dummy test-mode keys), as if `npx @stripe/cli login` had been completed
-    And the agent is run with forced safe credentials so no real cloud resources can be created
+    And a real Stripe CLI test-mode session is available
+    And the agent is run with the real integrated test-env credentials, every resource it creates `jolly-test`-namespaced and removed in teardown
     And Jolly's CLI invocations in the workspace are traced
     When a baseline agent is given the task:
       """
@@ -106,5 +105,5 @@ Feature: Agent skill affordance evaluation
     Then the agent should have invoked Jolly's documented CLI commands, including `jolly start`
     And the workspace should contain the local artifacts `jolly init` produces (the installed Jolly skill, a merged `.mcp.json`, a scaffolded `.env`, and the marker-merged `AGENTS.md`)
     And Jolly's diagnostics should have run and emitted the standard output envelope
-    And under the forced-safe credentials the run should stop honestly at a human/credential gate without fabricating success
-    And no real cloud resource should have been created and nothing should have been deployed
+    And the run should report only outcomes it actually achieved, stopping honestly at any remaining human gate without fabricating success
+    And every cloud resource the agent created should be `jolly-test`-namespaced and removed in teardown, with nothing outside that namespace touched
