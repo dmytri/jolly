@@ -56,7 +56,7 @@ function ctx(world: JollyWorld): EvalContext {
 // ─── Background ─────────────────────────────────────────────────────────────
 
 Given(
-  "the actual published-shape Jolly CLI and the actual Captain-owned Jolly skill \\(no mocks)",
+  "the actual published-shape Jolly CLI and the actual shipped Jolly skill \\(no mocks)",
   function () {
     // Fail loudly (not skip) if the real inputs are missing — the @eval Before
     // hook has already confirmed the runner and key, so this is a real defect.
