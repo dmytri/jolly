@@ -38,11 +38,12 @@ Only Captain may read or edit this file. QM, Crew, and Bosun must not. Binding b
 
 ## Current state / next outbound
 
-- **CONSISTENT BASELINE for the next iteration (2026-06-15):** all surfaces synced before the live-by-design harness rewire.
-  - **git:** `origin/main` @ `b9b33b9`, synced; deck clean.
-  - **npm:** `@dk/jolly@0.6.1` published (registry confirms `0.6.1`) — ships the post-0.6.0 src: v1 worklist impl (`feb52f8`) + `NON_FIRST_PARTY_HOST` pre-flight guard (`7484eb5`). Test-tier live-by-design changes don't affect the published CLI.
+- **CONSISTENT BASELINE for the next iteration (2026-06-15, updated post-0.6.2):** all surfaces synced before the live-by-design harness rewire.
+  - **git:** `origin/main` @ `baf5920`, synced; deck clean; tag `v0.6.2`.
+  - **npm:** `@dk/jolly@0.6.2` published (registry confirms `0.6.2`). 0.6.2 ships a **real CLI behavior change** (unlike 0.6.1's test-tier-only deltas): `jolly doctor saleor`'s `saleor-endpoint` check now runs a real read-only GraphQL connectivity probe (`probeEndpointConnectivity`, cloud-api.ts) → `pass` reachable / `unknown` present-but-unreachable / `fail` absent. Carries forward the 0.6.1 src (v1 worklist `feb52f8` + `NON_FIRST_PARTY_HOST` guard).
   - **homepage:** Vercel production deploy READY; `jolly.cool/setup` live (HTTP 200, current `assets/homepage/setup.md`).
-  - **verified pre-publish:** typecheck clean; `-p logic` 94/676 green.
+  - **verified at release:** typecheck clean; `--dry-run` 0 undefined; `-p logic` 94/94 green; `-p sandbox` 30 passed / 4 cred-gated skips / 0 failed.
+  - **QM cycle just closed (commits `4eb1548` + release `baf5920`):** fixed 3 failing @sandbox targets — doctor connectivity probe (002, the end-state behavior); 012 infer-org now resolves org against **real** creds; 022 idempotency-outline assertion de-hardcoded. **Stepping-stone caveat:** the 012 fix *kept* `logicSafeEnv` on the @logic normalize path — the live-by-design iteration below still owns ripping that out.
   - **Intended pending state (NOT a regression):** the `@eval` spec is ahead of its harness (4 undefined steps) — that is the QM worklist for the next iteration, by design.
 - **Next iteration = the live-by-design QM cycle** (see governing decision above): 4 undefined eval steps + rip `logicSafeEnv`/`.invalid`/`DUMMY` from ~19 step files, delete `stripe-cli-fake.ts` + `configurator-cli-fake.ts`, rewire all tiers to real `.env` (namespace/teardown/cannon-fodder reclaim), apply the failure-production policy. Needs a fresh session → `/qm`.
 - **Remaining to v1 ship:** one real paste→live-store acceptance pass to the feature 002 launch bar — deployed URL works, browse/cart against Saleor Cloud, checkout reaches the Stripe test payment step, `jolly doctor` checkout probe passes. Prefer a fresh blank Saleor environment (a non-blank store makes configurator deploy block honestly instead of applying). The `002` deployed-storefront `@sandbox` scenario is defined and skip-not-fail locally until a live deploy exists to point at.
