@@ -17,6 +17,20 @@ Only Captain may read or edit this file. QM, Crew, and Bosun must not. Binding b
 
 > **Captain authors every `.feature` scenario** — read and follow `SCENARIO_WRITING.md` (the scenario-writing guide) for each one.
 
+## GOVERNING DESIGN DECISION (dk, 2026-06-15): live-by-design, never mock/fake
+
+**Binding intent.** Jolly's test suite runs against **real services** in a **fully integrated test env that matches production** — the `JOLLY_*` Saleor Cloud / Vercel / Stripe credentials in `.env` ARE that test env. **Never mock or fake** (no fake Stripe/configurator CLIs, no dummy credentials, no `.invalid` endpoints, no simulated responses). **Creating real resources is expected and correct** — that is the point. Safety is **harmless-by-design = namespace every created resource + idempotent teardown + never modify/delete a resource the run did not create** (the existing AGENTS.md rules) — NOT credential-faking. This **supersedes the "012 incident" forced-safe approach** (`logicSafeEnv`/dummy creds): the guard against 012-class harm is the never-touch-what-we-didn't-create rule, not dummies. Scope: **every tier, including `@logic`** — no mock/fake anywhere.
+
+**What this rewrites:**
+- **Methodology (AGENTS.md):** "Prefer sandbox over mocks" → "real services always; mocks/fakes forbidden; harmless-by-design = namespace+cleanup." (AGENTS.md is the home of test methodology; flagged for dk's sign-off per the Captain/AGENTS.md boundary.)
+- **Spec (feature 025):** the `@eval` "Harmless by design — bounded, no real cloud" rule and its "no real cloud resource created / nothing deployed" assertions INVERT — the eval drives the agent against the real test env and verifies the live result (real namespaced store/deploy/Stripe-test-mode), with teardown.
+- **Harness (QM cycle):** rip out `logic-env.ts` (`logicSafeEnv`/`DUMMY`/`.invalid`) from ~20 step files + `dotenv`/`eval`; delete `stripe-cli-fake.ts` + `configurator-cli-fake.ts`; rewire every tier to the real `.env` services with namespace+teardown.
+
+**Operational realities to honor (not optional):**
+- **Env limits:** ~94 scenarios cannot each provision a Saleor Cloud environment (org limit → `ENVIRONMENT_LIMIT_REACHED`). Reuse the existing `@sandbox` discipline: ONE shared per-run `jolly-test`-namespaced environment, teardown-registered-before-create. Live `@logic` must share, not multiply, environments.
+- **Vercel:** live deploy needs a one-time interactive `vercel login` (browser) on the runner; absent it, deploy-touching tests skip-not-fail (capability gate), as `@sandbox` already does for `vercel whoami`.
+- **Stripe:** real `@stripe/cli` + real test-mode keys; test cards only (worst case = declined, never a real charge).
+
 ## Current state / next outbound
 
 - **Done (commit `feb52f8`, local-only, ahead of origin by 1):** the entire v1 new-behavior worklist (10 scenarios / 43 steps) is now executable AND satisfied. QM scaffolded the step defs; Crew implemented the production code. `cucumber-js -p logic` green (93 passed, 0 failed); `--dry-run` 0 undefined; typecheck clean. Specifics:
