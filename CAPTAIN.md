@@ -20,7 +20,11 @@ Only Captain may read or edit this file. QM, Crew, and Bosun must not. Binding b
 ## Current state / next outbound
 
 - **Remaining outbound work:** publish `@dk/jolly@0.6.1`, then run one real paste→live-store acceptance pass on a clean machine to the feature 002 operational-readiness bar — deployed URL works, browsing/cart against Saleor Cloud, checkout reaches the Stripe test payment step, and `jolly doctor` checkout probe passes. Prefer a fresh blank Saleor environment; a non-blank store makes configurator deploy block honestly instead of applying.
-- **In-flight:** a spec/asset/config consistency pass left uncommitted spec rewordings; QM picks up the orphaned step-definition re-sync from `npx cucumber-js --dry-run`. No behavior change intended.
+- **Done (commit `ec28720`, local-only):** the orphaned step-definition re-sync to the audit-reworded scenarios — assertions preserved, no behavior change; 44 orphaned step defs pruned. Undefined steps 448 → 212. `cucumber-js -p logic` green (84 passed, 0 failed); typecheck clean.
+- **New-behavior worklist (the 212 undefined):** the audit also *added* genuinely-new scenarios beyond rewording, with no implementation — these are the forward QM→Crew worklist, and need a v1-scope triage (MVP e2e path vs breadth to defer):
+  - *Crew (impl missing):* `009` per-agent env detection; `006` exact `--help` command surface / global-flag acceptance / old-Node launcher / "@dk/jolly-only" naming; `018` `login --browser` → `--token` guidance; `017` auto-apply safe skill update; `020` first-party-hosts allowlist.
+  - *QM scaffolding (impl exists, needs fixture/step):* `012` `ENVIRONMENT_LIMIT_REACHED`; `008` "stored, not verified" + `create --dry-run` outlines.
+  - *@sandbox / acceptance:* `002` resume-skip + deployed-storefront-serves-catalog; `003` Paper guidance preservation; `007` failed-skill-install.
 
 ## File-placement principle
 
