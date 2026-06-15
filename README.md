@@ -36,7 +36,7 @@ For Pi:
 pi install npm:pi-shipshape
 ```
 
-Read `AGENTS.md` for Jolly-specific constraints and `HANDOVER.md` for current state.
+Read `AGENTS.md` for agent/tooling configuration. Captain may also read `CAPTAIN.md`; QM, Crew, and Bosun must not.
 
 ## Development
 

@@ -17,10 +17,7 @@ and deleted and regenerated whenever specs change. All Captain-owned content liv
 jolly.cool) and `assets/skills/jolly/SKILL.md` (the Jolly skill Jolly installs). `assets/**` is
 not specified in `.feature` files, not covered by tests, and never edited by QM or Crew.
 
-**`AGENTS.md` is the authoritative charter.** Read it before doing substantive work; it owns
-the product vision, V1 scope/boundaries, the pinned contracts (output envelope, risk context,
-idempotency), and the Shipshape workflow integration. This file is the orientation layer;
-`AGENTS.md` is the source of truth, and `HANDOVER.md` is the Quartermaster's starting brief.
+**`AGENTS.md` is the authoritative agent/tooling configuration.** Read it before substantive work for commands, paths, test tiers, asset boundaries, and Shipshape workflow integration. Product intent belongs in executable specs and referenced assets; optional `CAPTAIN.md` notes are Captain-only and must not be read by QM, Crew, or Bosun.
 
 ## Shipshape workflow
 
@@ -32,7 +29,7 @@ Before substantive Claude Code work, install/load Shipshape:
 npx skills add dmytri/shipshape --agent claude-code --skill '*'
 ```
 
-Then read `AGENTS.md` for Jolly-specific constraints and `HANDOVER.md` for current Quartermaster state.
+Then read `AGENTS.md` for agent/tooling configuration. Captain may also read `CAPTAIN.md`; QM, Crew, and Bosun must not.
 
 Do not recreate project-local `/captain`, `/qm`, `/crew`, `/clearrole`, or generic role prompts in this repository. Shipshape owns those.
 
