@@ -24,7 +24,7 @@ Only Captain may read or edit this file. QM, Crew, and Bosun must not. Binding b
 **What this rewrites:**
 - **Methodology (AGENTS.md):** "Prefer sandbox over mocks" → "real services always; mocks/fakes forbidden; harmless-by-design = namespace+cleanup." (AGENTS.md is the home of test methodology; flagged for dk's sign-off per the Captain/AGENTS.md boundary.)
 - **Spec (feature 025):** the `@eval` "Harmless by design — bounded, no real cloud" rule and its "no real cloud resource created / nothing deployed" assertions INVERT — the eval drives the agent against the real test env and verifies the live result (real namespaced store/deploy/Stripe-test-mode), with teardown.
-- **Harness (QM cycle):** rip out `logic-env.ts` (`logicSafeEnv`/`DUMMY`/`.invalid`) from ~20 step files + `dotenv`/`eval`; delete `stripe-cli-fake.ts` + `configurator-cli-fake.ts`; rewire every tier to the real `.env` services with namespace+teardown.
+- **Harness (QM cycle):** rip out `logic-env.ts` (`logicSafeEnv`/`DUMMY`/`.invalid`) from ~19 step files + `dotenv`/`eval`; delete `stripe-cli-fake.ts` + `configurator-cli-fake.ts`; rewire every tier to the real `.env` services with namespace+teardown.
 
 **Operational realities to honor (not optional):**
 - **Env limits — cannon fodder (dk):** environments in this test org are disposable. When the org limit is hit (`ENVIRONMENT_LIMIT_REACHED`), the harness reclaims capacity by DELETING `jolly-test`-namespaced environments and proceeds — it is NOT a skip. The `jolly-test-` prefix (`features/support/sandbox.ts:293`, `makeNamespace` → `jolly-test-${runId}`) IS the protection boundary: only `jolly-test-*` envs are deletable cannon fodder; the configured `jolly-store` (the `.env` endpoint) and any future non-test env are never deleted. Sharing one per-run env is allowed as efficiency, not required.
@@ -39,45 +39,20 @@ Only Captain may read or edit this file. QM, Crew, and Bosun must not. Binding b
 ## Current state / next outbound
 
 - **CONSISTENT BASELINE for the next iteration (2026-06-15):** all surfaces synced before the live-by-design harness rewire.
-  - **git:** `origin/main` @ `a35ea0c`, fully synced (0/0); deck clean.
+  - **git:** `origin/main` @ `b9b33b9`, synced; deck clean.
   - **npm:** `@dk/jolly@0.6.1` published (registry confirms `0.6.1`) — ships the post-0.6.0 src: v1 worklist impl (`feb52f8`) + `NON_FIRST_PARTY_HOST` pre-flight guard (`7484eb5`). Test-tier live-by-design changes don't affect the published CLI.
   - **homepage:** Vercel production deploy READY; `jolly.cool/setup` live (HTTP 200, current `assets/homepage/setup.md`).
   - **verified pre-publish:** typecheck clean; `-p logic` 94/676 green.
   - **Intended pending state (NOT a regression):** the `@eval` spec is ahead of its harness (4 undefined steps) — that is the QM worklist for the next iteration, by design.
 - **Next iteration = the live-by-design QM cycle** (see governing decision above): 4 undefined eval steps + rip `logicSafeEnv`/`.invalid`/`DUMMY` from ~19 step files, delete `stripe-cli-fake.ts` + `configurator-cli-fake.ts`, rewire all tiers to real `.env` (namespace/teardown/cannon-fodder reclaim), apply the failure-production policy. Needs a fresh session → `/qm`.
-
-- **Done (commit `feb52f8`, local-only, ahead of origin by 1):** the entire v1 new-behavior worklist (10 scenarios / 43 steps) is now executable AND satisfied. QM scaffolded the step defs; Crew implemented the production code. `cucumber-js -p logic` green (93 passed, 0 failed); `--dry-run` 0 undefined; typecheck clean. Specifics:
-  - `008` "stored, not verified" — store/app-token/stripe now report a stored-but-unverified value as exactly that phrase; app-token no longer claims "created"/"acquired". `create --dry-run` previews already existed (passed once scaffolded).
-  - `009` generic-fallback — `commandInit` now reports `data.detectedAgent` (null/generic when no marker); the multi-agent matrix stays `@iteration`.
-  - `012` `ENVIRONMENT_LIMIT_REACHED` — src already emitted the code; a limit-rejecting in-process Cloud API fixture exercises it.
-  - `020` first-party-hosts — new `src/lib/hosts.ts` declares the canonical `FIRST_PARTY_HOSTS` allowlist + `isFirstPartyHost` predicate (honors `*.saleor.cloud` and the `JOLLY_SALEOR_CLOUD_API_URL` override); the test also greps src to forbid api.vercel.com / retired hosts.
-- **Pushed:** commit `feb52f8` is on `origin/main` (dk approved, trunk-based). Deck clean at push.
-- **Done (commit `7484eb5`, pushed to `origin/main` as of `48c0cd9`; dk approved, trunk-based):** the 020 first-party-host allowlist is now ENFORCED, not just declared. New `@logic` scenario `020:72` "Jolly refuses a request to a non-first-party host instead of sending it" is executable and green: `jolly create app-token --url https://evil.example.com/graphql/ --json` refuses **pre-flight** with the stable code `NON_FIRST_PARTY_HOST`, names the refused host, and writes nothing — no silent foreign request. Crew wired `isFirstPartyHost` into the `graphqlFetch` request seam (`src/lib/cloud-api.ts`) via an `assertFirstPartyUrl` guard that throws before any fetch; the legitimate 127.0.0.1 / *.saleor.cloud flows (and the `APP_TOKEN_ACQUISITION_FAILED` path) stay untouched. Verified by Captain: feature 020 = 10 scenarios/78 steps pass; `-p logic` = 94 scenarios/676 steps pass; `--dry-run` 0 undefined; typecheck clean.
-  - **Open follow-up (architectural, non-blocking):** the guard sits only at `graphqlFetch` — the seam the customer-supplied `--url` flows through. Sibling seams (`cloudFetch`, `pollTaskStatus`, `timedGraphql`) currently receive only internally-derived first-party URLs and are unguarded; no scenario exercises them, so guarding them now would be behavior beyond spec. If a future scenario ever lets a customer-supplied host reach those seams, centralize the predicate at the one canonical request choke point rather than spreading `assertFirstPartyUrl` calls.
-  - `002` deployed-storefront serves catalog + cart — `@sandbox`, gated on `HARNESS_DEPLOYED_STOREFRONT_URL` + the served store's endpoint; steps are defined and skip-not-fail locally (no live deploy to point at). Not part of `7484eb5`; awaits the live acceptance pass below.
-- **Remaining outbound work:** publish `@dk/jolly@0.6.1`, then run one real paste→live-store acceptance pass on a clean machine to the feature 002 operational-readiness bar — deployed URL works, browsing/cart against Saleor Cloud, checkout reaches the Stripe test payment step, and `jolly doctor` checkout probe passes. Prefer a fresh blank Saleor environment; a non-blank store makes configurator deploy block honestly instead of applying.
-- **Done (commit `ec28720`, local-only):** the orphaned step-definition re-sync to the audit-reworded scenarios — assertions preserved, no behavior change; 44 orphaned step defs pruned. Undefined steps 448 → 212. `cucumber-js -p logic` green (84 passed, 0 failed); typecheck clean.
-- **New-behavior worklist (the 212 undefined) — v1-scope triage.** The audit also *added* genuinely-new scenarios beyond rewording, with no implementation. Triaged against the launch bar + MVP-first:
-  - **V1 (on the launch-bar path / non-negotiable honesty+trust):**
-    - `002` deployed storefront serves catalog + working cart — the launch bar; acceptance/@sandbox.
-    - `008` "stored, not verified" + `create --dry-run` preview — honesty on the create stages setup uses; impl likely exists (QM scaffolding).
-    - `012` `ENVIRONMENT_LIMIT_REACHED` — real store-creation failure; src already emits the code, needs a fixture.
-    - `020` first-party-hosts allowlist — trust/security contract under the homepage handoff.
-    - `009` generic-fallback detection only ("no marker → generic glue") — the baseline single-agent path.
-  - **Defer to iteration (breadth / robustness / blocked):**
-    - `009` multi-agent detection matrix (opencode/.cursor/.zed/.pi/…) + first-match order — breadth across 7 envs.
-    - `006` exact command surface, global-flag matrix, old-Node launcher error, "@dk/jolly-only" naming — surface-stability/robustness.
-    - `007` failed-skill-install surfacing — error-path robustness.
-    - `017` auto-apply safe skill update — post-setup maintenance, not launch-bar (YAGNI). **Now unblocked:** safety rule decided and written into feature 017 — auto-apply only when it would not overwrite user-authored content; a customer-modified managed target is reported for review, never overwritten; Paper/storefront migrations never auto-applied. Iteration writes the negative scenario.
-    - `018` `login --browser` → `--token` guidance — narrow auth-UX edge; agent path already uses `--token`.
-    - `003` Paper guidance preservation-in-plan — minor plan-detail assertion; removed as a step from the v1 "Use Saleor Paper as the storefront baseline" scenario, to be re-specified as a dedicated iteration scenario.
-    - `002` resume-skip already-completed storefront — resumability robustness (feature 022).
-  - **Deferral mechanism (done):** deferred scenarios tagged `@iteration`; `cucumber.js` default/logic/sandbox profiles now exclude `@iteration`, and `-p iteration` runs the backlog. v1 worklist (default dry-run) = 10 scenarios / 43 steps across 002/008/009/012/020. Backlog: 43 scenarios under `-p iteration`. *(Tooling follow-up: AGENTS.md's "Test tiers" list still documents only @logic/@sandbox/@eval — add an `@iteration` line there; not done under the Captain/AGENTS.md boundary.)*
+- **Remaining to v1 ship:** one real paste→live-store acceptance pass to the feature 002 launch bar — deployed URL works, browse/cart against Saleor Cloud, checkout reaches the Stripe test payment step, `jolly doctor` checkout probe passes. Prefer a fresh blank Saleor environment (a non-blank store makes configurator deploy block honestly instead of applying). The `002` deployed-storefront `@sandbox` scenario is defined and skip-not-fail locally until a live deploy exists to point at.
+- **Open follow-up (architectural, non-blocking):** the `NON_FIRST_PARTY_HOST` guard sits only at the `graphqlFetch` seam (where the customer `--url` flows). Sibling seams (`cloudFetch`, `pollTaskStatus`, `timedGraphql`) take only internally-derived first-party URLs and are unguarded — no scenario exercises them. If a future scenario lets a customer-supplied host reach them, centralize the predicate at one canonical request choke point rather than spreading `assertFirstPartyUrl`.
+- **Deferred past v1:** tracked by the `@iteration` tag in the specs (`cucumber-js -p iteration`); the v1 worklist (002/008/009/012/020) is satisfied. Notable backlog items: `009` multi-agent detection matrix, `006` command-surface/flag-matrix robustness, `007` failed-skill-install surfacing, `017` auto-apply safe skill update, `002` resume-skip, `003` Paper guidance-in-plan.
 
 ## File-placement principle
 
 - `features/*.feature` + `assets/**` = product intent (binding). `CAPTAIN.md` = non-binding notes. `AGENTS.md` = Shipshape/tooling-generic agent config (no product specifics, bar unavoidable tooling identifiers like `@dk/jolly`, `JOLLY_*`). `CLAUDE.md` = thin Claude-Code-specific pointer to `AGENTS.md`.
-- All test/harness methodology lives in `AGENTS.md` so QM/Crew always see it — the tiers, *prefer sandbox over mocks*, *harmless-by-design*, the sandbox provisioning/teardown mechanics, and *specs map to executable steps, no design notes as steps*. There is no harness/`@meta` feature: `features/**` describes how Jolly works, never the harness or test methodology.
+- All test/harness methodology lives in `AGENTS.md` so QM/Crew always see it — the tiers, *real services always (never mock/fake)*, *harmless-by-design*, the sandbox provisioning/teardown mechanics, and *specs map to executable steps, no design notes as steps*. There is no harness/`@meta` feature: `features/**` describes how Jolly works, never the harness or test methodology.
 
 ## Goals & MVP framing (the real objective)
 
