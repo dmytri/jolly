@@ -31,6 +31,11 @@ Only Captain may read or edit this file. QM, Crew, and Bosun must not. Binding b
 - **Vercel:** live deploy needs a one-time interactive `vercel login` (browser) on the runner; absent it, deploy-touching tests skip-not-fail (capability gate), as `@sandbox` already does for `vercel whoami`.
 - **Stripe:** real `@stripe/cli` + real test-mode keys; test cards only (worst case = declined, never a real charge).
 
+**Failure-condition production policy (dk decided 2026-06-15): real where possible; narrow justified double otherwise.**
+- **Produce for real** (the majority): every failure reachable from real bad input — empty/garbage token → real auth rejection; non-first-party `--url` → real `NON_FIRST_PARTY_HOST` pre-flight refusal; malformed input → real honest error. No double.
+- **Justified-exception double** (enumerated, inline-justified, never the normal path) only for conditions the real test env genuinely cannot produce on demand. Current set: `ENVIRONMENT_LIMIT_REACHED` (org at its env limit) and the **unverifiable-endpoint** "stored, not verified" path (a deliberately unreachable service). If QM finds a real way to trigger these cheaply (e.g. fill-then-reclaim cannon-fodder envs), prefer that.
+- **"No fabricated pass" doctor checks (020/014/021/024…):** under real creds these checks now legitimately PASS — so re-aim the assertion at its real intent: real reachable store → assert real `pass`; the never-fabricate invariant is proven by feeding **real junk/bad input** and asserting no success/verify language, not by an unroutable endpoint.
+
 ## Current state / next outbound
 
 - **Done (commit `feb52f8`, local-only, ahead of origin by 1):** the entire v1 new-behavior worklist (10 scenarios / 43 steps) is now executable AND satisfied. QM scaffolded the step defs; Crew implemented the production code. `cucumber-js -p logic` green (93 passed, 0 failed); `--dry-run` 0 undefined; typecheck clean. Specifics:
