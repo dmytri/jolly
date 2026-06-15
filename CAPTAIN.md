@@ -38,6 +38,14 @@ Only Captain may read or edit this file. QM, Crew, and Bosun must not. Binding b
 
 ## Current state / next outbound
 
+- **CONSISTENT BASELINE for the next iteration (2026-06-15):** all surfaces synced before the live-by-design harness rewire.
+  - **git:** `origin/main` @ `a35ea0c`, fully synced (0/0); deck clean.
+  - **npm:** `@dk/jolly@0.6.1` published (registry confirms `0.6.1`) — ships the post-0.6.0 src: v1 worklist impl (`feb52f8`) + `NON_FIRST_PARTY_HOST` pre-flight guard (`7484eb5`). Test-tier live-by-design changes don't affect the published CLI.
+  - **homepage:** Vercel production deploy READY; `jolly.cool/setup` live (HTTP 200, current `assets/homepage/setup.md`).
+  - **verified pre-publish:** typecheck clean; `-p logic` 94/676 green.
+  - **Intended pending state (NOT a regression):** the `@eval` spec is ahead of its harness (4 undefined steps) — that is the QM worklist for the next iteration, by design.
+- **Next iteration = the live-by-design QM cycle** (see governing decision above): 4 undefined eval steps + rip `logicSafeEnv`/`.invalid`/`DUMMY` from ~19 step files, delete `stripe-cli-fake.ts` + `configurator-cli-fake.ts`, rewire all tiers to real `.env` (namespace/teardown/cannon-fodder reclaim), apply the failure-production policy. Needs a fresh session → `/qm`.
+
 - **Done (commit `feb52f8`, local-only, ahead of origin by 1):** the entire v1 new-behavior worklist (10 scenarios / 43 steps) is now executable AND satisfied. QM scaffolded the step defs; Crew implemented the production code. `cucumber-js -p logic` green (93 passed, 0 failed); `--dry-run` 0 undefined; typecheck clean. Specifics:
   - `008` "stored, not verified" — store/app-token/stripe now report a stored-but-unverified value as exactly that phrase; app-token no longer claims "created"/"acquired". `create --dry-run` previews already existed (passed once scaffolded).
   - `009` generic-fallback — `commandInit` now reports `data.detectedAgent` (null/generic when no marker); the multi-agent matrix stays `@iteration`.
