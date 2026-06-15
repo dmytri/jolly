@@ -951,6 +951,41 @@ export async function probeCheckoutPaymentGateway(
   }
 }
 
+// ── Endpoint connectivity probe (feature 002 — `jolly doctor saleor`) ──────
+//
+// `doctor`'s `saleor-endpoint` check must report a real, READ-ONLY live
+// connectivity verdict, not just presence. This sends a minimal introspection
+// query (no token, no mutation, no write) through the same fail-fast machinery
+// as the checkout probe, guarded first by the first-party-host check so a
+// non-first-party `--url` resolves to a non-pass status rather than throwing.
+
+export type EndpointProbeOutcome =
+  | { kind: "reachable" }
+  | { kind: "unreachable" };
+
+/**
+ * Probe whether `graphqlUrl` is reachable and responds as a GraphQL endpoint,
+ * using a tiny read-only introspection query (`query { __typename }`). Returns
+ * `reachable` when the endpoint answers as GraphQL, `unreachable` for any other
+ * outcome (non-first-party host, unparseable URL, network error, timeout, or a
+ * non-GraphQL response). Never throws and never mutates.
+ */
+export async function probeEndpointConnectivity(
+  graphqlUrl: string,
+): Promise<EndpointProbeOutcome> {
+  try {
+    assertFirstPartyUrl(graphqlUrl);
+    const body = await timedGraphql(graphqlUrl, undefined, `query { __typename }`);
+    const data = body.data as Record<string, unknown> | undefined;
+    if (data && typeof data.__typename === "string") {
+      return { kind: "reachable" };
+    }
+    return { kind: "unreachable" };
+  } catch {
+    return { kind: "unreachable" };
+  }
+}
+
 async function withRetries<T>(
   fn: () => Promise<T>,
   attempts: number = 5,

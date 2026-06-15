@@ -43,6 +43,7 @@ import {
   installStripeApp,
   STRIPE_APP_MANIFEST_URL,
   probeCheckoutPaymentGateway,
+  probeEndpointConnectivity,
   CloudApiError,
   type CloudOrganization,
 } from "./lib/cloud-api.ts";
@@ -1713,16 +1714,30 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
       description: hasCloud ? "JOLLY_SALEOR_CLOUD_TOKEN present." : "No Saleor Cloud token configured.",
       command: hasCloud ? undefined : "jolly login --token <value>",
     });
-    checks.push({
-      id: "saleor-endpoint",
-      // Presence is detectable; live connectivity is a @sandbox concern, so
-      // report "unknown" (not a fabricated pass) when present without probing.
-      status: hasEndpoint ? "unknown" : "fail",
-      description: hasEndpoint
-        ? "NEXT_PUBLIC_SALEOR_API_URL is set; live connectivity not verified in this run."
-        : "No Saleor GraphQL endpoint configured.",
-      command: hasEndpoint ? undefined : "jolly create store --url <graphql-endpoint>",
-    });
+    if (!hasEndpoint) {
+      checks.push({
+        id: "saleor-endpoint",
+        status: "fail",
+        description: "No Saleor GraphQL endpoint configured.",
+        command: "jolly create store --url <graphql-endpoint>",
+      });
+    } else {
+      // Presence is detectable; run a real READ-ONLY live connectivity probe.
+      // Reachable GraphQL endpoint → "pass"; configured but unreachable / not a
+      // GraphQL endpoint → "unknown" (never a fabricated pass, never "fail").
+      const saleorEndpoint = String(
+        values["NEXT_PUBLIC_SALEOR_API_URL"] ?? process.env["NEXT_PUBLIC_SALEOR_API_URL"],
+      );
+      const outcome = await probeEndpointConnectivity(saleorEndpoint);
+      const reachable = outcome.kind === "reachable";
+      checks.push({
+        id: "saleor-endpoint",
+        status: reachable ? "pass" : "unknown",
+        description: reachable
+          ? "NEXT_PUBLIC_SALEOR_API_URL is reachable and responds as a GraphQL endpoint."
+          : "NEXT_PUBLIC_SALEOR_API_URL is set but live connectivity could not be verified in this run.",
+      });
+    }
     checks.push({
       id: "saleor-app-token",
       status: hasApp ? "pass" : "fail",

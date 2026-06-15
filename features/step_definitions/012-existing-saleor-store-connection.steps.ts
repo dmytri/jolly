@@ -155,12 +155,15 @@ When(
   "the agent runs `jolly create store --url https:\\/\\/my-shop.saleor.cloud\\/graphql\\/ --json`",
   function (this: JollyWorld) {
     // Shared by the @logic normalize outline (graphql form) and the @sandbox
-    // infer-org scenario. Record the pasted URL for the normalize Then; drive
-    // the create-environment dry-run for the infer Then (org resolution).
+    // infer-org scenario. Record the pasted URL for the normalize Then (a pure
+    // transform that does not read the envelope); drive the create-environment
+    // dry-run for the infer Then (org resolution). The infer-org scenario, set
+    // up by its @sandbox Given (inferOrgSandbox), must resolve a real org from
+    // the live Cloud token, so it runs against the real runtime credentials;
+    // the @logic normalize outline stays harmless under logicSafeEnv.
     this.notes.pastedUrl = "https://my-shop.saleor.cloud/graphql/";
-    this.runCli(["create", "store", "--create-environment", "--dry-run", "--json"], {
-      env: logicSafeEnv(),
-    });
+    const env = this.notes.inferOrgSandbox ? undefined : logicSafeEnv();
+    this.runCli(["create", "store", "--create-environment", "--dry-run", "--json"], { env });
   },
 );
 
@@ -279,6 +282,9 @@ Given(
   "a verified Saleor GraphQL endpoint whose host matches one Cloud environment domain",
   function (this: JollyWorld) {
     assert.ok(process.env["NEXT_PUBLIC_SALEOR_API_URL"], "requires NEXT_PUBLIC_SALEOR_API_URL");
+    // Marks the @sandbox infer-org path so the shared `create store` When runs
+    // against the real Cloud token (org resolution), not logicSafeEnv dummies.
+    this.notes.inferOrgSandbox = true;
   },
 );
 

@@ -107,7 +107,9 @@ Then(
 Then(
   "it should report the detected existing state through the standard output envelope",
   function (this: JollyWorld) {
-    assert.ok(this.envelope.command.startsWith("create store"), "must use the standard envelope");
+    // Scenario Outline over both `create store` and `create app-token`: the
+    // standard envelope names whichever create subcommand ran, not a fixed one.
+    assert.ok(this.envelope.command.startsWith("create "), "must use the standard envelope");
     assert.ok(this.envelope.summary.length > 0, "must summarize the detected state");
   },
 );
