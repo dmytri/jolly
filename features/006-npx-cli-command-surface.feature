@@ -18,7 +18,7 @@ Feature: Npx-first Jolly CLI command surface
     And it should spawn the official CLIs (Vercel CLI, `@saleor/configurator`, `git`, `pnpm`) under their own auth while using Jolly's thin helpers for plumbing
     And the output should follow Jolly's hybrid human-readable plus machine-readable format
 
-  @logic
+  @logic @iteration
   Scenario: The CLI exposes exactly the supported command surface
     Given the published Jolly CLI
     When the agent inspects `jolly --help`
@@ -26,7 +26,7 @@ Feature: Npx-first Jolly CLI command surface
     And `jolly create --help` should list only the subcommands `store`, `app-token`, and `stripe`
     And no `deployment`, `deploy`, `recipe`, or `storefront` subcommand should appear anywhere in the surface
 
-  @logic
+  @logic @iteration
   Scenario Outline: Every command accepts the global output flags
     Given the published Jolly CLI
     When the agent runs `jolly <command> <flag>`
@@ -63,14 +63,14 @@ Feature: Npx-first Jolly CLI command surface
       | create stripe     | --quiet   |
       | create stripe     | --yes     |
 
-  @logic
+  @logic @iteration
   Scenario: The launcher fails clearly on an unsupported Node version
     Given a Node.js runtime older than the minimum the launcher requires
     When the published `jolly` launcher runs
     Then it should exit with an error naming the minimum Node version
     And it should not surface a raw syntax or module-resolution error
 
-  @logic @property
+  @logic @property @iteration
   Scenario Outline: Command output names only the @dk/jolly package
     Given the published Jolly CLI
     When the agent runs `<command>`

@@ -8,7 +8,6 @@ Feature: Saleor source repositories and integration boundaries
     Given a fresh empty project directory
     When the agent runs `jolly start --dry-run --json`
     Then the plan's storefront stage should name `saleor/storefront` as the baseline to clone
-    And the plan should preserve Paper's embedded `AGENTS.md` and `skills/saleor-paper-storefront/SKILL.md`
     And the plan should not name the deprecated `saleor` CLI as required to create the storefront
 
   Rule: `saleor/storefront` research notes

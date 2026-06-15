@@ -32,11 +32,11 @@ Only Captain may read or edit this file. QM, Crew, and Bosun must not. Binding b
     - `009` multi-agent detection matrix (opencode/.cursor/.zed/.pi/…) + first-match order — breadth across 7 envs.
     - `006` exact command surface, global-flag matrix, old-Node launcher error, "@dk/jolly-only" naming — surface-stability/robustness.
     - `007` failed-skill-install surfacing — error-path robustness.
-    - `017` auto-apply safe skill update — **blocked** on the open question "exact safety rules for auto-applying Jolly-managed updates"; resolve first.
+    - `017` auto-apply safe skill update — post-setup maintenance, not launch-bar (YAGNI). **Now unblocked:** safety rule decided and written into feature 017 — auto-apply only when it would not overwrite user-authored content; a customer-modified managed target is reported for review, never overwritten; Paper/storefront migrations never auto-applied. Iteration writes the negative scenario.
     - `018` `login --browser` → `--token` guidance — narrow auth-UX edge; agent path already uses `--token`.
-    - `003` Paper guidance preservation-in-plan — minor plan-detail assertion.
+    - `003` Paper guidance preservation-in-plan — minor plan-detail assertion; removed as a step from the v1 "Use Saleor Paper as the storefront baseline" scenario, to be re-specified as a dedicated iteration scenario.
     - `002` resume-skip already-completed storefront — resumability robustness (feature 022).
-  - **Deferral mechanism (open):** how to park deferred scenarios so the v1 worklist can reach green without losing them as intent — likely a tag excluded from the default profile (a `cucumber.js` tooling change, not a spec edit). Decide before acting.
+  - **Deferral mechanism (done):** deferred scenarios tagged `@iteration`; `cucumber.js` default/logic/sandbox profiles now exclude `@iteration`, and `-p iteration` runs the backlog. v1 worklist (default dry-run) = 10 scenarios / 43 steps across 002/008/009/012/020. Backlog: 43 scenarios under `-p iteration`. *(Tooling follow-up: AGENTS.md's "Test tiers" list still documents only @logic/@sandbox/@eval — add an `@iteration` line there; not done under the Captain/AGENTS.md boundary.)*
 
 ## File-placement principle
 
@@ -68,7 +68,6 @@ Only Captain may read or edit this file. QM, Crew, and Bosun must not. Binding b
 - `features/001`: whether Jolly should create project-local durable artifacts such as `.jolly/` reports or state; exact per-environment setup steps for supported agent targets.
 - `features/008`: whether `jolly create app-token` should request all available permissions or allow the agent to specify a subset.
 - `features/012`: which pasted URL forms Jolly should normalize in v1; exact Saleor API or Dashboard automation path for app-token creation; exact task-status response shape and domain extraction against the live Cloud API.
-- `features/017`: exact safety rules for auto-applying Jolly-managed updates.
 - `features/019`: mcp-graphql config format for each supported agent environment; whether `jolly doctor --watch` belongs in v1 or v2; upgrade cadence signal for outdated skills.
 - `features/020`: envelope schema versioning; canonical registry of stable error codes and check ids.
 - `features/021`: whether `riskLevel` is derived deterministically from categories or set per action; optional fields such as estimated cost or affected record counts.

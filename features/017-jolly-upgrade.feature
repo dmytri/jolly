@@ -31,7 +31,7 @@ Feature: Jolly upgrade
     And it should generate an upgrade plan from Paper's migration guidance
     And it should not apply Paper migrations automatically in v1
 
-  @logic
+  @logic @iteration
   Scenario: Upgrade auto-applies a safe Jolly-managed skill update
     Given a Jolly-managed skill has a newer version available
     And applying it does not overwrite user-authored content
@@ -41,12 +41,9 @@ Feature: Jolly upgrade
 
   Rule: Upgrade principles
     - `jolly upgrade` is included in v1.
-    - Upgrade should auto-apply Jolly-managed skill and guidance updates when safe.
+    - Upgrade auto-applies a Jolly-managed skill or guidance update only when applying it would not overwrite user-authored content; a managed target the customer has locally modified is reported for review instead of overwritten, and Paper/storefront migrations are never auto-applied.
     - Upgrade should default to plan-only for Paper/storefront changes.
     - Upgrade should focus on Jolly-managed assets first: skills, agent guidance, and setup instructions.
     - Paper/storefront upgrades should be conservative and respect customer customizations.
     - Upgrade output should be concise for humans and structured for agents.
     - Upgrade should not expose secrets.
-
-  Rule: Open questions
-    - Exact safety rules for auto-applying Jolly-managed updates remain open.

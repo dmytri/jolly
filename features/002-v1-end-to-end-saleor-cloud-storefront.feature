@@ -48,7 +48,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And `jolly doctor storefront --full-validation` should run Paper's generate, typecheck, and build steps and report each as a check
     And it should leave Paper's source and theme files unmodified after the clone and install
 
-  @sandbox
+  @sandbox @iteration
   Scenario: jolly start resumes and skips an already-completed storefront stage
     Given a `storefront/` directory already cloned and installed from a previous run
     When the agent runs `jolly start --json` again

@@ -75,7 +75,7 @@ Feature: Jolly auth commands
     And subsequent `jolly auth status` should report the token is configured
     And Jolly should not print the token value
 
-  @logic
+  @logic @iteration
   Scenario: login --browser errors with --token guidance when no browser path is available
     Given no native browser can be opened and Playwright is not available
     When the agent runs `jolly login --browser`

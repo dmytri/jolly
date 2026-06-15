@@ -65,7 +65,7 @@ Feature: Jolly init for local agent setup
     Then the Jolly skill should be installed under `.agents/skills/jolly/` from the bundled copy
     And the installed Jolly skill content should match the bundled copy
 
-  @sandbox
+  @sandbox @iteration
   Scenario: A failed skill install surfaces the error and exits non-zero
     Given a default skill whose clone or install step fails
     When `jolly init` installs the default skill set
