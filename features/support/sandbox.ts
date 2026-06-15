@@ -97,6 +97,12 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
     "saleorAppToken",
   ],
   // 005-stripe-checkout-setup
+  // The Stripe-CLI import path writes the session's keys to .env and contacts no
+  // Saleor/Stripe service, so it needs NO Jolly credential group. Its premise —
+  // a real, logged-in Stripe CLI holding test-mode keys — is a runner CAPABILITY
+  // (signup + browser OAuth are human steps, not provisionable), gated in the
+  // scenario's Given which skips when no such session is present.
+  "Jolly create stripe imports keys from the Stripe CLI session when none are passed": [],
   "Agent configures Saleor for Stripe": [
     "saleorEndpoint",
     "saleorAppToken",

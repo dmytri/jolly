@@ -366,6 +366,10 @@ When("the agent runs `jolly doctor deployment --json`", function (this: JollyWor
   this.runCli(["doctor", "deployment", "--json"], { env: logicSafeEnv() });
 });
 
+When("the agent runs `jolly doctor stripe --json`", function (this: JollyWorld) {
+  this.runCli(["doctor", "stripe", "--json"], { env: logicSafeEnv() });
+});
+
 Then("only the skills checks should run", function (this: JollyWorld) {
   assertOnlyGroupRan(this, "skills");
 });

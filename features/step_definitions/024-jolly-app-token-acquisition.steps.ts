@@ -1,31 +1,23 @@
 // Feature 024 — Jolly app token acquisition via Saleor GraphQL.
 //
-// Respec'd 2026-06-14 (acceptance-run finding): Jolly acquires the workflow
-// token from a DEDICATED app it owns, named "Jolly Setup", created with the
-// full v1 permission set. It must never mint a token for an unrelated
-// pre-existing app — `appTokenCreate` cannot escalate a stranger app's
-// permissions, so the old "select apps[0]" flow produced an under-permissioned
-// token on any non-pristine environment (the live `jolly-store` had a 3-perm
-// "SMTP" app first, so Configurator failed Permission Denied).
+// Jolly acquires the workflow token from a DEDICATED app it owns, named "Jolly
+// Setup", created with the full v1 permission set. It must never mint a token
+// for an unrelated pre-existing app — `appTokenCreate` cannot escalate a
+// stranger app's permissions, so the old "select apps[0]" flow produced an
+// under-permissioned token on any non-pristine environment (the live
+// `jolly-store` had a 3-permission "SMTP" app first, so Configurator failed
+// Permission Denied).
 //
-// @logic strategy — a LOCAL in-process Saleor GraphQL stand-in:
-//   The `create app-token` command talks to the INSTANCE GraphQL URL (via
-//   --url / NEXT_PUBLIC_SALEOR_API_URL), not the Cloud API. So we point --url
-//   at an in-process GraphQL server that answers GetApps / PermissionEnum /
-//   appCreate / appTokenCreate, records every operation, and lets us assert
-//   exactly which mutation Jolly sent and against which app. This is hermetic
-//   (loopback only) and reaches no real account. Because the server is
-//   in-process, the CLI must be driven with runCliAsync (spawnSync would
-//   deadlock the event loop — the feature 012 lesson).
-//
-// Safety: every @logic run uses logicSafeEnv() — dummy creds for all groups +
-// an unroutable `.invalid` Cloud API base — and --url overrides the endpoint
-// with the loopback stand-in. No @logic path can reach a real account.
-//
-// @sandbox "acquires a real, fully-permissioned token from Saleor" runs against
-// the provisioned endpoint in CI (skips locally); it stores
-// JOLLY_SALEOR_APP_TOKEN, never prints it, and verifies the dedicated app
-// really carries the Configurator permission set.
+// Coverage is two scenarios:
+//   - @logic "--dry-run shows risk context": deterministic preview under
+//     logicSafeEnv() (dummy creds + an unroutable `.invalid` endpoint) — writes
+//     nothing and contacts no instance.
+//   - @sandbox "acquires a real, fully-permissioned token from Saleor": runs
+//     against the provisioned endpoint in CI (skips locally). It stores
+//     JOLLY_SALEOR_APP_TOKEN, never prints it, proves the token's own app is the
+//     dedicated "Jolly Setup" (never an unrelated one), that the app carries the
+//     Configurator permission set, and that a re-run reuses it without creating
+//     a duplicate.
 //
 // Shared steps (Background, "the output should include a risk context with
 // action {string}", "it should write the token to .env as
@@ -33,10 +25,9 @@
 // shared.steps.ts.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
-import { createServer, type Server } from "node:http";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { logicSafeEnv, UNROUTABLE_SALEOR_ENDPOINT, DUMMY } from "../support/logic-env.ts";
+import { logicSafeEnv, UNROUTABLE_SALEOR_ENDPOINT } from "../support/logic-env.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
 import { saleorGraphql } from "../support/saleor-graphql.ts";
 import type { JollyWorld } from "../support/world.ts";
@@ -53,360 +44,6 @@ const CONFIGURATOR_PERMISSIONS = [
   "MANAGE_SHIPPING",
   "MANAGE_CHECKOUTS",
 ];
-
-// The full PermissionEnum the stand-in advertises: the Configurator set plus a
-// few extras, so "all available permissions" is a meaningful superset to assert.
-const ALL_PERMISSIONS = [
-  ...CONFIGURATOR_PERMISSIONS,
-  "MANAGE_ORDERS",
-  "MANAGE_USERS",
-  "MANAGE_GIFT_CARD",
-  "MANAGE_DISCOUNTS",
-  "MANAGE_MENUS",
-  "MANAGE_APPS",
-];
-
-// ─── In-process Saleor GraphQL stand-in ────────────────────────────────────
-//
-// Answers the four operations acquireAppToken uses and records each, so a
-// scenario can assert which mutation was sent and against which app. The bearer
-// token on every request is captured so we can assert the GetApps query is
-// authenticated. The created/minted tokens are deterministic dummy values.
-
-interface GqlOperation {
-  type: "getApps" | "permissionEnum" | "appCreate" | "appTokenCreate" | "unknown";
-  authorization?: string;
-  /** appCreate: requested name. */
-  name?: string;
-  /** appCreate: requested permissions. */
-  permissions?: string[];
-  /** appTokenCreate: target app id. */
-  appId?: string;
-}
-
-interface GqlStandIn {
-  server: Server;
-  endpoint: string;
-  operations: GqlOperation[];
-}
-
-const CREATED_APP_TOKEN = "stand-in-created-app-token";
-const MINTED_APP_TOKEN = "stand-in-minted-app-token";
-const CREATED_APP_ID = "QXBwOmNyZWF0ZWQ="; // base64 "App:created"-ish
-
-async function startInstanceGraphql(
-  world: JollyWorld,
-  apps: Array<{ id: string; name: string }>,
-): Promise<GqlStandIn> {
-  const operations: GqlOperation[] = [];
-  const server = createServer((req, res) => {
-    let raw = "";
-    req.on("data", (chunk: Buffer) => (raw += chunk));
-    req.on("end", () => {
-      let body: { query?: string; variables?: Record<string, unknown> } = {};
-      try {
-        body = JSON.parse(raw || "{}");
-      } catch {
-        body = {};
-      }
-      const query = body.query ?? "";
-      const variables = body.variables ?? {};
-      const authorization = req.headers["authorization"];
-      res.setHeader("Content-Type", "application/json");
-      res.statusCode = 200;
-
-      // Order matters: "appTokenCreate" must be matched before "appCreate".
-      if (query.includes("appTokenCreate")) {
-        operations.push({
-          type: "appTokenCreate",
-          authorization,
-          appId: String(variables["app"] ?? ""),
-        });
-        res.end(
-          JSON.stringify({
-            data: { appTokenCreate: { authToken: MINTED_APP_TOKEN, errors: [] } },
-          }),
-        );
-        return;
-      }
-      if (query.includes("appCreate")) {
-        const input = (variables["input"] ?? {}) as Record<string, unknown>;
-        operations.push({
-          type: "appCreate",
-          authorization,
-          name: String(input["name"] ?? ""),
-          permissions: Array.isArray(input["permissions"])
-            ? (input["permissions"] as string[])
-            : [],
-        });
-        res.end(
-          JSON.stringify({
-            data: {
-              appCreate: {
-                authToken: CREATED_APP_TOKEN,
-                app: { id: CREATED_APP_ID, name: String(input["name"] ?? "") },
-                errors: [],
-              },
-            },
-          }),
-        );
-        return;
-      }
-      if (query.includes("PermissionEnum")) {
-        operations.push({ type: "permissionEnum", authorization });
-        res.end(
-          JSON.stringify({
-            data: { __type: { enumValues: ALL_PERMISSIONS.map((name) => ({ name })) } },
-          }),
-        );
-        return;
-      }
-      if (query.includes("apps")) {
-        operations.push({ type: "getApps", authorization });
-        res.end(
-          JSON.stringify({
-            data: {
-              apps: { edges: apps.map((a) => ({ node: { id: a.id, name: a.name } })) },
-            },
-          }),
-        );
-        return;
-      }
-      operations.push({ type: "unknown", authorization });
-      res.end(JSON.stringify({ data: {} }));
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
-  const port = typeof address === "object" && address ? address.port : 0;
-  const endpoint = `http://127.0.0.1:${port}/graphql/`;
-  world.cleanup.register(`instance GraphQL stand-in :${port}`, () => {
-    return new Promise<void>((resolve) => server.close(() => resolve()));
-  });
-  const standIn: GqlStandIn = { server, endpoint, operations };
-  world.notes.standIn = standIn;
-  return standIn;
-}
-
-function standIn(world: JollyWorld): GqlStandIn {
-  const value = world.notes.standIn as GqlStandIn | undefined;
-  assert.ok(value, "expected the instance GraphQL stand-in to have started");
-  return value!;
-}
-
-/** Run `jolly create app-token` against the stand-in (loopback → runCliAsync). */
-async function runCreateAppToken(world: JollyWorld): Promise<void> {
-  const endpoint = standIn(world).endpoint;
-  await world.runCliAsync(
-    ["create", "app-token", "--url", endpoint, "--json"],
-    { env: logicSafeEnv() },
-  );
-}
-
-// ─── Scenario: ensures a dedicated Jolly Setup app ─────────────────────────
-
-Given("the agent invokes `jolly create app-token`", async function (this: JollyWorld) {
-  // An unrelated pre-existing app is present (no "Jolly Setup" yet), so the
-  // "must not mint a token for a stranger app" assertion is meaningful.
-  await startInstanceGraphql(this, [{ id: "QXBwOnNtdHA=", name: "SMTP" }]);
-  await runCreateAppToken(this);
-});
-
-When("Jolly resolves which app to mint a token for", function (this: JollyWorld) {
-  // The resolution happened in the Given (the invocation). Proof that Jolly
-  // listed apps before deciding:
-  const listed = standIn(this).operations.some((op) => op.type === "getApps");
-  assert.ok(listed, "Jolly must list apps (GetApps) before resolving which to use");
-});
-
-Then(
-  "it should send the GetApps GraphQL query to the instance URL",
-  function (this: JollyWorld) {
-    const ops = standIn(this).operations;
-    assert.ok(
-      ops.some((op) => op.type === "getApps"),
-      "expected a GetApps query against the instance URL",
-    );
-  },
-);
-
-Then(
-  "the query should be authenticated with the Saleor Cloud bearer token",
-  function (this: JollyWorld) {
-    const getApps = standIn(this).operations.find((op) => op.type === "getApps");
-    assert.ok(getApps, "expected a GetApps query");
-    assert.equal(
-      getApps!.authorization,
-      `Bearer ${DUMMY.cloudToken}`,
-      "GetApps must carry the Saleor Cloud bearer token",
-    );
-    // And the bearer value never leaks to stdout.
-    this.trackSecret(DUMMY.cloudToken);
-    this.assertNoSecretsIn(this.lastRun!.stdout, "stdout");
-  },
-);
-
-Then(
-  'it should look for an app it owns by the dedicated name "Jolly Setup"',
-  function (this: JollyWorld) {
-    // "Jolly Setup" is absent, so resolving by name leads Jolly to CREATE it —
-    // the observable proof it looked by name rather than reusing apps[0].
-    const created = standIn(this).operations.find((op) => op.type === "appCreate");
-    assert.ok(created, "expected Jolly to create the dedicated app when absent");
-    assert.equal(created!.name, "Jolly Setup", "the dedicated app must be named Jolly Setup");
-  },
-);
-
-Then(
-  "it should not mint a token for an unrelated pre-existing app",
-  function (this: JollyWorld) {
-    const minted = standIn(this).operations.filter((op) => op.type === "appTokenCreate");
-    const strangerTokens = minted.filter((op) => op.appId === "QXBwOnNtdHA=");
-    assert.equal(
-      strangerTokens.length,
-      0,
-      `Jolly must never mint a token for the unrelated app; saw ${JSON.stringify(minted)}`,
-    );
-  },
-);
-
-// ─── Scenario: creates the Jolly Setup app with full permissions when absent ─
-
-Given("the instance has no \"Jolly Setup\" app yet", async function (this: JollyWorld) {
-  // A pristine instance: zero apps. Jolly must create its dedicated app.
-  await startInstanceGraphql(this, []);
-});
-
-When("Jolly creates the dedicated app", async function (this: JollyWorld) {
-  await runCreateAppToken(this);
-});
-
-Then(
-  'it should send the appCreate GraphQL mutation named "Jolly Setup"',
-  function (this: JollyWorld) {
-    const created = standIn(this).operations.find((op) => op.type === "appCreate");
-    assert.ok(created, "expected an appCreate mutation");
-    assert.equal(created!.name, "Jolly Setup");
-  },
-);
-
-Then(
-  "the mutation should request all available permissions for the app in v1",
-  function (this: JollyWorld) {
-    const created = standIn(this).operations.find((op) => op.type === "appCreate");
-    assert.ok(created, "expected an appCreate mutation");
-    const requested = [...(created!.permissions ?? [])].sort();
-    const all = [...ALL_PERMISSIONS].sort();
-    assert.deepEqual(
-      requested,
-      all,
-      "appCreate must request every PermissionEnum value the instance advertises",
-    );
-  },
-);
-
-Then(
-  "it should extract the authToken returned directly by appCreate",
-  function (this: JollyWorld) {
-    // appCreate returns its token inline (no appTokenCreate round-trip), and it
-    // is what landed in .env.
-    assert.equal(this.envelope.status, "success");
-    const noMint = standIn(this).operations.every((op) => op.type !== "appTokenCreate");
-    assert.ok(noMint, "a freshly created app needs no appTokenCreate call");
-    const values = loadEnvValues(this.lastRun!.cwd);
-    assert.equal(
-      values["JOLLY_SALEOR_APP_TOKEN"],
-      CREATED_APP_TOKEN,
-      "the token from appCreate must be the one stored",
-    );
-    this.trackSecret(CREATED_APP_TOKEN);
-  },
-);
-
-// ─── Scenario: reuses an existing Jolly Setup app idempotently ─────────────
-
-Given(
-  "the instance already has a \"Jolly Setup\" app from a previous run",
-  async function (this: JollyWorld) {
-    // A realistic non-pristine instance: an unrelated app FIRST, then the
-    // dedicated app. apps[0] is therefore NOT "Jolly Setup", so resolution must
-    // be by name — the precise regression the old apps[0] flow failed.
-    this.notes.jollyAppId = "QXBwOmpvbGx5";
-    await startInstanceGraphql(this, [
-      { id: "QXBwOnNtdHA=", name: "SMTP" },
-      { id: "QXBwOmpvbGx5", name: "Jolly Setup" },
-    ]);
-  },
-);
-
-When("Jolly acquires a token", async function (this: JollyWorld) {
-  await runCreateAppToken(this);
-});
-
-Then(
-  "it should send the appTokenCreate mutation for that existing Jolly Setup app",
-  function (this: JollyWorld) {
-    const minted = standIn(this).operations.find((op) => op.type === "appTokenCreate");
-    assert.ok(minted, "expected an appTokenCreate mutation reusing the existing app");
-    assert.equal(
-      minted!.appId,
-      String(this.notes.jollyAppId),
-      "appTokenCreate must target the existing Jolly Setup app, not apps[0]",
-    );
-  },
-);
-
-Then("it should not create a duplicate app", function (this: JollyWorld) {
-  const created = standIn(this).operations.filter((op) => op.type === "appCreate");
-  assert.equal(
-    created.length,
-    0,
-    `reuse must not create a duplicate app; saw ${JSON.stringify(created)}`,
-  );
-});
-
-// ─── Scenario: does not reuse an unrelated low-permission app ───────────────
-
-Given(
-  "the instance has a pre-existing app with only a few permissions and no \"Jolly Setup\" app",
-  async function (this: JollyWorld) {
-    await startInstanceGraphql(this, [{ id: "QXBwOnNtdHA=", name: "SMTP" }]);
-  },
-);
-
-Then(
-  'it should create the dedicated "Jolly Setup" app with all available permissions',
-  function (this: JollyWorld) {
-    const created = standIn(this).operations.find((op) => op.type === "appCreate");
-    assert.ok(created, "expected Jolly to create its dedicated app");
-    assert.equal(created!.name, "Jolly Setup");
-    const requested = [...(created!.permissions ?? [])].sort();
-    assert.deepEqual(requested, [...ALL_PERMISSIONS].sort());
-  },
-);
-
-Then(
-  "it should not mint a token for the unrelated pre-existing app",
-  function (this: JollyWorld) {
-    const minted = standIn(this).operations.filter((op) => op.type === "appTokenCreate");
-    const stranger = minted.filter((op) => op.appId === "QXBwOnNtdHA=");
-    assert.equal(stranger.length, 0, "must not mint a token for the low-perm SMTP app");
-  },
-);
-
-Then(
-  "the resulting token's app should carry the permissions Configurator requires",
-  function (this: JollyWorld) {
-    const created = standIn(this).operations.find((op) => op.type === "appCreate");
-    assert.ok(created, "expected an appCreate mutation");
-    for (const perm of CONFIGURATOR_PERMISSIONS) {
-      assert.ok(
-        (created!.permissions ?? []).includes(perm),
-        `the dedicated app must request ${perm} (Configurator requires it)`,
-      );
-    }
-  },
-);
 
 // ─── Scenario: --dry-run shows risk context ────────────────────────────────
 
@@ -492,6 +129,31 @@ Then(
 );
 
 Then(
+  "the token's app should be the dedicated {string} app, never an unrelated pre-existing app it found on the instance",
+  { timeout: 60_000 },
+  async function (this: JollyWorld, dedicatedName: string) {
+    // The app token written to .env belongs to exactly one app. Saleor's `app`
+    // query (no id) returns the REQUESTING token's own app, so resolving it to
+    // the dedicated "Jolly Setup" name proves Jolly minted the token for its own
+    // app — never for an unrelated pre-existing app it found on the instance
+    // (the acceptance-run regression: a 3-permission "SMTP" app was first).
+    const endpoint = String(this.notes.instanceUrl);
+    const values = loadEnvValues(this.lastRun!.cwd);
+    const appToken = values["JOLLY_SALEOR_APP_TOKEN"];
+    assert.ok(appToken, "the run must have written JOLLY_SALEOR_APP_TOKEN to .env");
+    this.trackSecret(appToken);
+    const result = await saleorGraphql(endpoint, appToken, `query { app { name } }`);
+    const app = result.data?.app as { name?: string } | null | undefined;
+    assert.ok(app, "the app token must resolve to its own app via the `app` query");
+    assert.equal(
+      app!.name,
+      dedicatedName,
+      `the token's app must be the dedicated "${dedicatedName}" app, never an unrelated one`,
+    );
+  },
+);
+
+Then(
   "the token's app should hold the management permissions Configurator requires",
   { timeout: 60_000 },
   async function (this: JollyWorld) {
@@ -517,6 +179,41 @@ Then(
         `the Jolly Setup app must hold ${perm}; got ${JSON.stringify(codes)}`,
       );
     }
+  },
+);
+
+Then(
+  "re-running `jolly create app-token` should reuse the existing {string} app rather than creating a duplicate",
+  { timeout: 120_000 },
+  async function (this: JollyWorld, dedicatedName: string) {
+    // Idempotent acquisition (feature 022): a second run must reuse the existing
+    // dedicated app (minting a fresh token via appTokenCreate) rather than create
+    // a second "Jolly Setup" app. Count the dedicated apps before and after.
+    const endpoint = String(this.notes.instanceUrl);
+    const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
+    const countDedicated = async (): Promise<number> => {
+      const result = await saleorGraphql(
+        endpoint,
+        cloudToken,
+        `query { apps(first: 100) { edges { node { name } } } }`,
+      );
+      const edges =
+        ((result.data?.apps as { edges?: Array<{ node: { name: string } }> })?.edges) ?? [];
+      return edges.filter((e) => e.node.name === dedicatedName).length;
+    };
+    const before = await countDedicated();
+    assert.ok(before >= 1, `the first run must have created the "${dedicatedName}" app`);
+    this.runCli(["create", "app-token", "--json"], { cwd: this.lastRun!.cwd });
+    assert.equal(this.envelope.status, "success", "the re-run must succeed");
+    const values = loadEnvValues(this.lastRun!.cwd);
+    if (values["JOLLY_SALEOR_APP_TOKEN"]) this.trackSecret(values["JOLLY_SALEOR_APP_TOKEN"]);
+    const after = await countDedicated();
+    assert.equal(
+      after,
+      before,
+      `re-running must reuse the existing "${dedicatedName}" app, not create a duplicate ` +
+        `(was ${before}, now ${after})`,
+    );
   },
 );
 

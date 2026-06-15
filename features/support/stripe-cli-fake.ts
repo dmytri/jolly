@@ -85,6 +85,35 @@ process.exit(1);
   return path;
 }
 
+/**
+ * Write an executable passthrough `stripe` into `dir` that records each
+ * invocation's argv (one JSON array per line in `traceFile`) and then EXECs the
+ * REAL `stripe` binary at `realStripePath`, streaming its real stdout/stderr and
+ * exit code through. This is NOT a fake: it runs the real, logged-in Stripe CLI
+ * and returns its real test-mode keys — the trace is observation only, so an
+ * @sandbox scenario can prove Jolly invoked `config --list` read-only (never
+ * `login`/OAuth) while importing genuine session keys. Put `dir` first on the
+ * PATH of the process under test; `realStripePath` is the absolute path resolved
+ * BEFORE the wrapper shadows the bare name, so the wrapper never recurses.
+ */
+export function writeStripeCliTraceWrapper(
+  dir: string,
+  opts: { traceFile: string; realStripePath: string },
+): string {
+  const script = `#!/usr/bin/env node
+"use strict";
+const fs = require("node:fs");
+const { spawnSync } = require("node:child_process");
+const argv = process.argv.slice(2);
+try { fs.appendFileSync(${JSON.stringify(opts.traceFile)}, JSON.stringify(argv) + "\\n"); } catch {}
+const r = spawnSync(${JSON.stringify(opts.realStripePath)}, argv, { stdio: "inherit" });
+process.exit(typeof r.status === "number" ? r.status : 1);
+`;
+  const path = join(dir, "stripe");
+  writeFileSync(path, script, { mode: 0o755 });
+  return path;
+}
+
 /** Parse the fake Stripe CLI's argv trace (one JSON array per invocation). */
 export function readStripeTrace(traceFile: string): string[][] {
   if (!existsSync(traceFile)) return [];
