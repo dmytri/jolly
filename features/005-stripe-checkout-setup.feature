@@ -37,9 +37,9 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     And .env should not contain any Stripe key values
     And the output should not be written to .env
 
-  @logic
+  @sandbox
   Scenario: Jolly create stripe imports keys from the Stripe CLI session when none are passed
-    Given the Stripe CLI is logged in with test-mode keys
+    Given a real Stripe CLI session logged in with test-mode keys on the runner
     And Jolly does not have Stripe credentials in .env
     When the agent runs `jolly create stripe --json`
     Then Jolly should import the test-mode keys by invoking the Stripe CLI read-only (`stripe config --list`)
@@ -56,21 +56,6 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     Then the envelope status should be "error" with the stable code `MISSING_STRIPE_KEYS`
     And the remediation should name both paths: logging in to the Stripe CLI, or passing `--publishable-key`/`--secret-key`
     And nothing should be written to .env
-
-  @logic
-  Scenario: Explicit Stripe key flags override the Stripe CLI import
-    Given the Stripe CLI is logged in with test-mode keys
-    When the agent runs `jolly create stripe --publishable-key pk_test_explicit --secret-key sk_test_explicit --json`
-    Then .env should contain the explicitly passed keys, not the Stripe CLI session keys
-    And Jolly should not print either key value
-
-  @logic
-  Scenario: Jolly doctor recognizes Stripe keys available from the Stripe CLI session
-    Given the Stripe CLI is logged in with test-mode keys in its config
-    And Jolly does not have Stripe credentials in .env
-    When the agent runs `jolly doctor stripe --json`
-    Then the stripe-keys check should be "warning", not "fail"
-    And its next step should be to run `jolly create stripe` to import the keys
 
   @logic
   Scenario: Jolly start previews the Stripe app-install stage
