@@ -19,11 +19,12 @@
 // skip locally. Their bodies namespace every created resource and register
 // teardown BEFORE creation.
 //
-// Safety: every @logic command runs under logicSafeEnv() — dummy creds + an
-// unroutable `.invalid` Cloud API base by default — EXCEPT the create-env
-// dry-run scenarios, which deliberately override JOLLY_SALEOR_CLOUD_API_URL to
-// the LOCAL in-process harness server (127.0.0.1) so the preview can resolve
-// the organization without touching any real account. The server records every
+// Safety: every @logic command runs with the runtime credentials genuinely
+// UNSET (absentCredentialsEnv) — real absence, never dummy values. The create-env
+// scenarios additionally point JOLLY_SALEOR_CLOUD_API_URL at a LOCAL in-process
+// harness server (127.0.0.1) and supply STAND_IN_TOKEN — a real-format token the
+// harness does not validate — so the preview/resolution path runs against the
+// loopback fixture without touching any real account. The server records every
 // request and 500s any write, proving only GETs happen and nothing is created.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
@@ -32,7 +33,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { normalizeSaleorUrl } from "../../src/lib/saleor-url.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
-import { logicSafeEnv } from "../support/logic-env.ts";
+import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 import {
   deleteEnvironment,
   leftoverTestEnvironments,
@@ -160,9 +161,9 @@ When(
     // dry-run for the infer Then (org resolution). The infer-org scenario, set
     // up by its @sandbox Given (inferOrgSandbox), must resolve a real org from
     // the live Cloud token, so it runs against the real runtime credentials;
-    // the @logic normalize outline stays harmless under logicSafeEnv.
+    // the @logic normalize outline stays harmless with the credentials unset.
     this.notes.pastedUrl = "https://my-shop.saleor.cloud/graphql/";
-    const env = this.notes.inferOrgSandbox ? undefined : logicSafeEnv();
+    const env = this.notes.inferOrgSandbox ? undefined : absentCredentialsEnv();
     this.runCli(["create", "store", "--create-environment", "--dry-run", "--json"], { env });
   },
 );
@@ -196,7 +197,7 @@ When(
   function (this: JollyWorld) {
     this.runCli(
       ["create", "store", "--url", "https://test-shop.saleor.cloud/graphql/", "--json"],
-      { env: logicSafeEnv() },
+      { env: absentCredentialsEnv() },
     );
   },
 );
@@ -283,7 +284,7 @@ Given(
   function (this: JollyWorld) {
     assert.ok(process.env["NEXT_PUBLIC_SALEOR_API_URL"], "requires NEXT_PUBLIC_SALEOR_API_URL");
     // Marks the @sandbox infer-org path so the shared `create store` When runs
-    // against the real Cloud token (org resolution), not logicSafeEnv dummies.
+    // against the real Cloud token (org resolution), not with credentials unset.
     this.notes.inferOrgSandbox = true;
   },
 );
@@ -314,7 +315,7 @@ When(
   function (this: JollyWorld) {
     this.runCli(
       ["create", "store", "--url", "https://shop.saleor.cloud/graphql/", "--dry-run", "--json"],
-      { env: logicSafeEnv() },
+      { env: absentCredentialsEnv() },
     );
   },
 );
@@ -339,7 +340,10 @@ When(
     await this.runCliAsync(
       ["create", "store", "--create-environment", "--dry-run", "--json"],
       {
-        env: logicSafeEnv({ JOLLY_SALEOR_CLOUD_API_URL: harness.baseUrl }),
+        env: absentCredentialsEnv({
+          JOLLY_SALEOR_CLOUD_API_URL: harness.baseUrl,
+          JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN,
+        }),
       },
     );
   },
@@ -535,7 +539,12 @@ When(
         "--region", "eu-central-1",
         "--dry-run", "--json",
       ],
-      { env: logicSafeEnv({ JOLLY_SALEOR_CLOUD_API_URL: harness.baseUrl }) },
+      {
+        env: absentCredentialsEnv({
+          JOLLY_SALEOR_CLOUD_API_URL: harness.baseUrl,
+          JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN,
+        }),
+      },
     );
   },
 );
@@ -573,7 +582,7 @@ When(
     const mock = String(this.notes.mockOrgs ?? "org-one,org-two");
     this.runCli(
       ["create", "store", "--create-environment", `--mock-organizations=${mock}`, "--json"],
-      { env: logicSafeEnv() },
+      { env: absentCredentialsEnv({ JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN }) },
     );
   },
 );
@@ -622,8 +631,8 @@ Then(
 // Cloud API that answers the read GETs (org/projects/envs/services) but rejects
 // the environment-creation POST with a 4xx "limit" payload — exactly the
 // condition Jolly maps to the stable ENVIRONMENT_LIMIT_REACHED code. The shared
-// When (002 step file) runs the real command against this harness under
-// logicSafeEnv, so no real account is touched.
+// When (002 step file) runs the real command against this loopback harness with
+// the credentials unset (plus a stand-in token), so no real account is touched.
 
 interface LimitHarness {
   server: Server;

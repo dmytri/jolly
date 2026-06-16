@@ -8,9 +8,9 @@
 // --dry-run preview and a real run. The @sandbox "consistent across preview and
 // execution" scenario runs against a real endpoint (skips locally).
 //
-// Safety: every command runs under logicSafeEnv() — dummy credentials for all
-// groups + an unroutable `.invalid` Cloud API base — so the "real execution"
-// comparison can never reach a real account (the "012 incident" lesson).
+// Safety: every command runs with the runtime credentials genuinely UNSET
+// (absentCredentialsEnv) — real absence, never dummy values — so the "real
+// execution" comparison cannot reach a real account.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import {
@@ -19,7 +19,7 @@ import {
   RISK_CATEGORIES,
   type RiskContext,
 } from "../support/envelope.ts";
-import { logicSafeEnv } from "../support/logic-env.ts";
+import { absentCredentialsEnv } from "../support/creds-env.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 // --- Background ------------------------------------------------------------
@@ -37,7 +37,7 @@ Given(
     // impactful action: it prepares a remote environment-creation request.
     this.runCli(
       ["create", "store", "--create-environment", "--dry-run", "--json"],
-      { env: logicSafeEnv() },
+      { env: absentCredentialsEnv() },
     );
   },
 );
@@ -205,11 +205,10 @@ Then(
 // pre-authorization flag (`--yes`) approves up front so it proceeds without
 // per-stage pauses, still emitting each riskContext for the record.
 //
-// Reaching the first high-risk stage (`create store`) only requires bootstrap +
-// a present Cloud token; logicSafeEnv supplies a dummy one, so the run pauses at
-// the create-store approval gate BEFORE making any network call — and the
-// unroutable base means a `--yes` run that proceeds can never reach a real
-// account.
+// Reaching the first high-risk stage (`create store`) happens during planning,
+// BEFORE any network call, so the run pauses at the create-store approval gate
+// with the credentials unset — and with no credential present, a `--yes` run
+// that proceeded could never reach a real account.
 
 interface StartStage {
   stage: string;
@@ -235,13 +234,13 @@ When(
   "`jolly start` reaches a high-risk stage \\(`create store`, `@saleor\\/configurator deploy`, or the `npx vercel` deploy)",
   function (this: JollyWorld) {
     // Real run with no --yes: pauses at the first high-risk approval gate.
-    this.runCli(["start", "--json"], { env: logicSafeEnv() });
+    this.runCli(["start", "--json"], { env: absentCredentialsEnv() });
     const realEnvelope = this.envelope;
     this.notes.startEnvelope = realEnvelope;
     const stagesList = startStages(realEnvelope.data);
     this.notes.approvalStage = stagesList.find((s) => s.status === "awaiting-approval");
     // The --dry-run plan, to compare each stage's riskContext against.
-    const dry = this.runCli(["start", "--dry-run", "--json"], { env: logicSafeEnv() });
+    const dry = this.runCli(["start", "--dry-run", "--json"], { env: absentCredentialsEnv() });
     this.notes.dryPlan =
       (dry.envelope?.data as { plan?: Array<Record<string, unknown>> }).plan ?? [];
   },
@@ -308,10 +307,10 @@ Then(
   "running `jolly start --yes` should pre-approve and proceed through the high-risk stages without per-stage pauses, still emitting each `riskContext` for the record",
   function (this: JollyWorld) {
     // --yes pre-approves: no stage is left awaiting the agent's approval, yet
-    // each high-risk stage's riskContext is still emitted for the record. The
-    // unroutable logic-safe base means any stage that proceeds cannot reach a
-    // real account.
-    this.runCli(["start", "--yes", "--json"], { env: logicSafeEnv() });
+    // each high-risk stage's riskContext is still emitted for the record. With
+    // the credentials unset, any credential-gated stage that proceeds cannot
+    // reach a real account.
+    this.runCli(["start", "--yes", "--json"], { env: absentCredentialsEnv() });
     const yesEnvelope = this.envelope;
     const awaiting = startStages(yesEnvelope.data).filter((s) => s.status === "awaiting-approval");
     assert.equal(

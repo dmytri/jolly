@@ -9,9 +9,11 @@
 // Permission Denied).
 //
 // Coverage is two scenarios:
-//   - @logic "--dry-run shows risk context": deterministic preview under
-//     logicSafeEnv() (dummy creds + an unroutable `.invalid` endpoint) — writes
-//     nothing and contacts no instance.
+//   - @logic "--dry-run shows risk context": deterministic preview with the
+//     workflow tokens unset (absentCredentialsEnv) against the real configured
+//     instance URL — a --dry-run writes nothing and contacts no instance, and
+//     with no token present nothing could be minted even if --dry-run were
+//     ignored.
 //   - @sandbox "acquires a real, fully-permissioned token from Saleor": runs
 //     against the provisioned endpoint in CI (skips locally). It stores
 //     JOLLY_SALEOR_APP_TOKEN, never prints it, proves the token's own app is the
@@ -27,7 +29,7 @@ import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { logicSafeEnv, UNROUTABLE_SALEOR_ENDPOINT } from "../support/logic-env.ts";
+import { absentCredentialsEnv } from "../support/creds-env.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
 import { saleorGraphql } from "../support/saleor-graphql.ts";
 import type { JollyWorld } from "../support/world.ts";
@@ -35,6 +37,13 @@ import type { JollyWorld } from "../support/world.ts";
 function envData(world: JollyWorld): Record<string, unknown> {
   return world.envelope.data as Record<string, unknown>;
 }
+
+// Deterministic real-format first-party instance endpoint the app-token preview
+// resolves and names. A --dry-run contacts nothing, so this is a preview target
+// label, never a service that is reached — no dummy creds, no `.invalid` host.
+// This step is also reused by feature 008's `create app-token --dry-run`
+// example, so it must resolve the endpoint without depending on 024's Given.
+const PREVIEW_SALEOR_ENDPOINT = "https://jolly-preview.saleor.cloud/graphql/";
 
 // Permissions Configurator needs for the recipe deploy (acceptance-run finding).
 const CONFIGURATOR_PERMISSIONS = [
@@ -48,13 +57,17 @@ const CONFIGURATOR_PERMISSIONS = [
 // ─── Scenario: --dry-run shows risk context ────────────────────────────────
 
 Given("the agent wants to preview app token creation", function (this: JollyWorld) {
-  // The dry-run resolves the instance URL from the (unroutable) logic-safe
-  // endpoint; record it so the target assertion can compare.
-  this.notes.instanceUrl = UNROUTABLE_SALEOR_ENDPOINT;
+  // Record the instance URL the preview will resolve and name, so the target
+  // assertion can compare against it.
+  this.notes.instanceUrl = PREVIEW_SALEOR_ENDPOINT;
 });
 
 When("the agent runs `jolly create app-token --dry-run`", function (this: JollyWorld) {
-  this.runCli(["create", "app-token", "--dry-run", "--json"], { env: logicSafeEnv() });
+  // Tokens unset (nothing could be minted even if --dry-run were ignored); a
+  // real-format instance URL kept so the preview resolves and names a target.
+  this.runCli(["create", "app-token", "--dry-run", "--json"], {
+    env: absentCredentialsEnv({ NEXT_PUBLIC_SALEOR_API_URL: PREVIEW_SALEOR_ENDPOINT }),
+  });
 });
 
 Then(

@@ -14,11 +14,9 @@
 // → skip locally.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
-import { logicSafeEnv, DUMMY } from "../support/logic-env.ts";
+import { absentCredentialsEnv } from "../support/creds-env.ts";
 import { findRiskContexts, assertRiskContextShape } from "../support/envelope.ts";
 import { saleorGraphql } from "../support/saleor-graphql.ts";
-import { writeFakeNpx } from "../support/configurator-cli-fake.ts";
-import { writeFakeStorefrontClis } from "../support/storefront-cli-fake.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 // The Jolly starter recipe's warehouse (assets/skills/jolly/recipe.yml) and the
@@ -107,9 +105,9 @@ Then(
 // plan must surface a distinct stock-seeding stage that runs AFTER the deploy,
 // carries its own feature-021 riskContext for catalog-data modification, and
 // names the real Saleor GraphQL mutation, the recipe warehouse, and the default
-// per-variant quantity — all without performing any mutation. logicSafeEnv()
-// supplies dummy JOLLY_* + an unroutable Cloud base, so even a CLI that ignored
-// --dry-run could not reach a real store (012-incident safety).
+// per-variant quantity — all without performing any mutation. The dry-run runs
+// with the runtime credentials unset (real absence), so even a CLI that ignored
+// --dry-run has no credential with which to reach a real store.
 
 interface PlanStage {
   stage: string;
@@ -199,8 +197,8 @@ Then(
 
 Then("the preview should not perform any mutation", function (this: JollyWorld) {
   // A true preview: flagged as a dry run, overall success, and the start stage
-  // is reported skipped (not executed). logicSafeEnv's unroutable base means no
-  // real request could have been made regardless.
+  // is reported skipped (not executed). The credentials are unset, so no real
+  // request could have been made regardless.
   assert.equal(this.envelope.data.dryRun, true, "the preview must set data.dryRun true");
   assert.equal(this.envelope.status, "success", "a clean preview reports success");
   const dryRunCheck = this.findCheck("start-dry-run");
@@ -416,8 +414,8 @@ Then(
 // name only — never a value), and the safe `--fail-on-delete`/`--fail-on-breaking`
 // flags, carrying a feature-021 riskContext whose dry run maps to the configurator
 // `--plan` preview — all without spawning anything. The `Given`/`When` are shared
-// with the stock-seeding preview scenario above (logicSafeEnv keeps the preview
-// unable to touch any real service).
+// with the stock-seeding preview scenario above (credentials unset keeps the
+// preview unable to touch any real service).
 
 /** Is this plan stage the configurator-deploy (recipe) stage? It is the only
  *  stage that spawns `@saleor/configurator` (the Vercel `deploy` stage spawns
@@ -470,11 +468,15 @@ Then(
       blob.includes("JOLLY_SALEOR_APP_TOKEN"),
       "the preview must name the app token by name (JOLLY_SALEOR_APP_TOKEN)",
     );
-    // "By name only": the actual app-token VALUE must never appear in the preview.
-    assert.ok(
-      !blob.includes(DUMMY.appToken),
-      "the app token must be referenced by name only — its value must never be printed",
-    );
+    // "By name only": the actual app-token VALUE must never appear in the
+    // preview. Guard against the real configured value when one is present.
+    const appTokenValue = process.env.JOLLY_SALEOR_APP_TOKEN;
+    if (appTokenValue) {
+      assert.ok(
+        !blob.includes(appTokenValue),
+        "the app token must be referenced by name only — its value must never be printed",
+      );
+    }
   },
 );
 
@@ -540,21 +542,17 @@ Then(
 // stage must report it blocked or pending — never `completed` — and the overall
 // envelope must be `warning`, not `success`. `--yes` pre-approves the high-risk
 // gate so the run actually reaches the recipe stage instead of pausing before
-// it; logicSafeEnv supplies dummy creds + an unroutable base; a fake `npx` on
-// PATH shadows the real one so neither the configurator spawn nor init's skill
-// installs make any network call (hermetic, fast). Bootstrap still succeeds (the
-// local scaffold — .mcp.json + AGENTS.md — is written regardless), so the run
-// proceeds to and processes the recipe stage.
+// it; the runtime credentials are genuinely UNSET (absentCredentialsEnv) — real
+// absence, so with no store URL or app token the recipe stage cannot deploy and
+// must block, and nothing could reach a real account. Bootstrap still succeeds
+// (the local scaffold — .mcp.json + AGENTS.md — is written regardless), so the
+// run proceeds to and processes the recipe stage.
 
 Given(
   "the agent runs `jolly start` with no real Saleor credentials",
   function (this: JollyWorld) {
-    const shimDir = this.newTempDir("configurator-fake");
-    writeFakeNpx(shimDir);
-    // Also shadow the storefront/deploy CLIs (git/pnpm/vercel) so those stages
-    // stay hermetic once they spawn — no @logic run touches the network.
-    writeFakeStorefrontClis(shimDir);
-    this.notes.npxShimDir = shimDir;
+    // The "no real Saleor credentials" condition is produced for real by the
+    // When (credentials unset); the fresh temp project is all the setup needed.
   },
 );
 
@@ -562,10 +560,8 @@ When(
   "the run reaches the configurator-deploy stage without `--dry-run`",
   function (this: JollyWorld) {
     this.runCli(["start", "--yes", "--json"], {
-      env: logicSafeEnv({
-        PATH: `${String(this.notes.npxShimDir)}:${process.env.PATH ?? ""}`,
-      }),
-      timeoutMs: 90_000,
+      env: absentCredentialsEnv(),
+      timeoutMs: 240_000,
     });
   },
 );

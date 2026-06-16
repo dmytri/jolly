@@ -6,14 +6,17 @@
 // AFFORDANCES (the agent invoked Jolly's documented commands; the documented
 // local artifacts appeared) — never a working deployed store.
 //
-// Safety is the hard constraint (feature 025 "Harmless by design"):
+// Live by design (feature 025): the agent runs against the REAL integrated
+// test-env credentials, never fakes. Safety is harmless-by-design, not faking:
 //   - The agent runs under a FAKE, throwaway $HOME (a per-run temp dir), so
 //     pi's own config/state/credentials are isolated and leave no trace.
-//   - It runs with FORCED SAFE credentials — dummy JOLLY_* values and an
-//     unroutable `.invalid` Cloud API base (the "012 incident" discipline),
-//     delivered both as a seeded workspace `.env` and as env overrides — so
-//     even a create/deploy command cannot reach a real account or deploy.
-//   - The workspace and the fake $HOME are removed in teardown.
+//   - The workspace `.env` is seeded with the REAL runtime JOLLY_* Saleor Cloud
+//     / Stripe values and the real Saleor endpoint — no dummy credentials, no
+//     `.invalid` endpoints, no fake CLIs. The agent acts against real services
+//     exactly as a customer's agent would.
+//   - Every cloud resource the agent creates is `jolly-test`-namespaced and
+//     reclaimed in best-effort teardown (the step definitions register it);
+//     Stripe runs in test mode. The workspace and fake $HOME are removed too.
 //
 // Harness-only knobs use a HARNESS_* prefix, never JOLLY_*:
 //   HARNESS_OPENROUTER_API_KEY — the OpenRouter model API key, provided into
@@ -43,9 +46,6 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { findEnvelope, type Envelope } from "./envelope.ts";
-import { DUMMY, logicSafeEnv } from "./logic-env.ts";
-import { makeNamespace } from "./sandbox.ts";
-import { writeFakeStripeCli } from "./stripe-cli-fake.ts";
 
 const REPO_ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const JOLLY_BIN = join(REPO_ROOT, "bin", "jolly");
@@ -251,8 +251,9 @@ process.exit(r.status == null ? 1 : r.status);
  * Build the per-run eval context: a namespaced temp workspace seeded with the
  * real Jolly skill and the default skill set on disk (so `jolly init` verifies
  * offline, mirroring feature 007), a throwaway $HOME, the PATH-shim tracer, and
- * a forced-safe `.env`. Registers teardown of the workspace and fake home with
- * the supplied cleanup register (LIFO best-effort, feature 023).
+ * a `.env` seeded with the real integrated test-env credentials. Registers
+ * teardown of the workspace and fake home with the supplied cleanup register
+ * (LIFO best-effort, feature 023).
  */
 export function setupEvalContext(
   namespace: string,
@@ -284,46 +285,45 @@ export function setupEvalContext(
   }
   const skillDir = join(skillsBase, "jolly");
 
-  // Forced-safe credentials as a seeded workspace `.env`: dummy JOLLY_* values
-  // and an unroutable `.invalid` Cloud API base. This is the "scaffolded `.env`"
-  // artifact and the file-form safety net (Jolly reads .env via loadEnvValues);
-  // env overrides on the agent process below are the second layer. The Stripe
-  // keys are deliberately omitted so the agent must IMPORT them through Jolly
-  // from the fake Stripe CLI session below (feature 025 Stripe affordance).
-  writeFileSync(join(workspace, ".env"), safeEnvFileContents());
+  // Seed the workspace `.env` with the REAL integrated test-env credentials
+  // (feature 025: live by design). This is the "scaffolded `.env`" artifact and
+  // the file-form the agent reads (Jolly reads .env via loadEnvValues); the same
+  // real values reach the agent process below. No dummy creds, no `.invalid`.
+  writeFileSync(join(workspace, ".env"), realEnvFileContents());
 
   const traceFile = join(root, "jolly-trace.jsonl");
   writeFileSync(traceFile, "");
   writeShims(shimDir, traceFile);
 
-  // A harness-fake Stripe CLI on the agent's PATH (shimDir is first on PATH in
-  // runBaselineAgent), standing in for a completed `stripe login`. It answers
-  // `stripe config --list` read-only with dummy test keys and contacts no
-  // network, so `jolly create stripe` can import them safely (feature 025).
+  // The Stripe CLI trace file the real-session trace wrapper appends to. The
+  // wrapper itself is installed onto shimDir by the "a real Stripe CLI test-mode
+  // session is available" step when a real session is present — never a fake.
   const stripeTraceFile = join(root, "stripe-trace.jsonl");
   writeFileSync(stripeTraceFile, "");
-  writeFakeStripeCli(shimDir, { traceFile: stripeTraceFile });
 
   return { workspace, fakeHome, shimDir, traceFile, skillDir, stripeTraceFile };
 }
 
+/** The runtime credentials the eval workspace `.env` is seeded with. */
+const SEEDED_CREDENTIAL_VARS = [
+  "NEXT_PUBLIC_SALEOR_API_URL",
+  "JOLLY_SALEOR_CLOUD_TOKEN",
+  "JOLLY_SALEOR_APP_TOKEN",
+  "JOLLY_SALEOR_CLOUD_API_URL",
+  "JOLLY_STRIPE_PUBLISHABLE_KEY",
+  "JOLLY_STRIPE_SECRET_KEY",
+] as const;
+
 /**
- * The forced-safe `.env` contents (dummy creds + unroutable Cloud API base).
- * The Stripe keys are omitted so the eval genuinely exercises importing them
- * through Jolly from the fake Stripe CLI session, rather than finding them
- * pre-seeded (feature 025 Stripe affordance).
+ * The workspace `.env` contents: the REAL integrated test-env credentials taken
+ * from the runtime environment (feature 025: live by design — no dummy values,
+ * no `.invalid`). Only the variables actually present are written.
  */
-export function safeEnvFileContents(): string {
-  const safe = logicSafeEnv({
-    JOLLY_STRIPE_PUBLISHABLE_KEY: undefined,
-    JOLLY_STRIPE_SECRET_KEY: undefined,
-  });
-  return (
-    Object.entries(safe)
-      .filter(([, v]) => v !== undefined)
-      .map(([k, v]) => `${k}=${v}`)
-      .join("\n") + "\n"
-  );
+export function realEnvFileContents(): string {
+  const lines = SEEDED_CREDENTIAL_VARS.map((k) => [k, process.env[k]] as const)
+    .filter(([, v]) => v !== undefined && v.trim() !== "")
+    .map(([k, v]) => `${k}=${v}`);
+  return lines.join("\n") + (lines.length > 0 ? "\n" : "");
 }
 
 export interface AgentRun {
@@ -336,24 +336,17 @@ export interface AgentRun {
 
 /**
  * Run the baseline `pi` agent over the task, in the eval workspace, under the
- * fake $HOME, with the shimmed PATH and forced-safe credentials. The model key
- * enters the agent env as OPENROUTER_API_KEY; the real JOLLY_* values that
- * `support/dotenv.ts` loaded into process.env are overridden with dummies.
+ * fake $HOME, with the shimmed PATH and the REAL integrated test-env credentials
+ * (feature 025: live by design). The real JOLLY_* values that `support/dotenv.ts`
+ * loaded into process.env pass straight through; the model key enters the agent
+ * env as OPENROUTER_API_KEY. Safety is harmless-by-design (namespacing +
+ * teardown registered by the step definitions), never credential-faking.
  */
 export function runBaselineAgent(ctx: EvalContext, task: string): AgentRun {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
     if (v !== undefined) env[k] = v;
   }
-  // Forced-safe credential overrides (the "012 incident" discipline).
-  for (const [k, v] of Object.entries(logicSafeEnv())) {
-    if (v !== undefined) env[k] = v;
-  }
-  // Drop any Stripe keys (real ones loaded from the repo .env, or the dummy
-  // overrides above) so the agent must IMPORT them through Jolly from the fake
-  // Stripe CLI session — cloud safety overrides above are untouched.
-  delete env.JOLLY_STRIPE_PUBLISHABLE_KEY;
-  delete env.JOLLY_STRIPE_SECRET_KEY;
   // Isolation + routing.
   env.HOME = ctx.fakeHome;
   env.XDG_CONFIG_HOME = join(ctx.fakeHome, ".config");
@@ -513,9 +506,8 @@ export function evalTranscriptDir(): string | undefined {
  * write — under a per-run namespaced subdir, before teardown — the agent's full
  * stdout/stderr, the Jolly-invocation trace, the Stripe-CLI trace, and the final
  * workspace `.env`, scrubbing HARNESS_OPENROUTER_API_KEY from the text. It is
- * observability only: best-effort, and it never changes pass/fail (the agent
- * still runs under forced-safe credentials). Returns the directory written to,
- * or undefined when the knob is unset.
+ * observability only: best-effort, and it never changes pass/fail. Returns the
+ * directory written to, or undefined when the knob is unset.
  */
 export function persistEvalTranscript(
   ctx: EvalContext,
@@ -608,5 +600,3 @@ export function envelopeFromTrace(
   }
   return undefined;
 }
-
-export { DUMMY };

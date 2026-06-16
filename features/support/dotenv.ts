@@ -9,8 +9,9 @@
 // Values already present in the environment WIN: CI exports real credentials
 // as actual env vars, so this never overrides an explicit setting — it only
 // fills in what a local .env provides. @logic scenarios remain safe regardless:
-// they force dummy credentials over process.env via logicSafeEnv (the "012
-// incident" lesson), exactly as they did when Bun pre-loaded the real .env.
+// the side-effecting ones run with the runtime credentials genuinely UNSET
+// (absentCredentialsEnv), so real absence — not a forced-safe double — keeps
+// them from reaching a real account.
 //
 // This module runs its side effect once, at support-code import time — before
 // any Before hook or step reads process.env.

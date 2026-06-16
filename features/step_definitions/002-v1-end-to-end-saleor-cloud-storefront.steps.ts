@@ -17,12 +17,14 @@
 // The deep auth/store/app-token/url-normalization behavior is pinned in
 // features 018/012/024; here it is asserted only at the Jolly surface.
 //
-// Safety: @logic CLI runs use logicSafeEnv() in the scenario's temp dir. The
+// Safety: @logic CLI runs use absentCredentialsEnv() in the scenario's temp dir. The
 // @sandbox scenarios are gated by SANDBOX_REQUIREMENTS (+ requiresVercelCli for
 // the deploy scenario) and skip locally.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
-import { logicSafeEnv } from "../support/logic-env.ts";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 import { findRiskContexts, assertRiskContextShape } from "../support/envelope.ts";
 import { saleorGraphql } from "../support/saleor-graphql.ts";
 import type { JollyWorld } from "../support/world.ts";
@@ -71,7 +73,7 @@ Given("a fresh project directory with no store URL configured", function (this: 
 });
 
 When("the agent runs `jolly start --json` with no store URL", function (this: JollyWorld) {
-  this.runCli(["start", "--dry-run", "--json"], { env: logicSafeEnv() });
+  this.runCli(["start", "--dry-run", "--json"], { env: absentCredentialsEnv() });
 });
 
 Then(
@@ -111,13 +113,19 @@ When("the agent runs `jolly create store --create-environment --json`", async fu
   //     which must reach a Cloud API that rejects creation. Its Given starts an
   //     in-process loopback Cloud API that 4xx-rejects the POST with a "limit"
   //     payload and stashes it on notes.limitHarness; run the real command
-  //     against that harness under logicSafeEnv (so no real account is touched)
+  //     against that harness with the runtime credentials unset and STAND_IN_TOKEN
+  //     supplied (so the loopback fixture is reached, no real account is touched)
   //     via runCliAsync (loopback server → spawnSync would deadlock).
   const limitHarness = this.notes.limitHarness as { baseUrl: string } | undefined;
   if (limitHarness) {
     await this.runCliAsync(
       ["create", "store", "--create-environment", "--json"],
-      { env: logicSafeEnv({ JOLLY_SALEOR_CLOUD_API_URL: limitHarness.baseUrl }) },
+      {
+        env: absentCredentialsEnv({
+          JOLLY_SALEOR_CLOUD_API_URL: limitHarness.baseUrl,
+          JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN,
+        }),
+      },
     );
     return;
   }
@@ -400,17 +408,20 @@ Then(
 //     `saleor/storefront` Paper from `main`) and the spawned `npx vercel` deploy
 //     with its durable invariants (no Vercel token, no api.vercel.com in Jolly's
 //     own code), each carrying its feature-021 riskContext — performing nothing;
-//   - the two NO-FABRICATION guardrails: a real (`--yes`) run with no real creds
-//     and the storefront/deploy CLIs faked offline reports each stage honestly
-//     (never a fabricated `completed`) and the overall envelope `warning`;
+//   - the two NO-FABRICATION guardrails: a real (`--yes`) run with the runtime
+//     credentials unset reports each stage honestly — a stage that genuinely
+//     completes (the storefront scaffold needs no Saleor credential) is backed by
+//     real artifacts, the credential-gated stages block, and the overall envelope
+//     is `warning`, never a fabricated `completed`;
 //   - the human-run FALLBACK: a run that cannot proceed surfaces, in nextSteps,
 //     the offer to ask the human to run `jolly start` in a shell — without
 //     fabricating that it was done.
 //
 // The `Given the agent runs \`jolly start --dry-run\`` and `Given the agent runs
-// \`jolly start\` with no real Saleor credentials` (the latter writing the fake
-// npx + git/pnpm/vercel PATH shims) are shared with feature 004's step defs.
-// logicSafeEnv keeps every preview/real run unable to touch any real service.
+// \`jolly start\` with no real Saleor credentials` are shared with feature 004's
+// step defs. With the credentials unset, no preview/real run can reach a real
+// account; a `--yes` run does real local CLI work (git clone + pnpm install) for
+// the credential-independent stages, so those runs carry a generous timeout.
 
 interface StartPlanStage {
   stage: string;
@@ -446,12 +457,11 @@ function realRunStages(world: JollyWorld): Array<{ stage: string; status: string
   return (world.envelope.data.stages ?? []) as Array<{ stage: string; status: string }>;
 }
 
-/** The PATH env that puts the scenario's fake CLIs (npx/git/pnpm/vercel) first,
- * keeping a real `--yes` run hermetic, on top of logicSafeEnv's dummy creds. */
-function shimmedLogicEnv(world: JollyWorld): Record<string, string | undefined> {
-  return logicSafeEnv({
-    PATH: `${String(world.notes.npxShimDir)}:${process.env.PATH ?? ""}`,
-  });
+/** The env for a no-credentials `jolly start` run: every runtime credential
+ * unset, so the run cannot reach a real account and the credential-gated stages
+ * block honestly while the credential-independent ones run for real. */
+function noCredsStartEnv(): Record<string, string | undefined> {
+  return absentCredentialsEnv();
 }
 
 // --- Scenario: Jolly start previews the storefront clone and install --------
@@ -505,7 +515,7 @@ Then("the preview should not spawn git or pnpm or write the storefront", functio
 When(
   "the run reaches the storefront stage without `--dry-run`",
   function (this: JollyWorld) {
-    this.runCli(["start", "--yes", "--json"], { env: shimmedLogicEnv(this), timeoutMs: 90_000 });
+    this.runCli(["start", "--yes", "--json"], { env: noCredsStartEnv(), timeoutMs: 240_000 });
   },
 );
 
@@ -518,13 +528,17 @@ Then(
       ["completed", "blocked", "pending"].includes(storefront!.status),
       `the storefront stage must be completed/blocked/pending, got "${storefront!.status}"`,
     );
-    // No fabrication: with the storefront CLIs faked offline there is no real
-    // clone/install, so a `completed` here could only be fabricated.
-    assert.notEqual(
-      storefront!.status,
-      "completed",
-      "with the storefront CLIs faked offline there is no real clone; `completed` would be fabricated",
-    );
+    // No fabrication: the storefront scaffold needs no Saleor credential, so it
+    // can genuinely complete via a REAL `git clone` + `pnpm install`. A
+    // `completed` here must therefore be backed by the real cloned Paper
+    // storefront on disk (storefront/package.json), never a fabricated status.
+    if (storefront!.status === "completed") {
+      assert.ok(
+        existsSync(join(this.lastRun!.cwd, "storefront", "package.json")),
+        "a `completed` storefront stage must be backed by a real cloned storefront " +
+          "(storefront/package.json), never fabricated",
+      );
+    }
   },
 );
 
@@ -601,7 +615,7 @@ Then("the preview should not spawn the Vercel CLI or deploy anything", function 
 When(
   "the run reaches the deploy stage without `--dry-run`",
   function (this: JollyWorld) {
-    this.runCli(["start", "--yes", "--json"], { env: shimmedLogicEnv(this), timeoutMs: 90_000 });
+    this.runCli(["start", "--yes", "--json"], { env: noCredsStartEnv(), timeoutMs: 240_000 });
   },
 );
 
@@ -636,7 +650,7 @@ When("the run stops at a gate the agent cannot complete", function (this: JollyW
   // No --yes: the run pauses at the first high-risk gate it cannot self-approve;
   // with no real creds it could not run to completion either way → warning. The
   // PATH shim keeps bootstrap (init's `npx skills add`) hermetic.
-  this.runCli(["start", "--json"], { env: shimmedLogicEnv(this), timeoutMs: 90_000 });
+  this.runCli(["start", "--json"], { env: noCredsStartEnv(), timeoutMs: 240_000 });
 });
 
 Then(

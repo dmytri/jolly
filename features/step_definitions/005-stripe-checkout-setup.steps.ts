@@ -8,23 +8,24 @@
 // scenarios here assert ONLY Jolly's observable contribution (jolly doctor's
 // Stripe/payment readiness check); they never run the configurator.
 //
-// Safety (the "012 incident"): every @logic CLI invocation on a side-effecting
-// path runs under logicSafeEnv() (dummy creds + unroutable Cloud base) and in
-// the scenario's temp project dir, so no real account or real .env is touched.
-// The dummy Stripe keys are tracked before asserting no-secret-leak.
+// Safety: every @logic CLI invocation on a side-effecting path runs with the
+// runtime credentials genuinely UNSET (absentCredentialsEnv) — real absence,
+// never dummy values — and in the scenario's temp project dir, so no real account
+// or real .env is touched. The "no Stripe keys available" condition is produced
+// for real: the runner's Stripe CLI holds no test-mode keys (the scenario skips
+// if it does, never faking a not-logged-in CLI).
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { logicSafeEnv } from "../support/logic-env.ts";
+import { absentCredentialsEnv } from "../support/creds-env.ts";
 import { findRiskContexts, assertRiskContextShape } from "../support/envelope.ts";
 import { saleorGraphql } from "../support/saleor-graphql.ts";
 import {
   readStripeTrace,
-  writeFakeStripeCli,
   writeStripeCliTraceWrapper,
-} from "../support/stripe-cli-fake.ts";
+} from "../support/stripe-cli-trace.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 // --- Background (capability statements) -------------------------------------
@@ -56,7 +57,7 @@ When(
   function (this: JollyWorld) {
     this.runCli(
       ["create", "stripe", "--publishable-key", "pk_test_x", "--secret-key", "sk_test_x", "--json"],
-      { env: logicSafeEnv() },
+      { env: absentCredentialsEnv() },
     );
   },
 );
@@ -114,7 +115,7 @@ When(
         "sk_test_jolly_demo",
         "--json",
       ],
-      { env: logicSafeEnv() },
+      { env: absentCredentialsEnv() },
     );
   },
 );
@@ -177,7 +178,7 @@ When(
         "--dry-run",
         "--json",
       ],
-      { env: logicSafeEnv() },
+      { env: absentCredentialsEnv() },
     );
   },
 );
@@ -232,13 +233,12 @@ Then("the output should not be written to .env", function (this: JollyWorld) {
 // Shared `create stripe --json` import-path env: removes the env-provided Stripe
 // keys (so the CLI-import path is exercised, never env keys) and puts the
 // scenario's `stripe` first on PATH via notes.stripeShimDir — the REAL CLI behind
-// a trace wrapper for the @sandbox import, or the NOT-logged-in fake for the
-// @logic error scenario. logicSafeEnv keeps the run harmless; `create stripe`
-// contacts no Saleor service, so its dummy Saleor creds are inert here.
+// a trace wrapper for the @sandbox import, or (for the @logic error scenario) an
+// empty dir behind which the runner's real, not-logged-in `stripe` supplies no
+// keys. The credentials are unset, keeping the run harmless; `create stripe`
+// contacts no Saleor service.
 function stripeImportEnv(world: JollyWorld): Record<string, string | undefined> {
-  return logicSafeEnv({
-    JOLLY_STRIPE_PUBLISHABLE_KEY: undefined,
-    JOLLY_STRIPE_SECRET_KEY: undefined,
+  return absentCredentialsEnv({
     PATH: `${String(world.notes.stripeShimDir)}:${process.env.PATH ?? ""}`,
   });
 }
@@ -304,20 +304,41 @@ When("the agent runs `jolly create stripe --json`", function (this: JollyWorld) 
 
 // --- Scenario: create stripe errors clearly when no keys are available (@logic) -
 //
-// No env keys, no explicit flags, and a Stripe CLI that is NOT logged in with
-// test-mode keys: the import finds nothing, so Jolly must error honestly with
-// the stable MISSING_STRIPE_KEYS code, remediation naming BOTH paths (log in to
-// the Stripe CLI, or pass the explicit flags), and nothing written to .env. The
-// three Givens seed a NOT-logged-in fake `stripe` on the scenario-scoped PATH
-// (via stripeShimDir) so the shared `create stripe --json` When takes that path.
+// No env keys, no explicit flags, and a Stripe CLI that holds no test-mode keys:
+// the import finds nothing, so Jolly must error honestly with the stable
+// MISSING_STRIPE_KEYS code, remediation naming BOTH paths (log in to the Stripe
+// CLI, or pass the explicit flags), and nothing written to .env. The condition
+// is produced for REAL — the runner's Stripe CLI has no test-mode keys (live-by-
+// design: read real state, skip if it cannot be produced, never fake it).
+
+/**
+ * Does the runner's real Stripe CLI hold test-mode keys? Read-only probe; absent
+ * CLI or no keys ⇒ false (the "no keys available" condition is real).
+ */
+function realStripeCliHasTestKeys(): boolean {
+  const probe = spawnSync("stripe", ["config", "--list"], { encoding: "utf8" });
+  if (probe.error || probe.status !== 0 || typeof probe.stdout !== "string") return false;
+  return /test_mode_(pub_key|api_key)\s*=\s*["']?(?:pk|sk|rk)_test_/.test(probe.stdout);
+}
 
 Given("Jolly has no Stripe credentials in .env", function (this: JollyWorld) {
-  // Fresh temp project dir has no .env. Seed a NOT-logged-in fake Stripe CLI so
-  // the import (exercised by the shared When via stripeImportEnv) finds nothing.
-  const shimDir = this.newTempDir("stripe-cli-empty");
-  writeFakeStripeCli(shimDir, { loggedIn: false });
-  this.notes.stripeShimDir = shimDir;
+  // Produce "no keys available" for REAL: no env keys (stripeImportEnv unsets
+  // them) and a Stripe CLI with no test-mode keys. If the runner's real Stripe
+  // CLI IS logged in with test-mode keys, that condition cannot be produced
+  // without mutating real auth, so skip (read real state, never fake it).
+  if (realStripeCliHasTestKeys()) {
+    this.attach(
+      "Skipped: the runner's Stripe CLI is logged in with test-mode keys; the " +
+        "'no Stripe keys available' condition cannot be produced without mutating real auth",
+      "text/plain",
+    );
+    return "skipped";
+  }
+  // A scenario-scoped (empty) PATH dir keeps the import seam consistent; behind
+  // it the runner's real, not-logged-in `stripe` (or none) supplies no keys.
+  this.notes.stripeShimDir = this.newTempDir("stripe-cli-none");
   assert.ok(!existsSync(join(this.projectDir, ".env")), "expected no pre-existing .env");
+  return undefined;
 });
 
 Given("no explicit key flags are passed", function () {
@@ -326,13 +347,8 @@ Given("no explicit key flags are passed", function () {
 });
 
 Given("the Stripe CLI is not logged in with test-mode keys", function (this: JollyWorld) {
-  // Ensure the fake `stripe` on PATH is the NOT-logged-in variant (re-seed if a
-  // prior Given did not). The import then finds no test-mode keys.
-  const shimDir = this.notes.stripeShimDir
-    ? String(this.notes.stripeShimDir)
-    : this.newTempDir("stripe-cli-empty");
-  writeFakeStripeCli(shimDir, { loggedIn: false });
-  this.notes.stripeShimDir = shimDir;
+  // The real precondition is established by the first Given (which skips if the
+  // runner's Stripe CLI holds test-mode keys); nothing to seed here.
 });
 
 Then(
@@ -439,9 +455,9 @@ Then(
 //     (honest reporting; keys+channel named as a pending human gate).
 //   - @sandbox: the live install via appInstall + idempotent reuse + the gate.
 //
-// Safety: the @logic paths run under logicSafeEnv() (dummy JOLLY_* + an
-// unroutable `.invalid` Cloud base and Saleor endpoint), so even a stage that
-// genuinely executes can never reach a real account (the "012 incident" rule).
+// Safety: the @logic paths run with the runtime credentials genuinely UNSET
+// (absentCredentialsEnv) — real absence — so even a credential-gated stage that
+// executes cannot reach a real account.
 
 // The current Stripe app manifest (feature 005 Rule "Stripe app path"): the
 // v2 manifest — the older `stripe.saleor.app` is the retired v1.
@@ -576,14 +592,14 @@ Then(
 //
 // The `Given the agent runs `jolly start` in a fresh project directory with no
 // real service credentials` step is shared (defined in feature 001's step
-// defs). With approvals pre-granted (`--yes`) under logicSafeEnv, the run
-// reaches and attempts the Stripe stage, but the appInstall cannot succeed
-// against the unroutable `.invalid` Cloud base — so the stage must be reported
-// honestly (never "installed"), and the keys + channel mapping must be named as
+// defs). With approvals pre-granted (`--yes`) and the runtime credentials unset,
+// the run reaches and attempts the Stripe stage, but the appInstall cannot
+// succeed with no credentials — so the stage must be reported honestly (never
+// "installed"), and the keys + channel mapping must be named as
 // a pending human gate. This is the no-fabrication (integrity-rule) target.
 
 When("`jolly start` reaches the Stripe stage", function (this: JollyWorld) {
-  this.runCli(["start", "--yes", "--json"], { env: logicSafeEnv(), timeoutMs: 90_000 });
+  this.runCli(["start", "--yes", "--json"], { env: absentCredentialsEnv(), timeoutMs: 240_000 });
 });
 
 Then(
@@ -592,8 +608,8 @@ Then(
     const stages = (this.envelope.data.stages ?? []) as StartStage[];
     const stripe = findStripeStage(stages);
     assert.ok(stripe, "the run must report a Stripe stage in data.stages");
-    // appInstall could not succeed against the unroutable base, so the stage
-    // must NOT be "completed" — honest reporting, never a fabricated install.
+    // appInstall could not succeed with no credentials, so the stage must NOT
+    // be "completed" — honest reporting, never a fabricated install.
     assert.notEqual(
       stripe!.status,
       "completed",
@@ -831,28 +847,27 @@ function findCheckoutReadinessCheck(
 
 // --- Scenario: Jolly doctor does not fabricate checkout readiness (@logic) ----
 //
-// Under logicSafeEnv the Saleor endpoint is the unroutable `.invalid` TLD, so
-// the probe cannot reach a real store — exactly the "no reachable store" premise.
-// A probe that genuinely runs (no fabrication) must report the checkout-readiness
-// check as skipped/unknown/fail, never a fabricated `pass`, and the summary must
-// not claim checkout is ready. This is the deterministic target driving Crew.
+// With the Saleor endpoint genuinely unset there is no store to reach — a
+// genuinely-absent store (producible from real absence per AGENTS.md), exactly
+// the "no reachable store" premise. A probe that genuinely runs (no fabrication)
+// must report the checkout-readiness check as skipped/unknown/fail, never a
+// fabricated `pass`, and the summary must not claim checkout is ready. This is
+// the deterministic target driving Crew.
 
 Given("Jolly cannot reach a real store in this run", function (this: JollyWorld) {
-  // logicSafeEnv() points NEXT_PUBLIC_SALEOR_API_URL at the unroutable
-  // `.invalid` TLD (RFC 6761) — the probe cannot reach any store. Nothing to
-  // set up beyond running under that env in the When step.
+  // absentCredentialsEnv() leaves NEXT_PUBLIC_SALEOR_API_URL unset — there is no
+  // store to reach. Nothing to set up beyond running under that env in the When.
   this.notes.noReachableStore = true;
 });
 
 When(
   "the agent runs `jolly doctor stripe` with no reachable store",
   function (this: JollyWorld) {
-    // logicSafeEnv supplies dummy Stripe keys (so stripe-keys may pass) AND the
-    // unroutable `.invalid` Saleor endpoint (so the checkout probe cannot reach
-    // a store). The probe must fail fast against `.invalid` — give it headroom
-    // but a real cap so a hung probe surfaces as a test failure, not a hang.
+    // The credentials are unset, so the Saleor endpoint is absent and the
+    // checkout probe has no store to reach. The probe must resolve quickly —
+    // give it headroom but a real cap so a hung probe surfaces as a failure.
     this.runCli(["doctor", "stripe", "--json"], {
-      env: logicSafeEnv(),
+      env: absentCredentialsEnv(),
       timeoutMs: 60_000,
     });
   },

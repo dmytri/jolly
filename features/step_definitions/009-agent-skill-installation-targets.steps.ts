@@ -12,15 +12,15 @@
 // the standard project-local skill directories so the install/check path
 // verifies them on disk and reports success without the registry.
 //
-// Safety: every command runs under logicSafeEnv() — dummy credentials for all
-// groups + an unroutable Cloud API base — so no path can reach a real account
-// (the "012 incident" lesson); all on-disk effects land in the scenario's temp
-// project directory.
+// Safety: every command runs with the runtime credentials genuinely UNSET
+// (absentCredentialsEnv) — real absence, never dummy values — so no path can
+// reach a real account; all on-disk effects land in the scenario's temp project
+// directory.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { logicSafeEnv } from "../support/logic-env.ts";
+import { absentCredentialsEnv } from "../support/creds-env.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 const DEFAULT_SKILL_IDS = [
@@ -52,7 +52,7 @@ Given("the agent invokes `jolly skills install`", function (this: JollyWorld) {
   // Seed the standard project-local skill locations so on-disk verification is
   // deterministic offline, then run `skills install` in the temp project.
   seedSkillsOnDisk(this);
-  this.runCli(["skills", "install", "--json"], { env: logicSafeEnv() });
+  this.runCli(["skills", "install", "--json"], { env: absentCredentialsEnv() });
 });
 
 When("Jolly installs the default skill set", function (this: JollyWorld) {
@@ -144,7 +144,7 @@ When(
     // The detected-agent context: a CLAUDE.md project. init writes the
     // agent-specific glue (the merged AGENTS.md section).
     writeFileSync(join(this.projectDir, "CLAUDE.md"), "# Claude project\n");
-    this.runCli(["init", "--json"], { env: logicSafeEnv() });
+    this.runCli(["init", "--json"], { env: absentCredentialsEnv() });
   },
 );
 
@@ -203,7 +203,7 @@ Given(
 
 When("Jolly determines the agent environment", function (this: JollyWorld) {
   // init writes the agent glue (AGENTS.md) and is where agent detection lands.
-  this.runCli(["init", "--json"], { env: logicSafeEnv() });
+  this.runCli(["init", "--json"], { env: absentCredentialsEnv() });
 });
 
 Then("it should write generic glue", function (this: JollyWorld) {

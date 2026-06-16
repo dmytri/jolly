@@ -7,8 +7,9 @@
 // fabricated success", doctor reports `pass` only for a check it actually
 // performed; checks it could not run are skipped/unknown/fail, never pass.
 //
-// @logic scenarios run under logicSafeEnv() (unroutable Cloud API base, dummy
-// creds) — so connectivity is never probed and no remote `pass` is fabricated.
+// @logic scenarios run with the runtime credentials genuinely unset
+// (absentCredentialsEnv) — so connectivity is never probed and no remote `pass`
+// is fabricated.
 // @sandbox scenarios (connectivity, storefront, deployment+payment readiness,
 // start-runs-doctor) are gated by name in SANDBOX_REQUIREMENTS and skip
 // locally; their bodies assert only Jolly's own observable contribution.
@@ -17,7 +18,8 @@ import assert from "node:assert/strict";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CHECK_STATUSES } from "../support/envelope.ts";
-import { logicSafeEnv } from "../support/logic-env.ts";
+import { absentCredentialsEnv } from "../support/creds-env.ts";
+import { vercelCliAuthenticated } from "../support/sandbox.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 // ─── Scenario: Agent runs doctor during setup (@logic) ──────────────────────
@@ -27,7 +29,7 @@ Given("a project directory with the Jolly CLI installed", function () {
 });
 
 When("it invokes `jolly doctor`", function (this: JollyWorld) {
-  this.runCli(["doctor", "--json"], { env: logicSafeEnv() });
+  this.runCli(["doctor", "--json"], { env: absentCredentialsEnv() });
 });
 
 Then(
@@ -235,6 +237,116 @@ Then(
   },
 );
 
+// ─── Scenarios: Doctor reads the Vercel CLI login state via `vercel whoami` ──
+//
+// Doctor is the single readiness oracle (feature 014 Rule): its auth checks read
+// login state by DELEGATING to the upstream tool's own CLI — here the Vercel
+// CLI's `vercel whoami` — never by Jolly reimplementing Vercel auth. The
+// deployment group's `vercel-auth` check spawns `vercel whoami` and reports the
+// real result: no session → fail/unknown (never a fabricated pass) with
+// `vercel login` as the next step; a live session → pass. The When
+// (`jolly doctor deployment --json`) is the one already defined above; the
+// Vercel session lives in the Vercel CLI's own config, independent of the
+// JOLLY_* env (unset for the @logic case), so the same When serves both cases.
+//
+// @logic ("not logged in"): the precondition is a real runner state, so the
+// Given verifies it live by running `vercel whoami` and SKIPS — never fakes or
+// mutates auth — when a session happens to exist on this runner. @sandbox
+// ("logged in"): gated by the hook on an authenticated Vercel CLI session
+// (VERCEL_CLI_SCENARIOS), so it skips unless a real session is present.
+
+Given(
+  "the Vercel CLI is not logged in on this runner",
+  function (this: JollyWorld) {
+    // Live precondition: read the real Vercel CLI session state. If a session
+    // exists we cannot produce "not logged in" without mutating real auth, so
+    // skip (live-by-design: read real state, never force a fake one).
+    if (vercelCliAuthenticated()) {
+      this.attach(
+        "Skipped: the Vercel CLI is logged in on this runner; the 'not logged " +
+          "in' precondition cannot be produced without mutating real auth state",
+        "text/plain",
+      );
+      return "skipped";
+    }
+    return undefined;
+  },
+);
+
+Given(
+  "the Vercel CLI is logged in on this runner",
+  function (this: JollyWorld) {
+    // @sandbox: an authenticated Vercel CLI session is the hook's gate
+    // (VERCEL_CLI_SCENARIOS); reaching this step means a real session exists.
+  },
+);
+
+/** The vercel-auth check must name `vercel whoami` as how it read the state. */
+function assertReadsViaWhoami(check: Record<string, unknown>): void {
+  assert.match(
+    JSON.stringify(check),
+    /vercel whoami/,
+    "the vercel-auth check must read the login state by running `vercel whoami`",
+  );
+}
+
+Then(
+  "a {string} check should read the login state by running `vercel whoami`",
+  function (this: JollyWorld, id: string) {
+    const check = this.findCheck(id);
+    assert.ok(check, `doctor deployment must report a \`${id}\` check`);
+    assertReadsViaWhoami(check!);
+  },
+);
+
+Then(
+  "the {string} check should read the session by running `vercel whoami`",
+  function (this: JollyWorld, id: string) {
+    const check = this.findCheck(id);
+    assert.ok(check, `doctor deployment must report a \`${id}\` check`);
+    assertReadsViaWhoami(check!);
+  },
+);
+
+Then(
+  "with no Vercel CLI session the {string} check should be {string} or {string}, never {string}",
+  function (this: JollyWorld, id: string, a: string, b: string, never: string) {
+    const check = this.findCheck(id);
+    assert.ok(check, `doctor deployment must report a \`${id}\` check`);
+    assert.notEqual(
+      check!.status,
+      never,
+      `${id} must never fabricate "${never}" without a Vercel CLI session`,
+    );
+    assert.ok(
+      [a, b].includes(String(check!.status)),
+      `${id} with no session must be "${a}" or "${b}", got "${check!.status}"`,
+    );
+  },
+);
+
+Then(
+  "its next step should be to run `vercel login`",
+  function (this: JollyWorld) {
+    const check = this.findCheck("vercel-auth");
+    assert.ok(check, "doctor deployment must report a `vercel-auth` check");
+    assert.equal(
+      check!.command,
+      "vercel login",
+      "the vercel-auth check's next step must be to run `vercel login`",
+    );
+  },
+);
+
+Then(
+  "the {string} check should be {string}",
+  function (this: JollyWorld, id: string, status: string) {
+    const check = this.findCheck(id);
+    assert.ok(check, `doctor must report a \`${id}\` check`);
+    assert.equal(check!.status, status, `${id} must be "${status}"`);
+  },
+);
+
 // ─── Scenario: Jolly start runs doctor automatically (@sandbox) ─────────────
 
 Given("`jolly start` has completed setup steps", function (this: JollyWorld) {
@@ -271,7 +383,7 @@ Given(
 );
 
 When("the agent runs `jolly doctor storefront --json`", function (this: JollyWorld) {
-  this.runCli(["doctor", "storefront", "--json"], { env: logicSafeEnv() });
+  this.runCli(["doctor", "storefront", "--json"], { env: absentCredentialsEnv() });
 });
 
 Then(
@@ -355,19 +467,19 @@ function assertOnlyGroupRan(world: JollyWorld, group: string): void {
 }
 
 When("the agent runs `jolly doctor skills --json`", function (this: JollyWorld) {
-  this.runCli(["doctor", "skills", "--json"], { env: logicSafeEnv() });
+  this.runCli(["doctor", "skills", "--json"], { env: absentCredentialsEnv() });
 });
 
 When("the agent runs `jolly doctor saleor --json`", function (this: JollyWorld) {
-  this.runCli(["doctor", "saleor", "--json"], { env: logicSafeEnv() });
+  this.runCli(["doctor", "saleor", "--json"], { env: absentCredentialsEnv() });
 });
 
 When("the agent runs `jolly doctor deployment --json`", function (this: JollyWorld) {
-  this.runCli(["doctor", "deployment", "--json"], { env: logicSafeEnv() });
+  this.runCli(["doctor", "deployment", "--json"], { env: absentCredentialsEnv() });
 });
 
 When("the agent runs `jolly doctor stripe --json`", function (this: JollyWorld) {
-  this.runCli(["doctor", "stripe", "--json"], { env: logicSafeEnv() });
+  this.runCli(["doctor", "stripe", "--json"], { env: absentCredentialsEnv() });
 });
 
 Then("only the skills checks should run", function (this: JollyWorld) {
@@ -397,7 +509,7 @@ Then("only the stripe checks should run", function (this: JollyWorld) {
 // ─── Scenario: jolly doctor --quiet keeps the envelope and checks (@logic) ──
 
 When("the agent runs `jolly doctor --quiet --json`", function (this: JollyWorld) {
-  this.runCli(["doctor", "--quiet", "--json"], { env: logicSafeEnv() });
+  this.runCli(["doctor", "--quiet", "--json"], { env: absentCredentialsEnv() });
 });
 
 Then(
@@ -423,7 +535,7 @@ Then(
 Given(
   "the agent runs `jolly doctor --json` with no group argument",
   function (this: JollyWorld) {
-    this.runCli(["doctor", "--json"], { env: logicSafeEnv() });
+    this.runCli(["doctor", "--json"], { env: absentCredentialsEnv() });
   },
 );
 
@@ -485,7 +597,7 @@ Given(
 );
 
 When("the agent runs `jolly doctor init --json`", function (this: JollyWorld) {
-  this.runCli(["doctor", "init", "--json"], { env: logicSafeEnv() });
+  this.runCli(["doctor", "init", "--json"], { env: absentCredentialsEnv() });
 });
 
 Then(

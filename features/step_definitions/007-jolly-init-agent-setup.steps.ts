@@ -15,15 +15,16 @@
 // 007 Rule "Init boundaries") so init verifies them on disk and skips `npx`. The
 // honest-failure path is asserted separately by leaving them absent.
 //
-// Safety: every command runs under logicSafeEnv() — dummy credentials and an
-// unroutable Cloud API base — so no path can reach a real account, and the
-// merges happen in the scenario's temp project directory.
+// Safety: every command runs with the runtime credentials genuinely UNSET
+// (absentCredentialsEnv) — real absence, never dummy values — so no path can
+// reach a real account, and the merges happen in the scenario's temp project
+// directory.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { logicSafeEnv, DUMMY_SECRETS } from "../support/logic-env.ts";
+import { absentCredentialsEnv } from "../support/creds-env.ts";
 import { REPO_ROOT } from "../support/world.ts";
 import type { JollyWorld } from "../support/world.ts";
 
@@ -53,7 +54,7 @@ function seedSkillsOnDisk(world: JollyWorld): void {
 }
 
 function runInit(world: JollyWorld): void {
-  world.runCli(["init", "--json"], { env: logicSafeEnv() });
+  world.runCli(["init", "--json"], { env: absentCredentialsEnv() });
 }
 
 // ─── Background ────────────────────────────────────────────────────────────
@@ -204,7 +205,8 @@ Then("Jolly should not store secrets", function (this: JollyWorld) {
     !existsSync(join(this.projectDir, ".env")),
     "init must not write a .env (no secrets stored)",
   );
-  for (const secret of DUMMY_SECRETS) this.trackSecret(secret);
+  // The world tracks the real runtime JOLLY_* secret values (its constructor);
+  // assert none of them leak into init's output.
   this.assertNoSecretsIn(this.lastRun!.stdout, "init stdout");
   this.assertNoSecretsIn(this.lastRun!.stderr, "init stderr");
 });

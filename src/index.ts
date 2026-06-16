@@ -1770,6 +1770,41 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
       description: "Deployment is run by your agent via the Vercel CLI; Jolly does not contact Vercel.",
       command: "npx vercel",
     });
+
+    // Single readiness oracle (feature 014): read the Vercel login state by
+    // delegating to the Vercel CLI's own `vercel whoami` — never reimplement
+    // Vercel auth. Exit 0 means a real session (pass). A clean non-zero answer
+    // means no session (fail). If the CLI cannot be spawned at all, the honest
+    // status is unknown. Never `pass` without a confirmed session (feature 020
+    // "No fabricated success").
+    let vercelStatus: CheckStatus;
+    let vercelResult;
+    try {
+      vercelResult = spawnSync("npx", ["vercel", "whoami"], {
+        encoding: "utf8",
+        timeout: 60_000,
+      });
+    } catch {
+      vercelResult = undefined;
+    }
+    if (!vercelResult || vercelResult.error) {
+      vercelStatus = "unknown";
+    } else if (vercelResult.status === 0) {
+      vercelStatus = "pass";
+    } else {
+      vercelStatus = "fail";
+    }
+    checks.push({
+      id: "vercel-auth",
+      status: vercelStatus,
+      description:
+        vercelStatus === "pass"
+          ? "Vercel CLI session confirmed by running `vercel whoami`."
+          : vercelStatus === "fail"
+            ? "No Vercel CLI session: `vercel whoami` reported you are not logged in."
+            : "Could not read the Vercel CLI login state by running `vercel whoami` (CLI unavailable).",
+      command: vercelStatus === "pass" ? undefined : "vercel login",
+    });
   }
 
   if (wants("stripe")) {

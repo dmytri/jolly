@@ -11,12 +11,12 @@
 //     saleor-graphql.ts). Gated by SANDBOX_REQUIREMENTS (saleorEndpoint +
 //     saleorAppToken) → skips locally.
 //   - The two @logic scenarios (doctor health checks, upgrade) run read-only
-//     Jolly commands under logicSafeEnv() in the scenario's temp project dir.
+//     Jolly commands under absentCredentialsEnv() in the scenario's temp project dir.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { logicSafeEnv } from "../support/logic-env.ts";
+import { absentCredentialsEnv } from "../support/creds-env.ts";
 import { saleorGraphql } from "../support/saleor-graphql.ts";
 import type { JollyWorld } from "../support/world.ts";
 
@@ -98,8 +98,8 @@ Given("the storefront has been deployed", function (this: JollyWorld) {
 });
 
 // `When the agent runs \`jolly doctor --json\`` is defined in
-// 020-cli-output-contract.steps.ts (identical body: runCli doctor under
-// logicSafeEnv). Reused here — not duplicated, to avoid an ambiguous match.
+// 020-cli-output-contract.steps.ts (identical body: runCli doctor with
+// credentials unset). Reused here — not duplicated, to avoid an ambiguous match.
 
 Then("`jolly doctor` should make no local or remote changes", function (this: JollyWorld) {
   // No .env should be created by a read-only doctor run in a fresh temp project.
@@ -112,7 +112,7 @@ Then("`jolly doctor` should make no local or remote changes", function (this: Jo
 Then(
   "jolly doctor should detect configuration drift, missing env vars, and connectivity problems",
   function (this: JollyWorld) {
-    // With the unroutable logic-safe env, doctor reports fail/unknown checks for
+    // With the credentials unset, doctor reports fail/unknown checks for
     // missing/unverifiable config rather than fabricating pass.
     assert.ok(this.envelope.checks.length > 0, "doctor must report checks");
     const hasDiagnostic = this.envelope.checks.some(
@@ -146,7 +146,7 @@ Given("skills or agent guidance may become outdated over time", function (this: 
 });
 
 When("the agent runs `jolly upgrade --json`", function (this: JollyWorld) {
-  this.runCli(["upgrade", "--json"], { env: logicSafeEnv() });
+  this.runCli(["upgrade", "--json"], { env: absentCredentialsEnv() });
 });
 
 Then(

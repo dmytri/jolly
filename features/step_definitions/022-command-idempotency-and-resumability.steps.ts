@@ -16,17 +16,17 @@
 //     vercel / configurator. They are credential-gated and SKIP locally.
 //   - "Collisions pause instead of overwriting" is @logic: it sets up a
 //     collision precondition in the temp project and asserts Jolly's collision
-//     handling via the envelope under logicSafeEnv().
+//     handling via the envelope under absentCredentialsEnv().
 //
-// Safety: every @logic command runs under logicSafeEnv() — dummy credentials
-// for all groups + an unroutable Cloud API base — so no path can reach a real
-// account (the "012 incident" lesson).
+// Safety: every @logic command runs with the runtime credentials genuinely UNSET
+// (absentCredentialsEnv) — real absence, never dummy values — so no path can
+// reach a real account.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { findRiskContexts } from "../support/envelope.ts";
-import { logicSafeEnv } from "../support/logic-env.ts";
+import { absentCredentialsEnv } from "../support/creds-env.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 // ─── Background (capability statements) ──────────────────────────────────────
@@ -280,7 +280,7 @@ Then(
 // pause and ask how to resolve, never silently overwrite, and expose a feature
 // 021 riskContext for the destructive resolution (Rule: destructive resolution
 // is an impactful action). Precondition is set up in the temp project; the
-// assertion is on the envelope, under logicSafeEnv().
+// assertion is on the envelope, under absentCredentialsEnv().
 
 Given(
   "a non-empty `storefront\\/` directory Jolly did not create",
@@ -300,7 +300,7 @@ When("`jolly start` reaches the storefront clone stage", function (this: JollyWo
   const url = String(this.notes.collidingUrl);
   // Attempt the colliding write (no --yes): Jolly should refuse to silently
   // overwrite the pre-existing, customer-authored endpoint.
-  this.runCli(["create", "store", "--url", url, "--json"], { env: logicSafeEnv() });
+  this.runCli(["create", "store", "--url", url, "--json"], { env: absentCredentialsEnv() });
 });
 
 Then(

@@ -7,16 +7,19 @@
 // stable code and never fabricates a created/configured/stored resource or a
 // `pass` check.
 //
-// Safety: every command runs under logicSafeEnv() — dummy credentials for all
-// groups + an unroutable `.invalid` Cloud API base — so no side-effecting path
-// can reach a real account (the "012 incident" lesson).
+// Safety: every command runs with the runtime credentials genuinely UNSET
+// (absentCredentialsEnv) — real absence, never dummy values — so no side-effecting
+// path can reach a real account. The two network-touching previews resolve the
+// org / mint a token against LOCAL loopback stand-ins (below), driven with a
+// real-format token the stand-in does not validate; nothing reaches a real
+// account.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
-import { logicSafeEnv } from "../support/logic-env.ts";
+import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 // --- Background ------------------------------------------------------------
@@ -46,7 +49,7 @@ Given(
 );
 
 When("it inspects `jolly create --help`", function (this: JollyWorld) {
-  this.runCli(["create", "--help", "--json"], { env: logicSafeEnv() });
+  this.runCli(["create", "--help", "--json"], { env: absentCredentialsEnv() });
 });
 
 function helpSubcommandNames(world: JollyWorld): string[] {
@@ -101,13 +104,12 @@ Then(
 Given(
   "`jolly create {word}` is run with its preconditions unmet",
   function (this: JollyWorld, subcommand: string) {
-    // Each create subcommand, run under logicSafeEnv with no instance URL and an
-    // unroutable Cloud API, is a precondition-unmet path: there is no real
-    // endpoint to reach, so the command must error honestly. logicSafeEnv points
-    // everything at `.invalid` and the temp project has no
-    // NEXT_PUBLIC_SALEOR_API_URL.
+    // Each create subcommand, run with every credential genuinely unset and no
+    // instance URL, is a precondition-unmet path: there is no credential or
+    // endpoint to reach, so the command must error honestly. absentCredentialsEnv
+    // unsets everything and the temp project has no NEXT_PUBLIC_SALEOR_API_URL.
     this.runCli(["create", subcommand, "--json"], {
-      env: logicSafeEnv({ NEXT_PUBLIC_SALEOR_API_URL: undefined }),
+      env: absentCredentialsEnv(),
     });
   },
 );
@@ -274,21 +276,21 @@ Given(
       // (no introspection in this mode) — a value stored but not verified.
       this.runCli(
         ["create", "store", "--url", "https://logic-store.saleor.cloud/graphql/", "--json"],
-        { env: logicSafeEnv() },
+        { env: absentCredentialsEnv() },
       );
     } else if (subcommand === "stripe") {
       // Stripe test keys are written to .env without being exercised against
       // Stripe — stored, not verified.
       this.runCli(
         ["create", "stripe", "--publishable-key", "pk_test_logic", "--secret-key", "sk_test_logic", "--json"],
-        { env: logicSafeEnv() },
+        { env: absentCredentialsEnv() },
       );
     } else {
       // app-token mints a token via GraphQL (the stand-in returns one) and
       // stores it, but never exercises it — stored, not verified.
       const endpoint = await startGraphqlStandIn(this);
       await this.runCliAsync(["create", "app-token", "--url", endpoint, "--json"], {
-        env: logicSafeEnv(),
+        env: absentCredentialsEnv({ JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN }),
       });
     }
   },
@@ -334,8 +336,8 @@ Then(
 // ─── Scenario Outline: create --dry-run shows the real request ─────────────
 
 // store + stripe literals; the app-token example reuses 024's identical
-// `jolly create app-token --dry-run` step (it runs the dry-run under
-// logicSafeEnv, resolving the instance URL the preview names). Defining a
+// `jolly create app-token --dry-run` step (it runs the dry-run with credentials
+// unset, resolving the instance URL the preview names). Defining a
 // {word} or app-token variant here would be ambiguous with that step.
 Given(
   "the agent runs `jolly create store --dry-run`",
@@ -346,7 +348,10 @@ Given(
     const standIn = await startCloudApiStandIn(this);
     this.notes.cloudStandIn = standIn;
     await this.runCliAsync(["create", "store", "--dry-run", "--json"], {
-      env: logicSafeEnv({ JOLLY_SALEOR_CLOUD_API_URL: standIn.baseUrl }),
+      env: absentCredentialsEnv({
+        JOLLY_SALEOR_CLOUD_API_URL: standIn.baseUrl,
+        JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN,
+      }),
     });
   },
 );
@@ -358,7 +363,7 @@ Given(
     // Keys must be present to preview storing them.
     this.runCli(
       ["create", "stripe", "--publishable-key", "pk_test_logic", "--secret-key", "sk_test_logic", "--dry-run", "--json"],
-      { env: logicSafeEnv() },
+      { env: absentCredentialsEnv() },
     );
   },
 );

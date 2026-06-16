@@ -27,7 +27,7 @@ export default { ...common, tags: "not @eval and not @iteration" };
 // parallel workers would race on the single shared per-run Saleor environment the
 // harness provisions (see AGENTS.md, sandbox harness mechanics) — parallelize it
 // only once that setup is guarded for concurrent workers.
-export const logic = { ...common, tags: "@logic and not @iteration", parallel: 4 };
+export const logic = { ...common, tags: "@logic and not @iteration", parallel: 2 };
 export const sandbox = { ...common, tags: "@sandbox and not @iteration" };
 export const iteration = { ...common, tags: "@iteration" };
 

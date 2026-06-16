@@ -140,6 +140,9 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   "Doctor checks Saleor connectivity": ["saleorEndpoint"],
   "Doctor checks storefront readiness": ["saleorEndpoint"],
   "Doctor checks deployment and payment readiness": ["stripe"],
+  // The vercel-auth "logged in" case needs only a real authenticated Vercel CLI
+  // session (a capability gated via VERCEL_CLI_SCENARIOS) — no JOLLY_* credential.
+  "Doctor confirms the Vercel CLI login state when a session exists": [],
   "Jolly start runs doctor automatically": FULL_END_TO_END,
   // 018-jolly-auth-commands
   // The failed-exchange and invalid-token scenarios need only outbound
@@ -183,6 +186,7 @@ export const VERCEL_CLI_SCENARIOS: ReadonlySet<string> = new Set([
   "Jolly start deploys to Vercel by spawning the official Vercel CLI",
   "Agent verifies checkout readiness",
   "Doctor checks deployment and payment readiness",
+  "Doctor confirms the Vercel CLI login state when a session exists",
   "Jolly start runs doctor automatically",
   "Jolly start resumes from the first incomplete stage",
   "Composed subcommands and start agree on state",

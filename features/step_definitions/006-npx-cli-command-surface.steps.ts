@@ -13,17 +13,16 @@
 // bootstraps and emits the ordered playbook in Jolly's hybrid (human +
 // machine-readable) format.
 //
-// Safety (the "012 incident"): the installed-bin run builds its environment
-// from scratch (no .env leakage) and forces dummy credentials for all groups
-// plus an unroutable `.invalid` Cloud API base, so a side-effecting path can
-// never reach a real account.
+// Safety: the installed-bin run builds its environment from scratch (no .env
+// leakage) with the runtime credentials genuinely unset (real absence), so a
+// side-effecting path cannot reach a real account.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, symlinkSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { findEnvelope } from "../support/envelope.ts";
-import { logicSafeEnv } from "../support/logic-env.ts";
+import { absentCredentialsEnv } from "../support/creds-env.ts";
 import { REPO_ROOT } from "../support/world.ts";
 import type { JollyWorld } from "../support/world.ts";
 
@@ -159,13 +158,13 @@ When(
 
     // 3. Run the INSTALLED bin on the node-only PATH (Bun unresolvable, asserted
     //    in the Given) via its own `#!/usr/bin/env node` shebang. Env built from
-    //    scratch + logic-safe dummy creds + unroutable Cloud API base, so a
-    //    side-effecting path can never reach a real account ("012 incident").
+    //    scratch with the runtime credentials genuinely unset (real absence), so
+    //    a side-effecting path cannot reach a real account.
     //    Keep the directory holding `env` on PATH so the shebang resolves,
     //    without adding any Bun-bearing dir.
     const envBin = spawnSync("sh", ["-c", "command -v env"], { encoding: "utf8" });
     const envDir = dirname((envBin.stdout ?? "/usr/bin/env").trim() || "/usr/bin/env");
-    const safe = logicSafeEnv();
+    const safe = absentCredentialsEnv();
     const childEnv: Record<string, string> = {
       PATH: `${binDir}${delimiter}${envDir}`,
     };
@@ -215,9 +214,9 @@ Given(
 );
 
 When("the agent runs `jolly start --json`", function (this: JollyWorld) {
-  // `jolly start` is the primary guided command. Run under logicSafeEnv so the
-  // bootstrap cannot reach a real account; the temp project is isolated.
-  this.runCli(["start", "--json"], { env: logicSafeEnv() });
+  // `jolly start` is the primary guided command. Run with the credentials unset
+  // so the bootstrap cannot reach a real account; the temp project is isolated.
+  this.runCli(["start", "--json"], { env: absentCredentialsEnv() });
 });
 
 Then(
@@ -259,7 +258,7 @@ Then(
   "the output should follow Jolly's hybrid human-readable plus machine-readable format",
   function (this: JollyWorld) {
     // Default (non --json) mode carries both human text AND the envelope.
-    this.runCli(["start"], { env: logicSafeEnv() });
+    this.runCli(["start"], { env: absentCredentialsEnv() });
     const run = this.lastRun!;
     assert.ok(run.envelope, "default-mode start must carry the machine-readable envelope");
     const envelopeJson = JSON.stringify(run.envelope);

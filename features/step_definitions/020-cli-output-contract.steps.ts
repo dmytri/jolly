@@ -6,9 +6,9 @@
 // not any one command's specific check-ids or codes, so they hold regardless
 // of which command produces the envelope.
 //
-// Safety: every command here runs under logicSafeEnv() — dummy credentials for
-// all groups + an unroutable `.invalid` Cloud API base — so no side-effecting
-// path can reach a real account (the "012 incident" lesson).
+// Safety: every command here runs with the runtime credentials genuinely UNSET
+// (absentCredentialsEnv) — real absence, never dummy values — so no side-effecting
+// path can reach a real account.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
@@ -17,8 +17,13 @@ import {
   CHECK_STATUSES,
   ENVELOPE_STATUSES,
 } from "../support/envelope.ts";
-import { logicSafeEnv, DUMMY } from "../support/logic-env.ts";
+import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
+
+// Real-format secret values used purely as redaction probes: passed as command
+// input and asserted never to be echoed. Not credentials for any real service.
+const REDACTION_PROBE_CLOUD_TOKEN = "saleor-cloud-token-redaction-probe";
+const REDACTION_PROBE_STRIPE_SECRET = "sk_test_redactionprobe";
 
 // --- Background ------------------------------------------------------------
 
@@ -48,14 +53,14 @@ When("the command completes", function () {
 When(
   "the agent runs `jolly doctor --json`",
   function (this: JollyWorld) {
-    this.runCli(["doctor", "--json"], { env: logicSafeEnv() });
+    this.runCli(["doctor", "--json"], { env: absentCredentialsEnv() });
   },
 );
 
 When(
   "the agent runs `jolly auth status --json`",
   function (this: JollyWorld) {
-    this.runCli(["auth", "status", "--json"], { env: logicSafeEnv() });
+    this.runCli(["auth", "status", "--json"], { env: absentCredentialsEnv() });
   },
 );
 
@@ -63,7 +68,7 @@ When(
   "the agent runs `jolly create store --dry-run --json`",
   function (this: JollyWorld) {
     this.runCli(["create", "store", "--dry-run", "--json"], {
-      env: logicSafeEnv(),
+      env: absentCredentialsEnv(),
     });
   },
 );
@@ -156,7 +161,7 @@ Then(
 Given(
   "the agent runs `jolly doctor`",
   function (this: JollyWorld) {
-    this.runCli(["doctor"], { env: logicSafeEnv() });
+    this.runCli(["doctor"], { env: absentCredentialsEnv() });
     this.notes.defaultStdout = this.lastRun!.stdout;
   },
 );
@@ -190,7 +195,7 @@ Then(
   "running `jolly doctor --quiet` should trim only the human text and still include the envelope",
   function (this: JollyWorld) {
     const defaultStdout = String(this.notes.defaultStdout ?? "");
-    this.runCli(["doctor", "--quiet"], { env: logicSafeEnv() });
+    this.runCli(["doctor", "--quiet"], { env: absentCredentialsEnv() });
     const quiet = this.lastRun!;
     assert.ok(quiet.envelope, "--quiet must keep the envelope");
     assert.ok(
@@ -204,8 +209,8 @@ Then(
 //
 // The `Given the agent runs `jolly doctor --json`` precondition reuses the
 // identical When defined above for the envelope outline (cucumber matches
-// Given/When/Then interchangeably) — doctor runs read-only checks and the
-// unroutable env yields fail/unknown checks (never a fabricated pass) but a
+// Given/When/Then interchangeably) — doctor runs read-only checks and with the
+// credentials unset yields fail/unknown checks (never a fabricated pass) but a
 // well-formed checks array.
 
 When("it reports check results in the envelope", function () {
@@ -270,7 +275,7 @@ Given(
   function (this: JollyWorld, token: string) {
     // An empty token is junk input: login must fail honestly with an
     // envelope carrying errors[].code, never fabricated success.
-    this.runCli(["login", "--token", token, "--json"], { env: logicSafeEnv() });
+    this.runCli(["login", "--token", token, "--json"], { env: absentCredentialsEnv() });
   },
 );
 
@@ -315,16 +320,15 @@ Then(
 // --- Scenario: Output never exposes secrets --------------------------------
 
 // Run a secret-handling command in default, --json, and --quiet modes,
-// asserting in each mode that the tracked secret never leaks. The dummy
-// secrets enter the child env via overrides (after the world snapshot), so
-// track them explicitly. Assertions are unchanged from the prior scenario;
-// the loop just exercises every mode named in the new step text.
+// asserting in each mode that the tracked secret never leaks. The probe secret
+// is passed as command input and tracked explicitly. Assertions are unchanged
+// from the prior scenario; the loop just exercises every mode named in the step.
 function assertNoLeakAcrossModes(
   world: JollyWorld,
   baseArgs: string[],
 ): void {
   for (const mode of [[], ["--json"], ["--quiet"]]) {
-    world.runCli([...baseArgs, ...mode], { env: logicSafeEnv() });
+    world.runCli([...baseArgs, ...mode], { env: absentCredentialsEnv() });
     world.assertNoSecretsIn(world.lastRun!.stdout, "stdout");
     world.assertNoSecretsIn(world.lastRun!.stderr, "stderr");
   }
@@ -333,20 +337,20 @@ function assertNoLeakAcrossModes(
 When(
   "the agent runs `jolly login --token <value>` in default, `--json`, and `--quiet` modes",
   function (this: JollyWorld) {
-    this.trackSecret(DUMMY.cloudToken);
-    assertNoLeakAcrossModes(this, ["login", "--token", DUMMY.cloudToken]);
+    this.trackSecret(REDACTION_PROBE_CLOUD_TOKEN);
+    assertNoLeakAcrossModes(this, ["login", "--token", REDACTION_PROBE_CLOUD_TOKEN]);
   },
 );
 
 When(
   "the agent runs `jolly create stripe --secret-key <value>` in default, `--json`, and `--quiet` modes",
   function (this: JollyWorld) {
-    this.trackSecret(DUMMY.stripeSecret);
+    this.trackSecret(REDACTION_PROBE_STRIPE_SECRET);
     assertNoLeakAcrossModes(this, [
       "create",
       "stripe",
       "--secret-key",
-      DUMMY.stripeSecret,
+      REDACTION_PROBE_STRIPE_SECRET,
     ]);
   },
 );
@@ -372,14 +376,16 @@ Then(
 //
 // The first-party-hosts allowlist is a security contract: Jolly's own
 // request-sending code contacts ONLY auth.saleor.io, cloud.saleor.io, the
-// customer's *.saleor.cloud domains, api.stripe.com, github.com, and 127.0.0.1,
-// plus any JOLLY_SALEOR_CLOUD_API_URL override. To make "the hosts it can
-// contact" enumerable and "exactly" assertable, Jolly declares the allowlist in
-// one canonical module (src/lib/hosts.ts) that the request layer honors — the
-// enumeration reads that declaration. The forbidden api.vercel.com and the
-// retired id.saleor.online / api.saleor.cloud are checked by scanning the whole
-// of src (Jolly's code). Long Then patterns use RegExp so Cucumber Expressions
-// don't mis-parse "127.0.0.1" as a {float}.{float} parameter.
+// customer's *.saleor.cloud domains, github.com, and 127.0.0.1, plus any
+// JOLLY_SALEOR_CLOUD_API_URL override. To make "the hosts it can contact"
+// enumerable and "exactly" assertable, Jolly declares the allowlist in one
+// canonical module (src/lib/hosts.ts) that the request layer honors — the
+// enumeration reads that declaration. Neither api.vercel.com nor api.stripe.com
+// is first-party: Vercel is reached only by the spawned Vercel CLI and Stripe
+// only by the spawned Stripe CLI, so neither host appears in Jolly's own request
+// code; this and the retired id.saleor.online / api.saleor.cloud are checked by
+// scanning the whole of src (Jolly's code). Long Then patterns use RegExp so
+// Cucumber Expressions don't mis-parse "127.0.0.1" as a {float}.{float} param.
 
 /** Concatenate every TypeScript file under src (Jolly's own code) for scanning. */
 function allSrcText(): string {
@@ -399,7 +405,6 @@ function allSrcText(): string {
 const EXPECTED_FIRST_PARTY_HOSTS = [
   "auth.saleor.io",
   "cloud.saleor.io",
-  "api.stripe.com",
   "github.com",
   "127.0.0.1",
 ].sort();
@@ -420,7 +425,7 @@ When("the hosts it can contact are enumerated", async function (this: JollyWorld
 });
 
 Then(
-  /^they should be exactly auth\.saleor\.io, cloud\.saleor\.io, the customer's `\*\.saleor\.cloud` domains, api\.stripe\.com, github\.com, and 127\.0\.0\.1, plus any `JOLLY_SALEOR_CLOUD_API_URL` override$/,
+  /^they should be exactly auth\.saleor\.io, cloud\.saleor\.io, the customer's `\*\.saleor\.cloud` domains, github\.com, and 127\.0\.0\.1, plus any `JOLLY_SALEOR_CLOUD_API_URL` override$/,
   function (this: JollyWorld) {
     const mod = this.notes.hostsModule as
       | { FIRST_PARTY_HOSTS?: unknown; isFirstPartyHost?: (h: string) => boolean }
@@ -458,18 +463,24 @@ Then(
       if (prev === undefined) delete process.env["JOLLY_SALEOR_CLOUD_API_URL"];
       else process.env["JOLLY_SALEOR_CLOUD_API_URL"] = prev;
     }
-    // A non-first-party host is rejected.
+    // Non-first-party hosts are rejected: Vercel and Stripe are reached only by
+    // their own spawned CLIs, never by Jolly's own request code.
     assert.equal(isFirstParty!("api.vercel.com"), false, "api.vercel.com must NOT be first-party");
+    assert.equal(isFirstParty!("api.stripe.com"), false, "api.stripe.com must NOT be first-party");
   },
 );
 
 Then(
-  /^api\.vercel\.com should not appear in Jolly's own request code — Vercel is reached only by the spawned Vercel CLI$/,
+  /^neither api\.vercel\.com nor api\.stripe\.com should appear in Jolly's own request code — Vercel is reached only by the spawned Vercel CLI, and Stripe only by the spawned Stripe CLI$/,
   function (this: JollyWorld) {
     const src = String(this.notes.srcText);
     assert.ok(
       !src.includes("api.vercel.com"),
       "api.vercel.com must not appear in Jolly's own code — Vercel is reached only by the spawned Vercel CLI",
+    );
+    assert.ok(
+      !src.includes("api.stripe.com"),
+      "api.stripe.com must not appear in Jolly's own code — Stripe is reached only by the spawned Stripe CLI",
     );
   },
 );
@@ -492,22 +503,22 @@ Then(
 // Pre-flight enforcement (the "First-party hosts only" rule): a customer-
 // supplied `--url` whose host is not first-party must be REFUSED before any
 // request is sent, with the stable code NON_FIRST_PARTY_HOST naming the host.
-// We run under logicSafeEnv() so even a guard bug cannot reach a real account
-// (the override host is jolly-test.invalid, never evil.example.com), and the
-// reused "nothing should be written to .env" step (feature 005) confirms the
-// refusal path is side-effect-free.
+// The refusal is pre-flight (before any request is sent), so even a guard bug
+// could only ever reach the customer-supplied evil.example.com `--url` host, never
+// a real Saleor account; the token is a stand-in. The reused "nothing should be
+// written to .env" step (feature 005) confirms the refusal path is side-effect-free.
 
 Given("a Saleor Cloud token is configured", function (this: JollyWorld) {
-  // A Cloud token is present (the dummy logic-safe token), so the refusal
-  // below fires pre-flight on the --url host — not because auth is missing.
-  this.notes.appTokenEnv = logicSafeEnv();
+  // A Cloud token is present (a stand-in value), so the refusal below fires
+  // pre-flight on the --url host — not because auth is missing.
+  this.notes.appTokenEnv = absentCredentialsEnv({ JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN });
 });
 
 When(
   /^the agent runs `jolly create app-token --url https:\/\/evil\.example\.com\/graphql\/ --json`$/,
   function (this: JollyWorld) {
     const env = (this.notes.appTokenEnv as Record<string, string | undefined>)
-      ?? logicSafeEnv();
+      ?? absentCredentialsEnv();
     this.runCli(
       [
         "create",

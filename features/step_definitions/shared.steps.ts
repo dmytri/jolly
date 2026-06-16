@@ -6,16 +6,15 @@
 // live here so each feature file can stay collision-free. Anything truly
 // specific to one feature stays in that feature's <slug>.steps.ts.
 //
-// Safety: every step that runs a side-effecting command path does so under
-// logicSafeEnv() — dummy credentials for all groups plus an unroutable
-// `.invalid` Cloud API base — so no @logic step can ever reach a real account
-// (the "012 incident" lesson).
+// Safety: every step that runs a side-effecting command path does so with the
+// runtime credentials genuinely UNSET (absentCredentialsEnv) — real absence,
+// never dummy values — so no @logic step can reach a real account because there
+// is no credential to reach one with.
 import { Given, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { findRiskContexts } from "../support/envelope.ts";
-import { DUMMY } from "../support/logic-env.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 // ─── .env / .gitignore assertions (018, 012) ──────────────────────────────
@@ -57,24 +56,24 @@ Given("the agent has no existing .env file", function (this: JollyWorld) {
 Given(
   "Jolly has a Saleor Cloud token authenticated via JOLLY_SALEOR_CLOUD_TOKEN",
   function (this: JollyWorld) {
-    // Capability statement; @logic scenarios run with logicSafeEnv() (which
-    // sets a dummy JOLLY_SALEOR_CLOUD_TOKEN) and @sandbox scenarios run with
-    // the real runtime token. Nothing to do here.
+    // Capability statement; @logic scenarios run with the runtime credentials
+    // unset (or a stand-in token against a loopback fixture) and @sandbox
+    // scenarios run with the real runtime token. Nothing to do here.
   },
 );
 
 Given(
   "Jolly has a Saleor GraphQL instance URL",
   function (this: JollyWorld) {
-    // Capability statement; the instance URL is supplied per-scenario via the
-    // logic-safe env (unroutable) or the provisioned sandbox endpoint.
+    // Capability statement; the instance URL is supplied per-scenario via a
+    // real-format URL / loopback fixture or the provisioned sandbox endpoint.
   },
 );
 
 Given(
   "the agent has a Saleor Cloud token authenticated via JOLLY_SALEOR_CLOUD_TOKEN",
   function (this: JollyWorld) {
-    // Capability statement; same as above. @logic uses logicSafeEnv().
+    // Capability statement; same as above. @logic runs with credentials unset.
   },
 );
 
@@ -117,11 +116,10 @@ Then(
 Then(
   "Jolly should not print the token value",
   function (this: JollyWorld) {
-    // Track the dummy tokens the logic-safe env injected, then assert nothing
-    // leaked across stdout/stderr. Sandbox runs additionally track the real
-    // derived secrets via the @sandbox Before hook.
-    this.trackSecret(DUMMY.cloudToken);
-    this.trackSecret(DUMMY.appToken);
+    // The world tracks the real runtime JOLLY_* secret values (its constructor),
+    // and each scenario tracks any token it passes as input (e.g. 018's bad
+    // login token); @sandbox runs additionally track the real derived secrets
+    // via the @sandbox Before hook. Assert none of them leaked.
     this.assertNoSecretsIn(this.lastRun!.stdout, "stdout");
     this.assertNoSecretsIn(this.lastRun!.stderr, "stderr");
   },

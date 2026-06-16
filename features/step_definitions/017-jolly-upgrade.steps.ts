@@ -8,15 +8,15 @@
 // a plan, and does NOT auto-apply Paper migrations in v1 (data.paperAutoApply
 // is false; the paper-baseline check is plan-only).
 //
-// Safety: every command runs under logicSafeEnv() — dummy credentials for all
-// groups + an unroutable Cloud API base — so no path can reach a real account
-// (the "012 incident" lesson); all on-disk effects land in the scenario's temp
-// project directory.
+// Safety: every command runs with the runtime credentials genuinely UNSET
+// (absentCredentialsEnv) — real absence, never dummy values — so no path can
+// reach a real account; all on-disk effects land in the scenario's temp project
+// directory.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { logicSafeEnv } from "../support/logic-env.ts";
+import { absentCredentialsEnv } from "../support/creds-env.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 const DEFAULT_SKILL_IDS = [
@@ -67,7 +67,7 @@ Given(
 );
 
 When("the agent invokes `jolly upgrade`", function (this: JollyWorld) {
-  this.runCli(["upgrade", "--json"], { env: logicSafeEnv() });
+  this.runCli(["upgrade", "--json"], { env: absentCredentialsEnv() });
 });
 
 Then(
@@ -117,7 +117,7 @@ Given("Jolly has a dedicated `jolly skills update` command", function (this: Jol
   // Capability statement; the dedicated command is exercised here directly to
   // confirm it reports per-skill update state, then upgrade is invoked in When.
   seedSkillsOnDisk(this);
-  this.runCli(["skills", "update", "--json"], { env: logicSafeEnv() });
+  this.runCli(["skills", "update", "--json"], { env: absentCredentialsEnv() });
   assert.ok(
     this.envelope.command.startsWith("skills"),
     "jolly skills update must be a real command",

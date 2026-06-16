@@ -19,15 +19,18 @@
 // @sandbox scenarios (failed exchange, invalid/valid token verification, full
 // browser flow) have bodies written for credentialed CI; they SKIP locally.
 //
-// Safety: every @logic command runs under logicSafeEnv() — dummy creds for all
-// groups + an unroutable `.invalid` Cloud API base — so no @logic path can
-// reach a real account (the "012 incident" lesson).
+// Safety: every @logic command runs with the runtime credentials genuinely
+// UNSET (absentCredentialsEnv) — real absence, never dummy values — so no @logic
+// path can reach a real account. The one exception is the @exceptional-double
+// "login when the Cloud API is unreachable" scenario, which deliberately points
+// the Cloud API at an unreachable `.invalid` host (justified inline) — the
+// "stored, not verified" condition the real test env cannot produce on demand.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { DUMMY, logicSafeEnv } from "../support/logic-env.ts";
+import { absentCredentialsEnv } from "../support/creds-env.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
 import type { JollyWorld } from "../support/world.ts";
 
@@ -49,8 +52,9 @@ function envData(world: JollyWorld): Record<string, unknown> {
 // ─── Scenario: login stores a token honestly when verification unreachable ──
 
 Given("the Saleor Cloud API is unreachable", function (this: JollyWorld) {
-  // logicSafeEnv already points JOLLY_SALEOR_CLOUD_API_URL at an unroutable
-  // `.invalid` host; this Given is the framing for that condition.
+  // Framing for the @exceptional-double condition: the When points the Cloud
+  // API at a deliberately-unreachable host so verification genuinely cannot
+  // happen and login must store the token honestly without verifying.
   this.notes.cloudUnreachable = true;
 });
 
@@ -67,8 +71,14 @@ When(
   function (this: JollyWorld) {
     const token = String(this.notes.loginToken ?? "jolly-login-test-token-abc");
     this.trackSecret(token);
-    // Unroutable Cloud API base ⇒ verification can't happen ⇒ honest storage.
-    this.runCli(["login", "--token", token, "--json"], { env: logicSafeEnv() });
+    // Verification cannot happen against a deliberately-unreachable Cloud API, so
+    // login must store the token honestly ("stored, not verified").
+    // @exceptional-double: a deliberately-unreachable Cloud API host (RFC 6761),
+    // the unreachable-service condition the real test env cannot produce on demand.
+    const unreachableCloudApi = "https://jolly-unreachable.invalid";
+    this.runCli(["login", "--token", token, "--json"], {
+      env: absentCredentialsEnv({ JOLLY_SALEOR_CLOUD_API_URL: unreachableCloudApi }),
+    });
   },
 );
 
@@ -137,12 +147,12 @@ Then(
 Then(
   "subsequent `jolly auth status` should report the token is configured",
   function (this: JollyWorld) {
-    // Re-run auth status in the SAME project dir (the .env just written), under
-    // logicSafeEnv so the dummy token in the env doesn't matter (auth status is
+    // Re-run auth status in the SAME project dir (the .env just written), with
+    // the env token unset so it can't override the on-disk value (auth status is
     // configuration-only and reads the on-disk .env).
     this.runCli(["auth", "status", "--json"], {
       cwd: this.lastRun!.cwd,
-      env: logicSafeEnv({ JOLLY_SALEOR_CLOUD_TOKEN: undefined }),
+      env: absentCredentialsEnv({ JOLLY_SALEOR_CLOUD_TOKEN: undefined }),
     });
     assert.equal(envData(this)["hasCloudToken"], true);
   },
@@ -161,7 +171,7 @@ When(
   "the agent runs `jolly login --browser --dry-run`",
   function (this: JollyWorld) {
     this.runCli(["login", "--browser", "--dry-run", "--json"], {
-      env: logicSafeEnv(),
+      env: absentCredentialsEnv(),
     });
   },
 );
@@ -249,7 +259,7 @@ When("it previews the code exchange with `--dry-run`", function (this: JollyWorl
   // The browser dry-run preview is the artifact that describes the exchange
   // POSTs (token endpoint + Cloud API /platform/api/tokens).
   this.runCli(["login", "--browser", "--dry-run", "--json"], {
-    env: logicSafeEnv(),
+    env: absentCredentialsEnv(),
   });
 });
 
@@ -525,7 +535,7 @@ Given(
 );
 
 When("the agent invokes `jolly logout`", function (this: JollyWorld) {
-  this.runCli(["logout", "--json"], { env: logicSafeEnv() });
+  this.runCli(["logout", "--json"], { env: absentCredentialsEnv() });
 });
 
 Then(
@@ -561,7 +571,7 @@ When("it invokes `jolly auth status`", function (this: JollyWorld) {
     "JOLLY_SALEOR_CLOUD_TOKEN=seed-token\nJOLLY_SALEOR_ORGANIZATION=acme-org\n",
   );
   this.runCli(["auth", "status", "--json"], {
-    env: logicSafeEnv({
+    env: absentCredentialsEnv({
       JOLLY_SALEOR_CLOUD_TOKEN: undefined,
       JOLLY_SALEOR_ORGANIZATION: undefined,
     }),
@@ -591,7 +601,7 @@ Then(
     writeFileSync(join(dir, ".env"), "JOLLY_SALEOR_CLOUD_TOKEN=seed-token\n");
     this.runCli(["auth", "status", "--json"], {
       cwd: dir,
-      env: logicSafeEnv({
+      env: absentCredentialsEnv({
         JOLLY_SALEOR_CLOUD_TOKEN: undefined,
         JOLLY_SALEOR_ORGANIZATION: undefined,
       }),
@@ -612,7 +622,7 @@ Then(
   function (this: JollyWorld) {
     const dir = this.newTempDir("flags");
     writeFileSync(join(dir, ".env"), "JOLLY_SALEOR_CLOUD_TOKEN=seed-token\n");
-    const safe = logicSafeEnv({
+    const safe = absentCredentialsEnv({
       JOLLY_SALEOR_CLOUD_TOKEN: undefined,
       JOLLY_SALEOR_ORGANIZATION: undefined,
     });
@@ -632,7 +642,7 @@ When(
     this.trackSecret("jolly-dry-run-token");
     this.runCli(
       ["login", "--token", "jolly-dry-run-token", "--dry-run", "--json"],
-      { env: logicSafeEnv() },
+      { env: absentCredentialsEnv() },
     );
   },
 );
@@ -661,7 +671,7 @@ Given(
 );
 
 When("the agent runs `jolly logout`", function (this: JollyWorld) {
-  this.runCli(["logout", "--json"], { env: logicSafeEnv() });
+  this.runCli(["logout", "--json"], { env: absentCredentialsEnv() });
 });
 
 Then(
@@ -684,7 +694,7 @@ Then(
   function (this: JollyWorld) {
     this.runCli(["auth", "status", "--json"], {
       cwd: this.lastRun!.cwd,
-      env: logicSafeEnv({ JOLLY_SALEOR_CLOUD_TOKEN: undefined }),
+      env: absentCredentialsEnv({ JOLLY_SALEOR_CLOUD_TOKEN: undefined }),
     });
     assert.equal(envData(this)["hasCloudToken"], false);
   },

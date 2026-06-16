@@ -2,11 +2,11 @@
 //
 // Security contract: Jolly's own request-sending code contacts ONLY first-party
 // hosts — the Saleor auth/cloud APIs, the customer's `*.saleor.cloud` store
-// domains, the Stripe API, GitHub, and the loopback address — plus the host of
-// any JOLLY_SALEOR_CLOUD_API_URL override (feature 018 Rule — pointing the Cloud
-// API elsewhere is the customer's explicit choice). Vercel's API host is
-// deliberately absent: Vercel is contacted only by the spawned Vercel CLI, never
-// by Jolly's own request code. Retired Saleor hosts are likewise excluded.
+// domains, GitHub, and the loopback address — plus the host of any
+// JOLLY_SALEOR_CLOUD_API_URL override (feature 018 Rule — pointing the Cloud API
+// elsewhere is the customer's explicit choice). Vercel's and Stripe's API hosts
+// are deliberately absent: each is contacted only by its spawned CLI, never by
+// Jolly's own request code. Retired Saleor hosts are likewise excluded.
 
 /**
  * The fixed set of first-party hosts Jolly's request layer may contact. The
@@ -16,7 +16,6 @@
 export const FIRST_PARTY_HOSTS: readonly string[] = [
   "auth.saleor.io",
   "cloud.saleor.io",
-  "api.stripe.com",
   "github.com",
   "127.0.0.1",
 ];

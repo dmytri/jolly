@@ -27,15 +27,16 @@
 // `data.gate` naming the active gate (also surfaced in nextSteps) and
 // `data.bootstrap` reporting the local bootstrap it performed.
 //
-// Safety: the @logic side-effecting paths run under logicSafeEnv() (dummy
-// creds, unroutable Cloud API base) so a CLI ignoring --dry-run can never
-// reach a real account.
+// Safety: the @logic side-effecting paths run with the runtime credentials
+// genuinely UNSET (absentCredentialsEnv) — "no real service credentials" is
+// produced for real, so a CLI ignoring --dry-run still cannot reach a real
+// account because there is no credential to reach one with.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { findRiskContexts, assertRiskContextShape } from "../support/envelope.ts";
-import { logicSafeEnv } from "../support/logic-env.ts";
+import { absentCredentialsEnv } from "../support/creds-env.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 /** Downstream (non-bootstrap) stages that must never be reported completed
@@ -214,13 +215,13 @@ Then(
 Given(
   "the agent runs `jolly start` in a fresh project directory with no real service credentials",
   function (this: JollyWorld) {
-    // logicSafeEnv supplies only dummy creds + an unroutable base; the temp dir
-    // is fresh. The When step runs start.
+    // The runtime credentials are unset for the When (real absence); the temp
+    // dir is fresh. The When step runs start.
   },
 );
 
 When("`jolly start` runs without `--dry-run`", function (this: JollyWorld) {
-  this.runCli(["start", "--json"], { env: logicSafeEnv() });
+  this.runCli(["start", "--json"], { env: absentCredentialsEnv() });
 });
 
 Then(
@@ -304,7 +305,12 @@ Then(
         );
       }
     }
+    // No downstream deployment check may claim a pass the run never performed.
+    // The `vercel-auth` login diagnostic is excluded: it reports a REAL
+    // `vercel whoami` result, so a pass there is a real verification result (the
+    // runner happens to have a Vercel CLI session), not a fabricated deployment.
     for (const check of this.envelope.checks) {
+      if (/vercel-auth$/.test(check.id)) continue;
       if (/deploy|storefront-deployed|vercel/i.test(check.id)) {
         assert.notEqual(check.status, "pass", `${check.id} must not be a fabricated pass`);
       }
@@ -315,8 +321,8 @@ Then(
 Then(
   "it must not print fabricated URLs or verification results",
   function (this: JollyWorld) {
-    // No live storefront/deployment URL should appear; the dummy unroutable
-    // host must not be presented as a verified deployment.
+    // No live storefront/deployment URL should appear; with no credentials, no
+    // deployment can have happened, so none may be presented as verified.
     assert.doesNotMatch(
       this.envelope.summary,
       /deployed to|live at https?:\/\//i,
@@ -336,7 +342,7 @@ Given("a fresh empty project directory", function (this: JollyWorld) {
 });
 
 When("the agent runs `jolly start --dry-run --json`", function (this: JollyWorld) {
-  this.runCli(["start", "--dry-run", "--json"], { env: logicSafeEnv() });
+  this.runCli(["start", "--dry-run", "--json"], { env: absentCredentialsEnv() });
   // The "no remote side effects should occur during the dry run" step is
   // shared with feature 021, which reads this note; record a riskContext from
   // the preview so the shared assertion holds for this scenario too.

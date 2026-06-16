@@ -6,10 +6,10 @@
 // 020 envelope) for the customer's agent to assess risk and decide whether to
 // ask for human approval — Jolly embeds no approve/deny verdict.
 //
-// Safety: the impactful command runs under logicSafeEnv() — dummy credentials
-// for all groups + an unroutable Cloud API base — so the side-effecting path
-// can never reach a real account (the "012 incident" lesson). A `--dry-run`
-// preview is used so nothing is written even if a path ignored the override.
+// Safety: the impactful command runs with the runtime credentials genuinely
+// UNSET (absentCredentialsEnv) — real absence, never dummy values — so the
+// side-effecting path cannot reach a real account. A `--dry-run` preview is also
+// used so nothing is written even if a path ignored the flag.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import {
@@ -17,7 +17,7 @@ import {
   findRiskContexts,
   type RiskContext,
 } from "../support/envelope.ts";
-import { logicSafeEnv } from "../support/logic-env.ts";
+import { absentCredentialsEnv } from "../support/creds-env.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 function onlyRiskContext(world: JollyWorld): RiskContext {
@@ -38,7 +38,7 @@ When(
     // the same riskContext as a real run without writing or contacting anything.
     this.runCli(
       ["create", "store", "--create-environment", "--dry-run", "--json"],
-      { env: logicSafeEnv() },
+      { env: absentCredentialsEnv() },
     );
     assert.ok(this.lastRun?.envelope, "expected an envelope for the impactful action");
   },
@@ -83,7 +83,7 @@ Then(
     // The same impactful command accepts --yes without Jolly hardcoding a verdict.
     this.runCli(
       ["create", "store", "--create-environment", "--dry-run", "--yes", "--json"],
-      { env: logicSafeEnv() },
+      { env: absentCredentialsEnv() },
     );
     const withYes = findRiskContexts(this.envelope);
     assert.ok(withYes.length > 0, "--yes must still surface the riskContext for the agent's policy");
