@@ -594,6 +594,13 @@ Given(
 
 When(
   "the agent runs `jolly login --browser` and the loopback callback delivers the rejectable code",
+  // Unlike the fast-kill browser steps above, this one must await the real,
+  // failing token exchange against auth.saleor.io to completion (the scenario
+  // verifies the real failure envelope). Its internal deadlines sum to ~75s
+  // (30s for the auth URL + 15s to deliver the callback + 30s for Jolly to
+  // exit), so the cucumber step timeout must exceed them — the 5000ms default
+  // would kill it mid-exchange.
+  { timeout: 120_000 },
   async function (this: JollyWorld) {
     const code = String(this.notes.rejectableCode ?? `bogus-code-${this.namespace}`);
     this.notes.rejectableCode = code;

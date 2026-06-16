@@ -15,12 +15,19 @@ export async function saleorGraphql(
   query: string,
   variables: Record<string, unknown> = {},
 ): Promise<GraphqlResult> {
-  // Bounded retry on connection-level failures (`TypeError: fetch failed`):
-  // sandbox verifications run against live Saleor Cloud, where a transient
-  // network blip is an environment condition, not a Jolly behavior, and must
-  // not flake the suite. HTTP-status rejections (auth, 5xx) are not retried.
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  // Bounded retry on transient environment conditions that are not a Jolly
+  // behavior and must not flake the suite: connection-level failures
+  // (`TypeError: fetch failed`), and HTTP 429 rate-limits — a long serial
+  // sandbox run hammers live Saleor Cloud until it asks us to back off. 429 is
+  // the server explicitly inviting a retry, so it gets its own generous budget
+  // that can ride out a realistic rate-limit window (~40s of exponential
+  // backoff, honoring Retry-After when given) — Saleor's limit outlasts the
+  // few seconds a connection blip needs, and the backoff only fires on an
+  // actual 429, so the normal fast path is untouched. Other HTTP-status
+  // rejections (auth, 5xx) are permanent here and not retried.
+  let connectionAttempts = 0;
+  let rateLimitRetries = 0;
+  while (true) {
     try {
       const response = await fetch(endpoint, {
         method: "POST",
@@ -30,18 +37,26 @@ export async function saleorGraphql(
         },
         body: JSON.stringify({ query, variables }),
       });
+      if (response.status === 429 && rateLimitRetries < 6) {
+        const retryAfter = Number(response.headers.get("retry-after"));
+        const backoffMs = Number.isFinite(retryAfter) && retryAfter > 0
+          ? Math.min(retryAfter * 1000, 10_000)
+          : Math.min(2000 * 2 ** rateLimitRetries, 10_000);
+        rateLimitRetries++;
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        continue;
+      }
       if (!response.ok && response.status !== 400) {
         throw new Error(`Saleor GraphQL request failed: HTTP ${response.status}`);
       }
       return (await response.json()) as GraphqlResult;
     } catch (error) {
-      lastError = error;
-      if (error instanceof TypeError && attempt < 2) {
-        await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+      if (error instanceof TypeError && connectionAttempts < 2) {
+        connectionAttempts++;
+        await new Promise((resolve) => setTimeout(resolve, 1000 * connectionAttempts));
         continue;
       }
       throw error;
     }
   }
-  throw lastError;
 }
