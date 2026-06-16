@@ -845,6 +845,33 @@ Then(
 );
 
 Then(
+  "the envelope `data` should report the created store's `*.saleor.cloud` GraphQL API URL",
+  function (this: JollyWorld) {
+    // The real-creation envelope must surface the provisioned store's
+    // *.saleor.cloud GraphQL endpoint — a first-party host — so the agent can
+    // hand it on without re-deriving it from the .env write.
+    const blob = JSON.stringify(envData(this));
+    assert.ok(
+      /https:\/\/[a-z0-9-]+\.saleor\.cloud\/graphql\//i.test(blob),
+      `create store data must report the created store's *.saleor.cloud GraphQL API URL: ${blob}`,
+    );
+  },
+);
+
+Then(
+  "the envelope `data` should report the created store's Saleor Dashboard URL ending in `.saleor.cloud\\/dashboard\\/`",
+  function (this: JollyWorld) {
+    // The same envelope must surface the store's Dashboard URL so the agent can
+    // hand it to the human — a *.saleor.cloud/dashboard/ first-party URL.
+    const blob = JSON.stringify(envData(this));
+    assert.ok(
+      /https:\/\/[a-z0-9-]+\.saleor\.cloud\/dashboard\//i.test(blob),
+      `create store data must report the created store's Saleor Dashboard URL ending in .saleor.cloud/dashboard/: ${blob}`,
+    );
+  },
+);
+
+Then(
   "it should write NEXT_PUBLIC_SALEOR_API_URL to .env from the resulting domain",
   function (this: JollyWorld) {
     const values = loadEnvValues(this.lastRun!.cwd);

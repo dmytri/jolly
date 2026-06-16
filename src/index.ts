@@ -1375,6 +1375,8 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
         projectReused: !projectCreated,
         environmentCreated,
         graphqlEndpointStored: true,
+        graphqlApiUrl: domainUrl,
+        dashboardUrl: new URL("/dashboard/", domainUrl).href,
         appTokenStored,
         riskContext: createStoreRiskContext(resolvedTarget),
       },
