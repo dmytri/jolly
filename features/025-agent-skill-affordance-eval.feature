@@ -126,6 +126,6 @@ Feature: Agent skill affordance evaluation
     Then the agent should have invoked Jolly's documented CLI commands, including `jolly start`
     And the workspace should contain the local artifacts `jolly init` produces (the installed Jolly skill, a merged `.mcp.json`, a scaffolded `.env`, and the marker-merged `AGENTS.md`)
     And Jolly's diagnostics should have run and emitted the standard output envelope
-    And for each live stage it completed it should report the real URL Jolly emitted — the Saleor dashboard URL for the `jolly-test`-namespaced environment it created, and the deployed storefront URL when the Vercel deploy completed
+    And when the store stage completed, the run must surface the real Saleor Dashboard URL Jolly emitted for the `jolly-test`-namespaced environment it created — a real `.saleor.cloud/dashboard/` URL observed from Jolly's output, never fabricated — and likewise the deployed storefront URL when the Vercel deploy completed
     And the run should report only outcomes it actually achieved, stopping honestly at any remaining human gate without fabricating success
     And every cloud resource the agent created should be `jolly-test`-namespaced and, unless retention is explicitly requested via `HARNESS_EVAL_KEEP_STORE`, removed in best-effort teardown, with nothing outside that namespace touched

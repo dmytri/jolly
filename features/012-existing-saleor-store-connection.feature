@@ -99,6 +99,8 @@ Feature: Existing Saleor store connection
     And the environment creation should return a task_id for async job polling
     And Jolly should poll GET /platform/api/service/task-status/{task_id} until status is "SUCCEEDED"
     And Jolly should extract the resulting domain from the task result
+    And the envelope `data` should report the created store's `*.saleor.cloud` GraphQL API URL
+    And the envelope `data` should report the created store's Saleor Dashboard URL ending in `.saleor.cloud/dashboard/`
     And it should write NEXT_PUBLIC_SALEOR_API_URL to .env from the resulting domain
     And it should create an app token via the Saleor GraphQL API
     And it should write JOLLY_SALEOR_APP_TOKEN to .env
