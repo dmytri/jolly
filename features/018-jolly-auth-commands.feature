@@ -97,6 +97,14 @@ Feature: Jolly auth commands
     And it should not write any value to .env
 
   @logic
+  Scenario: Jolly login with an empty token fails honestly without blaming the browser
+    Given the agent has no existing Saleor Cloud authentication
+    When the agent runs `jolly login --token "" --json`
+    Then each entry in `errors` should include a stable `code`, a `message`, and optional `remediation`
+    And the login error should not claim that browser login is unavailable
+    And it should not write any value to .env
+
+  @logic
   Scenario: Agent logs out
     Given .env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token
     When the agent invokes `jolly logout`

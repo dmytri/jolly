@@ -330,14 +330,17 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
   }
 
   if (!token) {
+    // An explicit `--token ""` is a present-but-empty token (an absent token
+    // routes to the browser flow above). Reject it honestly as the empty token
+    // it is — never by claiming the browser path is unavailable.
     return errorEnvelope(
       command,
-      "No token provided and browser login is not available here.",
+      "No token value was provided. Nothing was written.",
       [
         {
-          code: "NO_LOGIN_METHOD",
+          code: "EMPTY_TOKEN",
           message:
-            "jolly login needs `--token <value>` in this environment (no browser/Playwright callback flow).",
+            "`jolly login --token <value>` requires a non-empty token value.",
           remediation: `Create a token at ${TOKEN_PAGE} and run \`jolly login --token <value>\`.`,
         },
       ],

@@ -662,6 +662,26 @@ Then(
   },
 );
 
+Then(
+  "the login error should not claim that browser login is unavailable",
+  function (this: JollyWorld) {
+    // An empty `--token` value is junk input: login must fail on the bad token,
+    // never deflect by claiming the browser path is unavailable. Blaming the
+    // browser for a token-mode failure is the dishonest message this rules out.
+    const reported = (
+      JSON.stringify(this.envelope.errors) +
+      " " +
+      this.envelope.summary
+    ).toLowerCase();
+    assert.ok(
+      !/browser login (is )?(not available|unavailable)|no browser|browser (not found|unavailable)|cannot open (a |the )?browser|no browser\/playwright|browser_login_unavailable/.test(
+        reported,
+      ),
+      `a token-mode failure must not blame the browser; got: ${reported}`,
+    );
+  },
+);
+
 Then("it should not write any value to .env", function (this: JollyWorld) {
   const path = join(this.lastRun!.cwd, ".env");
   if (existsSync(path)) {
