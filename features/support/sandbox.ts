@@ -150,7 +150,6 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   "A failed OAuth code exchange is reported honestly": [],
   "Jolly login rejects an invalid token gracefully": [],
   "Jolly login verifies a headless token against the Cloud API": ["saleorCloud"],
-  "Agent completes the full browser OAuth login flow": ["saleorCloud", "saleorAppToken"],  // needs JOLLY_SALEOR_APP_TOKEN for the real token check after browser flow
   // 024-jolly-app-token-acquisition
   "Jolly create app-token acquires a real, fully-permissioned token from Saleor": [
     "saleorEndpoint",

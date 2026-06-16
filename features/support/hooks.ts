@@ -1,11 +1,7 @@
-// Cucumber hooks (features 023 and 018).
+// Cucumber hooks (feature 023).
 //
 // Before, in spec order:
-//   1. @requires-browser — gate on browser capability (feature 018, Rule
-//      "Browser OAuth prerequisites"): native browser first, then Playwright
-//      plus the HARNESS_SALEOR_EMAIL / HARNESS_SALEOR_PASSWORD knobs, else
-//      skip. This runs BEFORE the @sandbox credential check.
-//   2. @sandbox — gate on the same runtime JOLLY_* credentials Jolly itself
+//   1. @sandbox — gate on the same runtime JOLLY_* credentials Jolly itself
 //      uses (feature 023): when required credentials are absent the scenario
 //      is skipped, not failed, with a reason naming the missing variables.
 //
@@ -15,7 +11,6 @@
 // swallowed silently — the scenario fails so leaked resources are visible.
 import { After, AfterAll, Before } from "@cucumber/cucumber";
 import type { ITestCaseHookParameter } from "@cucumber/cucumber";
-import { missingLoginKnobs, resolveBrowserTier } from "./browser.ts";
 import { ensureCliBundle, evalGate } from "./eval.ts";
 import {
   derivedSecrets,
@@ -30,35 +25,7 @@ import {
 } from "./sandbox.ts";
 import type { JollyWorld } from "./world.ts";
 
-/**
- * The resolved tier for the current @requires-browser scenario, stashed on
- * world.notes so step definitions can drive the matching login path (Tier 1
- * native vs Tier 2 Playwright with stdin-piped harness credentials).
- */
-export const BROWSER_TIER_NOTE = "browserTier";
-
-// 1 — @requires-browser capability gate (checked before @sandbox credentials).
-Before({ tags: "@requires-browser" }, function (this: JollyWorld) {
-  const tier = resolveBrowserTier();
-  if (tier.mode === "skip") {
-    this.attach(`Skipped: ${tier.reason}`, "text/plain");
-    return "skipped";
-  }
-  if (tier.mode === "playwright") {
-    // Defensive double-check: Tier 2 must never start without the knobs.
-    const missing = missingLoginKnobs();
-    if (missing.length > 0) {
-      this.attach(
-        `Skipped: missing harness login knobs ${missing.join(", ")}`,
-        "text/plain",
-      );
-      return "skipped";
-    }
-  }
-  this.notes[BROWSER_TIER_NOTE] = tier;
-});
-
-// 2 — @sandbox credential gate (feature 023): skip (never fail) only when
+// 1 — @sandbox credential gate (feature 023): skip (never fail) only when
 // credentials are absent AND cannot be derived — the Cloud token itself, or
 // Vercel/Stripe. A missing Saleor endpoint/app token with the Cloud token
 // present is DERIVED instead: the harness provisions one shared per-run
@@ -99,7 +66,7 @@ Before(
   },
 );
 
-// 3 — @eval gate (feature 025): skip — never fail — when the baseline-agent
+// 2 — @eval gate (feature 025): skip — never fail — when the baseline-agent
 // runner or the model key (HARNESS_OPENROUTER_API_KEY) is absent, exactly like
 // @sandbox credential gating. The eval is opt-in and never gates normal CI.
 // When it can run, ensure the published-shape CLI bundle (dist/index.js) the
