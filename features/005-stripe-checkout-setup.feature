@@ -84,6 +84,20 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     And it should announce the guided gate to paste the keys and map the configuration to the `us` channel, referencing the keys by name only
     And it should report the stage honestly — installed where it installed, and blocked on the human gate for the keys and channel mapping
 
+  @logic @exceptional-double
+  Scenario: A transient Saleor rate-limit during the Stripe stage retries instead of reporting a false blocked
+    # @exceptional-double: an HTTP 429 rate-limit cannot be produced on demand
+    # against the real Saleor Cloud env, so this lone scenario points the Stripe
+    # stage at a Saleor GraphQL endpoint that returns 429 once and then succeeds
+    # with the Stripe app already present. It is the only double here and never
+    # the normal path — the real install is the @sandbox scenario above; this
+    # pins the resilience the idempotent re-run depends on so a momentary
+    # rate-limit never degrades an already-installed stage to a false blocked.
+    Given the Stripe stage's Saleor GraphQL endpoint returns HTTP 429 once and then succeeds with the Stripe app already installed
+    When the agent runs `jolly start --yes --json` and the Stripe stage runs against that endpoint
+    Then the Stripe stage should be reported completed, having retried the rate-limited request
+    And the Stripe stage should not be reported blocked on the transient rate-limit
+
   @logic
   Scenario: Jolly doctor does not fabricate checkout readiness
     Given Jolly cannot reach a real store in this run
