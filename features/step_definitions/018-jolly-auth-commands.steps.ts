@@ -29,8 +29,17 @@ import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readFileSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { get as httpGet } from "node:http";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { absentCredentialsEnv } from "../support/creds-env.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
@@ -79,13 +88,58 @@ interface BrowserRun {
   args: string[];
   stdout: () => string;
   stderr: () => string;
+  release: () => void;
 }
 
-function spawnBrowserLogin(
+// ─── Cross-worker loopback-port mutex ──────────────────────────────────────
+// Every live browser-login scenario binds the fixed, spec-mandated loopback
+// port 127.0.0.1:5375. That port is shared OS state, so two cucumber parallel
+// workers (the logic profile runs parallel: 2) must never drive these scenarios
+// at the same time — the loser hits EADDRINUSE and the CLI honestly reports
+// OAUTH_CALLBACK_SERVER_FAILED, with no authorizationUrl to observe. A
+// cross-process file lock serializes them. The port stays 5375 (product
+// behavior); this only isolates the tests from each other.
+const LOOPBACK_LOCK_PATH = join(tmpdir(), "jolly-loopback-5375.lock");
+// Backstop only: longer than the longest live-login scenario timeout, so a lock
+// leaked by a crashed worker is reclaimed instead of deadlocking later runs.
+const LOOPBACK_LOCK_TTL_MS = 130_000;
+
+async function acquireLoopbackLock(): Promise<() => void> {
+  for (;;) {
+    try {
+      // O_CREAT|O_EXCL: atomic "create iff absent" — the file IS the lock.
+      closeSync(openSync(LOOPBACK_LOCK_PATH, "wx"));
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        try {
+          unlinkSync(LOOPBACK_LOCK_PATH);
+        } catch {
+          /* already gone */
+        }
+      };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      try {
+        if (Date.now() - statSync(LOOPBACK_LOCK_PATH).mtimeMs > LOOPBACK_LOCK_TTL_MS) {
+          unlinkSync(LOOPBACK_LOCK_PATH); // steal a stale lock from a crashed worker
+          continue;
+        }
+      } catch {
+        /* vanished between stat and now — just retry the create */
+      }
+      await delay(100);
+    }
+  }
+}
+
+async function spawnBrowserLogin(
   world: JollyWorld,
   envOverrides: Record<string, string | undefined> = {},
   args: string[] = LOGIN_BROWSER_ARGS,
-): BrowserRun {
+): Promise<BrowserRun> {
+  const release = await acquireLoopbackLock();
   const runtime = process.env.HARNESS_CLI_RUNTIME ?? "node";
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries({ ...process.env, ...envOverrides })) {
@@ -99,9 +153,12 @@ function spawnBrowserLogin(
   let stderr = "";
   child.stdout!.on("data", (chunk: Buffer) => (stdout += chunk));
   child.stderr!.on("data", (chunk: Buffer) => (stderr += chunk));
-  return { child, args, stdout: () => stdout, stderr: () => stderr };
+  return { child, args, stdout: () => stdout, stderr: () => stderr, release };
 }
 
+// Record the run, then free the loopback port for the next worker. Callers must
+// await the child's exit before calling this, so the OS has released port 5375
+// by the time the lock is dropped.
 function recordBrowserRun(world: JollyWorld, run: BrowserRun, exitCode: number): void {
   const stdout = run.stdout();
   const result: CliResult = {
@@ -114,6 +171,7 @@ function recordBrowserRun(world: JollyWorld, run: BrowserRun, exitCode: number):
   };
   world.previousRun = world.lastRun;
   world.lastRun = result;
+  run.release();
 }
 
 /** GET the loopback callback URL; resolves true once the server answers. */
@@ -142,6 +200,18 @@ function waitForExit(child: ChildProcess, ms: number): Promise<number> {
       clearTimeout(timer);
       resolve(code ?? -1);
     });
+  });
+}
+
+// SIGKILL now and resolve once the process is fully gone (its `close` fires in
+// milliseconds), so the loopback port is freed before the lock is released. Used
+// by the URL-first scenarios whose child blocks forever on the consent redirect
+// and so never exits on its own.
+function killAndWait(child: ChildProcess): Promise<number> {
+  return new Promise((resolve) => {
+    if (child.exitCode !== null) return resolve(child.exitCode);
+    child.once("close", (code) => resolve(code ?? -1));
+    child.kill("SIGKILL");
   });
 }
 
@@ -428,8 +498,11 @@ Then("no token value should appear in the output", function (this: JollyWorld) {
 
 When(
   "the agent runs `jolly login --browser` where no browser can be opened",
+  // Generous timeout: the step may wait on the cross-worker loopback-port lock
+  // (held by a sibling live-login scenario) before it can spawn and observe.
+  { timeout: 60_000 },
   async function (this: JollyWorld) {
-    const run = spawnBrowserLogin(this, absentCredentialsEnv());
+    const run = await spawnBrowserLogin(this, absentCredentialsEnv());
     const deadline = Date.now() + 30_000;
     while (Date.now() < deadline) {
       const found = findEnvelope(run.stdout());
@@ -437,8 +510,8 @@ When(
       if (run.child.exitCode !== null) break; // exited on its own (e.g. unimplemented)
       await delay(100);
     }
-    run.child.kill("SIGKILL");
-    recordBrowserRun(this, run, run.child.exitCode ?? -1);
+    const exitCode = await killAndWait(run.child); // fully dead → port freed
+    recordBrowserRun(this, run, exitCode);
   },
 );
 
@@ -450,8 +523,11 @@ When(
 
 When(
   "the agent runs `jolly login` with no flags where no browser can be opened",
+  // Generous timeout: the step may wait on the cross-worker loopback-port lock
+  // (held by a sibling live-login scenario) before it can spawn and observe.
+  { timeout: 60_000 },
   async function (this: JollyWorld) {
-    const run = spawnBrowserLogin(this, absentCredentialsEnv(), LOGIN_NOFLAGS_ARGS);
+    const run = await spawnBrowserLogin(this, absentCredentialsEnv(), LOGIN_NOFLAGS_ARGS);
     const deadline = Date.now() + 30_000;
     while (Date.now() < deadline) {
       const found = findEnvelope(run.stdout());
@@ -459,8 +535,8 @@ When(
       if (run.child.exitCode !== null) break; // exited on its own (e.g. unimplemented)
       await delay(100);
     }
-    run.child.kill("SIGKILL");
-    recordBrowserRun(this, run, run.child.exitCode ?? -1);
+    const exitCode = await killAndWait(run.child); // fully dead → port freed
+    recordBrowserRun(this, run, exitCode);
   },
 );
 
@@ -608,7 +684,7 @@ When(
     // starts the loopback OAuth server on 127.0.0.1:5375, and waits. We act as
     // the browser: read the printed `state`, then deliver the rejectable code
     // to the real /callback so Jolly performs the real, failing exchange.
-    const run = spawnBrowserLogin(this);
+    const run = await spawnBrowserLogin(this);
     const startDeadline = Date.now() + 30_000;
     let state: string | null = null;
     while (Date.now() < startDeadline) {
