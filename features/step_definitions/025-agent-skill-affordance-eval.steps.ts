@@ -38,9 +38,17 @@ import { listAllEnvironments, deleteEnvironment } from "../support/cloud.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 // A live LLM agent run is slow; the When step that runs it carries an explicit
-// 15-minute timeout (the agent process is itself bounded by
-// HARNESS_EVAL_TIMEOUT_MS, default 10 min). All other steps use the default.
-const AGENT_STEP_TIMEOUT_MS = 900_000;
+// timeout that must exceed the agent process budget (HARNESS_EVAL_TIMEOUT_MS,
+// default 10 min) — otherwise cucumber kills the step before the agent's own
+// budget elapses. Derive it from that knob plus a 5-minute buffer so a raised
+// budget (e.g. a full store+deploy run) is honored. All other steps use the
+// default.
+const AGENT_BUDGET_MS = (() => {
+  const raw = process.env.HARNESS_EVAL_TIMEOUT_MS;
+  const n = raw ? Number.parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : 600_000;
+})();
+const AGENT_STEP_TIMEOUT_MS = Math.max(900_000, AGENT_BUDGET_MS + 300_000);
 
 const CTX = "evalContext";
 const RUN = "evalRun";

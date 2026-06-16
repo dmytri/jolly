@@ -1240,6 +1240,8 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
         organization: selectedOrg,
         region,
         databaseTemplate: "blank",
+        graphqlApiUrl: `https://${effectiveDomainLabel}.saleor.cloud/graphql/`,
+        dashboardUrl: `https://${effectiveDomainLabel}.saleor.cloud/dashboard/`,
         requestBody,
         riskContext: createStoreRiskContext(resolvedTarget),
       },

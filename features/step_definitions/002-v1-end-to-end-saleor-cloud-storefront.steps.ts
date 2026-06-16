@@ -140,10 +140,30 @@ Then("the envelope `data` should report the created project and environment", fu
 });
 
 Then(
-  "the `data` should include the new store's `*.saleor.cloud` URL",
-  function () {
-    // Pinned by feature 012 (create store --create-environment resolves the
-    // *.saleor.cloud URL). Narrative cross-ref here.
+  "the `data` should include the new store's `*.saleor.cloud` GraphQL API URL",
+  function (this: JollyWorld) {
+    // The create-store preview must surface the *.saleor.cloud GraphQL endpoint
+    // the store it provisions will be reachable at — a first-party host, never a
+    // non-saleor.cloud one. (Real provisioning + the .env write is pinned in
+    // feature 012; here Jolly's observable surface must name the projected URL.)
+    const blob = JSON.stringify(this.envelope.data ?? {});
+    assert.ok(
+      /https:\/\/[a-z0-9-]+\.saleor\.cloud\/graphql\//i.test(blob),
+      `create store data must include the new store's *.saleor.cloud GraphQL API URL: ${blob}`,
+    );
+  },
+);
+
+Then(
+  "the `data` should include the store's Saleor Dashboard URL ending in `.saleor.cloud\\/dashboard\\/`",
+  function (this: JollyWorld) {
+    // The same preview must surface the store's Dashboard URL so the agent can
+    // hand it to the human — a *.saleor.cloud/dashboard/ first-party URL.
+    const blob = JSON.stringify(this.envelope.data ?? {});
+    assert.ok(
+      /https:\/\/[a-z0-9-]+\.saleor\.cloud\/dashboard\//i.test(blob),
+      `create store data must include the store's Saleor Dashboard URL ending in .saleor.cloud/dashboard/: ${blob}`,
+    );
   },
 );
 
@@ -391,12 +411,32 @@ Then(
 );
 
 Then(
-  "the envelope `data` should report the deployed URL and `nextSteps` should list the remaining human gates",
+  "the envelope `data` should report the deployed storefront URL captured from the Vercel CLI's deploy output, not a fabricated or guessed value",
   function (this: JollyWorld) {
-    // Jolly-observable: doctor carries a nextSteps channel for remaining manual steps.
-    assert.ok(Array.isArray(this.envelope.nextSteps), "doctor must carry a nextSteps channel");
+    // The deployed URL is captured ONLY from a real `npx vercel` deploy's output
+    // (the live emission is verified in feature 025's eval). This doctor surface
+    // ran no deploy — Jolly holds no Vercel token and spawns the CLI — so it must
+    // report NO deployed storefront URL rather than a fabricated or guessed one.
+    const deployment = this.findCheck("deployment-status");
+    assert.ok(deployment, "doctor must report a deployment-status check");
+    assert.notEqual(
+      deployment!.status,
+      "pass",
+      "doctor must not mark deployment passed without a real captured Vercel deploy",
+    );
+    const blob = JSON.stringify(this.envelope).toLowerCase();
+    assert.ok(
+      !/[a-z0-9-]+\.vercel\.app/.test(blob),
+      `Jolly must not fabricate or guess a deployed storefront URL absent a real captured Vercel deploy: ${blob}`,
+    );
   },
 );
+
+Then("`nextSteps` should list the remaining human gates", function (this: JollyWorld) {
+  // Jolly-observable: doctor carries a nextSteps channel for the remaining manual
+  // gates (e.g. disabling Vercel Deployment Protection, browser consent).
+  assert.ok(Array.isArray(this.envelope.nextSteps), "doctor must carry a nextSteps channel");
+});
 
 // ─── @logic: storefront + Vercel-deploy previews and the no-fabrication and
 //     human-run-fallback guardrails (fifth + sixth convergence) ──────────────

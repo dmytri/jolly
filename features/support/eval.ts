@@ -89,6 +89,19 @@ function evalTimeoutMs(): number {
   return Number.isFinite(n) && n > 0 ? n : 600_000;
 }
 
+/**
+ * Per-Jolly-invocation timeout for the PATH shims. A full `jolly start --yes`
+ * runs every remaining stage (store provisioning + poll, storefront clone +
+ * `pnpm install`, recipe, deploy, …) in one process, which far exceeds the
+ * default. HARNESS_EVAL_CLI_TIMEOUT_MS raises the cap so the live-by-design run
+ * can actually complete the store/deploy stages it is meant to exercise.
+ */
+function evalCliTimeoutMs(): number {
+  const raw = process.env.HARNESS_EVAL_CLI_TIMEOUT_MS;
+  const n = raw ? Number.parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : 120_000;
+}
+
 /** Whether the baseline-agent runner (the bundled `pi` binary) is available. */
 export function runnerAvailable(): boolean {
   return existsSync(PI_BIN);
@@ -201,6 +214,7 @@ function realNpxPath(): string {
  * are baked into the scripts so they need no env to function.
  */
 function writeShims(shimDir: string, traceFile: string): void {
+  const cliTimeout = evalCliTimeoutMs();
   const jollyShim = `#!/usr/bin/env node
 "use strict";
 const { spawnSync } = require("node:child_process");
@@ -209,7 +223,7 @@ const argv = process.argv.slice(2);
 const r = spawnSync(${JSON.stringify(process.execPath)}, [${JSON.stringify(JOLLY_BIN)}, ...argv], {
   encoding: "utf8",
   stdio: ["ignore", "pipe", "pipe"],
-  timeout: 120000,
+  timeout: ${cliTimeout},
 });
 const rec = { tool: "jolly", argv, exit: r.status, stdout: r.stdout || "", stderr: r.stderr || "" };
 try { fs.appendFileSync(${JSON.stringify(traceFile)}, JSON.stringify(rec) + "\\n"); } catch {}
@@ -231,7 +245,7 @@ if (pkg === "@dk/jolly" || pkg === "jolly") {
   const r = spawnSync(${JSON.stringify(process.execPath)}, [${JSON.stringify(JOLLY_BIN)}, ...rest], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    timeout: 120000,
+    timeout: ${cliTimeout},
   });
   const rec = { tool: "npx-jolly", argv: rest, exit: r.status, stdout: r.stdout || "", stderr: r.stderr || "" };
   try { fs.appendFileSync(${JSON.stringify(traceFile)}, JSON.stringify(rec) + "\\n"); } catch {}

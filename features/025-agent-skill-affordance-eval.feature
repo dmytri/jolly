@@ -44,9 +44,13 @@ Feature: Agent skill affordance evaluation
       credential gating. Logic-tier tests are unaffected.
 
   Rule: Live by design — real integrated test env, namespaced and disposable
-    - The agent runs in a unique per-run temporary workspace seeded with the
-      REAL integrated test-env credentials (the runtime `JOLLY_*` Saleor Cloud /
-      Stripe values and the real Saleor endpoint). There are NO fakes: no dummy
+    - The agent runs in a unique per-run temporary workspace seeded with only the
+      REAL test-env credentials it needs to AUTHENTICATE — the runtime
+      `JOLLY_SALEOR_CLOUD_TOKEN` and the `JOLLY_STRIPE_*` test-mode keys — but NOT
+      the store endpoint (`NEXT_PUBLIC_SALEOR_API_URL`) or app token: those are
+      left unset so `jolly start` provisions a fresh `jolly-test`-namespaced
+      Saleor environment and derives them, exercising the real store-creation path
+      rather than reusing a pre-seeded store. There are NO fakes: no dummy
       credentials, no `.invalid` endpoints, no fake Stripe/configurator CLIs. The
       agent acts against the real services exactly as a customer's agent would.
     - The task is the REAL entry point, not a hand-held script: the agent is
@@ -69,10 +73,14 @@ Feature: Agent skill affordance evaluation
       usable for inspection. Retained resources keep the `jolly-test` namespace,
       so the next run's leftover-reclamation removes them; the knob is operability
       only and never changes pass/fail. Unset → normal best-effort teardown.
-    - Capability gating, skip-not-fail: a live Vercel deploy needs a real
-      `vercel login` session on the runner; absent it, the deploy step is gated
-      (skipped, not failed). The run still exercises every stage its available
-      credentials and capabilities allow.
+    - Live Vercel deploy: a deploy needs a real `vercel login` session. When the
+      runner has one, the eval makes that session available to the spawned Vercel
+      CLI — the throwaway `$HOME` isolates the agent's own config and any creds it
+      acquires, but the official CLI sessions the deploy depends on are provided —
+      so the deploy actually runs and Jolly reports the real storefront URL the
+      CLI returned. Absent any `vercel login` session the deploy step is gated
+      (skipped, not failed). Either way the run exercises every stage its
+      available credentials and capabilities allow.
     - The agent reaches `https://jolly.cool/setup` (or the local source) over the
       network and may install skills from github; these fetches are expected, and
       the eval also smoke-tests that the entry point is reachable.

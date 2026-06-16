@@ -61,8 +61,8 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   "Jolly start completes successfully": FULL_END_TO_END,
   "Jolly start orchestrates the setup by spawning the official CLIs": FULL_END_TO_END,
   // 002-v1-end-to-end-saleor-cloud-storefront
-  "Agent helps register a new Saleor Cloud store": ["saleorCloud"],
-  "Agent connects an existing Saleor store as automatically as possible": [
+  "Jolly registers a new Saleor Cloud store via the Cloud API": ["saleorCloud"],
+  "Jolly connects an existing Saleor store and verifies connectivity": [
     "saleorEndpoint",
     "saleorAppToken",
   ],

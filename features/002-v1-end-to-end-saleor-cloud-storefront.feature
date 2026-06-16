@@ -24,7 +24,8 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     Given `JOLLY_SALEOR_CLOUD_TOKEN` is set for an organization with no project
     When the agent runs `jolly create store --create-environment --json`
     Then the envelope `data` should report the created project and environment
-    And the `data` should include the new store's `*.saleor.cloud` URL
+    And the `data` should include the new store's `*.saleor.cloud` GraphQL API URL
+    And the `data` should include the store's Saleor Dashboard URL ending in `.saleor.cloud/dashboard/`
     And `nextSteps` should direct new-account signup to cloud.saleor.io
     And Jolly's code should send no signup request and contact only first-party hosts
 
@@ -68,7 +69,8 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And `nextSteps` should include disabling Vercel Deployment Protection so the store is publicly reachable
     And it should add the deployed storefront URL to Saleor's trusted origins via the Cloud API
     And `jolly doctor` should verify that the deployed storefront can reach Saleor Cloud
-    And the envelope `data` should report the deployed URL and `nextSteps` should list the remaining human gates
+    And the envelope `data` should report the deployed storefront URL captured from the Vercel CLI's deploy output, not a fabricated or guessed value
+    And `nextSteps` should list the remaining human gates
 
   @logic
   Scenario: Jolly start previews the storefront clone and install
