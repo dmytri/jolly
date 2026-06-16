@@ -63,6 +63,10 @@ function envData(world: JollyWorld): Record<string, unknown> {
 // one mechanically-deliverable step; the exchange and its failure are real.
 
 const LOGIN_BROWSER_ARGS = ["login", "--browser", "--json"];
+// Bare `jolly login` with no auth-mode flag; `--json` is the harness's
+// envelope-observation mechanism, the same convention every @logic login step
+// here uses. The product-relevant point is the absence of `--browser`/`--token`.
+const LOGIN_NOFLAGS_ARGS = ["login", "--json"];
 const CLI_ENTRY = join(REPO_ROOT, "src", "index.ts");
 const CALLBACK_ENDPOINT = "http://127.0.0.1:5375/callback";
 
@@ -72,6 +76,7 @@ function delay(ms: number): Promise<void> {
 
 interface BrowserRun {
   child: ChildProcess;
+  args: string[];
   stdout: () => string;
   stderr: () => string;
 }
@@ -79,13 +84,14 @@ interface BrowserRun {
 function spawnBrowserLogin(
   world: JollyWorld,
   envOverrides: Record<string, string | undefined> = {},
+  args: string[] = LOGIN_BROWSER_ARGS,
 ): BrowserRun {
   const runtime = process.env.HARNESS_CLI_RUNTIME ?? "node";
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries({ ...process.env, ...envOverrides })) {
     if (value !== undefined) env[key] = value;
   }
-  const child = spawn(runtime, [CLI_ENTRY, ...LOGIN_BROWSER_ARGS], {
+  const child = spawn(runtime, [CLI_ENTRY, ...args], {
     cwd: world.projectDir,
     env,
   });
@@ -93,13 +99,13 @@ function spawnBrowserLogin(
   let stderr = "";
   child.stdout!.on("data", (chunk: Buffer) => (stdout += chunk));
   child.stderr!.on("data", (chunk: Buffer) => (stderr += chunk));
-  return { child, stdout: () => stdout, stderr: () => stderr };
+  return { child, args, stdout: () => stdout, stderr: () => stderr };
 }
 
 function recordBrowserRun(world: JollyWorld, run: BrowserRun, exitCode: number): void {
   const stdout = run.stdout();
   const result: CliResult = {
-    args: LOGIN_BROWSER_ARGS,
+    args: run.args,
     cwd: world.projectDir,
     exitCode,
     stdout,
@@ -424,6 +430,28 @@ When(
   "the agent runs `jolly login --browser` where no browser can be opened",
   async function (this: JollyWorld) {
     const run = spawnBrowserLogin(this, absentCredentialsEnv());
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      const found = findEnvelope(run.stdout());
+      if (found && (found.data as Record<string, unknown>)["authorizationUrl"]) break;
+      if (run.child.exitCode !== null) break; // exited on its own (e.g. unimplemented)
+      await delay(100);
+    }
+    run.child.kill("SIGKILL");
+    recordBrowserRun(this, run, run.child.exitCode ?? -1);
+  },
+);
+
+// ─── Scenario: bare `jolly login` defaults to the browser URL-first flow ────
+// Identical to the `--browser` path above, but invoked with no auth-mode flag.
+// Bare `jolly login` must default to the same URL-first browser flow: print the
+// authorization URL + guidance up front, never treating a missing browser as an
+// error. Same real (non-dry-run) headless env where no browser can be opened.
+
+When(
+  "the agent runs `jolly login` with no flags where no browser can be opened",
+  async function (this: JollyWorld) {
+    const run = spawnBrowserLogin(this, absentCredentialsEnv(), LOGIN_NOFLAGS_ARGS);
     const deadline = Date.now() + 30_000;
     while (Date.now() < deadline) {
       const found = findEnvelope(run.stdout());

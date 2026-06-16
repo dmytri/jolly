@@ -87,6 +87,16 @@ Feature: Jolly auth commands
     And it should not write any value to .env
 
   @logic
+  Scenario: Jolly login with no flags defaults to the browser URL-first flow
+    Given the agent has no existing Saleor Cloud authentication
+    When the agent runs `jolly login` with no flags where no browser can be opened
+    Then the output should present the Keycloak authorization URL for the user to click or copy and paste
+    And it should not present a missing browser as an error
+    And it should direct the user to open the URL in a browser or use `jolly login --token <value>`
+    And no token value should appear in the output
+    And it should not write any value to .env
+
+  @logic
   Scenario: Agent logs out
     Given .env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token
     When the agent invokes `jolly logout`

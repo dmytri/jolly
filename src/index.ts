@@ -313,9 +313,13 @@ function loginRiskContext(dryRunAvailable = true): RiskContext {
 async function commandLogin(args: ParsedArgs): Promise<Envelope> {
   const command = "login";
   const token = args.options["token"];
-  const browser = args.flags.has("browser");
+  // Bare `jolly login` (no auth-mode flag) defaults to the browser URL-first
+  // flow; `--browser` selects it explicitly, `--token <value>` selects headless
+  // login. An explicit empty `--token ""` is a present-but-empty token, not the
+  // absent-token default — it falls through to be rejected with a stable code.
+  const browser = args.flags.has("browser") || token === undefined;
 
-  // --browser flows (PKCE preview, or live URL-first loopback OAuth) -----
+  // browser flows (PKCE preview, or live URL-first loopback OAuth) -------
   if (browser) {
     if (args.dryRun) {
       return loginBrowserDryRun(command);
