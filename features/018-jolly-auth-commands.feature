@@ -65,23 +65,14 @@ Feature: Jolly auth commands
     And the output should contain no success, verified, or authenticated language
     And the error message should direct the customer to create a new token at https://cloud.saleor.io/tokens
 
-  @requires-browser
-  Scenario: Agent completes the full browser OAuth login flow
-    Given the runner can complete a browser OAuth flow natively or via Playwright with harness-supplied login input
-    When the agent runs `jolly login --browser`
-    Then Jolly should complete the browser OAuth flow
-    And it should store the Saleor Cloud token in .env as JOLLY_SALEOR_CLOUD_TOKEN
-    And .env should not contain any email or password value
-    And subsequent `jolly auth status` should report the token is configured
-    And Jolly should not print the token value
-
-  @logic @iteration
-  Scenario: login --browser errors with --token guidance when no browser path is available
-    Given no native browser can be opened and Playwright is not available
-    When the agent runs `jolly login --browser`
-    Then Jolly should error rather than hang
-    And the message should direct the agent to use `jolly login --token <value>`
-    And it should not write any value to .env
+  @logic
+  Scenario: Jolly login presents the authorization URL and offers to open a browser
+    Given the agent has no existing Saleor Cloud authentication
+    When the agent runs `jolly login --browser --dry-run`
+    Then the output should present the Keycloak authorization URL for the user to click or copy and paste
+    And the output should state that Jolly opens the URL in a browser when one is available and otherwise leaves the user to open it manually
+    And the output should not present a missing browser as an error
+    And no token value should appear in the output
 
   @logic
   Scenario: Agent logs out
@@ -122,14 +113,9 @@ Feature: Jolly auth commands
     - V1 should include `jolly login`, `jolly logout`, and `jolly auth status`.
     - Auth commands are helpers that empower the customer's agent; they do not make Jolly a separate control plane.
     - `jolly login` should support browser OAuth and headless token flows.
-    - `jolly login` (no flags) tries to open the Keycloak authorization URL in the user's native browser (using `open` on macOS, `xdg-open` on Linux, `start` on Windows). If the native browser opens successfully, it runs the standard browser OAuth flow (PKCE, callback server, callback, exchange).
-    - If opening the native browser fails (headless environment, CI, VM with no display), Jolly checks for Playwright. If Playwright is installed with browser binaries, it automates the flow headlessly.
-    - If both native browser and Playwright are unavailable, Jolly directs the user to create a token at cloud.saleor.io/tokens and pass it via `jolly login --token <value>`.
-    - `jolly login --browser` forces the browser-based path: first tries native browser, then falls back to Playwright, then errors with guidance to use `--token`.
-    - `jolly login --token <value>` is the headless/CI/VM fallback that always works regardless of browser availability.
-    - Native browser detection attempts the platform-appropriate open command (`open`/`xdg-open`/`start`); a successful (zero-exit) launch means the browser is available.
-    - Playwright detection checks that the `playwright` package and its chromium binary are both present, without launching a browser.
-    - Playwright is a headless fallback only — on a machine with a display, the native browser is always preferred.
+    - `jolly login` (and `jolly login --browser`) generate the Keycloak authorization URL, print it for the user to click or copy and paste, and start the localhost OAuth callback server (PKCE, callback server, callback, exchange). When a native browser is available, Jolly also opens the URL in it as a convenience; when it is not, the user opens the printed URL in any browser. Either way the user completes consent and Jolly receives the callback, exchanges the code, and stores the token.
+    - A missing browser is never an error: the printed authorization URL is the always-available path, the same affordance the Vercel and Stripe CLIs provide for their own logins. `jolly login --token <value>` remains the fully non-interactive path that always works regardless of browser availability.
+    - Native browser detection attempts the platform-appropriate open command (`open`/`xdg-open`/`start`); a successful (zero-exit) launch means a browser is available. It only decides whether Jolly auto-opens the URL — it is never required for login to proceed.
     - The registered Keycloak client is `saleor-cli` (realm `saleor-cloud` on auth.saleor.io). Jolly may use this client or register its own in future versions.
     - Jolly should not depend on the deprecated Saleor CLI for authentication.
     - Auth output must not expose secret values.
@@ -164,26 +150,17 @@ Feature: Jolly auth commands
       Jolly errors naming the unimplemented step.
 
   Rule: Login credentials are one-time inputs, never persisted
-    - Saleor Cloud email and password are one-time login inputs. Jolly holds them in
-      memory only for the duration of the login flow and never persists them — not to
-      `.env`, not to any file, not in command output.
+    - Saleor Cloud email and password are one-time login inputs the user enters directly
+      into their own browser during the OAuth consent. Jolly never sees, prompts for, holds,
+      or persists them — not in memory, not to `.env`, not to any file, not in command output.
     - There are no Jolly environment variables for email or password; the durable
       artifact of every login flow is the Saleor Cloud token, stored in `.env` as
       JOLLY_SALEOR_CLOUD_TOKEN.
-    - In the native browser flow (Tier 1) the human types credentials into the real
-      browser; Jolly never sees them.
-    - When the Playwright fallback needs credentials to complete the Keycloak login
-      form, Jolly prompts for email and password on stdin (hidden input on a TTY;
-      reading piped input otherwise) at login time.
-    - If the Playwright flow needs credentials and none are provided (EOF, empty
-      input, or no interactive stdin), Jolly errors with guidance to use
-      `jolly login --token <value>` instead. It never falls back to reading
-      email/password from environment variables or files.
+    - There is no headless browser automation and no harness email/password input; CI and
+      headless environments authenticate with `jolly login --token <value>`.
 
-  Rule: Browser OAuth prerequisites
-    - `@requires-browser` scenarios run in one of three tiers depending on environment capability.
-    - Tier 1 (native browser): When a display is available and the native browser can be opened (a developer laptop), the test runs the full end-to-end flow: `jolly login --browser` → browser opens → user authenticates → callback → exchange → token in .env. This requires a human to complete the OAuth consent. The test harness detects native browser availability by trying `open`/`xdg-open`/`start`.
-    - Tier 2 (Playwright headless): When no native browser is available but Playwright is installed with browser binaries, the test runs the full flow via Playwright automation. The harness supplies the Saleor Cloud email/password by piping them into Jolly's stdin prompt from the harness-only knobs HARNESS_SALEOR_EMAIL and HARNESS_SALEOR_PASSWORD (these are CI/test secrets, not Jolly settings — Jolly itself never reads credentials from the environment, and nothing writes them to `.env`).
-    - Tier 2 also skips when Playwright is available but HARNESS_SALEOR_EMAIL/HARNESS_SALEOR_PASSWORD are absent, with a reason naming the missing harness knobs.
-    - Tier 3 (skip): When neither native browser nor Playwright is available, the scenario skips with a message directing the user/agent to install Playwright or use `--token <value>`.
-    - The `@requires-browser` tag is checked by the test harness before the `@sandbox` credential check. The harness first checks for native browser capability, then for Playwright, in that order.
+  Rule: Browser OAuth is URL-first, like other CLIs
+    - `jolly login` always prints the Keycloak authorization URL so the user can click it or copy and paste it into any browser — the same affordance the Vercel and Stripe CLIs provide for their own logins.
+    - When a native browser is available (the `open`/`xdg-open`/`start` command exits zero), Jolly also opens the URL in it as a convenience; when it is not, Jolly prints the URL and leaves the user to open it. A missing browser is never an error.
+    - Completing the consent in the browser is a human step; Jolly never automates it and never handles the user's credentials. Automated verification covers the authorization URL Jolly presents and the requests it makes (the `--dry-run` and exchange scenarios); the human consent round-trip is exercised manually, not in CI.
+    - There is no headless browser automation and no harness email/password knobs; CI and headless environments authenticate with `jolly login --token <value>`.

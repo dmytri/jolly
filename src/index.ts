@@ -538,7 +538,7 @@ function loginBrowserDryRun(command: string): Envelope {
     command,
     status: "success",
     summary:
-      "Prepared the browser OAuth authorization URL and code-exchange preview (PKCE). Nothing was written.",
+      "Prepared the browser OAuth authorization URL and code-exchange preview (PKCE). Jolly opens the URL in a browser when one is available and otherwise leaves you to open it manually. Nothing was written.",
     data: {
       dryRun: true,
       authorizationUrl,
@@ -554,7 +554,7 @@ function loginBrowserDryRun(command: string): Envelope {
     nextSteps: [
       {
         description:
-          "Open the authorization URL in a browser to complete OAuth, or use jolly login --token <value>.",
+          "Jolly opens the authorization URL in a browser when one is available; otherwise click it or copy and paste it into any browser yourself to complete OAuth, or use jolly login --token <value>.",
         command: "jolly login --browser",
       },
     ],

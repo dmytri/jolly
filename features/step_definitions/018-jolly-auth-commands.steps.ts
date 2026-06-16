@@ -243,6 +243,84 @@ Then(
   },
 );
 
+// ─── Scenario: login presents the authorization URL and offers a browser ───
+// URL-first browser login (like the Vercel/Stripe CLIs): the dry-run preview
+// must present the Keycloak authorization URL for the user to click/copy, state
+// that Jolly opens it automatically when a browser is available and otherwise
+// leaves the user to open it manually, never treat a missing browser as an
+// error, and never leak a token value.
+
+function presentationText(world: JollyWorld): string {
+  // The human-facing statement: summary + the nextSteps narrative. Deliberately
+  // excludes the machine `data` block so we match what Jolly tells the user, not
+  // JSON field names like `dryRunAvailable`.
+  const steps = world.envelope.nextSteps
+    .map((s) => `${s.description ?? ""} ${s.command ?? ""}`)
+    .join(" ");
+  return (world.envelope.summary + " " + steps).toLowerCase();
+}
+
+Then(
+  "the output should present the Keycloak authorization URL for the user to click or copy and paste",
+  function (this: JollyWorld) {
+    const authorizationUrl = String(envData(this)["authorizationUrl"]);
+    const url = new URL(authorizationUrl);
+    assert.equal(url.hostname, "auth.saleor.io");
+    assert.match(url.pathname, /realms\/saleor-cloud\/protocol\/openid-connect\/auth/);
+    // The clickable / copy-pasteable URL must appear verbatim in the output.
+    assert.ok(
+      this.lastRun!.stdout.includes(authorizationUrl),
+      "the authorization URL must be present in the output for the user to click or copy and paste",
+    );
+  },
+);
+
+Then(
+  "the output should state that Jolly opens the URL in a browser when one is available and otherwise leaves the user to open it manually",
+  function (this: JollyWorld) {
+    const text = presentationText(this);
+    assert.ok(text.includes("browser"), "output must mention a browser");
+    // States that Jolly opens the URL automatically when a browser is available.
+    assert.ok(
+      /open/.test(text) &&
+        /(available|when (a|one|your)|if (a|one|your))/.test(text),
+      'output must state that Jolly opens the URL in a browser when one is available',
+    );
+    // ...and otherwise leaves the user to open it manually.
+    assert.ok(
+      /(manual|yourself|copy|paste|otherwise|open it)/.test(text),
+      "output must state that otherwise the user opens the URL manually",
+    );
+  },
+);
+
+Then(
+  "the output should not present a missing browser as an error",
+  function (this: JollyWorld) {
+    assert.notEqual(this.envelope.status, "error");
+    assert.equal(this.envelope.errors.length, 0, "a missing browser must not produce an error entry");
+    const text = presentationText(this);
+    assert.ok(
+      !/(no browser|browser not found|cannot open (a |the )?browser|browser unavailable|no display)/.test(text),
+      "a missing browser must not be presented as an error",
+    );
+  },
+);
+
+Then("no token value should appear in the output", function (this: JollyWorld) {
+  const text = this.lastRun!.stdout + " " + this.lastRun!.stderr;
+  // No real credential value: only var names and bracketed <placeholders> are
+  // allowed in the dry-run preview, never an actual token assignment or value.
+  assert.ok(
+    !/JOLLY_SALEOR_(CLOUD|APP)_TOKEN=\S/.test(text),
+    "no token value should be written to the output",
+  );
+  assert.ok(
+    !/"(id_token|access_token|cloud_token)"\s*:\s*"(?!<)/.test(text),
+    "no concrete token value should appear in the output",
+  );
+});
+
 // ─── Scenario: login previews the OAuth code exchange requests ─────────────
 
 Given(
@@ -469,55 +547,6 @@ Then(
   function (this: JollyWorld) {
     const text = JSON.stringify(this.envelope.errors) + " " + JSON.stringify(this.envelope.nextSteps);
     assert.ok(text.includes(TOKEN_PAGE), `error guidance must name ${TOKEN_PAGE}`);
-  },
-);
-
-// ─── @requires-browser: full browser OAuth login flow ──────────────────────
-// Skips on this VM (tier 3 — no native browser, no Playwright). Body written
-// for a browser-capable runner.
-
-Given(
-  "the runner can complete a browser OAuth flow natively or via Playwright with harness-supplied login input",
-  function (this: JollyWorld) {
-    // The @requires-browser Before hook resolved the tier and stashed it; this
-    // step is reached only when a usable tier exists (otherwise it skipped).
-  },
-);
-
-When("the agent runs `jolly login --browser`", function (this: JollyWorld) {
-  const input =
-    process.env["HARNESS_SALEOR_EMAIL"] && process.env["HARNESS_SALEOR_PASSWORD"]
-      ? `${process.env["HARNESS_SALEOR_EMAIL"]}\n${process.env["HARNESS_SALEOR_PASSWORD"]}\n`
-      : undefined;
-  this.runCli(["login", "--browser", "--json"], { input });
-});
-
-Then("Jolly should complete the browser OAuth flow", function (this: JollyWorld) {
-  assert.equal(this.envelope.status, "success");
-});
-
-Then(
-  "it should store the Saleor Cloud token in .env as JOLLY_SALEOR_CLOUD_TOKEN",
-  function (this: JollyWorld) {
-    const values = loadEnvValues(this.lastRun!.cwd);
-    assert.ok(
-      values["JOLLY_SALEOR_CLOUD_TOKEN"] && values["JOLLY_SALEOR_CLOUD_TOKEN"].length > 0,
-      "the browser flow must store a Cloud token",
-    );
-  },
-);
-
-Then(
-  ".env should not contain any email or password value",
-  function (this: JollyWorld) {
-    const path = join(this.lastRun!.cwd, ".env");
-    if (!existsSync(path)) return;
-    const text = readFileSync(path, "utf8");
-    const email = process.env["HARNESS_SALEOR_EMAIL"];
-    const password = process.env["HARNESS_SALEOR_PASSWORD"];
-    if (email) assert.ok(!text.includes(email), ".env must not contain the login email");
-    if (password) assert.ok(!text.includes(password), ".env must not contain the login password");
-    assert.ok(!/PASSWORD|EMAIL/i.test(text), ".env must hold no email/password vars");
   },
 );
 
