@@ -788,7 +788,10 @@ export async function installStripeApp(
   manifestUrl: string = STRIPE_APP_MANIFEST_URL,
   appName: string = STRIPE_APP_NAME,
 ): Promise<InstallStripeAppResult> {
-  const apps = await queryGetApps(graphqlUrl, cloudToken);
+  // Retry the GetApps idempotency query on transient failures (e.g. a momentary
+  // HTTP 429 rate-limit), as acquireAppToken does: a transient rate-limit must
+  // not degrade an already-installed Stripe app to a false blocked stage.
+  const apps = await withRetries(() => queryGetApps(graphqlUrl, cloudToken));
   const existing = apps.find((app) => /stripe/i.test(app.name ?? ""));
   if (existing) {
     return { reused: true };

@@ -18,8 +18,9 @@ import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { createServer, type Server } from "node:http";
 import { join } from "node:path";
-import { absentCredentialsEnv } from "../support/creds-env.ts";
+import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 import { findRiskContexts, assertRiskContextShape } from "../support/envelope.ts";
 import { saleorGraphql } from "../support/saleor-graphql.ts";
 import {
@@ -812,6 +813,146 @@ Then(
       next.includes("key") && next.includes("channel"),
       "nextSteps must name the pending keys + channel-mapping human gate",
     );
+  },
+);
+
+// --- Scenario: A transient Saleor rate-limit during the Stripe stage retries
+//     instead of reporting a false blocked (@logic @exceptional-double) --------
+//
+// The Stripe stage's first Saleor GraphQL request is the GetApps idempotency
+// query (cloud-api.ts installStripeApp → queryGetApps); a momentary HTTP 429
+// there must be retried, not reported as a blocked stage. An HTTP 429 cannot be
+// produced on demand against real Saleor Cloud, so this lone @exceptional-double
+// stands up a loopback Saleor GraphQL stand-in that returns 429 exactly once on
+// that GetApps request and then succeeds with the Stripe app already present
+// (so the idempotent install reuses it and the stage completes). It is the only
+// double in this feature — the real install is the @sandbox scenario above.
+//
+// Targeting: JOLLY_SALEOR_APP_TOKEN stays unset so the recipe/stock stages skip
+// without touching the endpoint, and the bootstrap doctor probes use other
+// queries — so the single 429 is reserved for the Stripe stage's GetApps.
+
+interface RateLimitState {
+  appsQueries: number;
+  served429: boolean;
+}
+
+Given(
+  "the Stripe stage's Saleor GraphQL endpoint returns HTTP 429 once and then succeeds with the Stripe app already installed",
+  async function (this: JollyWorld) {
+    // @exceptional-double: a real HTTP 429 rate-limit cannot be produced on
+    // demand against real Saleor Cloud, so this loopback Saleor GraphQL stand-in
+    // returns 429 once on the Stripe stage's first GetApps request and then
+    // succeeds with the Stripe app already present. Lone double here (the real
+    // install is the @sandbox scenario above); it pins that a transient
+    // rate-limit is retried rather than degrading an already-installed stage to
+    // a false blocked.
+    const state: RateLimitState = { appsQueries: 0, served429: false };
+    const server = createServer((req, res) => {
+      let body = "";
+      req.on("data", (chunk: Buffer) => (body += chunk));
+      req.on("end", () => {
+        res.setHeader("Content-Type", "application/json");
+        if (body.includes("GetApps")) {
+          state.appsQueries += 1;
+          // First GetApps → a single transient 429; the retry must succeed.
+          if (!state.served429) {
+            state.served429 = true;
+            res.statusCode = 429;
+            res.end(JSON.stringify({ errors: [{ message: "rate limited" }] }));
+            return;
+          }
+          // Subsequent GetApps → the Stripe app is already installed, so the
+          // idempotent install reuses it and the stage completes.
+          res.statusCode = 200;
+          res.end(
+            JSON.stringify({
+              data: { apps: { edges: [{ node: { id: "QXBwOjE=", name: "Stripe" } }] } },
+            }),
+          );
+          return;
+        }
+        // Any other request (the bootstrap doctor's read-only probes) → benign
+        // empty success, so only the Stripe stage's GetApps sees the single 429.
+        res.statusCode = 200;
+        res.end(JSON.stringify({ data: {} }));
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    this.notes.rateLimitState = state;
+    this.notes.rateLimitEndpoint = `http://127.0.0.1:${port}/graphql/`;
+    this.cleanup.register(`stripe 429 stand-in :${port}`, () => {
+      return new Promise<void>((resolve) => server.close(() => resolve()));
+    });
+  },
+);
+
+When(
+  "the agent runs `jolly start --yes --json` and the Stripe stage runs against that endpoint",
+  { timeout: 900_000 },
+  async function (this: JollyWorld) {
+    // In-process loopback stand-in ⇒ runCliAsync (spawnSync would block the
+    // event loop and the server could never answer). Point the run's Saleor
+    // GraphQL endpoint at the stand-in and supply the Cloud staff token the
+    // Stripe stage authenticates with (STAND_IN_TOKEN — the stand-in does not
+    // validate it). Generous timeout: start clones Paper + pnpm-installs before
+    // reaching the Stripe stage, plus the retry backoff.
+    await this.runCliAsync(["start", "--yes", "--json"], {
+      env: absentCredentialsEnv({
+        NEXT_PUBLIC_SALEOR_API_URL: String(this.notes.rateLimitEndpoint),
+        JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN,
+      }),
+      timeoutMs: 840_000,
+    });
+  },
+);
+
+Then(
+  "the Stripe stage should be reported completed, having retried the rate-limited request",
+  function (this: JollyWorld) {
+    const stages = (this.envelope.data.stages ?? []) as StartStage[];
+    const stripe = findStripeStage(stages);
+    assert.ok(stripe, "the run must report a Stripe stage in data.stages");
+    assert.equal(
+      stripe!.status,
+      "completed",
+      "the Stripe stage must be reported completed after retrying the transient 429",
+    );
+    // The stand-in served a 429 and was hit again — proof the rate-limited
+    // request was retried rather than failing on the first 429.
+    const state = this.notes.rateLimitState as RateLimitState;
+    assert.ok(state.served429, "the stand-in must have served the transient 429");
+    assert.ok(
+      state.appsQueries >= 2,
+      `the Stripe stage must have retried the rate-limited GetApps request ` +
+        `(saw ${state.appsQueries} GetApps request(s); expected the 429 plus a retry)`,
+    );
+  },
+);
+
+Then(
+  "the Stripe stage should not be reported blocked on the transient rate-limit",
+  function (this: JollyWorld) {
+    const stages = (this.envelope.data.stages ?? []) as StartStage[];
+    const stripe = findStripeStage(stages);
+    assert.ok(stripe, "the run must report a Stripe stage in data.stages");
+    assert.notEqual(
+      stripe!.status,
+      "blocked",
+      "a transient rate-limit must not degrade the Stripe stage to blocked",
+    );
+    // No stripe-app check may report a fabricated failure blaming the rate-limit.
+    for (const check of this.envelope.checks) {
+      if (/stripe.*(install|app)|app.*install/i.test(check.id)) {
+        assert.notEqual(
+          check.status,
+          "fail",
+          `${check.id} must not fail on a transient rate-limit that should have been retried`,
+        );
+      }
+    }
   },
 );
 
