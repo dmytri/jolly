@@ -14,7 +14,8 @@
 // → skip locally.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
-import { absentCredentialsEnv } from "../support/creds-env.ts";
+import { createServer } from "node:http";
+import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 import { findRiskContexts, assertRiskContextShape } from "../support/envelope.ts";
 import { saleorGraphql } from "../support/saleor-graphql.ts";
 import type { JollyWorld } from "../support/world.ts";
@@ -778,5 +779,220 @@ Then(
       before,
       `re-deploying must not create duplicate catalog entities (was ${before}, now ${after})`,
     );
+  },
+);
+
+// ─── Scenario: A transient Saleor rate-limit during the stock stage retries
+//     instead of reporting a false blocked (@logic @exceptional-double) ────────
+//
+// The stock stage's first Saleor GraphQL request is the recipe-warehouse lookup
+// (cloud-api.ts seedRecipeStock → queryWarehouseId, `query Warehouses`); a
+// momentary HTTP 429 there must be retried, not reported as a blocked stage. An
+// HTTP 429 cannot be produced on demand against real Saleor Cloud, so this lone
+// @exceptional-double stands up a loopback Saleor GraphQL stand-in that returns
+// 429 exactly once on the stock stage's first request and then succeeds with the
+// recipe catalog already in stock (so the idempotent seed updates in place and
+// the stage completes). It is the only double in this feature — the real seeding
+// is the @sandbox scenario above; it pins the resilience the idempotent re-run
+// depends on so a momentary rate-limit never degrades an otherwise-successful
+// stock stage to a false blocked (feature 004 Rule "Backend Saleor requests
+// retry a transient rate-limit").
+//
+// Targeting: the run points NEXT_PUBLIC_SALEOR_API_URL at the stand-in and
+// supplies the app token the stock stage authenticates with, so the single 429
+// is reserved for the stock stage's own GraphQL — keyed on the Jolly-specific
+// stock operation names (`Warehouses`/`VariantsForStock`), so neither the
+// bootstrap doctor probes nor the spawned configurator consume it.
+
+interface StockRateLimitState {
+  stockRequests: number;
+  served429: boolean;
+}
+
+/** Which Jolly stock-stage operation does this GraphQL request body carry?
+ * seedRecipeStock sends, in order: `query Warehouses`, `query VariantsForStock`,
+ * then `mutation StocksCreate`/`StocksUpdate`. Anything else (doctor probes, the
+ * spawned configurator's own queries) is not a stock-stage request. */
+function stockOperation(
+  body: string,
+): "warehouses" | "variants" | "stocks" | null {
+  if (body.includes("query Warehouses")) return "warehouses";
+  if (body.includes("VariantsForStock")) return "variants";
+  if (body.includes("StocksCreate") || body.includes("StocksUpdate")) return "stocks";
+  return null;
+}
+
+Given(
+  "the stock stage's Saleor GraphQL endpoint returns HTTP 429 once and then succeeds with the recipe catalog in stock",
+  async function (this: JollyWorld) {
+    // @exceptional-double: a real HTTP 429 rate-limit cannot be produced on
+    // demand against real Saleor Cloud, so this loopback Saleor GraphQL stand-in
+    // returns 429 once on the stock stage's first request and then succeeds with
+    // the recipe warehouse present and variants already in stock. Lone double
+    // here (the real seeding is the @sandbox scenario above); it pins that a
+    // transient rate-limit is retried rather than degrading an
+    // otherwise-successful stock stage to a false blocked.
+    const state: StockRateLimitState = { stockRequests: 0, served429: false };
+    const json = (res: import("node:http").ServerResponse, payload: unknown) => {
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify(payload));
+    };
+    const server = createServer((req, res) => {
+      let body = "";
+      req.on("data", (chunk: Buffer) => (body += chunk));
+      req.on("end", () => {
+        res.setHeader("Content-Type", "application/json");
+        // Close each connection rather than keeping it alive: the bootstrap
+        // doctor probe opens a connection to this stand-in early, but the stock
+        // stage's request comes only after the multi-second storefront/recipe
+        // stages — long enough for an idle keep-alive socket to go stale, so a
+        // pooled connection would fail the later request with "fetch failed"
+        // before the 429 retry path is ever exercised. Fresh connections per
+        // request keep the stand-in reliable across the whole run.
+        res.setHeader("Connection", "close");
+        const op = stockOperation(body);
+        if (op) {
+          state.stockRequests += 1;
+          // The FIRST stock-stage request → a single transient 429; the retry
+          // must succeed.
+          if (!state.served429) {
+            state.served429 = true;
+            res.statusCode = 429;
+            res.end(JSON.stringify({ errors: [{ message: "rate limited" }] }));
+            return;
+          }
+        }
+        if (op === "warehouses") {
+          // The recipe warehouse exists (resolved by slug `port-royal`).
+          json(res, {
+            data: {
+              warehouses: {
+                edges: [{ node: { id: "V2FyZWhvdXNlOjE=", slug: RECIPE_WAREHOUSE_SLUG } }],
+              },
+            },
+          });
+          return;
+        }
+        if (op === "variants") {
+          // The recipe catalog is already in stock: one variant with a stock
+          // entry in the recipe warehouse, so the idempotent seed updates in
+          // place and the stage completes.
+          json(res, {
+            data: {
+              productVariants: {
+                edges: [
+                  {
+                    node: {
+                      id: "UHJvZHVjdFZhcmlhbnQ6MQ==",
+                      stocks: [{ warehouse: { slug: RECIPE_WAREHOUSE_SLUG } }],
+                    },
+                  },
+                ],
+              },
+            },
+          });
+          return;
+        }
+        if (op === "stocks") {
+          // The stock create/update succeeds with no errors.
+          json(res, {
+            data: {
+              productVariantStocksUpdate: { bulkStockErrors: [], errors: [] },
+              productVariantStocksCreate: { bulkStockErrors: [], errors: [] },
+            },
+          });
+          return;
+        }
+        // Any other request (the bootstrap doctor's read-only probes, the spawned
+        // configurator's own queries) → benign empty success, so only the stock
+        // stage's requests see the single 429.
+        json(res, { data: {} });
+      });
+    });
+    // Belt-and-suspenders with the per-response `Connection: close` above: never
+    // hold an idle socket open across the long storefront/recipe stages.
+    server.keepAliveTimeout = 0;
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    this.notes.stockRateLimitState = state;
+    this.notes.stockRateLimitEndpoint = `http://127.0.0.1:${port}/graphql/`;
+    this.cleanup.register(`stock 429 stand-in :${port}`, () => {
+      return new Promise<void>((resolve) => server.close(() => resolve()));
+    });
+  },
+);
+
+When(
+  "the agent runs `jolly start --yes --json` and the stock stage runs against that endpoint",
+  { timeout: 900_000 },
+  async function (this: JollyWorld) {
+    // In-process loopback stand-in ⇒ runCliAsync (spawnSync would block the
+    // event loop and the server could never answer). Point the run's Saleor
+    // GraphQL endpoint at the stand-in and supply the app token the stock stage
+    // authenticates with (STAND_IN_TOKEN — the stand-in does not validate it).
+    // Generous timeout: start clones Paper + pnpm-installs before reaching the
+    // stock stage, plus the retry backoff.
+    await this.runCliAsync(["start", "--yes", "--json"], {
+      env: absentCredentialsEnv({
+        NEXT_PUBLIC_SALEOR_API_URL: String(this.notes.stockRateLimitEndpoint),
+        JOLLY_SALEOR_APP_TOKEN: STAND_IN_TOKEN,
+      }),
+      timeoutMs: 840_000,
+    });
+  },
+);
+
+Then(
+  "the stock stage should be reported completed, having retried the rate-limited request",
+  function (this: JollyWorld) {
+    const stages = (this.envelope.data.stages ?? []) as Array<{
+      stage: string;
+      status: string;
+    }>;
+    const stock = stages.find((s) => s.stage === "stock");
+    assert.ok(stock, "the run must report a stock stage in data.stages");
+    assert.equal(
+      stock!.status,
+      "completed",
+      "the stock stage must be reported completed after retrying the transient 429",
+    );
+    // The stand-in served a 429 and was hit again — proof the rate-limited
+    // request was retried rather than failing on the first 429.
+    const state = this.notes.stockRateLimitState as StockRateLimitState;
+    assert.ok(state.served429, "the stand-in must have served the transient 429");
+    assert.ok(
+      state.stockRequests >= 2,
+      `the stock stage must have retried the rate-limited request ` +
+        `(saw ${state.stockRequests} stock request(s); expected the 429 plus a retry)`,
+    );
+  },
+);
+
+Then(
+  "the stock stage should not be reported blocked on the transient rate-limit",
+  function (this: JollyWorld) {
+    const stages = (this.envelope.data.stages ?? []) as Array<{
+      stage: string;
+      status: string;
+    }>;
+    const stock = stages.find((s) => s.stage === "stock");
+    assert.ok(stock, "the run must report a stock stage in data.stages");
+    assert.notEqual(
+      stock!.status,
+      "blocked",
+      "a transient rate-limit must not degrade the stock stage to blocked",
+    );
+    // No stock-seeded check may report a fabricated failure blaming the rate-limit.
+    for (const check of this.envelope.checks) {
+      if (/stock/i.test(check.id)) {
+        assert.notEqual(
+          check.status,
+          "fail",
+          `${check.id} must not fail on a transient rate-limit that should have been retried`,
+        );
+      }
+    }
   },
 );

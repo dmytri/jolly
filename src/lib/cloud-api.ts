@@ -400,6 +400,15 @@ export function extractDomainUrl(
 
 // ── Instance GraphQL: app token acquisition ──────────────────────────────
 
+// A transient HTTP 429 rate-limit must not fail an otherwise-successful backend
+// Saleor request (feature 004 Rule "Backend Saleor requests retry a transient
+// rate-limit"). Resilience lives at this shared request layer so every backend
+// Saleor GraphQL request Jolly's own code sends retries a momentary rate-limit,
+// rather than each caller wrapping its own retry. Bounded: after a few attempts
+// a PERSISTENT 429 still surfaces honestly so the stage reports blocked/fail.
+const RATE_LIMIT_RETRIES = 4;
+const RATE_LIMIT_RETRY_DELAY_MS = 1_000;
+
 async function graphqlFetch(
   graphqlUrl: string,
   token: string,
@@ -407,14 +416,23 @@ async function graphqlFetch(
   variables?: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   assertFirstPartyUrl(graphqlUrl);
-  const response = await fetch(graphqlUrl, {
+  const init = {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(variables ? { query, variables } : { query }),
-  });
+  };
+  let response = await fetch(graphqlUrl, init);
+  for (
+    let attempt = 0;
+    response.status === 429 && attempt < RATE_LIMIT_RETRIES;
+    attempt++
+  ) {
+    await sleep(RATE_LIMIT_RETRY_DELAY_MS);
+    response = await fetch(graphqlUrl, init);
+  }
   if (!response.ok) {
     throw new CloudApiError(
       `GraphQL request to the Saleor instance failed: HTTP ${response.status}`,
