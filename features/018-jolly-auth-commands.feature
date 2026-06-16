@@ -39,9 +39,10 @@ Feature: Jolly auth commands
 
   @sandbox
   Scenario: A failed OAuth code exchange is reported honestly
-    Given Jolly receives an authorization code that Keycloak will reject
-    When it exchanges the code with the Keycloak token endpoint
-    Then the exchange request should really be sent and really fail
+    Given the agent has no existing Saleor Cloud authentication
+    And Keycloak will reject the authorization code Jolly receives on the callback
+    When the agent runs `jolly login --browser` and the loopback callback delivers the rejectable code
+    Then Jolly should really POST the code to the auth.saleor.io token endpoint and the request should really fail
     And Jolly should emit an error envelope naming the step that failed
     And it should not write any value to .env
     And the output should contain no success, verified, or authenticated language
@@ -73,6 +74,17 @@ Feature: Jolly auth commands
     And the output should state that Jolly opens the URL in a browser when one is available and otherwise leaves the user to open it manually
     And the output should not present a missing browser as an error
     And no token value should appear in the output
+
+  @logic
+  Scenario: Jolly login --browser never treats a missing browser as an error
+    Given the agent has no existing Saleor Cloud authentication
+    When the agent runs `jolly login --browser` where no browser can be opened
+    Then the output should present the Keycloak authorization URL for the user to click or copy and paste
+    And the output should report the loopback OAuth callback endpoint http://127.0.0.1:5375/callback where Jolly listens for the consent redirect
+    And it should not present a missing browser as an error
+    And it should direct the user to open the URL in a browser or use `jolly login --token <value>`
+    And no token value should appear in the output
+    And it should not write any value to .env
 
   @logic
   Scenario: Agent logs out

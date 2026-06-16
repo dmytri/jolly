@@ -23,6 +23,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash, randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 import {
   cloudApiBase,
@@ -314,25 +315,14 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
   const token = args.options["token"];
   const browser = args.flags.has("browser");
 
-  // --browser flows (PKCE preview, or honest unavailability) -------------
+  // --browser flows (PKCE preview, or live URL-first loopback OAuth) -----
   if (browser) {
     if (args.dryRun) {
       return loginBrowserDryRun(command);
     }
-    // Real browser/Playwright callback flow is not implemented on this VM.
-    return errorEnvelope(
-      command,
-      "Browser-based login is not available in this environment.",
-      [
-        {
-          code: "BROWSER_LOGIN_UNAVAILABLE",
-          message:
-            "No native browser or Playwright callback flow is available to complete browser OAuth.",
-          remediation: `Create a token at ${TOKEN_PAGE} and run \`jolly login --token <value>\`.`,
-        },
-      ],
-      { data: { riskContext: loginRiskContext() } },
-    );
+    // URL-first live flow: print the authorization URL + loopback callback,
+    // best-effort open a browser, then run the real PKCE code exchange.
+    return loginBrowserLive(command, args);
   }
 
   if (!token) {
@@ -558,6 +548,340 @@ function loginBrowserDryRun(command: string): Envelope {
         command: "jolly login --browser",
       },
     ],
+  });
+}
+
+const KEYCLOAK_AUTH_ENDPOINT =
+  "https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/auth";
+const KEYCLOAK_TOKEN_ENDPOINT =
+  "https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/token";
+const LOOPBACK_REDIRECT_URI = "http://127.0.0.1:5375/callback";
+const LOOPBACK_HOST = "127.0.0.1";
+const LOOPBACK_PORT = 5375;
+
+/**
+ * Live, URL-first browser OAuth (feature 018, "Browser OAuth is URL-first" +
+ * "Token verification is a real request"). Prints the authorization URL and the
+ * loopback callback endpoint up front (a non-error presentation, flushed before
+ * blocking), best-effort opens a native browser, then runs the loopback server
+ * and the REAL PKCE code exchange. A missing browser is never an error; a failed
+ * exchange is reported honestly, writing nothing to .env.
+ */
+async function loginBrowserLive(command: string, args: ParsedArgs): Promise<Envelope> {
+  const verifier = base64url(randomBytes(32));
+  const challenge = base64url(createHash("sha256").update(verifier).digest());
+  const state = base64url(randomBytes(16));
+  const redirectUri = LOOPBACK_REDIRECT_URI;
+  const params = new URLSearchParams({
+    response_type: "code",
+    client_id: "saleor-cli",
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+    state,
+    redirect_uri: redirectUri,
+    scope: "email openid profile",
+  });
+  const authorizationUrl = `${KEYCLOAK_AUTH_ENDPOINT}?${params.toString()}`;
+
+  // Presentation envelope FIRST, flushed before we block on the callback. It is
+  // never an error (a missing browser is not an error) and carries no token.
+  const presentation = envelope({
+    command,
+    status: "warning",
+    summary:
+      "Open the authorization URL in a browser to sign in. Jolly opens it automatically when a browser is available and otherwise leaves you to open it manually. Listening for the OAuth consent redirect on http://127.0.0.1:5375/callback.",
+    data: {
+      authorizationUrl,
+      redirectUri,
+      callbackEndpoint: redirectUri,
+      pkce: { codeChallengeMethod: "S256", codeChallenge: challenge },
+      state,
+      scope: "email openid profile",
+      clientId: "saleor-cli",
+      responseType: "code",
+      riskContext: loginRiskContext(),
+    },
+    nextSteps: [
+      {
+        description:
+          "Open the authorization URL in a browser (Jolly opens it automatically when one is available; otherwise click it or copy and paste it yourself) to complete OAuth, or use jolly login --token <value>.",
+        command: "jolly login --token <value>",
+      },
+    ],
+  });
+  emit(presentation, args);
+  // Ensure the presentation reaches the parent before we start waiting.
+  await new Promise<void>((resolve) => {
+    if (process.stdout.write("")) resolve();
+    else process.stdout.once("drain", () => resolve());
+  });
+
+  // Best-effort native browser open. A missing or non-zero-exit open command is
+  // NOT an error — we proceed URL-first.
+  tryOpenBrowser(authorizationUrl);
+
+  // Real loopback OAuth callback server; resolves with the received code/state.
+  let callback: { code?: string; state?: string; error?: string };
+  try {
+    callback = await awaitLoopbackCallback();
+  } catch (err) {
+    return errorEnvelope(
+      command,
+      "The loopback OAuth callback server could not be started.",
+      [
+        {
+          code: "OAUTH_CALLBACK_SERVER_FAILED",
+          message: `Could not bind the loopback callback server on ${LOOPBACK_HOST}:${LOOPBACK_PORT}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+          remediation: `Create a token at ${TOKEN_PAGE} and run \`jolly login --token <value>\`.`,
+        },
+      ],
+      { data: { riskContext: loginRiskContext() } },
+    );
+  }
+
+  if (callback.state !== state || !callback.code) {
+    return errorEnvelope(
+      command,
+      "The OAuth consent redirect was invalid; nothing was written.",
+      [
+        {
+          code: "OAUTH_STATE_MISMATCH",
+          message: callback.error
+            ? `The authorization server returned an error on the callback: ${callback.error}.`
+            : "The loopback callback did not carry a matching state and authorization code.",
+          remediation: `Re-run \`jolly login --browser\`, or create a token at ${TOKEN_PAGE} and run \`jolly login --token <value>\`.`,
+        },
+      ],
+      { data: { riskContext: loginRiskContext() } },
+    );
+  }
+
+  // REAL token exchange POST to the auth.saleor.io Keycloak token endpoint.
+  let exchange: Response;
+  let exchangeBody = "";
+  try {
+    exchange = await fetch(KEYCLOAK_TOKEN_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: callback.code,
+        code_verifier: verifier,
+        client_id: "saleor-cli",
+        redirect_uri: redirectUri,
+      }).toString(),
+    });
+    exchangeBody = await exchange.text();
+  } catch (err) {
+    return errorEnvelope(
+      command,
+      "The OAuth code exchange request to the auth.saleor.io token endpoint failed; nothing was written.",
+      [
+        {
+          code: "OAUTH_TOKEN_EXCHANGE_FAILED",
+          message: `The POST to the auth.saleor.io token endpoint (${KEYCLOAK_TOKEN_ENDPOINT}) could not be sent: ${
+            err instanceof Error ? err.message : String(err)
+          }.`,
+          remediation: `Create a token at ${TOKEN_PAGE} and run \`jolly login --token <value>\`.`,
+        },
+      ],
+      { data: { riskContext: loginRiskContext() } },
+    );
+  }
+
+  if (!exchange.ok) {
+    // Keycloak rejected the authorization code: a real, honest failure of the
+    // token-exchange POST. Write nothing; name the failed step.
+    return errorEnvelope(
+      command,
+      "The OAuth code exchange POST to the auth.saleor.io token endpoint was rejected; nothing was written.",
+      [
+        {
+          code: "OAUTH_TOKEN_EXCHANGE_FAILED",
+          message: `The token exchange POST to the auth.saleor.io token endpoint (${KEYCLOAK_TOKEN_ENDPOINT}) was rejected with HTTP ${exchange.status}: ${
+            exchangeBody.slice(0, 500) || "no response body"
+          }.`,
+          remediation: `Create a token at ${TOKEN_PAGE} and run \`jolly login --token <value>\`.`,
+        },
+      ],
+      {
+        checks: [
+          {
+            id: "oauth-token-exchange",
+            status: "fail",
+            description: `auth.saleor.io token endpoint rejected the authorization code (HTTP ${exchange.status}).`,
+          },
+        ],
+        data: { riskContext: loginRiskContext() },
+      },
+    );
+  }
+
+  // Successful exchange (real human consent — not exercised by CI). Parse the
+  // id_token and exchange it for a Cloud API token.
+  let idToken: string | undefined;
+  try {
+    idToken = (JSON.parse(exchangeBody) as { id_token?: string }).id_token;
+  } catch {
+    idToken = undefined;
+  }
+  if (!idToken) {
+    return errorEnvelope(
+      command,
+      "The auth.saleor.io token endpoint response did not include an id_token; nothing was written.",
+      [
+        {
+          code: "OAUTH_ID_TOKEN_MISSING",
+          message: `The token exchange response from the auth.saleor.io token endpoint (${KEYCLOAK_TOKEN_ENDPOINT}) did not include an id_token.`,
+          remediation: `Create a token at ${TOKEN_PAGE} and run \`jolly login --token <value>\`.`,
+        },
+      ],
+      { data: { riskContext: loginRiskContext() } },
+    );
+  }
+
+  const tokensEndpoint = `${cloudApiBase()}/tokens`;
+  let cloudToken: string | undefined;
+  let orgName: string | undefined;
+  try {
+    const res = await fetch(tokensEndpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id_token: idToken }),
+    });
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return errorEnvelope(
+        command,
+        "The Cloud API rejected the OAuth id_token exchange; nothing was written.",
+        [
+          {
+            code: "CLOUD_TOKEN_EXCHANGE_FAILED",
+            message: `The POST of the OIDC id_token to the Cloud API tokens endpoint (${tokensEndpoint}) was rejected with HTTP ${res.status}.`,
+            remediation: `Create a token at ${TOKEN_PAGE} and run \`jolly login --token <value>\`.`,
+          },
+        ],
+        { data: { riskContext: loginRiskContext() } },
+      );
+    }
+    cloudToken =
+      typeof body["token"] === "string"
+        ? (body["token"] as string)
+        : typeof body["access_token"] === "string"
+          ? (body["access_token"] as string)
+          : undefined;
+  } catch (err) {
+    return errorEnvelope(
+      command,
+      "The Cloud API id_token exchange request failed; nothing was written.",
+      [
+        {
+          code: "CLOUD_TOKEN_EXCHANGE_FAILED",
+          message: `The POST of the OIDC id_token to the Cloud API tokens endpoint (${tokensEndpoint}) could not be sent: ${
+            err instanceof Error ? err.message : String(err)
+          }.`,
+          remediation: `Create a token at ${TOKEN_PAGE} and run \`jolly login --token <value>\`.`,
+        },
+      ],
+      { data: { riskContext: loginRiskContext() } },
+    );
+  }
+
+  if (!cloudToken) {
+    return errorEnvelope(
+      command,
+      "The Cloud API id_token exchange did not return a token; nothing was written.",
+      [
+        {
+          code: "CLOUD_TOKEN_MISSING",
+          message: `The Cloud API tokens endpoint (${tokensEndpoint}) response did not include a token.`,
+          remediation: `Create a token at ${TOKEN_PAGE} and run \`jolly login --token <value>\`.`,
+        },
+      ],
+      { data: { riskContext: loginRiskContext() } },
+    );
+  }
+
+  // Verify + resolve the org name with the freshly minted Cloud token.
+  try {
+    orgName = resolveOrgName(await listOrganizations(cloudToken));
+  } catch {
+    orgName = undefined;
+  }
+  const values: Record<string, string> = { JOLLY_SALEOR_CLOUD_TOKEN: cloudToken };
+  if (orgName) values["JOLLY_SALEOR_ORGANIZATION"] = orgName;
+  writeEnvValues(projectDir(), values);
+
+  return envelope({
+    command,
+    status: "success",
+    summary: orgName
+      ? `Browser login complete; the Cloud token was stored. Authenticated as "${orgName}".`
+      : "Browser login complete; the Cloud token was stored.",
+    data: {
+      cloudTokenStored: true,
+      accountContext: orgName ?? "unknown",
+      riskContext: loginRiskContext(),
+    },
+    checks: [
+      { id: "oauth-token-exchange", status: "pass", description: "Exchanged the authorization code for a Cloud token." },
+    ],
+    nextSteps: [
+      {
+        description: "Run jolly create store to provision a Saleor Cloud environment.",
+        command: "jolly create store --create-environment",
+      },
+    ],
+  });
+}
+
+/**
+ * Best-effort native browser open. A missing open command, a spawn error, or a
+ * non-zero exit is NOT an error — login proceeds URL-first regardless.
+ */
+function tryOpenBrowser(url: string): void {
+  const opener =
+    process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+  try {
+    spawnSync(opener, [url], { stdio: "ignore" });
+  } catch {
+    // Ignore — URL-first means a missing browser is never an error.
+  }
+}
+
+/**
+ * Start the loopback HTTP server, handle a single GET /callback, validate that
+ * the request carries an authorization code, respond to the browser so its
+ * request completes, then close the server (draining the event loop).
+ */
+function awaitLoopbackCallback(): Promise<{ code?: string; state?: string; error?: string }> {
+  return new Promise((resolve, reject) => {
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      let url: URL;
+      try {
+        url = new URL(req.url ?? "/", `http://${LOOPBACK_HOST}:${LOOPBACK_PORT}`);
+      } catch {
+        res.statusCode = 400;
+        res.end("Bad request.");
+        return;
+      }
+      if (url.pathname !== "/callback") {
+        res.statusCode = 404;
+        res.end("Not found.");
+        return;
+      }
+      const code = url.searchParams.get("code") ?? undefined;
+      const state = url.searchParams.get("state") ?? undefined;
+      const error = url.searchParams.get("error") ?? undefined;
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.end("Jolly received the OAuth redirect. You may close this window and return to your terminal.");
+      server.close(() => resolve({ code, state, error }));
+    });
+    server.on("error", (err) => reject(err));
+    server.listen(LOOPBACK_PORT, LOOPBACK_HOST);
   });
 }
 

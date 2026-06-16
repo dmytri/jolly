@@ -27,12 +27,15 @@
 // "stored, not verified" condition the real test env cannot produce on demand.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
+import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { get as httpGet } from "node:http";
 import { join } from "node:path";
 import { absentCredentialsEnv } from "../support/creds-env.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
-import type { JollyWorld } from "../support/world.ts";
+import { findEnvelope } from "../support/envelope.ts";
+import { REPO_ROOT, type CliResult, type JollyWorld } from "../support/world.ts";
 
 const TOKEN_PAGE = "https://cloud.saleor.io/tokens";
 
@@ -47,6 +50,93 @@ function base64urlOfSha256(verifier: string): string {
 
 function envData(world: JollyWorld): Record<string, unknown> {
   return world.envelope.data as Record<string, unknown>;
+}
+
+// ─── Live loopback browser-OAuth driver ────────────────────────────────────
+// The non-dry-run `jolly login --browser` flow prints the authorization URL +
+// loopback callback endpoint, attempts to open a browser, starts the localhost
+// OAuth callback server on 127.0.0.1:5375, and waits for the consent redirect.
+// These helpers drive that real flow without faking anything: they spawn the
+// CLI, read its real stdout, and (for the failed-exchange scenario) act as the
+// browser by delivering a code to the real loopback callback so Jolly performs
+// the real token-exchange POST. There is no mock — the consent redirect is the
+// one mechanically-deliverable step; the exchange and its failure are real.
+
+const LOGIN_BROWSER_ARGS = ["login", "--browser", "--json"];
+const CLI_ENTRY = join(REPO_ROOT, "src", "index.ts");
+const CALLBACK_ENDPOINT = "http://127.0.0.1:5375/callback";
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+interface BrowserRun {
+  child: ChildProcess;
+  stdout: () => string;
+  stderr: () => string;
+}
+
+function spawnBrowserLogin(
+  world: JollyWorld,
+  envOverrides: Record<string, string | undefined> = {},
+): BrowserRun {
+  const runtime = process.env.HARNESS_CLI_RUNTIME ?? "node";
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries({ ...process.env, ...envOverrides })) {
+    if (value !== undefined) env[key] = value;
+  }
+  const child = spawn(runtime, [CLI_ENTRY, ...LOGIN_BROWSER_ARGS], {
+    cwd: world.projectDir,
+    env,
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout!.on("data", (chunk: Buffer) => (stdout += chunk));
+  child.stderr!.on("data", (chunk: Buffer) => (stderr += chunk));
+  return { child, stdout: () => stdout, stderr: () => stderr };
+}
+
+function recordBrowserRun(world: JollyWorld, run: BrowserRun, exitCode: number): void {
+  const stdout = run.stdout();
+  const result: CliResult = {
+    args: LOGIN_BROWSER_ARGS,
+    cwd: world.projectDir,
+    exitCode,
+    stdout,
+    stderr: run.stderr(),
+    envelope: findEnvelope(stdout),
+  };
+  world.previousRun = world.lastRun;
+  world.lastRun = result;
+}
+
+/** GET the loopback callback URL; resolves true once the server answers. */
+function deliverToCallback(url: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const req = httpGet(url, (res) => {
+      res.resume();
+      res.on("end", () => resolve(true));
+    });
+    req.on("error", () => resolve(false));
+    req.setTimeout(3000, () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+}
+
+function waitForExit(child: ChildProcess, ms: number): Promise<number> {
+  return new Promise((resolve) => {
+    if (child.exitCode !== null) return resolve(child.exitCode);
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      resolve(child.exitCode ?? -1);
+    }, ms);
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve(code ?? -1);
+    });
+  });
 }
 
 // ─── Scenario: login stores a token honestly when verification unreachable ──
@@ -321,6 +411,73 @@ Then("no token value should appear in the output", function (this: JollyWorld) {
   );
 });
 
+// ─── Scenario: --browser never treats a missing browser as an error ────────
+// The REAL (non-dry-run) URL-first path. In this headless test env no
+// `open`/`xdg-open`/`start` command exists, so "no browser can be opened" is
+// produced for real, not faked. Jolly must print the authorization URL + the
+// loopback callback endpoint + guidance as a non-error presentation up front,
+// then wait on the loopback server for the consent redirect. We capture that
+// up-front presentation envelope and end the still-waiting process — the human
+// consent round-trip is exercised manually, not here.
+
+When(
+  "the agent runs `jolly login --browser` where no browser can be opened",
+  async function (this: JollyWorld) {
+    const run = spawnBrowserLogin(this, absentCredentialsEnv());
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      const found = findEnvelope(run.stdout());
+      if (found && (found.data as Record<string, unknown>)["authorizationUrl"]) break;
+      if (run.child.exitCode !== null) break; // exited on its own (e.g. unimplemented)
+      await delay(100);
+    }
+    run.child.kill("SIGKILL");
+    recordBrowserRun(this, run, run.child.exitCode ?? -1);
+  },
+);
+
+Then(
+  "the output should report the loopback OAuth callback endpoint http:\\/\\/127.0.0.1:5375\\/callback where Jolly listens for the consent redirect",
+  function (this: JollyWorld) {
+    const inData = JSON.stringify(this.envelope.data);
+    assert.ok(
+      this.lastRun!.stdout.includes(CALLBACK_ENDPOINT) || inData.includes(CALLBACK_ENDPOINT),
+      `output must report the loopback callback endpoint ${CALLBACK_ENDPOINT}`,
+    );
+  },
+);
+
+Then(
+  "it should not present a missing browser as an error",
+  function (this: JollyWorld) {
+    assert.notEqual(this.envelope.status, "error");
+    assert.equal(
+      this.envelope.errors.length,
+      0,
+      "a missing browser must not produce an error entry",
+    );
+    const text = presentationText(this);
+    assert.ok(
+      !/(no browser|browser not found|cannot open (a |the )?browser|browser unavailable|no display|browser_login_unavailable)/.test(
+        text,
+      ),
+      "a missing browser must not be presented as an error",
+    );
+  },
+);
+
+Then(
+  "it should direct the user to open the URL in a browser or use `jolly login --token <value>`",
+  function (this: JollyWorld) {
+    const text = presentationText(this);
+    assert.ok(text.includes("browser"), "must direct the user to open the URL in a browser");
+    assert.ok(
+      text.includes("--token"),
+      "must offer `jolly login --token <value>` as the always-available alternative",
+    );
+  },
+);
+
 // ─── Scenario: login previews the OAuth code exchange requests ─────────────
 
 Given(
@@ -392,32 +549,77 @@ Then("no token should be written to .env", function (this: JollyWorld) {
 
 // ─── @sandbox: A failed OAuth code exchange is reported honestly ───────────
 // Needs only outbound network (no creds): SANDBOX_REQUIREMENTS keys it `[]`.
-// Skips locally only when there is no network; otherwise runs the real,
-// really-rejected exchange. Written for CI.
+// Jolly starts the real loopback OAuth server; we act as the browser and
+// deliver a rejectable code to the real /callback, so Jolly performs the real
+// token-exchange POST to auth.saleor.io, which really rejects it. Nothing is
+// faked: real server, real request, real failure.
 
 Given(
-  "Jolly receives an authorization code that Keycloak will reject",
+  "Keycloak will reject the authorization code Jolly receives on the callback",
   function (this: JollyWorld) {
-    // A bogus authorization code Keycloak will reject. Passed via a harness
-    // knob the CLI consumes for the real (non-dry-run) exchange path.
+    // A bogus authorization code Keycloak will reject. Delivered to the real
+    // loopback callback in the When; Jolly POSTs it to the real token endpoint,
+    // which really rejects it. Real bad input — never a mock.
     this.notes.rejectableCode = `bogus-code-${this.namespace}`;
   },
 );
 
-When("it exchanges the code with the Keycloak token endpoint", function (this: JollyWorld) {
-  // Real exchange path (no --dry-run): the CLI sends the request and reports
-  // its real outcome. Run with the real runtime env (network reachable in CI).
-  this.runCli(["login", "--browser", "--json"]);
-});
+When(
+  "the agent runs `jolly login --browser` and the loopback callback delivers the rejectable code",
+  async function (this: JollyWorld) {
+    const code = String(this.notes.rejectableCode ?? `bogus-code-${this.namespace}`);
+    this.notes.rejectableCode = code;
+    // Real network; no credentials needed. Jolly prints the authorization URL,
+    // starts the loopback OAuth server on 127.0.0.1:5375, and waits. We act as
+    // the browser: read the printed `state`, then deliver the rejectable code
+    // to the real /callback so Jolly performs the real, failing exchange.
+    const run = spawnBrowserLogin(this);
+    const startDeadline = Date.now() + 30_000;
+    let state: string | null = null;
+    while (Date.now() < startDeadline) {
+      if (run.child.exitCode !== null) break; // exited before listening (unimplemented)
+      const match = run.stdout().match(/https:\/\/auth\.saleor\.io\/[^\s"'\\]+/);
+      if (match) {
+        try {
+          state = new URL(match[0]).searchParams.get("state");
+        } catch {
+          state = null;
+        }
+        if (state) break;
+      }
+      await delay(100);
+    }
+    if (state !== null && run.child.exitCode === null) {
+      const params = new URLSearchParams({ code, state });
+      const url = `${CALLBACK_ENDPOINT}?${params.toString()}`;
+      const callbackDeadline = Date.now() + 15_000;
+      while (Date.now() < callbackDeadline && run.child.exitCode === null) {
+        if (await deliverToCallback(url)) break;
+        await delay(200);
+      }
+    }
+    // Let Jolly finish the real (failing) exchange and emit its final envelope.
+    const exitCode = await waitForExit(run.child, 30_000);
+    recordBrowserRun(this, run, exitCode);
+  },
+);
 
 Then(
-  "the exchange request should really be sent and really fail",
+  "Jolly should really POST the code to the auth.saleor.io token endpoint and the request should really fail",
   function (this: JollyWorld) {
-    // Honest failure: the command does not report success. (On this VM the
-    // browser/Playwright callback flow is unimplemented, so the CLI errors
-    // honestly with BROWSER_LOGIN_UNAVAILABLE; in a browser-capable CI the
-    // real exchange is sent and really rejected. Either way: not success.)
+    // The real exchange was attempted and really failed: the command did not
+    // succeed, and the failure it reports identifies the token-exchange POST to
+    // the auth.saleor.io token endpoint — not a "browser unavailable" placeholder.
     assert.notEqual(this.envelope.status, "success");
+    const reported = (
+      JSON.stringify(this.envelope.errors) +
+      " " +
+      this.envelope.summary
+    ).toLowerCase();
+    assert.ok(
+      /auth\.saleor\.io|token (exchange|endpoint)|invalid_grant|authorization code/.test(reported),
+      `the reported failure must identify the real auth.saleor.io token-exchange POST; got: ${reported}`,
+    );
   },
 );
 

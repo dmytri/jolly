@@ -35,6 +35,7 @@ pi install npm:pi-shipshape
 
 - Node.js >= 23 + npm.
 - TypeScript, ES modules.
+- **External CLIs are invoked via `npx`** — `@saleor/configurator`, `vercel`, and `stripe` are all used that way, everywhere (harness gates, step definitions, and `src/`). Never expect a global install: a CLI binary absent from `PATH` (e.g. bare `stripe` exiting 127) is **not** a failure, and auth/session probes use the `npx` form (`npx vercel whoami`, `npx stripe ...`). The only exception is a CLI not designed for `npx`.
 - Source entry point: `src/index.ts`.
 - Published CLI bundle: `dist/index.js`, built with esbuild.
 - CLI package name: `@dk/jolly`.
