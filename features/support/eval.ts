@@ -10,10 +10,12 @@
 // test-env credentials, never fakes. Safety is harmless-by-design, not faking:
 //   - The agent runs under a FAKE, throwaway $HOME (a per-run temp dir), so
 //     pi's own config/state/credentials are isolated and leave no trace.
-//   - The workspace `.env` is seeded with the REAL runtime JOLLY_* Saleor Cloud
-//     / Stripe values and the real Saleor endpoint — no dummy credentials, no
-//     `.invalid` endpoints, no fake CLIs. The agent acts against real services
-//     exactly as a customer's agent would.
+//   - The workspace `.env` is seeded with ONLY the REAL runtime JOLLY_* Saleor
+//     Cloud / Stripe values a baseline agent needs to AUTHENTICATE — no dummy
+//     credentials, no `.invalid` endpoints, no fake CLIs. The store endpoint and
+//     app token are deliberately left unset so `jolly start` provisions a fresh
+//     `jolly-test` store on the real creation path. The agent acts against real
+//     services exactly as a customer's agent would.
 //   - Every cloud resource the agent creates is `jolly-test`-namespaced and
 //     reclaimed in best-effort teardown (the step definitions register it);
 //     Stripe runs in test mode. The workspace and fake $HOME are removed too.
@@ -318,11 +320,18 @@ export function setupEvalContext(
   return { workspace, fakeHome, shimDir, traceFile, skillDir, stripeTraceFile };
 }
 
-/** The runtime credentials the eval workspace `.env` is seeded with. */
-const SEEDED_CREDENTIAL_VARS = [
-  "NEXT_PUBLIC_SALEOR_API_URL",
+/**
+ * The runtime credentials the eval workspace `.env` is seeded with: ONLY the
+ * ones a baseline agent needs to AUTHENTICATE to the real services (feature 025
+ * / 026). The store endpoint `NEXT_PUBLIC_SALEOR_API_URL` and the
+ * `JOLLY_SALEOR_APP_TOKEN` are deliberately left unset so `jolly start`
+ * provisions a fresh `jolly-test` store on the real creation path instead of
+ * reusing a pre-seeded one (a seeded endpoint makes `jolly start` treat the
+ * store as pre-existing, so the configurator's `--failOnDelete` guard blocks
+ * the starter recipe and the live stages can never complete).
+ */
+export const SEEDED_CREDENTIAL_VARS = [
   "JOLLY_SALEOR_CLOUD_TOKEN",
-  "JOLLY_SALEOR_APP_TOKEN",
   "JOLLY_SALEOR_CLOUD_API_URL",
   "JOLLY_STRIPE_PUBLISHABLE_KEY",
   "JOLLY_STRIPE_SECRET_KEY",

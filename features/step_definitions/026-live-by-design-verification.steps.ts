@@ -21,6 +21,7 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
+import { SEEDED_CREDENTIAL_VARS } from "../support/eval.ts";
 
 const TEST_LAYER_DIRS = [
   join(REPO_ROOT, "features", "step_definitions"),
@@ -185,6 +186,75 @@ Then(
         h.justification && h.justification.length > 0,
         `the remaining double at ${h.file}:${h.line} must name the unproducible ` +
           `condition its @exceptional-double annotation injects`,
+      );
+    }
+  },
+);
+
+// Feature 026 — second @logic @property scenario: the eval seed carries only
+// AUTHENTICATION credentials, never a pre-provisioned store. Feature 025
+// requires `jolly start` to provision a fresh `jolly-test` store on the real
+// creation path; a seed that includes the store endpoint + app token makes
+// `jolly start` treat the store as pre-existing, so the configurator's
+// `--failOnDelete` guard blocks the starter recipe and the live stages can
+// never complete. `@eval` never gates CI, so a harness that silently seeds a
+// pre-provisioned store would otherwise pass unnoticed — this gating @logic
+// scenario inspects the harness's declared seed list (SEEDED_CREDENTIAL_VARS,
+// exactly what realEnvFileContents writes) so the regression fails HERE.
+
+// The credentials a baseline agent needs only to AUTHENTICATE to the real
+// services: the Saleor Cloud token, the optional Cloud API override, and the
+// Stripe test-mode keys. Nothing here identifies a particular store.
+const AUTHENTICATION_CREDENTIALS = new Set<string>([
+  "JOLLY_SALEOR_CLOUD_TOKEN",
+  "JOLLY_SALEOR_CLOUD_API_URL",
+  "JOLLY_STRIPE_PUBLISHABLE_KEY",
+  "JOLLY_STRIPE_SECRET_KEY",
+]);
+
+// The store-identifying variables that must NOT be seeded: their presence makes
+// `jolly start` reuse a pre-existing store instead of creating a fresh one.
+const STORE_SEED_VARS = ["NEXT_PUBLIC_SALEOR_API_URL", "JOLLY_SALEOR_APP_TOKEN"];
+
+Given("the eval harness's workspace `.env` seed", function (this: JollyWorld) {
+  // The subject under conformance: the harness's declared seed variable list,
+  // the single source of truth for what the workspace `.env` is seeded with.
+  this.notes.seedVars = [...SEEDED_CREDENTIAL_VARS];
+  assert.ok(
+    (this.notes.seedVars as string[]).length > 0,
+    "the eval harness must declare a workspace `.env` seed to inspect",
+  );
+});
+
+When("the credential variables it writes are enumerated", function (this: JollyWorld) {
+  // realEnvFileContents writes each declared variable whose value is present in
+  // the real test env, so the variables it writes are exactly those it declares.
+  this.notes.enumeratedSeedVars = [...(this.notes.seedVars as string[])];
+});
+
+Then(
+  "the seed should include only the credentials the agent needs to authenticate — the Saleor Cloud token, any Cloud API override, and the Stripe test-mode keys",
+  function (this: JollyWorld) {
+    const vars = this.notes.enumeratedSeedVars as string[];
+    const extraneous = vars.filter((v) => !AUTHENTICATION_CREDENTIALS.has(v));
+    assert.deepEqual(
+      extraneous,
+      [],
+      `the eval seed must carry only authentication credentials ` +
+        `(${[...AUTHENTICATION_CREDENTIALS].join(", ")}); it also seeds: ${extraneous.join(", ")}`,
+    );
+  },
+);
+
+Then(
+  "it should omit the store endpoint `NEXT_PUBLIC_SALEOR_API_URL` and the `JOLLY_SALEOR_APP_TOKEN`, so a baseline agent's `jolly start` provisions a fresh `jolly-test` store on the real creation path instead of reusing a pre-seeded one",
+  function (this: JollyWorld) {
+    const seeded = new Set(this.notes.enumeratedSeedVars as string[]);
+    for (const v of STORE_SEED_VARS) {
+      assert.ok(
+        !seeded.has(v),
+        `the eval seed must omit ${v} so \`jolly start\` provisions a fresh ` +
+          `jolly-test store on the real creation path; it is currently seeded`,
       );
     }
   },
