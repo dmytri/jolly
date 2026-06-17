@@ -42,7 +42,7 @@ Feature: Saleor source repositories and integration boundaries
     - App-token acquisition is currently documented as a Saleor Dashboard flow: Extensions -> Installed -> Add Extension -> Provide details manually -> assign permissions -> create token.
     - Configurator can introspect remote state into `config.yml`, show diffs, preview deploys with `deploy --plan`, and deploy configuration.
     - Configurator recipes should be Jolly's default mechanism for initial Saleor store configuration.
-    - Automation flags include `--json`, `--quiet`, `--fail-on-delete`, `--fail-on-breaking`, `--include`, `--exclude`, `--entity-type`, and `--entity`.
+    - Automation flags include `--json`, `--quiet`, `--failOnDelete`, `--include`, `--exclude`, `--entity-type`, and `--entity`.
     - Current AGENTS guidance describes JSON envelope output with command, version, exitCode, result, logs, and errors.
     - Exit codes include 0 success, 2 authentication, 3 network, 4 validation, 5 partial failure, 6 deletion blocked, and 7 breaking blocked.
     - Reports may be saved under `.configurator/reports/<command>/`.

@@ -80,21 +80,21 @@ When("the agent runs `jolly start --yes` to apply the starter recipe to Saleor C
 });
 
 Then(
-  "the recipe stage should pass `--fail-on-delete` and `--fail-on-breaking` to `npx @saleor\\/configurator deploy`",
+  "the recipe stage should pass `--failOnDelete` to `npx @saleor\\/configurator deploy`",
   function () {
     // configurator validate is the agent's step — narrative no-op.
   },
 );
 
-Then("the configurator should exit {int} for deletions or exit {int} for breaking changes", function (_deleteExit: number, _breakingExit: number) {
+Then("the configurator should exit {int} for deletions", function (_deleteExit: number) {
   // configurator diff/--plan is the agent's step — narrative no-op.
 });
 
 Then(
   "Jolly should report the recipe stage as {string}, not {string}",
   function (_blocked: string, _completed: string) {
-    // Fail-safe on destructive/breaking ops is the configurator's behavior
-    // (--fail-on-delete/--fail-on-breaking), invoked by the agent — narrative.
+    // Fail-safe on destructive ops over a pre-existing store is the
+    // configurator's behavior (--failOnDelete), invoked by the agent — narrative.
   },
 );
 
@@ -412,8 +412,8 @@ Then(
 // `jolly start --dry-run` plan must surface the configurator-deploy (recipe)
 // stage as a SPAWNED-CLI step that runs BEFORE the stock-seeding stage, naming
 // the spawned command, Jolly's bundled recipe, the store URL + app token (by
-// name only — never a value), and the safe `--fail-on-delete`/`--fail-on-breaking`
-// flags, carrying a feature-021 riskContext whose dry run maps to the configurator
+// name only — never a value), and the safe `--failOnDelete`
+// flag, carrying a feature-021 riskContext whose dry run maps to the configurator
 // `--plan` preview — all without spawning anything. The `Given`/`When` are shared
 // with the stock-seeding preview scenario above (credentials unset keeps the
 // preview unable to touch any real service).
@@ -482,14 +482,10 @@ Then(
 );
 
 Then(
-  "the preview should name the safe flags `--fail-on-delete` and `--fail-on-breaking`",
+  "the preview should name the safe flag `--failOnDelete` used to guard a re-deploy over a pre-existing store",
   function (this: JollyWorld) {
     const blob = JSON.stringify(this.notes.deployStage as PlanStage);
-    assert.ok(blob.includes("--fail-on-delete"), "the preview must name the --fail-on-delete flag");
-    assert.ok(
-      blob.includes("--fail-on-breaking"),
-      "the preview must name the --fail-on-breaking flag",
-    );
+    assert.ok(blob.includes("--failOnDelete"), "the preview must name the --failOnDelete flag");
   },
 );
 
@@ -722,7 +718,7 @@ Then(
 );
 
 Then(
-  "the additive deploy should exit 0 and the recipe's catalog entities should exist in the store",
+  "the bootstrap deploy should record a successful configurator deployment report and the recipe's catalog entities should exist in the store",
   { timeout: 60_000 },
   async function (this: JollyWorld) {
     if (this.notes.skipRecipe) return "skipped";
@@ -731,25 +727,27 @@ Then(
     const count = await productCount(endpoint, token);
     assert.ok(
       count > 0,
-      "the recipe's catalog products must exist in the store after the additive deploy",
+      "the recipe's catalog products must exist in the store after the bootstrap deploy",
     );
   },
 );
 
 Then(
-  "the stage should be reported completed only when the configurator exited 0",
+  "the stage should be reported completed only when the configurator's deployment report records success",
   function (this: JollyWorld) {
     if (this.notes.skipRecipe) return "skipped";
     // Reaching here means the When step saw the recipe stage `completed`; the
-    // integrity contract is that Jolly reports `completed` ONLY on a real exit-0
-    // deploy. Re-assert the stage is completed (and not a fabricated status).
+    // integrity contract is that Jolly reports `completed` ONLY when the
+    // configurator's own deployment report records success (the exit code alone
+    // is unreliable for the bootstrap apply). Re-assert the stage is completed
+    // (and not a fabricated status).
     const stages = (this.envelope.data.stages ?? []) as ResultStage[];
     const recipe = stages.find((s) => s.stage === "recipe");
     assert.ok(recipe, "the recipe stage must be present");
     assert.equal(
       recipe!.status,
       "completed",
-      "the recipe stage is reported completed only when the configurator exited 0",
+      "the recipe stage is reported completed only when the configurator's report records success",
     );
   },
 );

@@ -146,10 +146,10 @@ Feature: Existing Saleor store connection
       "blank" template, which "contains no data and configuration settings" — never "sample".
     - Reason: the starter recipe (feature 004) is a complete declarative config that
       `@saleor/configurator deploy` reconciles the store to match, deleting any undeclared entity.
-      Against Saleor's sample data that is many deletes, which the skill-mandated
-      `--fail-on-breaking`/`--fail-on-delete` correctly blocks. A blank environment makes the recipe
-      deploy purely additive, so the happy path never needs a destructive deploy. Pairs with feature
-      004 Rule "Recipe targets a clean environment".
+      Against Saleor's sample data that is many deletes; a blank environment keeps it to just
+      Saleor's stock defaults, which the bootstrap deploy of the store `jolly start` provisions
+      replaces as the intended initial setup. Pairs with feature 004 Rule "Recipe targets a clean
+      environment".
     - v1 has no database-template override flag: provisioning is always blank. Re-introducing a
       `--database <sample|blank|snapshot>` pass-through is a post-MVP iteration only if a real
       need appears (blank-only for v1).

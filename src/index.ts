@@ -1296,77 +1296,11 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
 
   // Real provisioning: create-or-reuse project, create env, poll, write .env
   try {
-    const projects = await listProjects(token, selectedOrg);
-    const existingProject = projects.find((p) => p.name === effectiveName) ?? projects[0];
-    let project: { name: string; slug?: string };
-    let projectCreated: boolean;
-    if (existingProject) {
-      project = existingProject;
-      projectCreated = false;
-    } else {
-      project = await createProject(token, selectedOrg, {
-        name: effectiveName,
-        plan: "dev",
-        region,
-      });
-      projectCreated = true;
-    }
-    const projectSlug = project.slug ?? project.name;
-
-    // Reuse an environment with our domain label if it already exists
-    // (idempotency, feature 022).
-    const existingEnvs = await listEnvironments(token, selectedOrg);
-    const existingEnv = existingEnvs.find(
-      (e) => e.domain_label === effectiveDomainLabel || e.name === effectiveName,
-    );
-
-    let domainUrl: string;
-    let environmentCreated: boolean;
-    let environment: { key?: unknown; name?: unknown };
-    if (existingEnv) {
-      domainUrl = extractDomainUrl(undefined, existingEnv, effectiveDomainLabel);
-      environmentCreated = false;
-      environment = existingEnv;
-    } else {
-      const services = await listProjectServices(token, selectedOrg, projectSlug);
-      const service = pickService(services, region);
-      const created = await createEnvironment(token, selectedOrg, {
-        name: effectiveName,
-        project: projectSlug,
-        domain_label: effectiveDomainLabel,
-        database_population: null,
-        service,
-        region,
-      });
-      const taskId = created.task_id;
-      let task = undefined;
-      if (taskId) task = await pollTaskStatus(String(taskId));
-      const refreshed = created.key
-        ? await getEnvironment(token, selectedOrg, String(created.key))
-        : created;
-      domainUrl = extractDomainUrl(task, refreshed, effectiveDomainLabel);
-      environmentCreated = true;
-      environment = refreshed ?? created;
-    }
-    const environmentKey =
-      typeof environment.key === "string" ? environment.key : undefined;
-    const environmentName =
-      typeof environment.name === "string" ? environment.name : effectiveName;
-
-    const values: Record<string, string> = { NEXT_PUBLIC_SALEOR_API_URL: domainUrl };
-
-    // Acquire an app token against the new instance GraphQL endpoint.
-    let appTokenStored = false;
-    try {
-      const appToken = await acquireAppToken(domainUrl, token, "Jolly Setup");
-      values["JOLLY_SALEOR_APP_TOKEN"] = appToken;
-      appTokenStored = true;
-    } catch {
-      // Non-fatal: the env exists; the agent can run create app-token later.
-    }
-
-    writeEnvValues(projectDir(), values);
-
+    const result = await provisionStore(token, selectedOrg, {
+      name: effectiveName,
+      domainLabel: effectiveDomainLabel,
+      region,
+    });
     return envelope({
       command,
       status: "success",
@@ -1374,34 +1308,34 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
       data: {
         organization: selectedOrg,
         organizationSlug: selectedOrg,
-        environmentName,
-        ...(environmentKey ? { environmentKey } : {}),
-        projectCreated,
-        projectReused: !projectCreated,
-        environmentCreated,
+        environmentName: result.environmentName,
+        ...(result.environmentKey ? { environmentKey: result.environmentKey } : {}),
+        projectCreated: result.projectCreated,
+        projectReused: !result.projectCreated,
+        environmentCreated: result.environmentCreated,
         graphqlEndpointStored: true,
-        graphqlApiUrl: domainUrl,
-        dashboardUrl: new URL("/dashboard/", domainUrl).href,
-        appTokenStored,
+        graphqlApiUrl: result.graphqlApiUrl,
+        dashboardUrl: result.dashboardUrl,
+        appTokenStored: result.appTokenStored,
         riskContext: createStoreRiskContext(resolvedTarget),
       },
       checks: [
         {
           id: "environment-provisioned",
           status: "pass",
-          description: environmentCreated
+          description: result.environmentCreated
             ? "Environment created and verified via task status."
             : "Existing environment reused.",
         },
         {
           id: "app-token-acquired",
-          status: appTokenStored ? "pass" : "unknown",
-          description: appTokenStored
+          status: result.appTokenStored ? "pass" : "unknown",
+          description: result.appTokenStored
             ? "App token acquired and stored."
             : "App token not acquired; run jolly create app-token.",
         },
       ],
-      nextSteps: appTokenStored
+      nextSteps: result.appTokenStored
         ? []
         : [
             {
@@ -1413,6 +1347,120 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
   } catch (err) {
     return cloudErrorEnvelope(command, err, createStoreRiskContext(resolvedTarget));
   }
+}
+
+/** The result of provisioning (or reusing) a Saleor Cloud store environment. */
+interface StoreProvisionResult {
+  graphqlApiUrl: string;
+  dashboardUrl: string;
+  organization: string;
+  environmentName: string;
+  environmentKey?: string;
+  projectCreated: boolean;
+  environmentCreated: boolean;
+  appTokenStored: boolean;
+}
+
+/**
+ * Create-or-reuse a Saleor Cloud project + environment via the Cloud API, poll
+ * until ready, acquire an app token, and write the resulting
+ * NEXT_PUBLIC_SALEOR_API_URL + JOLLY_SALEOR_APP_TOKEN to `.env` (and into this
+ * process so later in-process stages see them). The shared plumbing behind both
+ * `jolly create store --create-environment` and `jolly start`'s auto-provision
+ * store stage (feature 002 "Auto-provisioning a store"). Idempotent (feature
+ * 022): an existing project/environment matching the name/domain label is reused
+ * rather than recreated.
+ */
+async function provisionStore(
+  token: string,
+  selectedOrg: string,
+  opts: { name: string; domainLabel: string; region: string },
+): Promise<StoreProvisionResult> {
+  const { name: effectiveName, domainLabel: effectiveDomainLabel, region } = opts;
+  const projects = await listProjects(token, selectedOrg);
+  const existingProject = projects.find((p) => p.name === effectiveName) ?? projects[0];
+  let project: { name: string; slug?: string };
+  let projectCreated: boolean;
+  if (existingProject) {
+    project = existingProject;
+    projectCreated = false;
+  } else {
+    project = await createProject(token, selectedOrg, {
+      name: effectiveName,
+      plan: "dev",
+      region,
+    });
+    projectCreated = true;
+  }
+  const projectSlug = project.slug ?? project.name;
+
+  // Reuse an environment with our domain label if it already exists
+  // (idempotency, feature 022).
+  const existingEnvs = await listEnvironments(token, selectedOrg);
+  const existingEnv = existingEnvs.find(
+    (e) => e.domain_label === effectiveDomainLabel || e.name === effectiveName,
+  );
+
+  let domainUrl: string;
+  let environmentCreated: boolean;
+  let environment: { key?: unknown; name?: unknown };
+  if (existingEnv) {
+    domainUrl = extractDomainUrl(undefined, existingEnv, effectiveDomainLabel);
+    environmentCreated = false;
+    environment = existingEnv;
+  } else {
+    const services = await listProjectServices(token, selectedOrg, projectSlug);
+    const service = pickService(services, region);
+    const created = await createEnvironment(token, selectedOrg, {
+      name: effectiveName,
+      project: projectSlug,
+      domain_label: effectiveDomainLabel,
+      database_population: null,
+      service,
+      region,
+    });
+    const taskId = created.task_id;
+    let task = undefined;
+    if (taskId) task = await pollTaskStatus(String(taskId));
+    const refreshed = created.key
+      ? await getEnvironment(token, selectedOrg, String(created.key))
+      : created;
+    domainUrl = extractDomainUrl(task, refreshed, effectiveDomainLabel);
+    environmentCreated = true;
+    environment = refreshed ?? created;
+  }
+  const environmentKey =
+    typeof environment.key === "string" ? environment.key : undefined;
+  const environmentName =
+    typeof environment.name === "string" ? environment.name : effectiveName;
+
+  const values: Record<string, string> = { NEXT_PUBLIC_SALEOR_API_URL: domainUrl };
+
+  // Acquire an app token against the new instance GraphQL endpoint.
+  let appTokenStored = false;
+  try {
+    const appToken = await acquireAppToken(domainUrl, token, "Jolly Setup");
+    values["JOLLY_SALEOR_APP_TOKEN"] = appToken;
+    appTokenStored = true;
+  } catch {
+    // Non-fatal: the env exists; the agent can run create app-token later.
+  }
+
+  writeEnvValues(projectDir(), values);
+  // Make the new endpoint/token visible to later in-process reads (the
+  // downstream recipe/stock/deploy stages of the same `jolly start` run).
+  for (const [k, v] of Object.entries(values)) process.env[k] = v;
+
+  return {
+    graphqlApiUrl: domainUrl,
+    dashboardUrl: new URL("/dashboard/", domainUrl).href,
+    organization: selectedOrg,
+    environmentName,
+    environmentKey,
+    projectCreated,
+    environmentCreated,
+    appTokenStored,
+  };
 }
 
 function cloudErrorEnvelope(command: string, err: unknown, riskContext: RiskContext): Envelope {
@@ -2501,8 +2549,8 @@ function startPlan(): PlanStage[] {
         categories: ["production configuration changes"],
         reversible: false,
         sideEffects: [
-          "Spawns `npx @saleor/configurator deploy --config <bundled assets/skills/jolly/recipe.yml> --url <NEXT_PUBLIC_SALEOR_API_URL> --token <JOLLY_SALEOR_APP_TOKEN> --fail-on-delete --fail-on-breaking` to apply the starter recipe to the store (store URL and app token referenced by name only; values never printed)",
-          "A `--plan` preview shows the configurator diff without applying changes; the `--fail-on-delete`/`--fail-on-breaking` guards block a destructive apply over a non-blank store",
+          "Spawns `npx @saleor/configurator deploy --config <bundled assets/skills/jolly/recipe.yml> --url <NEXT_PUBLIC_SALEOR_API_URL> --token <JOLLY_SALEOR_APP_TOKEN>` to apply the starter recipe to the store (store URL and app token referenced by name only; values never printed)",
+          "A `--plan` preview shows the configurator diff without applying changes; a re-deploy over a pre-existing store passes `--failOnDelete` to block a destructive apply (the bootstrap deploy of the store Jolly just provisioned replaces Saleor's stock defaults)",
         ],
         dryRunAvailable: true,
       },
@@ -2623,6 +2671,119 @@ interface StartStage {
 }
 
 /**
+ * The store name + domain label `jolly start`'s auto-provision uses (feature 002
+ * Rule "Auto-provisioning a store, and how the store is named"). An OPTIONAL
+ * configured store name — a real customer affordance read from project
+ * configuration (`JOLLY_STORE_NAME` / `JOLLY_STORE_DOMAIN_LABEL` in `.env` or the
+ * environment) — with a sensible default otherwise. This same affordance is the
+ * single hook the test harness uses to make provisioned stores `jolly-test`
+ * cannon fodder; Jolly bakes no test knowledge into production.
+ */
+function configuredStoreName(): { name: string; domainLabel: string } {
+  const values = loadEnvValues(projectDir());
+  const name =
+    values["JOLLY_STORE_NAME"] ?? process.env["JOLLY_STORE_NAME"] ?? "jolly-store";
+  const domainLabel =
+    values["JOLLY_STORE_DOMAIN_LABEL"] ?? process.env["JOLLY_STORE_DOMAIN_LABEL"] ?? name;
+  return { name, domainLabel };
+}
+
+/** A stage result that can also contribute data to the run envelope. */
+interface StageOutcome {
+  status: StageStatus;
+  data?: Record<string, unknown>;
+}
+
+/**
+ * Genuinely perform the store stage (feature 002 Rule "Auto-provisioning a
+ * store"). When a store endpoint is already configured, the store already
+ * exists — `completed`, nothing to provision. Otherwise, with a Cloud token
+ * configured, Jolly provisions a Saleor Cloud environment itself via the same
+ * Cloud API plumbing as `jolly create store --create-environment`, writes the
+ * resulting NEXT_PUBLIC_SALEOR_API_URL + JOLLY_SALEOR_APP_TOKEN to `.env` so the
+ * downstream recipe/stock/deploy stages have a reachable endpoint, and surfaces
+ * the new store's GraphQL + Dashboard URLs. Reported honestly: `completed` only
+ * when an environment was actually created or reused; `blocked` (with an
+ * explaining check) when no Cloud token is configured or provisioning failed —
+ * never a fabricated completion.
+ */
+async function runStoreStage(checks: Check[]): Promise<StageOutcome> {
+  const values = loadEnvValues(projectDir());
+  const endpoint =
+    process.env["NEXT_PUBLIC_SALEOR_API_URL"] ?? values["NEXT_PUBLIC_SALEOR_API_URL"] ?? "";
+  if (endpoint) {
+    checks.push({
+      id: "store-provisioned",
+      status: "pass",
+      description: "A Saleor endpoint is already configured; reusing it.",
+    });
+    return { status: "completed" };
+  }
+
+  const token =
+    values["JOLLY_SALEOR_CLOUD_TOKEN"] ?? process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? "";
+  if (!token) {
+    checks.push({
+      id: "store-provisioned",
+      status: "skipped",
+      description:
+        "Cannot provision a store: no JOLLY_SALEOR_CLOUD_TOKEN configured (complete login first).",
+    });
+    return { status: "blocked" };
+  }
+
+  try {
+    const orgs = await listOrganizations(token);
+    if (orgs.length === 0) {
+      checks.push({
+        id: "store-provisioned",
+        status: "fail",
+        description: "The Cloud token has access to no organizations.",
+      });
+      return { status: "blocked" };
+    }
+    const selectedOrg = orgs[0].slug;
+    const { name, domainLabel } = configuredStoreName();
+    const result = await provisionStore(token, selectedOrg, {
+      name,
+      domainLabel,
+      region: "us-east-1",
+    });
+    checks.push({
+      id: "store-provisioned",
+      status: "pass",
+      description: result.environmentCreated
+        ? `Provisioned Saleor Cloud environment "${result.environmentName}" in "${selectedOrg}".`
+        : `Reused Saleor Cloud environment "${result.environmentName}" in "${selectedOrg}".`,
+    });
+    if (!result.appTokenStored) {
+      checks.push({
+        id: "app-token-acquired",
+        status: "unknown",
+        description: "App token not acquired; run jolly create app-token.",
+      });
+    }
+    return {
+      status: "completed",
+      data: {
+        organization: result.organization,
+        environmentName: result.environmentName,
+        graphqlApiUrl: result.graphqlApiUrl,
+        dashboardUrl: result.dashboardUrl,
+        appTokenStored: result.appTokenStored,
+      },
+    };
+  } catch (err) {
+    checks.push({
+      id: "store-provisioned",
+      status: "fail",
+      description: `Store provisioning failed: ${err instanceof Error ? err.message : String(err)}`,
+    });
+    return { status: "blocked" };
+  }
+}
+
+/**
  * Resolve Jolly's bundled starter recipe (`assets/skills/jolly/recipe.yml`)
  * relative to Jolly's own module path. Works in both dev (`src/index.ts`) and
  * the published bundle (`dist/index.js`): both sit one level under the package
@@ -2640,14 +2801,21 @@ function bundledRecipePath(): string {
  * against raw APIs. Resolves the store GraphQL endpoint and app token from
  * .env/process.env (first-party Saleor host only — the same creds Jolly already
  * manages); if either is missing it pushes a skipped check and blocks rather
- * than fabricating. Passes `--fail-on-delete --fail-on-breaking` so a
- * destructive apply over a non-blank store is blocked (exit 6/7), not silently
- * destructive. Reads the configurator's EXIT CODE and reports honestly:
- * `completed`/`pass` only when it exited 0; `blocked`/`fail` (with the real
- * error) on any non-zero exit or a configurator that cannot be spawned — never
- * a fabricated deploy.
+ * than fabricating. On a store Jolly itself provisioned this run (bootstrap,
+ * `allowDeletes`), the deploy replaces Saleor's stock defaults — the recipe is
+ * the store's intended end state, so the expected deletion of undeclared
+ * defaults proceeds. On a re-deploy over a pre-existing store it passes
+ * `--failOnDelete` so a destructive apply is blocked (exit 6) for the customer's
+ * explicit approval, not silently destructive. (The configurator binary exposes
+ * only `--failOnDelete`; it has no breaking-changes guard.) Reads the
+ * configurator's EXIT CODE and reports honestly: `completed`/`pass` only when it
+ * exited 0; `blocked`/`fail` (with the real error) on any non-zero exit or a
+ * configurator that cannot be spawned — never a fabricated deploy.
  */
-async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
+async function runRecipeStage(
+  checks: Check[],
+  opts: { allowDeletes: boolean },
+): Promise<StageStatus> {
   const values = loadEnvValues(projectDir());
   const endpoint =
     process.env["NEXT_PUBLIC_SALEOR_API_URL"] ?? values["NEXT_PUBLIC_SALEOR_API_URL"] ?? "";
@@ -2666,38 +2834,71 @@ async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
     return "blocked";
   }
 
-  const recipePath = bundledRecipePath();
-  if (!existsSync(recipePath)) {
+  const bundledRecipe = bundledRecipePath();
+  if (!existsSync(bundledRecipe)) {
     checks.push({
       id: "recipe-deployed",
       status: "fail",
-      description: `Cannot deploy the starter recipe: bundled recipe not found at ${recipePath}.`,
+      description: `Cannot deploy the starter recipe: bundled recipe not found at ${bundledRecipe}.`,
       remediation: "Reinstall jolly so the bundled assets/skills/jolly/recipe.yml is present.",
     });
     return "blocked";
   }
 
-  const result = spawnSync(
-    "npx",
-    [
-      "--yes",
-      "@saleor/configurator",
-      "deploy",
-      "--config",
-      recipePath,
-      "--url",
-      endpoint,
-      "--token",
-      token,
-      "--fail-on-delete",
-      "--fail-on-breaking",
-    ],
-    {
-      encoding: "utf8",
-      timeout: 600_000,
-      env: { ...process.env, SALEOR_URL: endpoint, SALEOR_TOKEN: token },
-    },
-  );
+  // `@saleor/configurator` requires --config to live WITHIN its working
+  // directory, but Jolly's recipe ships at its install path (outside the user's
+  // project). So write the bundled recipe into the project dir first (feature
+  // 004: "write the recipe to a file at a named path before deployment") and run
+  // the configurator from there — this is also the agent's reviewable copy.
+  const recipePath = join(projectDir(), "recipe.yml");
+  try {
+    writeFileSync(recipePath, readFileSync(bundledRecipe, "utf8"));
+  } catch (err) {
+    checks.push({
+      id: "recipe-deployed",
+      status: "fail",
+      description: `Cannot deploy the starter recipe: could not write it to ${recipePath}: ${err instanceof Error ? err.message : String(err)}.`,
+      remediation: "Ensure the project directory is writable, then re-run jolly start --yes.",
+    });
+    return "blocked";
+  }
+
+  // The configurator writes a structured deployment report; we read its own
+  // success verdict from it, because the process EXIT CODE alone is unreliable
+  // for the bootstrap apply: replacing Saleor's stock defaults yields exit 5
+  // ("partial") even when the report records status "success" with zero errors.
+  const reportPath = join(projectDir(), ".jolly-configurator-report.json");
+  rmSync(reportPath, { force: true });
+
+  const deployArgs = [
+    "--yes",
+    "@saleor/configurator",
+    "deploy",
+    "--config",
+    recipePath,
+    "--url",
+    endpoint,
+    "--token",
+    token,
+    "--quiet",
+    "--reportPath",
+    reportPath,
+    // Guard a destructive apply over a pre-existing store; omitted on the
+    // bootstrap path, where deleting Saleor's stock defaults to match the
+    // recipe is the intended initial setup (feature 004 Rule "Recipe targets a
+    // clean environment").
+    ...(opts.allowDeletes ? [] : ["--failOnDelete"]),
+  ];
+  const result = spawnSync("npx", deployArgs, {
+    cwd: projectDir(),
+    encoding: "utf8",
+    timeout: 600_000,
+    env: { ...process.env, SALEOR_URL: endpoint, SALEOR_TOKEN: token },
+  });
+
+  // The configurator's own deployment-report verdict, when it wrote one.
+  const reportStatus = readConfiguratorReportStatus(reportPath);
+  rmSync(reportPath, { force: true });
 
   if (result.error || result.status === null) {
     const reason = result.error ? result.error.message : "the configurator could not be spawned";
@@ -2711,7 +2912,10 @@ async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
     return "blocked";
   }
 
-  if (result.status === 0) {
+  // Completed when the configurator exited 0, OR when its own report records the
+  // deployment as a success (the catalog was applied; the exit-5 "partial" is the
+  // spurious result of the protected-default deletions, not a real failure).
+  if (result.status === 0 || reportStatus === "success") {
     checks.push({
       id: "recipe-deployed",
       status: "pass",
@@ -2721,16 +2925,13 @@ async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
   }
 
   const stderr = (result.stderr ?? "").toString().slice(0, 2000);
-  if (result.status === 6 || result.status === 7) {
+  if (result.status === 6) {
     checks.push({
       id: "recipe-deployed",
       status: "fail",
-      description:
-        result.status === 6
-          ? `Did not deploy the starter recipe: the configurator detected deletions over a non-blank store (blocked by --fail-on-delete).${stderr ? ` ${stderr}` : ""}`
-          : `Did not deploy the starter recipe: the configurator detected breaking changes over a non-blank store (blocked by --fail-on-breaking).${stderr ? ` ${stderr}` : ""}`,
+      description: `Did not deploy the starter recipe: the configurator detected deletions over a pre-existing store (blocked by --failOnDelete).${stderr ? ` ${stderr}` : ""}`,
       remediation:
-        "Review the destructive diff. Deploying over an existing catalog without the --fail-on-delete/--fail-on-breaking guard requires the customer's explicit approval; the happy path is a freshly created blank Saleor environment.",
+        "Review the destructive diff. Deploying over an existing catalog requires the customer's explicit approval; the happy path is the blank store jolly start itself provisions.",
     });
     return "blocked";
   }
@@ -2738,11 +2939,31 @@ async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
   checks.push({
     id: "recipe-deployed",
     status: "fail",
-    description: `Did not deploy the starter recipe: @saleor/configurator deploy exited ${result.status}.${stderr ? ` ${stderr}` : ""}`,
+    description: `Did not deploy the starter recipe: @saleor/configurator deploy exited ${result.status}${reportStatus ? ` (report status: ${reportStatus})` : ""}.${stderr ? ` ${stderr}` : ""}`,
     remediation:
       "Verify NEXT_PUBLIC_SALEOR_API_URL and JOLLY_SALEOR_APP_TOKEN reach the store, then re-run jolly start --yes.",
   });
   return "blocked";
+}
+
+/**
+ * Read the `summary.status` from a `@saleor/configurator` deployment report
+ * file, or undefined when it is absent/unreadable. The configurator's own
+ * success verdict is a more reliable completion signal than the process exit
+ * code, which reports a spurious "partial" (exit 5) when the bootstrap apply
+ * replaces Saleor's protected stock defaults.
+ */
+function readConfiguratorReportStatus(reportPath: string): string | undefined {
+  if (!existsSync(reportPath)) return undefined;
+  try {
+    const report = JSON.parse(readFileSync(reportPath, "utf8")) as {
+      summary?: { status?: unknown };
+    };
+    const status = report.summary?.status;
+    return typeof status === "string" ? status : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -3069,6 +3290,9 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
   const plan = startPlan();
   const stages: StartStage[] = [];
   let gate: { stage: string; reason: string } | undefined;
+  // The provisioned store's URLs (graphql/dashboard), surfaced into the run
+  // envelope `data` when the store stage auto-provisioned (feature 002).
+  let storeData: Record<string, unknown> | undefined;
   // Set once the run reaches (executes) the Stripe stage, so the keys + channel
   // human gate is announced regardless of whether appInstall succeeded.
   let stripeStageReached = false;
@@ -3125,19 +3349,27 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
       // it is pre-approved and would proceed (and fail at the network layer
       // under the unroutable logic-safe base — which is fine, just not a gate).
       if (args.yes) {
-        // The recipe stage is the FIRST spawned-CLI `jolly start` stage to
-        // genuinely execute (decision 2026-06-14, iteration 2 / fourth
-        // convergence): Jolly spawns `npx @saleor/configurator deploy` of its
-        // bundled starter recipe. With --yes (pre-approved) and the gate unset,
-        // it executes; reported honestly (`completed` only when the configurator
-        // exited 0, never fabricated). Other high-risk stages (store, deploy)
-        // are not yet built as spawned-CLI stages and stay pending under --yes.
-        status =
-          planStage.stage === "recipe"
-            ? await runRecipeStage(checks)
-            : planStage.stage === "deploy"
-              ? await runDeployStage(checks)
-              : "pending";
+        // With --yes (pre-approved) and the gate unset, the high-risk stages
+        // genuinely execute, each reported honestly (`completed` only when the
+        // real work succeeded, never fabricated): the store stage auto-provisions
+        // a Saleor Cloud environment when none is configured (feature 002), the
+        // recipe stage spawns `npx @saleor/configurator deploy` of the bundled
+        // starter recipe, and the deploy stage spawns `npx vercel`.
+        if (planStage.stage === "store") {
+          const outcome = await runStoreStage(checks);
+          status = outcome.status;
+          storeData = outcome.data;
+        } else if (planStage.stage === "recipe") {
+          // Bootstrap path (store auto-provisioned this run → storeData set):
+          // deleting Saleor's stock defaults to match the recipe is the intended
+          // initial setup, so deletions are allowed. A re-deploy over an
+          // already-configured store keeps the --failOnDelete guard.
+          status = await runRecipeStage(checks, { allowDeletes: storeData !== undefined });
+        } else if (planStage.stage === "deploy") {
+          status = await runDeployStage(checks);
+        } else {
+          status = "pending";
+        }
       } else {
         status = "awaiting-approval";
         gate = {
@@ -3274,6 +3506,7 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
         doctorRan: true,
       },
       stages,
+      ...(storeData ? { store: storeData } : {}),
       // The ordered playbook of the orchestrated stages (the official CLIs
       // Jolly spawns and the gates it waits at), for agents/readers that want a
       // flat narrative alongside the structured stage list.

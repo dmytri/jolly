@@ -13,11 +13,11 @@ Feature: Jolly Configurator starter recipe
     And the plan should name the Saleor app token used for deployment as having all available permissions in v1
 
   @sandbox
-  Scenario: Jolly blocks the recipe deploy on a destructive or breaking diff
+  Scenario: Jolly blocks a recipe re-deploy over a pre-existing store's destructive diff
     Given a Saleor Cloud environment that already holds catalog data
     When the agent runs `jolly start --yes` to apply the starter recipe to Saleor Cloud
-    Then the recipe stage should pass `--fail-on-delete` and `--fail-on-breaking` to `npx @saleor/configurator deploy`
-    And the configurator should exit 6 for deletions or exit 7 for breaking changes
+    Then the recipe stage should pass `--failOnDelete` to `npx @saleor/configurator deploy`
+    And the configurator should exit 6 for deletions
     And Jolly should report the recipe stage as "blocked", not "completed"
 
   @logic
@@ -59,7 +59,7 @@ Feature: Jolly Configurator starter recipe
     When the agent runs `jolly start --dry-run --json`
     Then the plan should include a configurator-deploy step that runs before the stock-seeding step
     And the preview should name the spawned command `npx @saleor/configurator deploy`, Jolly's bundled starter recipe, and the store URL and app token by name only
-    And the preview should name the safe flags `--fail-on-delete` and `--fail-on-breaking`
+    And the preview should name the safe flag `--failOnDelete` used to guard a re-deploy over a pre-existing store
     And the configurator-deploy step should carry a riskContext for deploying store configuration
     And the riskContext should mark a dry run available via the configurator `--plan` preview
     And the preview should not spawn the configurator or perform any deployment
@@ -78,8 +78,8 @@ Feature: Jolly Configurator starter recipe
     Given a freshly created blank Saleor Cloud environment
     When Jolly start runs the configurator-deploy stage with approval
     Then Jolly should spawn `npx @saleor/configurator deploy` of its bundled starter recipe against the store, never reimplementing it against raw APIs
-    And the additive deploy should exit 0 and the recipe's catalog entities should exist in the store
-    And the stage should be reported completed only when the configurator exited 0
+    And the bootstrap deploy should record a successful configurator deployment report and the recipe's catalog entities should exist in the store
+    And the stage should be reported completed only when the configurator's deployment report records success
     And re-running the stage should reconcile to a no-op diff rather than creating duplicate entities
 
   Rule: Starter recipe goals
@@ -103,17 +103,21 @@ Feature: Jolly Configurator starter recipe
 
   Rule: Recipe targets a clean environment
     - The recipe is a complete *declarative* `@saleor/configurator` config: a `deploy` reconciles
-      the store to match it, which means it deletes catalog entities the recipe does not declare.
-    - It therefore assumes a freshly created, empty Saleor environment, where the apply is purely
-      additive (creates only) and `--fail-on-breaking`/`--fail-on-delete` passes cleanly.
-    - On a store that already holds catalog data, the first apply is destructive — the safe guard
-      correctly blocks it (`hasDestructiveOperations: true`). On such a store the agent must
-      surface the destructive diff and get the customer's explicit approval before applying, and
-      may only then deploy without the breaking guard. The skill carries this guidance.
-    - To keep the happy path additive, `jolly create store --create-environment` provisions the
-      environment WITHOUT Saleor's demo/sample data (`database_population: null` — the Cloud "blank"
-      template) so the recipe is the store's first catalog config; see feature 012 Rule "Created
-      environments are provisioned blank".
+      the store to match it, which means it deletes catalog entities the recipe does not declare —
+      including the stock defaults (e.g. `default-channel`, `default-category`, the default
+      warehouse) that even a "blank" Saleor Cloud environment ships with.
+    - On the bootstrap path — the store `jolly start` itself just provisioned — Jolly owns the store
+      and the recipe is its intended end state, so the deploy proceeds WITHOUT `--failOnDelete`:
+      replacing those Saleor stock defaults is the expected initial setup, not a destructive
+      accident.
+    - On a store that already holds catalog data (a re-deploy / pre-existing store), the apply is
+      destructive — the `--failOnDelete` guard correctly blocks it (exit 6). On such a store the
+      agent must surface the destructive diff and get the customer's explicit approval before
+      applying. The skill carries this guidance.
+    - `jolly create store --create-environment` provisions the environment WITHOUT Saleor's
+      demo/sample data (`database_population: null` — the Cloud "blank" template) so the recipe is
+      the store's first catalog config; see feature 012 Rule "Created environments are provisioned
+      blank".
 
   Rule: Recipe products need seeded stock — configurator cannot
     - `@saleor/configurator` cannot make products buyable: its product-variant schema (v3.23) is
@@ -162,24 +166,31 @@ Feature: Jolly Configurator starter recipe
       relative to Jolly's module path — the same bundled-asset mechanism `init` uses to install the
       skill). The agent's reviewable in-repo copy (Rule "Recipe artifact") is for ongoing iteration.
     - The deploy flags are `--url <store GraphQL>`, `--token <app token Jolly manages>`,
-      `--config <recipe>`, `--fail-on-delete` (exit code 6), `--fail-on-breaking` (exit code 7),
-      `--plan` (preview without changes), `--json`, `--quiet`; env `SALEOR_URL`/`SALEOR_TOKEN`.
+      `--config <recipe>`, `--quiet`, `--plan` (preview without changes), and — only when re-deploying
+      over a pre-existing store — `--failOnDelete` (exit code 6); env `SALEOR_URL`/`SALEOR_TOKEN`. The
+      configurator binary exposes only `--failOnDelete` (its docs mention a `--fail-on-breaking`
+      guard the binary does not implement), so Jolly relies on `--failOnDelete` alone.
       `@saleor/configurator` auto-activates non-interactive mode in a non-TTY subprocess, so Jolly
       spawns it as a non-interactive batch command and reads its EXIT CODE — no stdio passthrough
       (unlike the interactive `vercel login`/`stripe login` gates).
-    - Jolly passes `--fail-on-delete --fail-on-breaking` so a destructive apply over a non-blank store
-      is BLOCKED, not silently destructive; on the happy path (the `create store` blank env, Rule
-      "Recipe targets a clean environment") the apply is additive and exits 0.
+    - On the bootstrap path (the store `jolly start` itself provisioned this run) the deploy omits
+      `--failOnDelete`: replacing Saleor's stock defaults to match the recipe is the intended initial
+      setup, and the apply exits 0. On a re-deploy over a pre-existing store Jolly passes
+      `--failOnDelete` so a destructive apply is BLOCKED (exit 6), not silently destructive (Rule
+      "Recipe targets a clean environment").
     - High-risk → approval: the stage emits the feature 021 `riskContext` (deploy store configuration)
       and pauses for the agent to approve; `--yes` pre-approves. `--dry-run` previews the stage by
       naming the spawned command, the bundled recipe, the store URL + app token (by name only), and
-      the safe flags, with `dryRunAvailable` mapping to the configurator `--plan` preview — performing
-      no deployment and spawning nothing.
-    - Honest reporting (integrity rule): the stage is reported `completed` ONLY when the configurator
-      exited 0; on exit 6/7 (deletions/breaking changes — i.e. a non-blank store) it is `blocked` with
-      the destructive diff surfaced and an explicit-approval requirement to deploy without the guard;
-      any other non-zero exit, or a configurator that cannot be spawned, is reported `blocked`/`failed`
-      honestly with the configurator's real error — never a fabricated `completed` or "recipe deployed".
+      the `--failOnDelete` guard, with `dryRunAvailable` mapping to the configurator `--plan` preview —
+      performing no deployment and spawning nothing.
+    - Honest reporting (integrity rule): the stage is reported `completed` when the configurator
+      exited 0 OR its deployment report records `status: success` — the exit code alone is unreliable
+      for the bootstrap apply, which yields a spurious exit 5 ("partial") while replacing Saleor's
+      protected stock defaults even though the report records success and zero errors. On exit 6
+      (deletions over a pre-existing store) it is `blocked` with the destructive diff surfaced and an
+      explicit-approval requirement to deploy; any other non-zero exit without a successful report, or
+      a configurator that cannot be spawned, is reported `blocked`/`failed` honestly with the
+      configurator's real error — never a fabricated `completed` or "recipe deployed".
     - Idempotent and resumable (feature 022): re-deploying the same declarative recipe reconciles the
       store to the same state (a no-op diff once deployed), creating no duplicates; `jolly start` may
       skip the stage when the store already matches the recipe.

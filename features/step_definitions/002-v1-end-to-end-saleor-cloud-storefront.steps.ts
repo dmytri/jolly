@@ -1034,7 +1034,15 @@ Given(
   "`JOLLY_SALEOR_CLOUD_TOKEN` is set and no `NEXT_PUBLIC_SALEOR_API_URL` is configured",
   function (this: JollyWorld) {
     const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? STAND_IN_TOKEN;
-    this.notes.startEnv = absentCredentialsEnv({ JOLLY_SALEOR_CLOUD_TOKEN: cloudToken });
+    // Surface the per-run `jolly-test-<run>` namespace through the SAME store-name
+    // configuration affordance a customer uses (feature 002 Rule), so the store
+    // `jolly start` auto-provisions is `jolly-test` cannon fodder the teardown
+    // above reclaims. Production bakes in no test knowledge; the harness just sets
+    // the configured name, exactly as it passes `--name` to `jolly create store`.
+    this.notes.startEnv = absentCredentialsEnv({
+      JOLLY_SALEOR_CLOUD_TOKEN: cloudToken,
+      JOLLY_STORE_NAME: makeNamespace(this.runId),
+    });
   },
 );
 
@@ -1194,7 +1202,12 @@ Given(
     });
     // Nothing exported into the process environment: every credential is unset
     // for the child, so start can only succeed by reading the `.env` FILE.
-    this.notes.startEnv = absentCredentialsEnv();
+    // JOLLY_STORE_NAME is project configuration (not a credential), set to the
+    // per-run `jolly-test-<run>` namespace so the auto-provisioned store is
+    // cannon fodder the teardown reclaims (feature 002 Rule).
+    this.notes.startEnv = absentCredentialsEnv({
+      JOLLY_STORE_NAME: makeNamespace(this.runId),
+    });
   },
 );
 
