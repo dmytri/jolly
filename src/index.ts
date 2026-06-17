@@ -1139,7 +1139,12 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
   }
 
   // Mode 2: provision a Saleor Cloud environment via the Cloud API. ------
-  const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
+  // `.env`-first: a real agent writes the Cloud token to the project `.env`
+  // (via `jolly login`/`jolly create store`) and does not export it (feature
+  // 008 Rule "Credentials are read from .env").
+  const token =
+    loadEnvValues(projectDir())["JOLLY_SALEOR_CLOUD_TOKEN"] ??
+    process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
   const region = args.options["region"] ?? "us-east-1";
   const orgOverride = args.options["organization"];
   const name = args.options["name"];
@@ -1451,8 +1456,12 @@ function appTokenRiskContext(target: unknown): RiskContext {
 
 async function commandCreateAppToken(args: ParsedArgs): Promise<Envelope> {
   const command = "create app-token";
-  const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
   const values = loadEnvValues(projectDir());
+  // `.env`-first (feature 008 Rule "Credentials are read from .env"): the Cloud
+  // token is read from the project `.env` FILE the agent left it in, with a
+  // fallback to the process environment.
+  const token =
+    values["JOLLY_SALEOR_CLOUD_TOKEN"] ?? process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
   const instanceUrl =
     args.options["url"] ??
     values["NEXT_PUBLIC_SALEOR_API_URL"] ??
@@ -2599,6 +2608,9 @@ interface StartStage {
   stage: string;
   status: StageStatus;
   riskContext?: RiskContext;
+  // Present on the auth stage when no Cloud token is configured: the Keycloak
+  // browser-login URL the gate presents (it cannot mint a token itself).
+  authorizationUrl?: string;
 }
 
 /**
@@ -3052,6 +3064,33 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
   // human gate is announced regardless of whether appInstall succeeded.
   let stripeStageReached = false;
 
+  // `.env`-first Cloud-token presence (feature 002 OAuth-walkthrough scenario):
+  // a real agent leaves the token in the project `.env`; it may also be exported.
+  // When NEITHER carries a token, the auth stage cannot silently complete — it
+  // presents a Keycloak browser-login gate it cannot self-clear.
+  const startEnvValues = loadEnvValues(projectDir());
+  const hasCloudToken = Boolean(
+    startEnvValues["JOLLY_SALEOR_CLOUD_TOKEN"] ?? process.env["JOLLY_SALEOR_CLOUD_TOKEN"],
+  );
+  // Built lazily so the URL is presented (and offered in nextSteps) only when the
+  // auth gate is actually engaged. Reuses loginBrowserLive's URL-first OAuth
+  // construction; we PRESENT the URL only — never block on the loopback callback.
+  let authGate: { authorizationUrl: string } | undefined;
+  if (!hasCloudToken) {
+    const verifier = base64url(randomBytes(32));
+    const challenge = base64url(createHash("sha256").update(verifier).digest());
+    const params = new URLSearchParams({
+      response_type: "code",
+      client_id: "saleor-cli",
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+      state: base64url(randomBytes(16)),
+      redirect_uri: LOOPBACK_REDIRECT_URI,
+      scope: "email openid profile",
+    });
+    authGate = { authorizationUrl: `${KEYCLOAK_AUTH_ENDPOINT}?${params.toString()}` };
+  }
+
   for (const planStage of plan) {
     const isBootstrap = planStage.stage === "init" || planStage.stage === "auth";
     const isHighRisk = (HIGH_RISK_STAGES as readonly string[]).includes(planStage.stage);
@@ -3060,6 +3099,15 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
     if (bootstrapFailed) {
       // Bootstrap itself failed; nothing downstream was attempted.
       status = isBootstrap && planStage.stage === "init" ? "error" : "pending";
+    } else if (planStage.stage === "auth" && authGate) {
+      // No Cloud token configured: the auth stage presents the browser-login gate
+      // (it cannot mint a token itself), so it is reported `blocked` — a gate it
+      // cannot self-clear — never a fabricated `completed`. It does NOT set the
+      // approval `gate` (reserved for the high-risk per-stage approval pause): the
+      // run proceeds through the remaining stages, which block/pend honestly on
+      // the still-missing credentials. `blocked` (not `awaiting-approval`) keeps
+      // a `--yes` run free of any per-stage approval pause.
+      status = "blocked";
     } else if (isBootstrap) {
       status = "completed";
     } else if (isHighRisk && !gate) {
@@ -3129,6 +3177,9 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
       stage: planStage.stage,
       status,
       ...(planStage.riskContext ? { riskContext: planStage.riskContext } : {}),
+      ...(planStage.stage === "auth" && authGate
+        ? { authorizationUrl: authGate.authorizationUrl }
+        : {}),
     });
   }
 
@@ -3153,6 +3204,17 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
     nextSteps.push({
       description: "Re-run jolly start to resume the remaining stages.",
       command: "jolly start",
+    });
+  }
+
+  // No Cloud token configured (feature 002 OAuth-walkthrough scenario): offer
+  // completing browser login by opening the presented Keycloak authorization URL,
+  // OR supplying the token directly with `jolly login --token <value>`. Offered as
+  // a gate Jolly cannot self-clear — never fabricated as performed.
+  if (authGate) {
+    nextSteps.push({
+      description: `Complete browser login by opening the Keycloak authorization URL (${authGate.authorizationUrl}), or run jolly login --token <value> to supply a Saleor Cloud token, then re-run jolly start.`,
+      command: "jolly login --token <value>",
     });
   }
 

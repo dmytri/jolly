@@ -1292,3 +1292,110 @@ Then(
     );
   },
 );
+
+// === Scenario: jolly start runs stripe login interactively when the Stripe ===
+//     CLI is not authenticated (@sandbox) --------------------------------------
+//
+// The Stripe stage, when the Stripe CLI holds no test-mode session, must run the
+// official `stripe login` (via `npx`) with stdio passed straight through (the
+// user completes the browser OAuth), then import the keys read-only once login
+// succeeds — never reporting the stage configured without an authenticated
+// session. This is an irreducibly INTERACTIVE gate: it needs a real TTY and a
+// human to complete browser OAuth, which the automated harness cannot provide.
+// So the scenario skips (never fails) when that capability is absent — exactly
+// the skip-not-fail discipline (AGENTS.md). When a runner explicitly enables it
+// (a real TTY plus HARNESS_STRIPE_LOGIN_INTERACTIVE=1), it observes the spawned
+// `stripe login` argv via the same passthrough trace wrapper the @sandbox import
+// scenario uses, then the read-only `config --list` import.
+
+function stripeLoginInteractiveSkipReason(): string | undefined {
+  if (process.env["HARNESS_STRIPE_LOGIN_INTERACTIVE"] !== "1") {
+    return "interactive `stripe login` requires HARNESS_STRIPE_LOGIN_INTERACTIVE=1 and a human to complete browser OAuth; not enabled on this runner";
+  }
+  if (!process.stdout.isTTY) {
+    return "no TTY available; `jolly start`'s `stripe login` stage needs stdio passed through to an interactive terminal";
+  }
+  // The premise is an UNAUTHENTICATED Stripe CLI; if it already holds test-mode
+  // keys, that condition cannot be produced without mutating real auth.
+  if (realStripeCliHasTestKeys()) {
+    return "the runner's Stripe CLI is already logged in with test-mode keys; the 'not authenticated' premise cannot be produced without mutating real auth";
+  }
+  return undefined;
+}
+
+Given(
+  "the Stripe CLI has no logged-in test-mode session on the runner",
+  function (this: JollyWorld) {
+    const reason = stripeLoginInteractiveSkipReason();
+    if (reason) {
+      this.attach(`Skipped: ${reason}`, "text/plain");
+      this.notes.skipStripeLogin = true;
+      return "skipped";
+    }
+    // Observe the spawned Stripe CLI argv: a passthrough trace wrapper records
+    // each invocation and execs the real binary (so `stripe login` reaches the
+    // real terminal and `config --list` returns real keys), recording proof that
+    // Jolly ran `login` (interactive) and then `config --list` (read-only).
+    const resolved = spawnSync("sh", ["-c", "command -v stripe"], { encoding: "utf8" });
+    const realStripePath = (resolved.stdout ?? "").trim();
+    assert.ok(realStripePath, "must resolve the real `stripe` binary path");
+    const wrapperDir = this.newTempDir("stripe-cli-trace");
+    const traceFile = join(wrapperDir, "stripe-trace.jsonl");
+    writeStripeCliTraceWrapper(wrapperDir, { traceFile, realStripePath });
+    this.notes.stripeShimDir = wrapperDir;
+    this.notes.stripeTraceFile = traceFile;
+  },
+);
+
+When(
+  "`jolly start` reaches the Stripe stage with stdio available",
+  { timeout: 900_000 },
+  function (this: JollyWorld) {
+    if (this.notes.skipStripeLogin) return "skipped";
+    // Run the orchestrated flow with approvals pre-granted and the Stripe CLI
+    // wrapper first on PATH so the spawned `stripe login`/`config --list` are
+    // observed. stdio is passed through to the real terminal for the login gate.
+    this.runCli(["start", "--yes", "--json"], {
+      env: { PATH: `${String(this.notes.stripeShimDir)}:${process.env.PATH ?? ""}` },
+      timeoutMs: 840_000,
+    });
+  },
+);
+
+Then(
+  "it should run `stripe login` \\(via `npx`) with stdio passed through and continue on its exit",
+  function (this: JollyWorld) {
+    if (this.notes.skipStripeLogin) return "skipped";
+    const calls = readStripeTrace(String(this.notes.stripeTraceFile));
+    assert.ok(
+      calls.some((argv) => argv[0] === "login"),
+      "Jolly's Stripe stage must run `stripe login` when the Stripe CLI is not authenticated",
+    );
+  },
+);
+
+Then(
+  "after a successful login it should import the test-mode keys via the read-only Stripe CLI \\(`stripe config --list`)",
+  function (this: JollyWorld) {
+    if (this.notes.skipStripeLogin) return "skipped";
+    const calls = readStripeTrace(String(this.notes.stripeTraceFile));
+    assert.ok(
+      calls.some((argv) => argv[0] === "config" && argv.includes("--list")),
+      "after login, Jolly must import the keys read-only via `stripe config --list`",
+    );
+  },
+);
+
+Then(
+  "it should not report the Stripe stage configured without an authenticated session",
+  function (this: JollyWorld) {
+    if (this.notes.skipStripeLogin) return "skipped";
+    // No fabricated "Stripe configured": the stage is reported honestly, never
+    // configured/ready unless a real session produced the keys.
+    assert.doesNotMatch(
+      this.envelope.summary,
+      /stripe (is )?configured|checkout (is )?ready/i,
+      "the summary must not claim Stripe configured without an authenticated session",
+    );
+  },
+);

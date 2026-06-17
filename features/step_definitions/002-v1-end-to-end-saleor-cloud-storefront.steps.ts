@@ -24,9 +24,12 @@ import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { loadEnvValues, writeEnvValues } from "../../src/lib/env-file.ts";
 import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
+import { deleteEnvironment, listAllEnvironments } from "../support/cloud.ts";
 import { findRiskContexts, assertRiskContextShape } from "../support/envelope.ts";
 import { saleorGraphql } from "../support/saleor-graphql.ts";
+import { makeNamespace } from "../support/sandbox.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 // --- Background (capability statements) -------------------------------------
@@ -68,12 +71,21 @@ Given(
 // staged plan (including the auth/store stages the journey branches on) and the
 // human-action steps that cannot be automated.
 
-Given("a fresh project directory with no store URL configured", function (this: JollyWorld) {
-  this.notes.onboarding = true;
-});
+Given(
+  "`JOLLY_SALEOR_CLOUD_TOKEN` is configured and no store URL is set",
+  function (this: JollyWorld) {
+    // Authenticated (a Cloud token is present) but no store yet. The token is a
+    // real-format stand-in; the `jolly start --json` preview below performs no
+    // network (commandStartDryRun is static), so it is never exercised against a
+    // real account. NEXT_PUBLIC_SALEOR_API_URL stays unset ("no store URL").
+    this.notes.startEnv = absentCredentialsEnv({ JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN });
+  },
+);
 
 When("the agent runs `jolly start --json` with no store URL", function (this: JollyWorld) {
-  this.runCli(["start", "--dry-run", "--json"], { env: absentCredentialsEnv() });
+  this.runCli(["start", "--dry-run", "--json"], {
+    env: (this.notes.startEnv as Record<string, string | undefined>) ?? absentCredentialsEnv(),
+  });
 });
 
 Then(
@@ -902,6 +914,371 @@ Then(
     assert.ok(
       updatedQty > initialQty,
       `adding a product must update the cart quantity (was ${initialQty}, now ${updatedQty})`,
+    );
+  },
+);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Whole-flow "real agent's starting state" scenarios (commit f755756): OAuth
+// walkthrough when no Cloud token is configured, store auto-provisioning when no
+// store URL is configured, the dry-run provision plan, and the full end-to-end
+// run from only a `.env` (no exported credentials).
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface StartStage {
+  stage: string;
+  status: string;
+  riskContext?: unknown;
+}
+
+function startStages(world: JollyWorld): StartStage[] {
+  return (world.envelope.data.stages ?? []) as StartStage[];
+}
+
+function startStage(world: JollyWorld, name: string): StartStage | undefined {
+  return startStages(world).find((s) => s.stage === name);
+}
+
+// --- Scenario: jolly start walks the user through OAuth when no Cloud token --
+//     is configured (@logic) ----------------------------------------------------
+//
+// A real agent's first run with no Cloud token: `jolly start` must present the
+// Keycloak browser-login URL as a gate (it cannot mint a token itself), without
+// treating the missing token or the missing browser as an error. The runtime
+// credentials are genuinely unset (absentCredentialsEnv), and the headless test
+// process is non-TTY, so "no browser can be opened" is produced for real.
+
+Given(
+  "a fresh project directory with no `JOLLY_SALEOR_CLOUD_TOKEN` configured",
+  function (this: JollyWorld) {
+    this.notes.startEnv = absentCredentialsEnv();
+  },
+);
+
+When(
+  "the agent runs `jolly start --json` where no browser can be opened",
+  function (this: JollyWorld) {
+    this.runCli(["start", "--json"], {
+      env: (this.notes.startEnv as Record<string, string | undefined>) ?? absentCredentialsEnv(),
+      timeoutMs: 240_000,
+    });
+  },
+);
+
+/** Any Keycloak authorization URL (auth.saleor.io) carried anywhere in the run. */
+function keycloakAuthorizationUrl(world: JollyWorld): string | undefined {
+  const blob = JSON.stringify(world.envelope) + " " + world.lastRun!.stdout;
+  const match = /https:\/\/auth\.saleor\.io\/[^\s"'`]+/.exec(blob);
+  return match?.[0];
+}
+
+Then(
+  "the `auth` stage should present the Keycloak authorization URL for the user to complete browser login",
+  function (this: JollyWorld) {
+    const auth = startStage(this, "auth");
+    assert.ok(auth, "the orchestrated stages must include the auth stage");
+    // With no Cloud token, the auth stage cannot silently complete — it presents
+    // the browser-login gate, so its status is not a fabricated "completed".
+    assert.notEqual(
+      auth!.status,
+      "completed",
+      "the auth stage must not report completed when no Cloud token is configured",
+    );
+    const url = keycloakAuthorizationUrl(this);
+    assert.ok(
+      url,
+      "the auth stage must present a Keycloak authorization URL at auth.saleor.io for browser login",
+    );
+    const parsed = new URL(url!);
+    assert.equal(parsed.hostname, "auth.saleor.io", "the authorization URL must be a Keycloak (auth.saleor.io) URL");
+    assert.equal(
+      parsed.searchParams.get("response_type"),
+      "code",
+      "the authorization URL must be an OAuth authorization-code request",
+    );
+  },
+);
+
+Then(
+  "it should not report the missing token as a fatal error or a missing browser as an error",
+  function (this: JollyWorld) {
+    assert.notEqual(this.envelope.status, "error", "a missing Cloud token must not be a fatal error");
+    const text = (JSON.stringify(this.envelope) + " " + this.lastRun!.stdout).toLowerCase();
+    assert.ok(
+      !/(no browser|browser not found|cannot open (a |the )?browser|browser unavailable|no display)/.test(text),
+      "a missing browser must not be presented as an error",
+    );
+  },
+);
+
+Then(
+  "`nextSteps` should offer completing browser login or `jolly login --token <value>`",
+  function (this: JollyWorld) {
+    const text = JSON.stringify(this.envelope.nextSteps ?? []).toLowerCase();
+    assert.ok(
+      text.includes("jolly login --token") ||
+        (text.includes("browser") && text.includes("login")),
+      `nextSteps must offer completing browser login or jolly login --token <value>: ${JSON.stringify(this.envelope.nextSteps)}`,
+    );
+  },
+);
+
+// --- Shared Given: Cloud token set, no store URL (scenarios 3 + 4) -----------
+//
+// @logic (dry-run) and @sandbox (real --yes run) share this precondition. The
+// real Cloud token (present under the @sandbox gate) is used as-is; a @logic
+// dry-run performs no network, so a real-format stand-in suffices when no real
+// token is configured. NEXT_PUBLIC_SALEOR_API_URL stays unset ("no store URL").
+
+Given(
+  "`JOLLY_SALEOR_CLOUD_TOKEN` is set and no `NEXT_PUBLIC_SALEOR_API_URL` is configured",
+  function (this: JollyWorld) {
+    const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? STAND_IN_TOKEN;
+    this.notes.startEnv = absentCredentialsEnv({ JOLLY_SALEOR_CLOUD_TOKEN: cloudToken });
+  },
+);
+
+// --- Shared When: `jolly start --yes --json` auto-provisioning run -----------
+//     (scenarios 3 + 5) ------------------------------------------------------
+//
+// A real end-to-end run that may CREATE a Saleor Cloud environment. Harmless by
+// design: before running, snapshot the org's environments and register a
+// best-effort teardown that deletes only NEW `jolly-test`-namespaced
+// environments this run created (never a pre-existing or non-test resource).
+
+async function registerAutoProvisionTeardown(world: JollyWorld): Promise<void> {
+  const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
+  if (!cloudToken) return; // @sandbox gate guarantees it under CI; nothing to clean otherwise.
+  const before = new Set((await listAllEnvironments(cloudToken)).map((e) => e.key));
+  const runNamespace = makeNamespace(world.runId);
+  world.cleanup.register(
+    "auto-provisioned Saleor Cloud environment (diff vs pre-run snapshot)",
+    async () => {
+      for (const env of await listAllEnvironments(cloudToken)) {
+        if (!before.has(env.key) && env.name.startsWith(runNamespace)) {
+          await deleteEnvironment(cloudToken, env.org, env.key);
+        }
+      }
+    },
+  );
+}
+
+When(
+  "the agent runs `jolly start --yes --json`",
+  { timeout: 900_000 },
+  async function (this: JollyWorld) {
+    await registerAutoProvisionTeardown(this);
+    this.runCli(["start", "--yes", "--json"], {
+      env: (this.notes.startEnv as Record<string, string | undefined>) ?? undefined,
+      timeoutMs: 840_000,
+    });
+  },
+);
+
+// --- Scenario: jolly start auto-provisions a new store when none configured --
+//     (@sandbox) -------------------------------------------------------------
+
+Then(
+  'the `store` stage status should be "completed", not "pending"',
+  function (this: JollyWorld) {
+    const store = startStage(this, "store");
+    assert.ok(store, "the orchestrated stages must include the store stage");
+    assert.equal(
+      store!.status,
+      "completed",
+      `the store stage must auto-provision and report completed; got "${store!.status}"`,
+    );
+  },
+);
+
+Then(
+  "the envelope `data` should include the new store's `*.saleor.cloud` GraphQL API URL and its Saleor Dashboard URL ending in `.saleor.cloud\\/dashboard\\/`",
+  function (this: JollyWorld) {
+    const blob = JSON.stringify(this.envelope.data ?? {});
+    assert.ok(
+      /https:\/\/[a-z0-9-]+\.saleor\.cloud\/graphql\//i.test(blob),
+      `start data must include the new store's *.saleor.cloud GraphQL API URL: ${blob}`,
+    );
+    assert.ok(
+      /https:\/\/[a-z0-9-]+\.saleor\.cloud\/dashboard\//i.test(blob),
+      `start data must include the store's Saleor Dashboard URL ending in .saleor.cloud/dashboard/: ${blob}`,
+    );
+  },
+);
+
+Then(
+  "`jolly start` should write that `NEXT_PUBLIC_SALEOR_API_URL` and the acquired `JOLLY_SALEOR_APP_TOKEN` to `.env`",
+  function (this: JollyWorld) {
+    const values = loadEnvValues(this.lastRun!.cwd);
+    assert.ok(
+      values["NEXT_PUBLIC_SALEOR_API_URL"]?.includes(".saleor.cloud"),
+      "start must write the provisioned NEXT_PUBLIC_SALEOR_API_URL to .env",
+    );
+    assert.ok(
+      values["JOLLY_SALEOR_APP_TOKEN"] && values["JOLLY_SALEOR_APP_TOKEN"].length > 0,
+      "start must write the acquired JOLLY_SALEOR_APP_TOKEN to .env",
+    );
+  },
+);
+
+Then(
+  'the `recipe` and `stock` stages should not report "blocked" for a missing Saleor endpoint',
+  function (this: JollyWorld) {
+    for (const name of ["recipe", "stock"]) {
+      const stage = startStage(this, name);
+      assert.ok(stage, `the orchestrated stages must include the ${name} stage`);
+      const blockedForMissingEndpoint =
+        stage!.status === "blocked" &&
+        /no .*endpoint|missing .*endpoint|NEXT_PUBLIC_SALEOR_API_URL/i.test(
+          JSON.stringify(this.envelope.checks),
+        );
+      assert.ok(
+        !blockedForMissingEndpoint,
+        `the ${name} stage must not be blocked for a missing Saleor endpoint after auto-provisioning`,
+      );
+    }
+  },
+);
+
+// --- Scenario: jolly start --dry-run plans to provision a store (@logic) -----
+
+Then(
+  "the `store` stage preview should name the real Cloud API `organizations\\/\\{organization\\}\\/environments\\/` request it would send to provision a new store",
+  function (this: JollyWorld) {
+    const plan = (this.envelope.data.plan ?? []) as Array<{ stage?: string; riskContext?: { target?: unknown } }>;
+    const store = plan.find((s) => s.stage === "store");
+    assert.ok(store, "the start --dry-run plan must include the store stage");
+    const blob = JSON.stringify(store);
+    assert.ok(
+      /organizations\/\{organization\}\/environments\//.test(blob),
+      `the store stage preview must name the real Cloud API organizations/{organization}/environments/ request: ${blob}`,
+    );
+  },
+);
+
+Then(
+  'it should not report the `store` stage as "pending" or claim a store already exists',
+  function (this: JollyWorld) {
+    // A dry-run plan stage carries no execution status, so it is never "pending";
+    // and the preview must not claim a store is already configured.
+    const plan = (this.envelope.data.plan ?? []) as Array<{ stage?: string; status?: string }>;
+    const store = plan.find((s) => s.stage === "store");
+    assert.ok(store, "the plan must include the store stage");
+    assert.notEqual(store!.status, "pending", "the dry-run store stage must not be reported pending");
+    const summary = String(this.envelope.summary ?? "").toLowerCase();
+    assert.ok(
+      !/store (already )?(exists|configured|is configured)/.test(summary),
+      `the preview must not claim a store already exists: "${this.envelope.summary}"`,
+    );
+  },
+);
+
+// --- Scenario: One jolly start drives the whole flow from a real agent's -----
+//     starting state (@sandbox) -----------------------------------------------
+//
+// The agent's real starting state: a `.env` holding only the Cloud token and the
+// Stripe test keys, with NOTHING exported into the process environment. So every
+// credential is read from the `.env` FILE; start auto-provisions the store,
+// deploys the recipe/stock/storefront, and deploys to Vercel — the full chain.
+
+Given(
+  "a fresh project directory whose `.env` holds only `JOLLY_SALEOR_CLOUD_TOKEN` and the Stripe test keys, with no credential exported into the process environment",
+  function (this: JollyWorld) {
+    const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? STAND_IN_TOKEN;
+    const stripePub = process.env["JOLLY_STRIPE_PUBLISHABLE_KEY"] ?? "pk_test_jolly";
+    const stripeSecret = process.env["JOLLY_STRIPE_SECRET_KEY"] ?? "sk_test_jolly";
+    writeEnvValues(this.projectDir, {
+      JOLLY_SALEOR_CLOUD_TOKEN: cloudToken,
+      JOLLY_STRIPE_PUBLISHABLE_KEY: stripePub,
+      JOLLY_STRIPE_SECRET_KEY: stripeSecret,
+    });
+    // Nothing exported into the process environment: every credential is unset
+    // for the child, so start can only succeed by reading the `.env` FILE.
+    this.notes.startEnv = absentCredentialsEnv();
+  },
+);
+
+Given("no `NEXT_PUBLIC_SALEOR_API_URL` is configured", function (this: JollyWorld) {
+  // Ensured by the Given above (NEXT_PUBLIC_SALEOR_API_URL is neither written to
+  // .env nor exported); this step pins the precondition explicitly.
+  const values = loadEnvValues(this.projectDir);
+  assert.ok(
+    !values["NEXT_PUBLIC_SALEOR_API_URL"],
+    "the scenario requires no NEXT_PUBLIC_SALEOR_API_URL configured",
+  );
+});
+
+Then(
+  'the `store`, `recipe`, `stock`, and `deploy` stages should each report status "completed"',
+  function (this: JollyWorld) {
+    for (const name of ["store", "recipe", "stock", "deploy"]) {
+      const stage = startStage(this, name);
+      assert.ok(stage, `the orchestrated stages must include the ${name} stage`);
+      assert.equal(
+        stage!.status,
+        "completed",
+        `the ${name} stage must report completed in the whole-flow run; got "${stage!.status}"`,
+      );
+    }
+  },
+);
+
+Then(
+  "the created Saleor environment should be `jolly-test`-namespaced",
+  async function (this: JollyWorld) {
+    const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
+    assert.ok(cloudToken, "the Cloud token is required to verify the created environment namespace");
+    const values = loadEnvValues(this.lastRun!.cwd);
+    const url = values["NEXT_PUBLIC_SALEOR_API_URL"] ?? "";
+    const label = /https:\/\/([a-z0-9-]+)\.saleor\.cloud/i.exec(url)?.[1];
+    assert.ok(label, `could not derive the created environment's domain label from ${url}`);
+    const envs = await listAllEnvironments(cloudToken!);
+    const created = envs.find((e) => e.domainLabel === label || e.name.includes(label!));
+    assert.ok(created, `the created environment (${label}) must be visible to the Cloud token`);
+    assert.ok(
+      created!.name.startsWith("jolly-test-"),
+      `the created Saleor environment must be jolly-test-namespaced; got name "${created!.name}"`,
+    );
+  },
+);
+
+Then(
+  "the envelope `data` should include the store's Saleor Dashboard URL ending in `.saleor.cloud\\/dashboard\\/`",
+  function (this: JollyWorld) {
+    const blob = JSON.stringify(this.envelope.data ?? {});
+    assert.ok(
+      /https:\/\/[a-z0-9-]+\.saleor\.cloud\/dashboard\//i.test(blob),
+      `start data must include the store's Saleor Dashboard URL ending in .saleor.cloud/dashboard/: ${blob}`,
+    );
+  },
+);
+
+Then(
+  "the envelope `data` should include the deployed storefront URL captured from the Vercel CLI output",
+  function (this: JollyWorld) {
+    const blob = JSON.stringify(this.envelope.data ?? {});
+    assert.ok(
+      /https:\/\/[a-z0-9-]+(?:[a-z0-9.-]*)\.vercel\.app/i.test(blob) ||
+        /"(deployedUrl|storefrontUrl|deploymentUrl)"\s*:\s*"https:\/\//i.test(blob),
+      `start data must include the deployed storefront URL captured from the Vercel CLI output: ${blob}`,
+    );
+  },
+);
+
+Then(
+  "a `jolly doctor` check should report that the deployed storefront reaches Saleor Cloud",
+  function (this: JollyWorld) {
+    const check = this.envelope.checks.find(
+      (c) => /storefront.*saleor|saleor.*reach|deployed.*saleor/i.test(`${c.id} ${String((c as { description?: unknown }).description ?? "")}`),
+    );
+    assert.ok(
+      check,
+      "a jolly doctor check must report the deployed storefront reaches Saleor Cloud",
+    );
+    assert.equal(
+      check!.status,
+      "pass",
+      "the deployed-storefront-reaches-Saleor check must pass in the whole-flow run",
     );
   },
 );

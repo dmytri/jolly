@@ -18,8 +18,9 @@ import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { loadEnvValues } from "../../src/lib/env-file.ts";
+import { loadEnvValues, writeEnvValues } from "../../src/lib/env-file.ts";
 import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
+import { findRiskContexts } from "../support/envelope.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 // --- Background ------------------------------------------------------------
@@ -435,3 +436,87 @@ Then("it should not create, configure, or store anything", function (this: Jolly
     assert.equal(standIn.writes.length, 0, `a dry-run must issue no Cloud API writes; saw ${JSON.stringify(standIn.writes)}`);
   }
 });
+
+// ─── Rule: Credentials are read from .env, the way a real agent leaves them ──
+//
+// `jolly login`/`jolly create store` write JOLLY_* credentials to the project
+// `.env`; a real agent does NOT export them into its shell. So every command
+// must read its credentials from the `.env` FILE, never depending on the value
+// being present in the spawned process environment. These two @logic scenarios
+// produce exactly that real-agent state: the cloud token is written to the
+// project `.env` and is genuinely ABSENT from the child's process environment
+// (absentCredentialsEnv unsets it). For `create store`, the Cloud API is pointed
+// at the in-process loopback stand-in so the org resolves and the dry-run names
+// the real environments request without touching a real account; for
+// `app-token`, the dry-run names its real request without any network.
+
+Given(
+  "the real `JOLLY_SALEOR_CLOUD_TOKEN` is written to the project `.env` but is absent from the spawned process environment",
+  async function (this: JollyWorld) {
+    // The token lives in the project `.env` FILE (where `jolly login` leaves it),
+    // never in the process environment — exactly how a real agent leaves it.
+    writeEnvValues(this.projectDir, { JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN });
+    // A loopback Cloud API so a `create store` dry-run resolves the org and names
+    // the real environments request deterministically, touching no real account.
+    const standIn = await startCloudApiStandIn(this);
+    this.notes.cloudStandIn = standIn;
+    // Drive `create store --create-environment --dry-run` (021's shared step)
+    // with the Cloud API pointed at the loopback and the token absent from the
+    // process environment — so the command can only succeed by reading the token
+    // from `.env`.
+    this.notes.createStoreEnv = absentCredentialsEnv({
+      JOLLY_SALEOR_CLOUD_API_URL: standIn.baseUrl,
+    });
+  },
+);
+
+// --- Scenario: jolly create store reads the Saleor Cloud token from .env -----
+// (When `the agent runs \`jolly create store --create-environment --dry-run
+// --json\`` is feature 021's shared step, which honors notes.createStoreEnv.)
+
+Then(
+  "the preview should name the real Cloud API `organizations\\/\\{organization\\}\\/environments\\/` request it would send to provision the store",
+  function (this: JollyWorld) {
+    const data = this.envelope.data as Record<string, unknown>;
+    assert.equal(data["dryRun"], true, "a --dry-run preview must mark dryRun: true");
+    const requestUrl = String(data["requestUrl"] ?? "");
+    assert.match(
+      requestUrl,
+      /\/organizations\/[^/]+\/environments\/$/,
+      `store preview must name the real Cloud API organizations/{organization}/environments/ ` +
+        `request it would send to provision the store; got "${requestUrl}"`,
+    );
+  },
+);
+
+// --- Scenario: jolly create app-token reads the Saleor Cloud token from .env -
+
+When(
+  "the agent runs `jolly create app-token --dry-run --json`",
+  function (this: JollyWorld) {
+    // The cloud token is present only in the project `.env` (written by the
+    // Given); it is genuinely absent from the process environment. A successful
+    // preview therefore proves the command read the token from `.env`.
+    this.runCli(["create", "app-token", "--dry-run", "--json"], {
+      env: absentCredentialsEnv(),
+    });
+  },
+);
+
+Then(
+  "the preview should name the real request it would send to acquire the app token",
+  function (this: JollyWorld) {
+    assert.equal(this.envelope.data["dryRun"], true, "a --dry-run preview must mark dryRun: true");
+    const [risk] = findRiskContexts(this.envelope);
+    assert.ok(risk, "the app-token preview must carry a riskContext naming the action");
+    const blob = JSON.stringify(this.envelope.data).toLowerCase();
+    assert.ok(
+      blob.includes("app token") || blob.includes("app-token") || blob.includes("apptoken"),
+      "the preview must name the app-token acquisition it would perform",
+    );
+    assert.ok(
+      blob.includes("graphql"),
+      "the preview must name the real Saleor GraphQL request it would send to acquire the app token",
+    );
+  },
+);

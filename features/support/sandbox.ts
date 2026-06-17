@@ -68,6 +68,19 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   ],
   "Jolly start creates a deployable storefront from Saleor Paper": ["saleorEndpoint"],
   "Jolly start deploys to Vercel by spawning the official Vercel CLI": ["saleorEndpoint"],
+  // Auto-provision: `jolly start --yes` provisions a store itself when none is
+  // configured. It needs only the Cloud token; it must NOT pre-derive a store
+  // endpoint (the scenario's premise is "no NEXT_PUBLIC_SALEOR_API_URL"), so
+  // saleorEndpoint/saleorAppToken are deliberately absent here.
+  "jolly start auto-provisions a new store when none is configured": ["saleorCloud"],
+  // Whole-flow run from only a `.env`: start auto-provisions the store, deploys
+  // the recipe/stock/storefront, and deploys to Vercel. The Cloud token (provision)
+  // and Stripe keys are read from the `.env` the scenario writes; the store
+  // endpoint/app token are derived by start itself, so they are not required here.
+  "One jolly start drives the whole flow from a real agent's starting state": [
+    "saleorCloud",
+    "stripe",
+  ],
   // The live-storefront acceptance check requires an actual deployed storefront
   // URL, which only a full (human-gated) `jolly start` produces — the harness
   // cannot derive it. So it takes NO JOLLY credential group via the hook; the
@@ -119,6 +132,15 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   "Jolly start installs the Stripe app and surfaces the keys and channel gate": [
     "saleorEndpoint",
     "saleorCloud",
+  ],
+  // `jolly start` runs `stripe login` interactively when the Stripe CLI has no
+  // test-mode session. Reaching the Stripe stage needs a store (Cloud token +
+  // endpoint); the "Stripe CLI not authenticated" premise and the stdio/TTY
+  // requirement are runner capabilities gated in the scenario's Given/When,
+  // which skip when they cannot be produced.
+  "jolly start runs stripe login interactively when the Stripe CLI is not authenticated": [
+    "saleorCloud",
+    "saleorEndpoint",
   ],
   // The checkout-readiness probe is Jolly's own Saleor GraphQL (create + revert a
   // `us` test checkout, read availablePaymentGateways) — no CLI spawn, no Vercel.
@@ -183,6 +205,8 @@ export const VERCEL_CLI_SCENARIOS: ReadonlySet<string> = new Set([
   "Jolly start completes successfully",
   "Jolly start orchestrates the setup by spawning the official CLIs",
   "Jolly start deploys to Vercel by spawning the official Vercel CLI",
+  // The whole-flow run deploys the storefront to Vercel as its final stage.
+  "One jolly start drives the whole flow from a real agent's starting state",
   "Agent verifies checkout readiness",
   "Doctor checks deployment and payment readiness",
   "Doctor confirms the Vercel CLI login state when a session exists",

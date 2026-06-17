@@ -32,9 +32,23 @@ Given("side-effecting commands support `--dry-run`", function () {
 
 Given(
   "the agent runs `jolly create store --create-environment --dry-run --json`",
-  function (this: JollyWorld) {
+  async function (this: JollyWorld) {
     // `create store --create-environment --dry-run` is a representative
     // impactful action: it prepares a remote environment-creation request.
+    // A scenario that points the Cloud API at an in-process loopback (feature
+    // 008's ".env credential read") stashes its env on notes.createStoreEnv; it
+    // must be driven with runCliAsync so the loopback server is not deadlocked
+    // by spawnSync. Otherwise the default real-absence env applies.
+    const customEnv = this.notes.createStoreEnv as
+      | Record<string, string | undefined>
+      | undefined;
+    if (customEnv) {
+      await this.runCliAsync(
+        ["create", "store", "--create-environment", "--dry-run", "--json"],
+        { env: customEnv },
+      );
+      return;
+    }
     this.runCli(
       ["create", "store", "--create-environment", "--dry-run", "--json"],
       { env: absentCredentialsEnv() },
