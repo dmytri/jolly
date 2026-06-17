@@ -74,6 +74,7 @@ Feature: Jolly create subcommands
     When the agent runs `jolly create app-token --dry-run --json`
     Then the envelope status should be "success"
     And the preview should name the real request it would send to acquire the app token
+    And the preview should report that the Cloud token it would authenticate with was read from the project `.env`
     And it should not create, configure, or store anything
 
   Rule: No fabricated create results

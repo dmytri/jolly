@@ -215,6 +215,24 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     - Every orchestrated stage is also a composable command the agent can run independently;
       `start` chains them and is resumable (feature 022), skipping satisfied stages.
 
+  Rule: Auto-provisioning a store, and how the store is named
+    - When `jolly start` runs with a Saleor Cloud token configured but no
+      `NEXT_PUBLIC_SALEOR_API_URL`, the store stage PROVISIONS a Saleor Cloud environment
+      itself — the same Cloud API plumbing as `jolly create store --create-environment` —
+      then writes the resulting `NEXT_PUBLIC_SALEOR_API_URL` and the acquired
+      `JOLLY_SALEOR_APP_TOKEN` to `.env`, so the recipe/stock/deploy stages downstream have a
+      reachable endpoint. The store stage is `completed` only when an environment was actually
+      created (or an existing matching one reused — idempotent, feature 022); `blocked`/`failed`
+      honestly otherwise, never a fabricated completion.
+    - The provisioned store's name and domain label come from an OPTIONAL configured store name
+      (the same name/domain-label override `jolly create store` accepts, surfaced to `jolly
+      start` through project configuration) when one is set, and a sensible default otherwise.
+      This is an ordinary configuration affordance — a customer can name their store; Jolly bakes
+      no test knowledge into production. It is ALSO the single hook the test harness uses to make
+      every store it provisions `jolly-test`-namespaced cannon fodder (AGENTS.md "harmless by
+      design"): the harness sets that configured name to the per-run `jolly-test-<run>` value,
+      exactly as it already passes `--name`/`--domain-label` to `jolly create store`.
+
   Rule: Git provider for optional source control
     - GitHub is the default Git provider for optional source-control setup; other providers are deferred to v2.
     - Git setup is convenience, not the deployment mechanism — deployment is always the official Vercel CLI (`npx vercel`), spawned by `jolly start` (see "jolly start orchestrates the setup by spawning the official CLIs"). The durable Vercel invariants (official CLI only, its own `vercel login` session, no `JOLLY_VERCEL_TOKEN`, no `api.vercel.com` in Jolly's own code) live in that rule and feature 020's "First-party hosts only".
