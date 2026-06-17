@@ -3283,11 +3283,31 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
         ? `Deployed storefront/ to Vercel via the official Vercel CLI: ${deployedUrl}`
         : "Deployed storefront/ to Vercel via the official Vercel CLI (`npx vercel --prod`).",
     });
+    // Make the store publicly reachable: Vercel Deployment Protection (SSO /
+    // "Vercel Authentication") is on by default and 401s anonymous visitors.
+    // Disable it via the Vercel CLI under its OWN session — no api.vercel.com
+    // from Jolly's code. Best-effort: a plan/permission that disallows it falls
+    // back to a guided step.
+    const protection = spawnSync(
+      "npx",
+      [
+        "--yes",
+        "vercel",
+        "project",
+        "protection",
+        "disable",
+        ...(vercelProject ? [vercelProject] : []),
+        "--sso",
+      ],
+      { cwd: dir, encoding: "utf8", timeout: 120_000, env: { ...process.env } },
+    );
+    const protectionDisabled = !protection.error && protection.status === 0;
     checks.push({
       id: "vercel-deployment-protection",
-      status: "warning",
-      description:
-        "Vercel Deployment Protection is on by default and blocks public access; disable it in the Vercel project settings so the store is publicly reachable (a project setting Jolly does not change).",
+      status: protectionDisabled ? "pass" : "warning",
+      description: protectionDisabled
+        ? "Disabled Vercel Deployment Protection via the Vercel CLI; the storefront is publicly reachable."
+        : "Vercel Deployment Protection is on and could not be disabled automatically; disable it in the Vercel project settings so the store is publicly reachable.",
     });
     // The deployed storefront was built against this Saleor endpoint; verify the
     // endpoint is reachable so the deployed storefront can reach Saleor Cloud

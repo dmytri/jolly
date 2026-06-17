@@ -102,7 +102,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And Jolly's own code should send no request to api.vercel.com and hold no Vercel token
     And it should not fall back to any other deployment mechanism such as a guided Git import flow
     And it should configure the required environment variables on the Vercel project through the Vercel CLI
-    And `nextSteps` should include disabling Vercel Deployment Protection so the store is publicly reachable
+    And it should disable Vercel Deployment Protection via the Vercel CLI so the store is publicly reachable, falling back to a guided step where the plan or permissions disallow it
     And it should register the deployed storefront URL as a Saleor trusted origin where a first-party Cloud API allows, otherwise surfacing it as a guided Dashboard step
     And `jolly doctor` should verify that the deployed storefront can reach Saleor Cloud
     And the envelope `data` should report the deployed storefront URL captured from the Vercel CLI's deploy output, not a fabricated or guessed value
@@ -160,7 +160,9 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
       (feature 022): an already-cloned/installed `storefront/` is detected and the stage is skipped.
     - Deploy stage: Jolly spawns `npx vercel` (and `npx vercel --prod`) under the Vercel CLI's OWN
       `vercel login` session to deploy `storefront/`, sets the required Vercel env vars through the
-      CLI, surfaces Vercel Deployment Protection (on by default) for the human/agent to disable, and
+      CLI, disables Vercel Deployment Protection (on by default — SSO/"Vercel Authentication") via
+      `vercel project protection disable --sso` so the store is publicly reachable (a guided fallback
+      where the plan/permissions disallow it; still the CLI, never api.vercel.com), and
       updates Saleor trusted origins where APIs allow. The deployed Vercel project name comes from an
       OPTIONAL configured name (`JOLLY_VERCEL_PROJECT`, passed to the CLI as `--project`) when set, and
       the CLI-inferred default otherwise — the same affordance the test harness uses to make the

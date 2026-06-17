@@ -403,10 +403,12 @@ Then(
 );
 
 Then(
-  "`nextSteps` should include disabling Vercel Deployment Protection so the store is publicly reachable",
+  "it should disable Vercel Deployment Protection via the Vercel CLI so the store is publicly reachable, falling back to a guided step where the plan or permissions disallow it",
   function () {
-    // Deployment Protection is a Vercel project setting start surfaces for the
-    // human/agent to disable (not a deploy step) — acceptance run.
+    // After a real deploy, start runs `vercel project protection disable --sso`
+    // under the CLI's own session (the `vercel-deployment-protection` check
+    // reports pass; warning + guided fallback where the plan disallows it) —
+    // acceptance run.
   },
 );
 
