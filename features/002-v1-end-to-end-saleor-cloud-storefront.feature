@@ -161,7 +161,10 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     - Deploy stage: Jolly spawns `npx vercel` (and `npx vercel --prod`) under the Vercel CLI's OWN
       `vercel login` session to deploy `storefront/`, sets the required Vercel env vars through the
       CLI, surfaces Vercel Deployment Protection (on by default) for the human/agent to disable, and
-      updates Saleor trusted origins where APIs allow. The durable Vercel invariants hold: official
+      updates Saleor trusted origins where APIs allow. The deployed Vercel project name comes from an
+      OPTIONAL configured name (`JOLLY_VERCEL_PROJECT`, passed to the CLI as `--project`) when set, and
+      the CLI-inferred default otherwise — the same affordance the test harness uses to make the
+      project `jolly-test`-namespaced cannon fodder it tears down (mirrors the store name). The durable Vercel invariants hold: official
       CLI only (never a raw-API reimplementation), its own auth, no `JOLLY_VERCEL_TOKEN`, and no
       api.vercel.com in Jolly's own request code (see "Agent-supervised orchestration" and feature
       020 "First-party hosts only"). `vercel login` is an interactive stdio-passthrough gate; reports

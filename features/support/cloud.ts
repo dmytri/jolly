@@ -11,11 +11,35 @@ export interface CloudEnvironment {
   domainLabel?: string;
 }
 
+/**
+ * `fetch` with a brief bounded retry on a TRANSIENT network failure (a thrown
+ * `TypeError: fetch failed`), so a momentary blip to cloud.saleor.io does not
+ * flake the harness's read-only Cloud-API queries (namespace verification,
+ * teardown). HTTP error statuses are returned as-is for the caller to handle.
+ */
+async function cloudFetchRetry(
+  url: string,
+  init: RequestInit,
+  attempts = 3,
+  delayMs = 1_500,
+): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      return await fetch(url, init);
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts - 1) await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw lastError;
+}
+
 /** Every environment visible to the token, across all organizations. */
 export async function listAllEnvironments(
   token: string,
 ): Promise<CloudEnvironment[]> {
-  const orgsResponse = await fetch(`${CLOUD_API}/organizations/`, {
+  const orgsResponse = await cloudFetchRetry(`${CLOUD_API}/organizations/`, {
     headers: { Authorization: `Token ${token}` },
   });
   if (!orgsResponse.ok) {
@@ -24,7 +48,7 @@ export async function listAllEnvironments(
   const orgs = (await orgsResponse.json()) as Array<{ slug: string }>;
   const all: CloudEnvironment[] = [];
   for (const org of orgs) {
-    const envsResponse = await fetch(
+    const envsResponse = await cloudFetchRetry(
       `${CLOUD_API}/organizations/${org.slug}/environments/`,
       { headers: { Authorization: `Token ${token}` } },
     );

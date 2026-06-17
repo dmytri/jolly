@@ -29,7 +29,12 @@ import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 import { deleteEnvironment, listAllEnvironments } from "../support/cloud.ts";
 import { findRiskContexts, assertRiskContextShape } from "../support/envelope.ts";
 import { saleorGraphql } from "../support/saleor-graphql.ts";
-import { makeNamespace } from "../support/sandbox.ts";
+import {
+  addVercelProject,
+  makeNamespace,
+  removeVercelProject,
+  vercelCliAuthenticated,
+} from "../support/sandbox.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 // --- Background (capability statements) -------------------------------------
@@ -1044,6 +1049,9 @@ Given(
     this.notes.startEnv = absentCredentialsEnv({
       JOLLY_SALEOR_CLOUD_TOKEN: cloudToken,
       JOLLY_STORE_NAME: makeNamespace(this.runId),
+      // Namespace the Vercel project too, so a deploy is jolly-test cannon
+      // fodder the teardown reclaims (harmless-by-design).
+      JOLLY_VERCEL_PROJECT: makeNamespace(this.runId),
     });
   },
 );
@@ -1071,6 +1079,16 @@ async function registerAutoProvisionTeardown(world: JollyWorld): Promise<void> {
       }
     },
   );
+  // Pre-create the namespaced Vercel project so the deploy stage's
+  // `vercel deploy --project <namespace>` targets it, and register its removal —
+  // harmless-by-design cannon fodder. Only when the Vercel CLI is authenticated
+  // (otherwise the deploy stage gates and nothing is created).
+  if (vercelCliAuthenticated()) {
+    addVercelProject(runNamespace);
+    world.cleanup.register(`jolly-test Vercel project (run ${runNamespace})`, () => {
+      removeVercelProject(runNamespace);
+    });
+  }
 }
 
 When(
@@ -1209,6 +1227,7 @@ Given(
     // cannon fodder the teardown reclaims (feature 002 Rule).
     this.notes.startEnv = absentCredentialsEnv({
       JOLLY_STORE_NAME: makeNamespace(this.runId),
+      JOLLY_VERCEL_PROJECT: makeNamespace(this.runId),
     });
   },
 );

@@ -239,6 +239,45 @@ export function vercelCliAuthenticated(): boolean {
 }
 
 /**
+ * Pre-create a `jolly-test`-namespaced Vercel project so the deploy stage's
+ * `vercel deploy --project <name>` targets it (the CLI's `--project` requires an
+ * existing project). Best-effort and never throws; an already-existing project or
+ * an unauthenticated CLI is a no-op. Goes through the official Vercel CLI under
+ * its own session — never api.vercel.com.
+ */
+export function addVercelProject(name: string): void {
+  try {
+    spawnSync("npx", ["vercel", "project", "add", name], {
+      encoding: "utf8",
+      timeout: 120_000,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch {
+    // best-effort
+  }
+}
+
+/**
+ * Best-effort teardown of a `jolly-test`-namespaced Vercel project a deploy
+ * created (harmless-by-design: every created resource is namespaced and removed,
+ * AGENTS.md). `vercel project remove` prompts "Are you sure?" with no skip flag,
+ * so answer it via stdin. Goes through the official Vercel CLI under its own
+ * session — never api.vercel.com. Idempotent and never throws.
+ */
+export function removeVercelProject(name: string): void {
+  try {
+    spawnSync("npx", ["vercel", "project", "remove", name], {
+      input: "y\n",
+      encoding: "utf8",
+      timeout: 120_000,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+  } catch {
+    // best-effort
+  }
+}
+
+/**
  * Names of the variables from the given groups that are absent from the
  * provided environment (default: the test process environment). Used by the
  * @sandbox Before hook to skip — never fail — scenarios, with a reason that

@@ -3230,6 +3230,12 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
   }
   const channel =
     values["JOLLY_STORE_CHANNEL"] ?? process.env["JOLLY_STORE_CHANNEL"] ?? "us";
+  // Optional configured Vercel project name (a real customer affordance, and the
+  // single hook the test harness uses to make the deployed project `jolly-test`
+  // cannon fodder it can tear down). Default: let the Vercel CLI infer it from
+  // the storefront/ directory, so a real customer gets a sensibly named project.
+  const vercelProject =
+    values["JOLLY_VERCEL_PROJECT"] ?? process.env["JOLLY_VERCEL_PROJECT"];
 
   // Deploy to production via the official Vercel CLI under its own session,
   // configuring the required build env vars through the CLI (feature 002 Rule).
@@ -3242,6 +3248,7 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
       "deploy",
       "--prod",
       "--yes",
+      ...(vercelProject ? ["--project", vercelProject] : []),
       "--build-env",
       `NEXT_PUBLIC_SALEOR_API_URL=${endpoint}`,
       "--build-env",
