@@ -159,6 +159,9 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   ],
   "Jolly acquires the required app token": ["saleorEndpoint", "saleorCloud"],
   // 014-jolly-doctor-diagnostics
+  // The Cloud-token validity probe authenticates a read-only GET of the Cloud
+  // API organizations endpoint, so it needs only the Cloud staff token.
+  "Doctor validates the Saleor Cloud token, not just its presence": ["saleorCloud"],
   "Doctor checks Saleor connectivity": ["saleorEndpoint"],
   "Doctor checks storefront readiness": ["saleorEndpoint"],
   "Doctor checks deployment and payment readiness": ["stripe"],

@@ -2100,21 +2100,79 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
   }
 
   if (wants("saleor")) {
-    const hasCloud = Boolean(
-      values["JOLLY_SALEOR_CLOUD_TOKEN"] ?? process.env["JOLLY_SALEOR_CLOUD_TOKEN"],
-    );
+    const cloudToken = String(
+      values["JOLLY_SALEOR_CLOUD_TOKEN"] ?? process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? "",
+    ).trim();
     const hasEndpoint = Boolean(
       values["NEXT_PUBLIC_SALEOR_API_URL"] ?? process.env["NEXT_PUBLIC_SALEOR_API_URL"],
     );
     const hasApp = Boolean(
       values["JOLLY_SALEOR_APP_TOKEN"] ?? process.env["JOLLY_SALEOR_APP_TOKEN"],
     );
-    checks.push({
-      id: "saleor-cloud-token",
-      status: hasCloud ? "pass" : "fail",
-      description: hasCloud ? "JOLLY_SALEOR_CLOUD_TOKEN present." : "No Saleor Cloud token configured.",
-      command: hasCloud ? undefined : "jolly login --token <value>",
-    });
+    // The Cloud token is validated, not just detected (feature 014 Rule
+    // "Credential checks probe validity, not just presence"): a shape heuristic
+    // first, then a real read-only GET of the Cloud API organizations endpoint.
+    // A `pass` is reported only from a real authenticated response naming the
+    // organization — never from the token's presence alone (feature 020 "No
+    // fabricated success").
+    const orgEndpoint = `${cloudApiBase()}/organizations/`;
+    if (cloudToken === "") {
+      checks.push({
+        id: "saleor-cloud-token",
+        status: "fail",
+        description: "No Saleor Cloud token configured.",
+        command: "jolly login --token <value>",
+      });
+    } else if (!cloudToken.includes(".")) {
+      // A separator-free value is the per-store app-token shape, not a Cloud
+      // staff token (minted with a dot separator at the tokens page). Flag the
+      // likely mix-up before the network probe.
+      checks.push({
+        id: "saleor-cloud-token",
+        status: "warning",
+        description:
+          "JOLLY_SALEOR_CLOUD_TOKEN looks like a per-store app token, not a " +
+          "Cloud staff token. Create a Cloud staff token at " +
+          "https://cloud.saleor.io/tokens.",
+        command: "jolly login --token <value>",
+      });
+    } else {
+      try {
+        const orgs = await listOrganizations(cloudToken);
+        const slug = orgs
+          .map((org) => String(org.slug ?? ""))
+          .find((value) => value.length > 0);
+        if (slug) {
+          checks.push({
+            id: "saleor-cloud-token",
+            status: "pass",
+            description: `Cloud token authenticated a read-only GET of ${orgEndpoint}; organization "${slug}".`,
+          });
+        } else {
+          checks.push({
+            id: "saleor-cloud-token",
+            status: "warning",
+            description: `Cloud token authenticated ${orgEndpoint} but it returned no organizations. Create a token at https://cloud.saleor.io/tokens.`,
+            command: "jolly login --token <value>",
+          });
+        }
+      } catch (error) {
+        if (error instanceof CloudApiError && typeof error.httpStatus === "number") {
+          checks.push({
+            id: "saleor-cloud-token",
+            status: "warning",
+            description: `Cloud token was rejected: the read-only GET of ${orgEndpoint} returned HTTP ${error.httpStatus}. Create a new token at https://cloud.saleor.io/tokens.`,
+            command: "jolly login --token <value>",
+          });
+        } else {
+          checks.push({
+            id: "saleor-cloud-token",
+            status: "unknown",
+            description: `Could not reach the Cloud API organizations endpoint (${orgEndpoint}) to verify the token in this run.`,
+          });
+        }
+      }
+    }
     if (!hasEndpoint) {
       checks.push({
         id: "saleor-endpoint",
@@ -2215,7 +2273,23 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
     const hasSecret = Boolean(
       values["JOLLY_STRIPE_SECRET_KEY"] ?? process.env["JOLLY_STRIPE_SECRET_KEY"],
     );
-    if (hasPub && hasSecret) {
+    const secretKey = String(
+      values["JOLLY_STRIPE_SECRET_KEY"] ?? process.env["JOLLY_STRIPE_SECRET_KEY"] ?? "",
+    ).trim();
+    if (hasPub && hasSecret && secretKey.startsWith("sk_live_")) {
+      // v1 is Stripe test mode only; a live-mode secret is a warning, not a
+      // fabricated pass — direct the customer to a test-mode key.
+      checks.push({
+        id: "stripe-keys",
+        status: "warning",
+        description:
+          "A live-mode Stripe secret key (sk_live_) was detected. v1 supports " +
+          "Stripe test mode only; replace it with a test-mode key beginning " +
+          "with sk_test_.",
+        command:
+          "jolly create stripe --publishable-key <pk_test_...> --secret-key <sk_test_...>",
+      });
+    } else if (hasPub && hasSecret) {
       checks.push({
         id: "stripe-keys",
         status: "pass",

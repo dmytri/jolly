@@ -1072,6 +1072,50 @@ Then(
   },
 );
 
+// --- Scenario: Jolly doctor warns when a live-mode Stripe secret key is configured (@logic)
+//
+// v1 is Stripe test mode only. A configured secret beginning with `sk_live_` is
+// real bad input to doctor's local stripe-keys shape check (no Stripe API call):
+// it must be a `warning` — not a fabricated `pass` — naming the test-mode-only
+// rule and directing the customer to an `sk_test_` key. The live-shaped value is
+// stashed as a per-scenario env override so the shared stripe-doctor When
+// inspects it (real absence for everything else).
+
+Given(
+  ".env contains JOLLY_STRIPE_SECRET_KEY set to a live-mode key beginning with {string}",
+  function (this: JollyWorld, prefix: string) {
+    assert.equal(prefix, "sk_live_", "the live-mode key must begin with sk_live_");
+    this.notes.stripeDoctorEnv = absentCredentialsEnv({
+      JOLLY_STRIPE_SECRET_KEY: `${prefix}jollytestnotarealkey`,
+      JOLLY_STRIPE_PUBLISHABLE_KEY: "pk_live_jollytestnotarealkey",
+    });
+  },
+);
+
+Then(
+  "the check message should state that v1 supports Stripe test mode only and that a live-mode key was detected",
+  function (this: JollyWorld) {
+    const check = this.findCheck("stripe-keys");
+    assert.ok(check, "doctor stripe must report a `stripe-keys` check");
+    const text = JSON.stringify(check);
+    assert.match(text, /test mode only|test-mode only/i, "the warning must state v1 is Stripe test mode only");
+    assert.match(text, /live/i, "the warning must state a live-mode key was detected");
+  },
+);
+
+Then(
+  "the next step should name replacing it with a test-mode key beginning with {string}",
+  function (this: JollyWorld, prefix: string) {
+    const check = this.findCheck("stripe-keys");
+    assert.ok(check, "doctor stripe must report a `stripe-keys` check");
+    const text = `${String(check!.command ?? "")} ${JSON.stringify(this.envelope.nextSteps)} ${JSON.stringify(check)}`;
+    assert.ok(
+      text.includes(prefix),
+      `the next step must name replacing the key with a test-mode key beginning with ${prefix}`,
+    );
+  },
+);
+
 // --- Scenario: Jolly doctor verifies the Stripe payment gateway is reachable (@sandbox)
 //
 // Gated by SANDBOX_REQUIREMENTS["Jolly doctor verifies the Stripe payment

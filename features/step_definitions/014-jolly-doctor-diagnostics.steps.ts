@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { CHECK_STATUSES } from "../support/envelope.ts";
 import { absentCredentialsEnv } from "../support/creds-env.ts";
 import { vercelCliAuthenticated } from "../support/sandbox.ts";
+import { listOrganizations } from "../../src/lib/cloud-api.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 // ─── Scenario: Agent runs doctor during setup (@logic) ──────────────────────
@@ -471,7 +472,17 @@ When("the agent runs `jolly doctor skills --json`", function (this: JollyWorld) 
 });
 
 When("the agent runs `jolly doctor saleor --json`", function (this: JollyWorld) {
-  this.runCli(["doctor", "saleor", "--json"], { env: absentCredentialsEnv() });
+  // Most saleor-doctor scenarios run with the runtime credentials genuinely
+  // unset (real absence). The credential-validity scenarios below stash a
+  // per-scenario env override in notes — the real valid Cloud token, or a
+  // real-but-invalid / wrong-shape token — so the same command drives the real
+  // Cloud API probe. No override → real absence, as before.
+  const override = this.notes.saleorDoctorEnv as
+    | Record<string, string | undefined>
+    | undefined;
+  this.runCli(["doctor", "saleor", "--json"], {
+    env: override ?? absentCredentialsEnv(),
+  });
 });
 
 When("the agent runs `jolly doctor deployment --json`", function (this: JollyWorld) {
@@ -479,7 +490,15 @@ When("the agent runs `jolly doctor deployment --json`", function (this: JollyWor
 });
 
 When("the agent runs `jolly doctor stripe --json`", function (this: JollyWorld) {
-  this.runCli(["doctor", "stripe", "--json"], { env: absentCredentialsEnv() });
+  // Default: runtime credentials genuinely unset. A scenario probing a specific
+  // configured key (e.g. a live-mode secret) stashes a per-scenario env override
+  // in notes so the same command inspects that real bad input.
+  const override = this.notes.stripeDoctorEnv as
+    | Record<string, string | undefined>
+    | undefined;
+  this.runCli(["doctor", "stripe", "--json"], {
+    env: override ?? absentCredentialsEnv(),
+  });
 });
 
 Then("only the skills checks should run", function (this: JollyWorld) {
@@ -694,5 +713,193 @@ Then(
       "a complete bootstrap must not raise DOCTOR_CHECKS_FAILED",
     );
     assert.notEqual(this.envelope.status, "error", "complete bootstrap must not be an error");
+  },
+);
+
+// ─── Rule: Credential checks probe validity, not just presence ──────────────
+//
+// A token present in `.env` is not a token that works. The `saleor-cloud-token`
+// check authenticates a read-only GET of the Cloud API organizations endpoint
+// and reports the REAL result — `pass` naming the authenticated org slug on a
+// real 2xx, `warning`/`fail` reporting the HTTP status on a real 401/403 — never
+// a `pass` from presence alone. A separator-free value (per-store app token
+// shape) is a `warning` naming the likely mix-up before the network probe.
+//
+// These scenarios drive the real Cloud API: the valid case (@sandbox) gated on
+// JOLLY_SALEOR_CLOUD_TOKEN; the invalid/wrong-shape cases (@logic) produced from
+// real bad input aimed at the real endpoint (real rejection, never doubled).
+
+const CLOUD_TOKEN_PAGE = "https://cloud.saleor.io/tokens";
+
+/** The organization slugs the real Cloud token resolves, fetched live once and
+ * cached on the world. Used to prove a `pass` came from the real response. */
+async function realOrgSlugs(world: JollyWorld): Promise<string[]> {
+  if (Array.isArray(world.notes.cloudOrgSlugs)) {
+    return world.notes.cloudOrgSlugs as string[];
+  }
+  const token = process.env.JOLLY_SALEOR_CLOUD_TOKEN;
+  assert.ok(
+    token && token.trim() !== "",
+    "the @sandbox gate must have ensured a real Cloud token is present",
+  );
+  const orgs = await listOrganizations(token!);
+  const slugs = orgs.map((o) => String(o.slug)).filter((s) => s.length > 0);
+  world.notes.cloudOrgSlugs = slugs;
+  return slugs;
+}
+
+function cloudTokenCheck(world: JollyWorld): Record<string, unknown> {
+  const check = world.findCheck("saleor-cloud-token");
+  assert.ok(check, "doctor saleor must report a `saleor-cloud-token` check");
+  return check!;
+}
+
+// Scenario: Doctor validates the Saleor Cloud token, not just its presence (@sandbox)
+
+Given(
+  ".env contains a valid JOLLY_SALEOR_CLOUD_TOKEN from https:\\/\\/cloud.saleor.io\\/tokens",
+  function (this: JollyWorld) {
+    // @sandbox gate guarantees the real Cloud token is in the environment; let
+    // doctor read the real credentials (no stripping) so it probes for real.
+    assert.ok(
+      process.env.JOLLY_SALEOR_CLOUD_TOKEN &&
+        process.env.JOLLY_SALEOR_CLOUD_TOKEN.trim() !== "",
+      "a valid JOLLY_SALEOR_CLOUD_TOKEN must be configured",
+    );
+    this.notes.saleorDoctorEnv = {};
+  },
+);
+
+Then(
+  'a {string} check should authenticate a read-only GET of the Cloud API organizations endpoint',
+  function (this: JollyWorld, id: string) {
+    const check = this.findCheck(id);
+    assert.ok(check, `doctor saleor must report a \`${id}\` check`);
+    assert.match(
+      JSON.stringify(check),
+      /organizations/i,
+      `the ${id} check must show it authenticated a read-only GET of the Cloud API organizations endpoint, not just that the token is present`,
+    );
+  },
+);
+
+Then(
+  'the {string} check should be {string} naming the authenticated organization slug from the real response',
+  async function (this: JollyWorld, id: string, status: string) {
+    const check = this.findCheck(id);
+    assert.ok(check, `doctor saleor must report a \`${id}\` check`);
+    assert.equal(check!.status, status, `${id} must be "${status}" against a valid token`);
+    const slugs = await realOrgSlugs(this);
+    assert.ok(slugs.length > 0, "the real Cloud token must resolve at least one organization");
+    const text = JSON.stringify(check);
+    assert.ok(
+      slugs.some((slug) => text.includes(slug)),
+      `the ${id} pass must name the authenticated organization slug from the real response (one of ${slugs.join(", ")})`,
+    );
+  },
+);
+
+Then(
+  "the check must not report {string} from the token's presence alone",
+  async function (this: JollyWorld, passWord: string) {
+    const check = cloudTokenCheck(this);
+    // A presence-only verdict could not carry the org identity the real GET
+    // returned; require that response-derived evidence to back any pass.
+    const slugs = await realOrgSlugs(this);
+    const text = JSON.stringify(check);
+    assert.ok(
+      check.status !== passWord || slugs.some((slug) => text.includes(slug)),
+      `${passWord} must be backed by the real organizations response, not the token's presence`,
+    );
+  },
+);
+
+// Scenario: Doctor reports a rejected Saleor Cloud token as warning, never pass (@logic)
+
+Given(
+  ".env contains JOLLY_SALEOR_CLOUD_TOKEN set to the cloud-shaped but invalid value {string}",
+  function (this: JollyWorld, value: string) {
+    // A real, cloud-shaped (dot-separated) but invalid token aimed at the real
+    // Cloud API: the organizations GET is really sent and really rejected.
+    this.notes.saleorDoctorEnv = absentCredentialsEnv({
+      JOLLY_SALEOR_CLOUD_TOKEN: value,
+    });
+  },
+);
+
+Then(
+  "the {string} check should really send the authenticated organizations request and have it rejected",
+  function (this: JollyWorld, id: string) {
+    const check = this.findCheck(id);
+    assert.ok(check, `doctor saleor must report a \`${id}\` check`);
+    const text = JSON.stringify(check);
+    assert.match(
+      text,
+      /organizations/i,
+      `the ${id} check must show it sent the authenticated organizations request`,
+    );
+    assert.match(
+      text,
+      /\b40\d\b/,
+      `the ${id} check must report the real HTTP rejection status`,
+    );
+  },
+);
+
+Then(
+  'the {string} check should be {string} or {string}, reporting the HTTP rejection status, never {string}',
+  function (this: JollyWorld, id: string, a: string, b: string, never: string) {
+    const check = this.findCheck(id);
+    assert.ok(check, `doctor saleor must report a \`${id}\` check`);
+    assert.notEqual(check!.status, never, `${id} must never fabricate "${never}" for a rejected token`);
+    assert.ok(
+      [a, b].includes(String(check!.status)),
+      `${id} on a real rejection must be "${a}" or "${b}", got "${check!.status}"`,
+    );
+    assert.match(
+      JSON.stringify(check),
+      /\b40\d\b/,
+      `${id} must report the HTTP rejection status`,
+    );
+  },
+);
+
+Then(
+  "its next step should direct the customer to create a new token at https:\\/\\/cloud.saleor.io\\/tokens",
+  function (this: JollyWorld) {
+    const check = cloudTokenCheck(this);
+    const text = `${String(check.command ?? "")} ${JSON.stringify(this.envelope.nextSteps)} ${JSON.stringify(check)}`;
+    assert.ok(
+      text.includes(CLOUD_TOKEN_PAGE),
+      `the rejected-token check must direct the customer to ${CLOUD_TOKEN_PAGE}`,
+    );
+  },
+);
+
+// Scenario: Doctor warns when a per-store token is in the Cloud token slot (@logic)
+
+Given(
+  ".env contains JOLLY_SALEOR_CLOUD_TOKEN set to the per-store-app-token shape {string} with no dot separator",
+  function (this: JollyWorld, value: string) {
+    // A separator-free value is the per-store app-token shape — the common
+    // mix-up doctor flags before the network probe.
+    assert.ok(!value.includes("."), "the per-store-app-token-shaped value must have no dot separator");
+    this.notes.saleorDoctorEnv = absentCredentialsEnv({
+      JOLLY_SALEOR_CLOUD_TOKEN: value,
+    });
+  },
+);
+
+Then(
+  "the check message should state the value looks like a per-store app token rather than a Cloud staff token and name https:\\/\\/cloud.saleor.io\\/tokens",
+  function (this: JollyWorld) {
+    const check = cloudTokenCheck(this);
+    const text = JSON.stringify(check);
+    assert.match(text, /per-store|app token/i, "the warning must name the per-store app-token mix-up");
+    assert.match(text, /staff/i, "the warning must contrast with a Cloud staff token");
+    assert.ok(
+      text.includes(CLOUD_TOKEN_PAGE),
+      `the warning must name ${CLOUD_TOKEN_PAGE}`,
+    );
   },
 );
