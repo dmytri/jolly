@@ -180,6 +180,12 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   // 012-existing-saleor-store-connection
   "Jolly creates a Saleor Cloud environment": ["saleorCloud"],
   "Jolly create store handles domain name collision": ["saleorCloud"],
+  // 026-live-by-design-verification
+  // The eval's pre-run capacity reclamation drives only the Cloud API (list +
+  // delete environments); the Cloud token alone is required.
+  "The eval reclaims a leftover jolly-test environment before a run provisions": [
+    "saleorCloud",
+  ],
   // 019-iteration-phase
   "Agent has live store access from day one": ["saleorEndpoint", "saleorAppToken"],
   // 021-agent-risk-context

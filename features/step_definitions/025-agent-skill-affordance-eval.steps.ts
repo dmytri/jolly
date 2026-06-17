@@ -27,6 +27,7 @@ import {
   envelopeFromTrace,
   parseTrace,
   persistEvalTranscript,
+  reclaimLeftoverTestEnvironments,
   resolveEvalTask,
   runBaselineAgent,
   setupEvalContext,
@@ -192,7 +193,18 @@ Given("Jolly's CLI invocations in the workspace are traced", function (this: Jol
 When(
   "a baseline agent is given the task:",
   { timeout: AGENT_STEP_TIMEOUT_MS },
-  function (this: JollyWorld, task: string) {
+  async function (this: JollyWorld, task: string) {
+    // Pre-run capacity reclamation (features 025 + 026): before the agent's
+    // `jolly start` provisions its fresh jolly-test store, delete leftover
+    // jolly-test-namespaced environments from previous runs so a finite org
+    // environment limit never starves the run at its store stage. Only
+    // jolly-test-namespaced environments are ever deleted (the prefix is the
+    // protection boundary); the feature 026 @sandbox conformance drives this same
+    // seam and asserts its real effect.
+    const cloudToken = process.env.JOLLY_SALEOR_CLOUD_TOKEN;
+    if (cloudToken && cloudToken.trim() !== "") {
+      await reclaimLeftoverTestEnvironments(cloudToken);
+    }
     // Default: the live `jolly.cool/setup` URL the docstring carries, unchanged.
     // Opt-in HARNESS_EVAL_SETUP_LOCAL: serve `assets/homepage/setup.md` over an
     // ephemeral 127.0.0.1 server (torn down via the scenario cleanup registry)

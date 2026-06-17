@@ -47,6 +47,11 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  deleteEnvironment,
+  listAllEnvironments,
+  type CloudEnvironment,
+} from "./cloud.ts";
 import { findEnvelope, type Envelope } from "./envelope.ts";
 
 const REPO_ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -347,6 +352,29 @@ export function realEnvFileContents(): string {
     .filter(([, v]) => v !== undefined && v.trim() !== "")
     .map(([k, v]) => `${k}=${v}`);
   return lines.join("\n") + (lines.length > 0 ? "\n" : "");
+}
+
+/**
+ * The eval's pre-run capacity reclamation (features 025 + 026): BEFORE the
+ * baseline agent's `jolly start` provisions its fresh store, delete every
+ * leftover `jolly-test`-namespaced environment standing in the org from previous
+ * runs, so a finite org environment limit never starves the run at its store
+ * stage — the same capacity reclamation the @sandbox provision path performs.
+ * The `jolly-test-` prefix IS the protection boundary (AGENTS.md): only
+ * `jolly-test`-namespaced environments are ever deleted; anything lacking the
+ * prefix is never touched. Deletion is idempotent and returns the environments it
+ * removed, for observability and the feature 026 conformance assertion. A no-op
+ * when no leftover stands.
+ */
+export async function reclaimLeftoverTestEnvironments(
+  token: string,
+): Promise<CloudEnvironment[]> {
+  const all = await listAllEnvironments(token);
+  const leftovers = all.filter((env) => env.name.startsWith("jolly-test-"));
+  for (const env of leftovers) {
+    await deleteEnvironment(token, env.org, env.key);
+  }
+  return leftovers;
 }
 
 export interface AgentRun {
