@@ -3285,9 +3285,9 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
     });
     // Make the store publicly reachable: Vercel Deployment Protection (SSO /
     // "Vercel Authentication") is on by default and 401s anonymous visitors.
-    // Disable it via the Vercel CLI under its OWN session — no api.vercel.com
-    // from Jolly's code. Best-effort: a plan/permission that disallows it falls
-    // back to a guided step.
+    // Disable it via the Vercel CLI under its OWN session — no direct Vercel
+    // API request from Jolly's code. Best-effort: a plan/permission that
+    // disallows it falls back to a guided step.
     const protection = spawnSync(
       "npx",
       [
