@@ -17,6 +17,15 @@ npx skills add dmytri/shipshape --agent zed --skill '*'
 pi install npm:pi-shipshape
 ```
 
+### Role handoffs — the predecessor's flagged blockers are the first agenda item
+
+On any role takeover (QM→Captain, Crew→QM, Bosun→Captain, and so on), the **outgoing role's final-report blockers and open questions are the FIRST agenda item** the incoming role enumerates and addresses — before discovery, spec maintenance, dirty-deck routing, or any outbound/push decision. Read the immediately-preceding role's final report verbatim and treat its blocker/open-question list as the agenda anchor.
+
+- A single takeover is often **several situations at once** (e.g. post-Bosun completed work AND an unresolved blocker report); do not classify it into one bucket and silently drop the rest. Handle the blockers first, then the other applicable paths.
+- The **fresh handoff from the immediately-preceding role takes priority over accumulated historical notes** (e.g. older `CAPTAIN.md` worklist entries) whenever they compete for attention or conflict. Do not import stale worklist items as if they were the live handoff.
+
+*(Local addition pending upstream into the canonical Shipshape role prompts — see CAPTAIN.md "Lessons learned → Shipshape upstream".)*
+
 ## Project Configuration
 
 | Placeholder | Project value |
