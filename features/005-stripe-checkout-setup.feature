@@ -115,6 +115,14 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     And with no reachable store the checkout-readiness check should be "skipped", "unknown", or "fail", never "pass"
     And the summary must not claim checkout is ready when it was not verified
 
+  @logic
+  Scenario: Jolly doctor warns when a live-mode Stripe secret key is configured
+    Given .env contains JOLLY_STRIPE_SECRET_KEY set to a live-mode key beginning with "sk_live_"
+    When the agent runs `jolly doctor stripe --json`
+    Then the "stripe-keys" check should be "warning"
+    And the check message should state that v1 supports Stripe test mode only and that a live-mode key was detected
+    And the next step should name replacing it with a test-mode key beginning with "sk_test_"
+
   @sandbox
   Scenario: Jolly doctor verifies the Stripe payment gateway is reachable for checkout
     Given a deployed store whose Stripe app is configured and mapped to the `us` channel
@@ -131,6 +139,10 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     - Jolly does not build payment processing; the agent configures Saleor's Stripe app, and
       Jolly only writes the two test keys to `.env`.
     - Stripe live mode is explicitly out of v1 scope.
+    - Because v1 is test mode only, `jolly doctor`'s `stripe-keys` check reads the configured
+      `JOLLY_STRIPE_SECRET_KEY` prefix and reports a `warning` when it is a live-mode key
+      (`sk_live_`), naming the test-mode replacement (`sk_test_`). A live-mode key is a real
+      financial-risk surface, so doctor surfaces it rather than treating any present key as ready.
     - Payment credentials are secrets and must not be printed.
 
   Rule: Stripe app path and the automation split

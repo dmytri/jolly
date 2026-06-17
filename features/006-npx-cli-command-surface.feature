@@ -82,11 +82,33 @@ Feature: Npx-first Jolly CLI command surface
       | jolly --help       |
       | jolly start --json |
 
+  @logic
+  Scenario Outline: Every subcommand prints usage on --help instead of aborting
+    Given the published Jolly CLI
+    When the agent runs `jolly <command> --help`
+    Then the command should exit successfully
+    And it should print a usage summary naming the command and its flags
+    And it should not abort with "Command aborted"
+
+    Examples:
+      | command          |
+      | login            |
+      | logout           |
+      | auth status      |
+      | init             |
+      | start            |
+      | doctor           |
+      | upgrade          |
+      | create store     |
+      | create app-token |
+      | create stripe    |
+
   Rule: Thin command surface
     - Jolly is a thin CLI: it provides deterministic plumbing, installs the Jolly skill, and uses `jolly start` to orchestrate official CLIs without reimplementing them against raw provider APIs.
     - The full command surface is `login`, `logout`, `auth status`, `init`, `start`, `doctor`, `upgrade`, `skills`, and `create` with subcommands `store`, `app-token`, and `stripe` only.
     - There are no separate `create deployment`, `deploy`, `create recipe`, or `create storefront` subcommands: the orchestration lives inside `jolly start`, and the official CLIs remain the delegated tools (see feature 008).
     - All skills (the Jolly skill and the Saleor agent-skills) are installed via `npx skills add <ref>`, falling back to a Git-based install only for a skill not available that way.
+    - Every command and subcommand supports `--help`: it prints a usage summary naming the command and its flags and exits successfully, never aborting with "Command aborted". `--help` is how an agent learns a command's flags without guessing.
     - All CLI commands should support `--json`.
     - All CLI commands should support `--quiet`.
     - All CLI commands should support `--yes` / `-y` to skip Jolly prompts where the agent environment allows.

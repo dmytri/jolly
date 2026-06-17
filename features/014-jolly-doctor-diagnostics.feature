@@ -116,6 +116,36 @@ Feature: Jolly doctor diagnostics
     Then the `mcp-config` and `agents-md` checks should be "pass"
     And doctor should thereby confirm bootstrap is complete
 
+  @sandbox
+  Scenario: Doctor validates the Saleor Cloud token, not just its presence
+    Given .env contains a valid JOLLY_SALEOR_CLOUD_TOKEN from https://cloud.saleor.io/tokens
+    When the agent runs `jolly doctor saleor --json`
+    Then a "saleor-cloud-token" check should authenticate a read-only GET of the Cloud API organizations endpoint
+    And the "saleor-cloud-token" check should be "pass" naming the authenticated organization slug from the real response
+    And the check must not report "pass" from the token's presence alone
+
+  @logic
+  Scenario: Doctor reports a rejected Saleor Cloud token as warning, never pass
+    Given .env contains JOLLY_SALEOR_CLOUD_TOKEN set to the cloud-shaped but invalid value "deadbeef-0000-0000-0000-000000000000.not-a-valid-cloud-token"
+    When the agent runs `jolly doctor saleor --json`
+    Then the "saleor-cloud-token" check should really send the authenticated organizations request and have it rejected
+    And the "saleor-cloud-token" check should be "warning" or "fail", reporting the HTTP rejection status, never "pass"
+    And its next step should direct the customer to create a new token at https://cloud.saleor.io/tokens
+
+  @logic
+  Scenario: Doctor warns when a per-store token is in the Cloud token slot
+    Given .env contains JOLLY_SALEOR_CLOUD_TOKEN set to the per-store-app-token shape "abcdef0123456789abcdef0123" with no dot separator
+    When the agent runs `jolly doctor saleor --json`
+    Then the "saleor-cloud-token" check should be "warning"
+    And the check message should state the value looks like a per-store app token rather than a Cloud staff token and name https://cloud.saleor.io/tokens
+
+  @sandbox
+  Scenario: Doctor names the authenticated Vercel account
+    Given the Vercel CLI is logged in on this runner
+    When the agent runs `jolly doctor deployment --json`
+    Then the "vercel-auth" check should be "pass"
+    And the "vercel-auth" check should name the logged-in Vercel account reported by `vercel whoami`
+
   Rule: Doctor principles
     - `jolly doctor` is required for v1.
     - `jolly doctor` should run all checks by default.
@@ -132,4 +162,24 @@ Feature: Jolly doctor diagnostics
     - Doctor should be diagnostics-only in v1.
     - Doctor should not make local or remote changes in v1.
     - Per feature 020's "No fabricated success", doctor reports `pass` only for a check it actually performed and confirmed; checks it could not run are `skipped` or `unknown`, never `pass`.
+
+  Rule: Credential checks probe validity, not just presence
+    - A credential present in `.env` is not a credential that works. Doctor's
+      `saleor-cloud-token` check authenticates a read-only GET of the Cloud API
+      organizations endpoint (`https://cloud.saleor.io/platform/api/organizations/`,
+      `Authorization: Token <value>`) and reports the real result: `pass` naming the
+      authenticated organization slug on a real 2xx with a parseable org list; `warning`
+      or `fail` reporting the HTTP status on a real 401/403; `unknown` when the Cloud API
+      is unreachable. A `[pass]` from presence alone is a fabricated pass — forbidden by
+      feature 020.
+    - Before the network probe, doctor inspects the value's shape: a Cloud staff token
+      (minted at `https://cloud.saleor.io/tokens`) carries a dot separator, whereas a
+      per-store app token is a short separator-free string. A separator-free value in the
+      `JOLLY_SALEOR_CLOUD_TOKEN` slot is a `warning` naming the likely mix-up — this is the
+      common confusion because both Saleor token kinds look alike. This is a heuristic hint,
+      not a substitute for the authenticated probe.
+    - Identity is part of readiness. A passing `saleor-cloud-token` check names the
+      authenticated organization slug, and a passing `vercel-auth` check names the Vercel
+      account `vercel whoami` reported, so the agent and the human consent to a named target
+      — not a "session confirmed" with no subject.
 

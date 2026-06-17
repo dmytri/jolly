@@ -139,6 +139,72 @@ Feature: Jolly auth commands
     And THIRD_PARTY_KEY should remain in .env unchanged
     And subsequent `jolly auth status` should report not authenticated
 
+  @logic @exceptional-double
+  Scenario: Jolly login reads the token from a file with --token-file
+    Given the Saleor Cloud API is unreachable
+    And a file at ./cloud-token.txt contains the token value "jolly-token-from-file-001"
+    When the agent runs `jolly login --token-file ./cloud-token.txt`
+    Then Jolly should write the token to .env as JOLLY_SALEOR_CLOUD_TOKEN
+    And .env should contain JOLLY_SALEOR_CLOUD_TOKEN=jolly-token-from-file-001
+    And Jolly should not print the token value
+    And the envelope status should be "warning"
+    And the output should state the token was stored, not verified
+
+  @logic @exceptional-double
+  Scenario: Jolly login reads the token from standard input with --token-stdin
+    Given the Saleor Cloud API is unreachable
+    And the token value "jolly-token-from-stdin-002" is provided on standard input
+    When the agent runs `jolly login --token-stdin`
+    Then Jolly should write the token to .env as JOLLY_SALEOR_CLOUD_TOKEN
+    And .env should contain JOLLY_SALEOR_CLOUD_TOKEN=jolly-token-from-stdin-002
+    And Jolly should not print the token value
+
+  @logic @exceptional-double
+  Scenario: Jolly login reads the token from $JOLLY_SALEOR_CLOUD_TOKEN when no token flag is given
+    Given the Saleor Cloud API is unreachable
+    And the environment variable JOLLY_SALEOR_CLOUD_TOKEN is set to "jolly-token-from-env-003"
+    When the agent runs `jolly login` with no token flag where no browser can be opened
+    Then Jolly should write the token to .env as JOLLY_SALEOR_CLOUD_TOKEN
+    And .env should contain JOLLY_SALEOR_CLOUD_TOKEN=jolly-token-from-env-003
+    And it should not present the browser URL-first flow
+    And Jolly should not print the token value
+
+  @logic @exceptional-double
+  Scenario: --token-file takes precedence over the $JOLLY_SALEOR_CLOUD_TOKEN environment variable
+    Given the Saleor Cloud API is unreachable
+    And the environment variable JOLLY_SALEOR_CLOUD_TOKEN is set to "jolly-token-env-loser"
+    And a file at ./cloud-token.txt contains the token value "jolly-token-file-winner"
+    When the agent runs `jolly login --token-file ./cloud-token.txt`
+    Then .env should contain JOLLY_SALEOR_CLOUD_TOKEN=jolly-token-file-winner
+    And the value jolly-token-env-loser should not appear in .env
+
+  @logic
+  Scenario: Jolly login --token-file with an empty file fails honestly and writes nothing
+    Given a file at ./empty-token.txt that is empty
+    When the agent runs `jolly login --token-file ./empty-token.txt --json`
+    Then the envelope status should be "error" with a stable `code`
+    And the error should name the empty token file as the cause
+    And the login error should not claim that browser login is unavailable
+    And it should not write any value to .env
+
+  @sandbox
+  Scenario: Jolly login --token-file verifies the file's token against the Cloud API
+    Given a file containing a valid token from https://cloud.saleor.io/tokens
+    When the agent runs `jolly login --token-file <path>`
+    Then it should verify the token with an authenticated read-only request to the Cloud API organizations endpoint
+    And it should store the token in .env as JOLLY_SALEOR_CLOUD_TOKEN
+    And it should report the authenticated organization context using values from the real response
+    And Jolly should not print the token value
+
+  @logic
+  Scenario: Jolly login warns that the OAuth callback listener is on the machine running Jolly
+    Given the agent has no existing Saleor Cloud authentication
+    When the agent runs `jolly login` with no flags where no browser can be opened
+    Then the output should state that the OAuth callback http://127.0.0.1:5375/callback is served on the machine where Jolly runs
+    And it should state that a browser on a different machine cannot complete that callback
+    And it should direct the user to run `jolly login --token <value>` when the browser is on another machine
+    And no token value should appear in the output
+
   Rule: Auth command principles
     - V1 should include `jolly login`, `jolly logout`, and `jolly auth status`.
     - Auth commands are helpers that empower the customer's agent; they do not make Jolly a separate control plane.
@@ -194,3 +260,33 @@ Feature: Jolly auth commands
     - When a native browser is available (the `open`/`xdg-open`/`start` command exits zero), Jolly also opens the URL in it as a convenience; when it is not, Jolly prints the URL and leaves the user to open it. A missing browser is never an error.
     - Completing the consent in the browser is a human step; Jolly never automates it and never handles the user's credentials. Automated verification covers the authorization URL Jolly presents and the requests it makes (the `--dry-run` and exchange scenarios); the human consent round-trip is exercised manually, not in CI.
     - There is no headless browser automation and no harness email/password knobs; CI and headless environments authenticate with `jolly login --token <value>`.
+
+  Rule: Token input is flexible so the secret need never be a process argument
+    - `jolly login` accepts the Cloud token from four sources, in precedence order:
+      `--token-file <path>` (read the file, trim surrounding whitespace and the trailing
+      newline) > `--token-stdin` (read standard input) > `--token <value>` > the
+      `JOLLY_SALEOR_CLOUD_TOKEN` environment variable. The file, stdin, and environment
+      paths exist so an agent can supply the token without placing the literal in `argv`,
+      where it is visible in process listings and shell history; the agent therefore never
+      has to hand-write the secret into `.env` itself and skip Jolly's verify-before-write.
+    - Every source is trimmed and checked non-empty BEFORE the verification request. An
+      empty file, empty stdin, or an explicit empty `--token ""` fails with a stable error
+      code naming the empty input — never the misleading "browser login unavailable".
+    - A token from any source is verified and stored exactly as a `--token <value>` login
+      is (Rule "Token verification is a real request or it is not verification"):
+      verified-and-stored on a real 2xx, error-and-nothing-written on a real 401/403,
+      stored-not-verified when the Cloud API is unreachable.
+    - With no token from any source, `jolly login` routes to the browser URL-first flow
+      (Rule "Browser OAuth is URL-first, like other CLIs"). A present-but-empty source is
+      an honest error, not a fall-through to the browser.
+
+  Rule: The OAuth callback listener is local to the machine running Jolly
+    - `jolly login`'s loopback callback server listens on `http://127.0.0.1:5375/callback`
+      on the machine where Jolly runs. When an agent runs Jolly on a remote or headless
+      machine while the human's browser is on a different machine, the browser's redirect
+      to `127.0.0.1:5375` reaches the human's machine, where nothing is listening — the
+      browser OAuth flow cannot complete.
+    - When no browser can be opened, the login output names this constraint and directs the
+      user to `jolly login --token <value>` (or `--token-file <path>`) as the always-working
+      headless path. A missing or unreachable browser is never an error (Rule "Browser OAuth
+      is URL-first, like other CLIs").

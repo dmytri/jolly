@@ -54,6 +54,14 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And it should not report the `store` stage as "pending" or claim a store already exists
     And it should not create, configure, or store anything
 
+  @logic
+  Scenario: jolly start --dry-run skips store provisioning when a store endpoint is already configured
+    Given `JOLLY_SALEOR_CLOUD_TOKEN` is set and `NEXT_PUBLIC_SALEOR_API_URL` is configured to an existing store
+    When the agent runs `jolly start --dry-run --json`
+    Then the `store` stage preview should report the configured store as already satisfied and skip provisioning
+    And it should not name a Cloud API request to create a new project or environment
+    And it should not create, configure, or store anything
+
   @sandbox
   Scenario: One jolly start drives the whole flow from a real agent's starting state
     Given a fresh project directory whose `.env` holds only `JOLLY_SALEOR_CLOUD_TOKEN` and the Stripe test keys, with no credential exported into the process environment
@@ -237,6 +245,11 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
       every store it provisions `jolly-test`-namespaced cannon fodder (AGENTS.md "harmless by
       design"): the harness sets that configured name to the per-run `jolly-test-<run>` value,
       exactly as it already passes `--name`/`--domain-label` to `jolly create store`.
+    - The inverse holds for idempotency (feature 022): when `NEXT_PUBLIC_SALEOR_API_URL` is
+      already configured — the customer connected an existing store, or a previous run
+      provisioned one — the store stage detects that configured store as already satisfied and
+      skips provisioning rather than creating a second environment. A re-run never provisions a
+      duplicate store.
 
   Rule: Git provider for optional source control
     - GitHub is the default Git provider for optional source-control setup; other providers are deferred to v2.

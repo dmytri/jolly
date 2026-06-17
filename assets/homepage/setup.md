@@ -56,6 +56,50 @@ Only three moments require your human. Stop and ask when you reach them:
 
 Everything else Jolly does for you.
 
+## Saleor Cloud auth — two endpoints, two schemes (read before probing)
+
+Two Saleor surfaces, two auth schemes — mixing them is the most common way an agent talks
+itself into a false "dead token":
+
+- **Cloud platform API** — `https://cloud.saleor.io/platform/api` — organizations, projects,
+  environments. Auth header is `Authorization: Token <token>` (Django REST `Token`, **not**
+  `Bearer`). Validity probe: `GET https://cloud.saleor.io/platform/api/organizations/` → `200`
+  with an organization list.
+- **Your store's GraphQL API** — `https://<store>.saleor.cloud/graphql/` — catalog, channels,
+  checkout. Auth header is `Authorization: Bearer <token>`.
+
+Do **not** probe `https://cloud.saleor.io/graphql/`. That path is the Cloud **web app**
+(Next.js), not the API: it returns `200 OK` with an HTML sign-in page even for an authenticated
+request — a misleading "success".
+
+Two token kinds, similar shapes:
+
+- **Cloud staff token** — minted at `https://cloud.saleor.io/tokens`, ~81 chars,
+  `uuid.base58` with a dot separator. This is `JOLLY_SALEOR_CLOUD_TOKEN`; it authenticates the
+  Cloud platform API and store-GraphQL staff actions.
+- **Per-store app token** — ~30 chars, separator-free, store-scoped. This is
+  `JOLLY_SALEOR_APP_TOKEN`; it cannot call the Cloud platform API.
+
+**Let Jolly verify — don't hand-roll a probe.** `jolly login --token <value>` and `jolly
+doctor` run the correct authenticated check and report the real result. A `401` from a
+hand-written `curl` with the wrong scheme or endpoint is not evidence the token is dead.
+
+## Operating headlessly or on a remote VM
+
+Browser OAuth (`jolly login` with no flags) starts a callback listener at
+`http://127.0.0.1:5375/callback` **on the machine running Jolly**. If your agent runs on a
+remote or headless VM while the human's browser is on their own laptop, the browser's redirect
+reaches the laptop's `127.0.0.1` — where nothing is listening — and the flow cannot complete.
+Use token login instead:
+
+1. The human mints a Cloud staff token at `https://cloud.saleor.io/tokens`.
+2. Supply it without putting the literal in a command argument:
+   `jolly login --token-file <path>` (a mode-600 file), `jolly login --token-stdin` (stdin), or
+   `JOLLY_SALEOR_CLOUD_TOKEN=<value> jolly login`. Jolly verifies it before writing it to `.env`.
+
+`jolly start --yes` then runs the create/deploy stages; the Saleor Dashboard Stripe app stays a
+human gate.
+
 ## Prerequisites
 
 - Node ≥ 23 — `node -v`. The Jolly CLI runs on Node's native TypeScript support.
