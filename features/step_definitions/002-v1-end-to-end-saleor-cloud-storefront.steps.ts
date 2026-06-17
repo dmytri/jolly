@@ -406,9 +406,11 @@ Then(
 );
 
 Then(
-  "it should add the deployed storefront URL to Saleor's trusted origins via the Cloud API",
+  "it should register the deployed storefront URL as a Saleor trusted origin where a first-party Cloud API allows, otherwise surfacing it as a guided Dashboard step",
   function () {
-    // Trusted-origin updates are a Cloud-API step start performs after deploy — acceptance run.
+    // No first-party Cloud API registers a storefront trusted origin in v1, so
+    // start surfaces it as a guided Dashboard step (the `saleor-trusted-origin`
+    // check) after a real deploy — acceptance run.
   },
 );
 

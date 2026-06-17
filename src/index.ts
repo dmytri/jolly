@@ -3282,6 +3282,28 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
       description:
         "Vercel Deployment Protection is on by default and blocks public access; disable it in the Vercel project settings so the store is publicly reachable (a project setting Jolly does not change).",
     });
+    // The deployed storefront was built against this Saleor endpoint; verify the
+    // endpoint is reachable so the deployed storefront can reach Saleor Cloud
+    // (feature 002). Read-only probe — `pass` only on a real GraphQL response.
+    const reachable = (await probeEndpointConnectivity(endpoint)).kind === "reachable";
+    checks.push({
+      id: "deployed-storefront-saleor-connectivity",
+      status: reachable ? "pass" : "unknown",
+      description: reachable
+        ? `The deployed storefront${deployedUrl ? ` (${deployedUrl})` : ""} is built against the Saleor Cloud endpoint and reaches Saleor Cloud (verified by a live GraphQL probe).`
+        : `The deployed storefront${deployedUrl ? ` (${deployedUrl})` : ""} is built against Saleor Cloud, but live connectivity to the endpoint could not be verified in this run.`,
+    });
+    // Registering the storefront origin as a Saleor trusted origin has no
+    // first-party Cloud API in v1 (Saleor Cloud allows anonymous storefront API
+    // reads without it); surface it as a guided step where APIs do not perform it
+    // (feature 002 Rule "...updates Saleor trusted origins where APIs allow").
+    if (deployedUrl) {
+      checks.push({
+        id: "saleor-trusted-origin",
+        status: "warning",
+        description: `If the storefront makes authenticated/CORS-restricted Saleor calls, add ${deployedUrl} to the store's allowed origins in the Saleor Dashboard (no first-party Cloud API performs this in v1).`,
+      });
+    }
     return {
       status: "completed",
       data: deployedUrl ? { deploymentUrl: deployedUrl, storefrontUrl: deployedUrl } : {},

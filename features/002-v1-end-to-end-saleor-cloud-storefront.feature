@@ -103,7 +103,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And it should not fall back to any other deployment mechanism such as a guided Git import flow
     And it should configure the required environment variables on the Vercel project through the Vercel CLI
     And `nextSteps` should include disabling Vercel Deployment Protection so the store is publicly reachable
-    And it should add the deployed storefront URL to Saleor's trusted origins via the Cloud API
+    And it should register the deployed storefront URL as a Saleor trusted origin where a first-party Cloud API allows, otherwise surfacing it as a guided Dashboard step
     And `jolly doctor` should verify that the deployed storefront can reach Saleor Cloud
     And the envelope `data` should report the deployed storefront URL captured from the Vercel CLI's deploy output, not a fabricated or guessed value
     And `nextSteps` should list the remaining human gates
