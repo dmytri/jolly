@@ -17,6 +17,13 @@ Feature: Live-by-design verification conformance
     Then the seed should include only the credentials the agent needs to authenticate — the Saleor Cloud token, any Cloud API override, and the Stripe test-mode keys
     And it should omit the store endpoint `NEXT_PUBLIC_SALEOR_API_URL` and the `JOLLY_SALEOR_APP_TOKEN`, so a baseline agent's `jolly start` provisions a fresh `jolly-test` store on the real creation path instead of reusing a pre-seeded one
 
+  @sandbox
+  Scenario: The eval reclaims a leftover jolly-test environment before a run provisions
+    Given a leftover `jolly-test`-namespaced Saleor environment standing in the org from a previous run
+    When the eval performs its pre-run capacity reclamation
+    Then the leftover `jolly-test`-namespaced environment should no longer exist in the org
+    And every environment lacking the `jolly-test` prefix should still be present afterward
+
   Rule: Live-by-design conformance
     - Binding test methodology lives in AGENTS.md ("Real services always — never mock or fake"); this feature makes its one testable invariant executable, so a suite that is green while still carrying a forbidden double fails here instead of passing silently.
     - A forbidden double is any stand-in for the normal path: a fake CLI replacing a real one, a dummy or forced-safe credential, or an unroutable endpoint replacing a real service.
@@ -26,3 +33,4 @@ Feature: Live-by-design verification conformance
 
   Rule: The eval exercises the real store-creation path
     - Feature 025 requires the eval workspace to be seeded with only the credentials a baseline agent needs to AUTHENTICATE, leaving the store endpoint and app token unset so `jolly start` provisions a fresh `jolly-test` store. This feature makes that one clause executable in the gating tier: `@eval` never gates CI, so a harness that silently seeds a pre-provisioned store would otherwise pass unnoticed — and a pre-seeded endpoint makes `jolly start` treat the store as pre-existing, so the configurator's `--failOnDelete` guard blocks the starter recipe and the live stages can never complete.
+    - Feature 025 also requires the harness to reclaim capacity BEFORE the agent provisions — deleting leftover `jolly-test`-namespaced environments from previous runs (the same reclamation the `@sandbox` provision path performs) so a finite org environment limit never starves the run at its store stage. This feature gates that clause behaviorally: `@eval` never runs in CI, so an eval carrying only teardown and no pre-run reclamation would silently let leftovers fill the org and the live store stage would fail unobserved. A pure selection check would pass against never-called reclamation code, so the conformance is the observable effect — a real leftover is gone afterward — and only `jolly-test`-namespaced environments are ever deleted.
