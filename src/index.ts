@@ -3192,7 +3192,13 @@ async function runStorefrontStage(checks: Check[]): Promise<StageStatus> {
  * only on a real exit-0 deploy; `blocked`/`fail` (with the real error) otherwise
  * — never a fabricated deployment. Non-interactive for the deploy itself.
  */
-async function runDeployStage(checks: Check[]): Promise<StageStatus> {
+/** Extract the deployed `*.vercel.app` URL the Vercel CLI prints, or undefined. */
+function extractVercelUrl(stdout: string | undefined): string | undefined {
+  const m = (stdout ?? "").match(/https:\/\/[a-z0-9-]+\.vercel\.app/i);
+  return m ? m[0] : undefined;
+}
+
+async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
   const dir = join(projectDir(), "storefront");
 
   if (!existsSync(join(dir, "package.json"))) {
@@ -3202,17 +3208,52 @@ async function runDeployStage(checks: Check[]): Promise<StageStatus> {
       description: "Cannot deploy: storefront/ is not prepared yet (no Paper checkout).",
       remediation: "Complete the storefront stage so storefront/ exists, then re-run jolly start --yes.",
     });
-    return "blocked";
+    return { status: "blocked" };
   }
 
-  // Deploy to production via the official Vercel CLI under its own session.
+  // The Paper storefront needs its NEXT_PUBLIC_* config at BUILD time, so the
+  // Vercel build fails without them. Resolve the store endpoint (.env-first) and
+  // the recipe's `us` channel (feature 004 Rule: the recipe `us` channel slug is
+  // the storefront's NEXT_PUBLIC_DEFAULT_CHANNEL).
+  const values = loadEnvValues(projectDir());
+  const endpoint =
+    process.env["NEXT_PUBLIC_SALEOR_API_URL"] ?? values["NEXT_PUBLIC_SALEOR_API_URL"] ?? "";
+  if (!endpoint) {
+    checks.push({
+      id: "vercel-deployed",
+      status: "skipped",
+      description:
+        "Cannot deploy: NEXT_PUBLIC_SALEOR_API_URL is not configured (complete the store stage first).",
+      remediation: "Complete the store stage so the endpoint is in .env, then re-run jolly start --yes.",
+    });
+    return { status: "blocked" };
+  }
+  const channel =
+    values["JOLLY_STORE_CHANNEL"] ?? process.env["JOLLY_STORE_CHANNEL"] ?? "us";
+
+  // Deploy to production via the official Vercel CLI under its own session,
+  // configuring the required build env vars through the CLI (feature 002 Rule).
   // No JOLLY_VERCEL_TOKEN is read or passed; Jolly's own code contacts no host.
-  const deploy = spawnSync("npx", ["--yes", "vercel", "deploy", "--prod", "--yes"], {
-    cwd: dir,
-    encoding: "utf8",
-    timeout: 600_000,
-    env: { ...process.env },
-  });
+  const deploy = spawnSync(
+    "npx",
+    [
+      "--yes",
+      "vercel",
+      "deploy",
+      "--prod",
+      "--yes",
+      "--build-env",
+      `NEXT_PUBLIC_SALEOR_API_URL=${endpoint}`,
+      "--build-env",
+      `NEXT_PUBLIC_DEFAULT_CHANNEL=${channel}`,
+    ],
+    {
+      cwd: dir,
+      encoding: "utf8",
+      timeout: 600_000,
+      env: { ...process.env },
+    },
+  );
 
   if (deploy.error || deploy.status === null) {
     const reason = deploy.error ? deploy.error.message : "the Vercel CLI could not be spawned";
@@ -3223,14 +3264,17 @@ async function runDeployStage(checks: Check[]): Promise<StageStatus> {
       remediation:
         "Verify the Vercel CLI is authenticated (`npx vercel login`, an interactive gate the agent/human runs), then re-run jolly start --yes.",
     });
-    return "blocked";
+    return { status: "blocked" };
   }
 
   if (deploy.status === 0) {
+    const deployedUrl = extractVercelUrl(deploy.stdout);
     checks.push({
       id: "vercel-deployed",
       status: "pass",
-      description: "Deployed storefront/ to Vercel via the official Vercel CLI (`npx vercel --prod`).",
+      description: deployedUrl
+        ? `Deployed storefront/ to Vercel via the official Vercel CLI: ${deployedUrl}`
+        : "Deployed storefront/ to Vercel via the official Vercel CLI (`npx vercel --prod`).",
     });
     checks.push({
       id: "vercel-deployment-protection",
@@ -3238,7 +3282,10 @@ async function runDeployStage(checks: Check[]): Promise<StageStatus> {
       description:
         "Vercel Deployment Protection is on by default and blocks public access; disable it in the Vercel project settings so the store is publicly reachable (a project setting Jolly does not change).",
     });
-    return "completed";
+    return {
+      status: "completed",
+      data: deployedUrl ? { deploymentUrl: deployedUrl, storefrontUrl: deployedUrl } : {},
+    };
   }
 
   const stderr = (deploy.stderr ?? "").toString().slice(0, 2000);
@@ -3249,7 +3296,7 @@ async function runDeployStage(checks: Check[]): Promise<StageStatus> {
     remediation:
       "Run `npx vercel login` (an interactive gate the agent/human completes), then re-run jolly start --yes.",
   });
-  return "blocked";
+  return { status: "blocked" };
 }
 
 async function commandStart(args: ParsedArgs): Promise<Envelope> {
@@ -3293,6 +3340,9 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
   // The provisioned store's URLs (graphql/dashboard), surfaced into the run
   // envelope `data` when the store stage auto-provisioned (feature 002).
   let storeData: Record<string, unknown> | undefined;
+  // The deployed storefront URL, surfaced into `data` when the Vercel deploy
+  // stage completed (feature 002).
+  let deployData: Record<string, unknown> | undefined;
   // Set once the run reaches (executes) the Stripe stage, so the keys + channel
   // human gate is announced regardless of whether appInstall succeeded.
   let stripeStageReached = false;
@@ -3366,7 +3416,9 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
           // already-configured store keeps the --failOnDelete guard.
           status = await runRecipeStage(checks, { allowDeletes: storeData !== undefined });
         } else if (planStage.stage === "deploy") {
-          status = await runDeployStage(checks);
+          const outcome = await runDeployStage(checks);
+          status = outcome.status;
+          deployData = outcome.data;
         } else {
           status = "pending";
         }
@@ -3507,6 +3559,7 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
       },
       stages,
       ...(storeData ? { store: storeData } : {}),
+      ...(deployData ? { deploy: deployData } : {}),
       // The ordered playbook of the orchestrated stages (the official CLIs
       // Jolly spawns and the gates it waits at), for agents/readers that want a
       // flat narrative alongside the structured stage list.
