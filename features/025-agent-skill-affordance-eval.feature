@@ -61,11 +61,16 @@ Feature: Agent skill affordance evaluation
       thus measures the affordance from the true starting point.
     - Safety is harmless-by-design, NOT faking (see AGENTS.md): every resource
       the agent creates is `jolly-test`-namespaced and removed in best-effort
-      teardown; Saleor Cloud environments are disposable cannon fodder, so an
-      environment-limit rejection is reclaimed by deleting `jolly-test`-namespaced
-      environments, never by faking, and only `jolly-test`-namespaced resources
-      are ever deleted. Stripe runs in test mode with test cards (worst case: a
-      declined transaction, never a real charge).
+      teardown; Saleor Cloud environments are disposable cannon fodder. Because
+      the org has a finite environment limit, the harness reclaims capacity
+      BEFORE the agent provisions — deleting leftover `jolly-test`-namespaced
+      environments from previous runs (the same reclamation the `@sandbox`
+      provision path performs) so a leftover never starves the run at its store
+      stage — and an environment-limit rejection encountered mid-run is likewise
+      reclaimed by deleting `jolly-test`-namespaced environments, never by
+      faking. Only `jolly-test`-namespaced resources are ever deleted. Stripe
+      runs in test mode with test cards (worst case: a declined transaction,
+      never a real charge).
     - Best-effort teardown of created cloud resources is the DEFAULT (harmless).
       An opt-in `HARNESS_EVAL_KEEP_STORE` knob (set → retain) skips that teardown
       so the run's created store — the `jolly-test`-namespaced Saleor environment
