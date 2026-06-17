@@ -520,3 +520,26 @@ Then(
     );
   },
 );
+
+Then(
+  "the preview should report that the Cloud token it would authenticate with was read from the project `.env`",
+  function (this: JollyWorld) {
+    // The Given put JOLLY_SALEOR_CLOUD_TOKEN in the project `.env` FILE only and
+    // unset it from the process environment, so a correct preview must report it
+    // authenticated with the token read from `.env` — not the process env. Assert
+    // a dedicated source field (not the incidental `.env` in riskContext
+    // sideEffects, which would make this pass trivially).
+    const data = this.envelope.data as Record<string, unknown>;
+    const source = String(data["cloudTokenSource"] ?? "").toLowerCase();
+    assert.ok(
+      source.includes(".env"),
+      `the preview must report the Cloud token's source as the project .env file; ` +
+        `got cloudTokenSource="${data["cloudTokenSource"] ?? ""}"`,
+    );
+    assert.ok(
+      !source.includes("process") && !source.includes("environment"),
+      `the preview must report the Cloud token was read from the .env FILE, ` +
+        `not the process environment; got "${data["cloudTokenSource"] ?? ""}"`,
+    );
+  },
+);

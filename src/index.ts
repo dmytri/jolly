@@ -1462,6 +1462,14 @@ async function commandCreateAppToken(args: ParsedArgs): Promise<Envelope> {
   // fallback to the process environment.
   const token =
     values["JOLLY_SALEOR_CLOUD_TOKEN"] ?? process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
+  // Report where the Cloud token was read from: the project `.env` FILE is the
+  // real-agent path (feature 008 Rule "Credentials are read from .env"); the
+  // process environment is only a fallback.
+  const cloudTokenSource = values["JOLLY_SALEOR_CLOUD_TOKEN"]
+    ? "project .env"
+    : process.env["JOLLY_SALEOR_CLOUD_TOKEN"]
+      ? "process environment"
+      : "unresolved";
   const instanceUrl =
     args.options["url"] ??
     values["NEXT_PUBLIC_SALEOR_API_URL"] ??
@@ -1475,6 +1483,7 @@ async function commandCreateAppToken(args: ParsedArgs): Promise<Envelope> {
       data: {
         dryRun: true,
         instanceUrl: instanceUrl ?? null,
+        cloudTokenSource,
         riskContext: appTokenRiskContext(instanceUrl ?? "unresolved Saleor GraphQL endpoint"),
       },
       nextSteps: [
