@@ -83,6 +83,19 @@ Review it, then proceed.
 npx @dk/jolly start
 ```
 
+**Running autonomously?** If you are an agent the customer asked to set the store up end-to-end
+and there is no human watching to approve each step, run it with `--yes`:
+
+```
+npx @dk/jolly start --yes
+```
+
+`--yes` pre-approves the create/deploy stages so the run proceeds straight through instead of
+pausing for per-stage approval. It still stops at the true human gates (account creation, the
+Dashboard Stripe app) and still reports only what it actually did. The full run provisions a
+store, clones and builds the storefront, and deploys — it takes several minutes, so allow a
+generous time budget (or run it in the background and poll) rather than cancelling it.
+
 `start` runs the whole setup end-to-end, **spawning the official CLIs for you** (clone Paper,
 `pnpm install`, apply the starter recipe with `@saleor/configurator`, deploy with `npx vercel`)
 alongside its own plumbing (login, store, app token, Stripe key import, `.mcp.json`, skills,

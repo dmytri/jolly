@@ -356,6 +356,35 @@ export interface AgentRun {
  * env as OPENROUTER_API_KEY. Safety is harmless-by-design (namespacing +
  * teardown registered by the step definitions), never credential-faking.
  */
+/**
+ * Copy the runner's real Vercel CLI session into the agent's isolated fake
+ * $HOME so `npx vercel` is authenticated there (live-by-design deploy). The
+ * Vercel CLI stores its session under $XDG_DATA_HOME/com.vercel.cli (Linux) or
+ * ~/.vercel; mirror whichever exists. Best-effort and skip-not-fail: absent a
+ * session the deploy stage gates as before.
+ */
+function passThroughVercelSession(fakeHome: string): void {
+  const realHome = process.env.HOME ?? "";
+  const realDataHome =
+    process.env.XDG_DATA_HOME && process.env.XDG_DATA_HOME.trim() !== ""
+      ? process.env.XDG_DATA_HOME
+      : join(realHome, ".local", "share");
+  const fakeDataHome = join(fakeHome, ".local", "share");
+  try {
+    const xdgSrc = join(realDataHome, "com.vercel.cli");
+    if (existsSync(xdgSrc)) {
+      mkdirSync(fakeDataHome, { recursive: true });
+      cpSync(xdgSrc, join(fakeDataHome, "com.vercel.cli"), { recursive: true });
+    }
+    const legacySrc = join(realHome, ".vercel");
+    if (existsSync(legacySrc)) {
+      cpSync(legacySrc, join(fakeHome, ".vercel"), { recursive: true });
+    }
+  } catch {
+    // best-effort: absent/unreadable session → deploy stage gates (skip-not-fail)
+  }
+}
+
 export function runBaselineAgent(ctx: EvalContext, task: string): AgentRun {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
@@ -370,6 +399,13 @@ export function runBaselineAgent(ctx: EvalContext, task: string): AgentRun {
   env.OPENROUTER_API_KEY = modelApiKey() ?? "";
   // Never leak the harness's own knobs into the agent.
   delete env.HARNESS_OPENROUTER_API_KEY;
+
+  // Pass a real Vercel CLI session into the agent's isolated home when one
+  // exists on the runner (live by design): the customer's own agent would be
+  // logged in to Vercel, so the eval's agent gets the same session and can drive
+  // the live Vercel deploy stage (feature 002). Absent a session, the deploy
+  // stage gates (skip-not-fail) exactly as before.
+  passThroughVercelSession(ctx.fakeHome);
 
   const timeout = evalTimeoutMs();
   const start = Date.now();

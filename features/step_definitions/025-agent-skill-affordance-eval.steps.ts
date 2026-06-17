@@ -375,29 +375,64 @@ Then(
 );
 
 Then(
-  "for each live stage it completed it should report the real URL Jolly emitted — the Saleor dashboard URL for the `jolly-test`-namespaced environment it created, and the deployed storefront URL when the Vercel deploy completed",
+  "when the store stage completed, the run must surface the real Saleor Dashboard URL Jolly emitted for the `jolly-test`-namespaced environment it created — a real `.saleor.cloud\\/dashboard\\/` URL observed from Jolly's output, never fabricated — and likewise the deployed storefront URL when the Vercel deploy completed",
   function (this: JollyWorld) {
     // Surface, from Jolly's OWN output envelopes, the real URLs reported for the
-    // stages that actually completed — never fabricated. A stage that did not
-    // complete (e.g. a gated Vercel deploy) yields no URL, and its absence is
-    // reported rather than invented.
+    // stages that actually completed — never fabricated. The assertion is
+    // CONDITIONAL on stage completion: a run that honestly paused at the store
+    // approval gate (or whose Vercel deploy was gated) completed no such stage
+    // and is required to surface no URL — its absence is reported, not invented.
     const envelopes = trace(this)
       .map((rec) => (rec.stdout ? findEnvelope(rec.stdout) : undefined))
       .filter((e): e is Envelope => Boolean(e));
+
+    const stageCompleted = (name: string): boolean =>
+      envelopes.some((env) => {
+        const stages = ((env.data as Record<string, unknown>)?.["stages"] ?? []) as Array<{
+          stage?: string;
+          status?: string;
+        }>;
+        return stages.some((s) => s.stage === name && s.status === "completed");
+      });
+
+    // Collect every https URL Jolly emitted, recursing into nested data objects
+    // (the store/deploy stages surface URLs under data.store / data.deploy).
     const dashboardUrls = new Set<string>();
     const storefrontUrls = new Set<string>();
-    for (const env of envelopes) {
-      for (const [k, v] of Object.entries(env.data as Record<string, unknown>)) {
-        if (typeof v !== "string" || !/^https:\/\//.test(v)) continue;
-        if (/dashboard/i.test(k)) dashboardUrls.add(v);
-        if (/(deployment|storefront)/i.test(k) && /url/i.test(k)) storefrontUrls.add(v);
+    const visit = (obj: unknown): void => {
+      if (!obj || typeof obj !== "object") return;
+      for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+        if (typeof v === "string" && /^https:\/\//.test(v)) {
+          if (/dashboard/i.test(k)) dashboardUrls.add(v);
+          if (/(deployment|storefront)/i.test(k) && /url/i.test(k)) storefrontUrls.add(v);
+        } else if (v && typeof v === "object") {
+          visit(v);
+        }
       }
-    }
+    };
+    for (const env of envelopes) visit(env.data);
+
     this.attach(
       `Reported Saleor dashboard URL(s): ${[...dashboardUrls].join(", ") || "(none — store stage not completed)"}\n` +
         `Reported storefront URL(s): ${[...storefrontUrls].join(", ") || "(none — Vercel deploy gated/not completed)"}`,
       "text/plain",
     );
+
+    // When a stage genuinely completed, its real URL must be present (never a
+    // fabricated or guessed value); when it did not, no URL is required.
+    if (stageCompleted("store")) {
+      const dash = [...dashboardUrls].find((u) => /\.saleor\.cloud\/dashboard\//.test(u));
+      assert.ok(
+        dash,
+        "the store stage completed, so the run must surface the real .saleor.cloud/dashboard/ URL Jolly emitted",
+      );
+    }
+    if (stageCompleted("deploy")) {
+      assert.ok(
+        storefrontUrls.size > 0,
+        "the Vercel deploy stage completed, so the run must surface the deployed storefront URL Jolly captured",
+      );
+    }
     // Any URL the run reports must be a real https URL emitted by Jolly, never a
     // fabricated placeholder.
     for (const url of [...dashboardUrls, ...storefrontUrls]) {
