@@ -14,10 +14,18 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And the setup path must minimize human intervention to new account creation, browser OAuth consent, and providing secret values
 
   @logic
-  Scenario: Agent starts the Saleor Cloud setup journey
-    Given a fresh project directory with no store URL configured
+  Scenario: Agent reaches the store choice once authenticated with no store configured
+    Given `JOLLY_SALEOR_CLOUD_TOKEN` is configured and no store URL is set
     When the agent runs `jolly start --json` with no store URL
     Then `nextSteps` should name both the register-new and connect-existing paths
+
+  @logic
+  Scenario: jolly start walks the user through OAuth when no Saleor Cloud token is configured
+    Given a fresh project directory with no `JOLLY_SALEOR_CLOUD_TOKEN` configured
+    When the agent runs `jolly start --json` where no browser can be opened
+    Then the `auth` stage should present the Keycloak authorization URL for the user to complete browser login
+    And it should not report the missing token as a fatal error or a missing browser as an error
+    And `nextSteps` should offer completing browser login or `jolly login --token <value>`
 
   @sandbox
   Scenario: Jolly registers a new Saleor Cloud store via the Cloud API
@@ -28,6 +36,34 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And the `data` should include the store's Saleor Dashboard URL ending in `.saleor.cloud/dashboard/`
     And `nextSteps` should direct new-account signup to cloud.saleor.io
     And Jolly's code should send no signup request and contact only first-party hosts
+
+  @sandbox
+  Scenario: jolly start auto-provisions a new store when none is configured
+    Given `JOLLY_SALEOR_CLOUD_TOKEN` is set and no `NEXT_PUBLIC_SALEOR_API_URL` is configured
+    When the agent runs `jolly start --yes --json`
+    Then the `store` stage status should be "completed", not "pending"
+    And the envelope `data` should include the new store's `*.saleor.cloud` GraphQL API URL and its Saleor Dashboard URL ending in `.saleor.cloud/dashboard/`
+    And `jolly start` should write that `NEXT_PUBLIC_SALEOR_API_URL` and the acquired `JOLLY_SALEOR_APP_TOKEN` to `.env`
+    And the `recipe` and `stock` stages should not report "blocked" for a missing Saleor endpoint
+
+  @logic
+  Scenario: jolly start --dry-run plans to provision a store when none is configured
+    Given `JOLLY_SALEOR_CLOUD_TOKEN` is set and no `NEXT_PUBLIC_SALEOR_API_URL` is configured
+    When the agent runs `jolly start --dry-run --json`
+    Then the `store` stage preview should name the real Cloud API `organizations/{organization}/environments/` request it would send to provision a new store
+    And it should not report the `store` stage as "pending" or claim a store already exists
+    And it should not create, configure, or store anything
+
+  @sandbox
+  Scenario: One jolly start drives the whole flow from a real agent's starting state
+    Given a fresh project directory whose `.env` holds only `JOLLY_SALEOR_CLOUD_TOKEN` and the Stripe test keys, with no credential exported into the process environment
+    And no `NEXT_PUBLIC_SALEOR_API_URL` is configured
+    When the agent runs `jolly start --yes --json`
+    Then the `store`, `recipe`, `stock`, and `deploy` stages should each report status "completed"
+    And the created Saleor environment should be `jolly-test`-namespaced
+    And the envelope `data` should include the store's Saleor Dashboard URL ending in `.saleor.cloud/dashboard/`
+    And the envelope `data` should include the deployed storefront URL captured from the Vercel CLI output
+    And a `jolly doctor` check should report that the deployed storefront reaches Saleor Cloud
 
   @sandbox
   Scenario: Jolly connects an existing Saleor store and verifies connectivity

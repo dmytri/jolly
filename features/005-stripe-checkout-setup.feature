@@ -47,6 +47,14 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     And Jolly should not print either key value
     And the output should report that the keys were imported from the Stripe CLI session
 
+  @sandbox
+  Scenario: jolly start runs stripe login interactively when the Stripe CLI is not authenticated
+    Given the Stripe CLI has no logged-in test-mode session on the runner
+    When `jolly start` reaches the Stripe stage with stdio available
+    Then it should run `stripe login` (via `npx`) with stdio passed through and continue on its exit
+    And after a successful login it should import the test-mode keys via the read-only Stripe CLI (`stripe config --list`)
+    And it should not report the Stripe stage configured without an authenticated session
+
   @logic
   Scenario: Jolly create stripe errors clearly when no keys are available
     Given Jolly has no Stripe credentials in .env

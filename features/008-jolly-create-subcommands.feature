@@ -57,6 +57,25 @@ Feature: Jolly create subcommands
       | app-token  |
       | stripe     |
 
+  Rule: Credentials are read from .env, the way a real agent leaves them
+    - `jolly login` and `jolly create store` write `JOLLY_*` credentials to the project `.env`; the agent does not export them into its shell. So every command reads its credentials from the `.env` FILE (the project config), never depending on a value being present in the process environment.
+
+  @logic
+  Scenario: jolly create store reads the Saleor Cloud token from .env, not the exported environment
+    Given the real `JOLLY_SALEOR_CLOUD_TOKEN` is written to the project `.env` but is absent from the spawned process environment
+    When the agent runs `jolly create store --create-environment --dry-run --json`
+    Then the envelope status should be "success"
+    And the preview should name the real Cloud API `organizations/{organization}/environments/` request it would send to provision the store
+    And it should not create, configure, or store anything
+
+  @logic
+  Scenario: jolly create app-token reads the Saleor Cloud token from .env, not the exported environment
+    Given the real `JOLLY_SALEOR_CLOUD_TOKEN` is written to the project `.env` but is absent from the spawned process environment
+    When the agent runs `jolly create app-token --dry-run --json`
+    Then the envelope status should be "success"
+    And the preview should name the real request it would send to acquire the app token
+    And it should not create, configure, or store anything
+
   Rule: No fabricated create results
     - This Rule applies feature 020's "No fabricated success" contract to every `jolly create` subcommand.
     - A create subcommand reports success and `pass` checks only for resources it actually created, or work it actually performed and confirmed, during the run.

@@ -138,6 +138,7 @@ All `.feature` scenarios and steps must follow the **scenario-writing guide — 
 
 - Keeps the spec corpus current-design-only: remove superseded, obsolete, redundant, or purely historical scenarios/rules/steps without changing current behavior.
 - Removes stale changed-file-adjacent artifacts only.
+- **Removes unreachable production code.** `src/` is disposable and exists only to satisfy current specs/tests, so code that no current scenario, test, or step exercises — a path orphaned after a behavior was retired or refactored — is dead and must be removed, so the MVP carries only code a current spec demands. Detect it by following from the current verification surface (grep for unreferenced exports/functions; where practical, a coverage pass over the BDD run flags `src/` lines no test reaches). When it is unclear whether a path is truly unreachable vs. covering live behavior the tests merely under-exercise, leave it and raise a Captain blocker rather than risk removing a real contract. *(Local addition pending upstream into the canonical Shipshape Bosun role.)*
 - Preserves current behavioral contracts; if a removal would change design or is ambiguous, leave it and raise a Captain blocker.
 - After spec pruning, ensure step definitions/tests are not orphaned and verification discovery is clean.
 - Stages intended changes only and creates the local commit boundary. Captain handles push/publish/release/deploy decisions.
