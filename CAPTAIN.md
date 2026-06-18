@@ -34,169 +34,25 @@ History lives in git, not here. These notes describe only the current design and
 - **Browser OAuth is URL-first (feature 018).** `jolly login` / `--browser` generate the Keycloak authorization URL, print it for click/copy-paste, start the localhost callback server, and open a browser only when one is available (convenience). A missing browser is never an error; `--token` is the always-available non-interactive path. Jolly never sees/holds the user's credentials. There is no Playwright tier, no `@requires-browser`, no email/password knobs.
 - **All CLIs via npx (tooling).** configurator, vercel, and stripe are all used via `npx`; a missing global binary is NOT a failure. Recorded to memory ([[clis-via-npx]]) and in AGENTS.md (Runtime and Build).
 
+## Shipped to date (history in git)
+
+Through **v0.7.1** (released 2026-06-18: push `main`+tag to `github.com/dmytri/jolly`, publish `@dk/jolly@0.7.1` to npm, deploy homepage to Vercel prod). The product reaches the launch bar mechanically: homepage paste → live deployed Paper storefront on Vercel → browsable/stocked store against Saleor Cloud → checkout reaches the Stripe test step (behind the irreducible human Stripe-Dashboard gate). Built across several field-retrospective cycles that converted real remote-VM `jolly start` runs into specs: honesty contracts (configurator deploy read-back, no fabricated success), headless/remote-VM auth (`--token`/`--token-file`/`--token-stdin`/`$JOLLY_SALEOR_CLOUD_TOKEN`, URL-first OAuth, headless-listener warning), doctor validity probes (Cloud token, Vercel account, `sk_live_` warning), `.env` safety (mode 600, shell-sourceable), `--help` usage on every subcommand, `start` idempotency/dry-run, pnpm native-build-script approval for Vercel, and the octopus-voice `setup.md`. The **third retrospective** cycle (post-v0.7.1, **committed but unreleased**) added: recipe bootstrap detection by store STATE not run-locality (004 — recipe deploys over Saleor's stock defaults even on a store from a prior `create store`), and `ENVIRONMENT_LIMIT_REACHED` → actionable `nextSteps` (008).
+
 ## Current state (2026-06-18)
 
-**Active cycle — THIRD field retrospective (`~/hey/jolly-notes.md`) → specs (2026-06-18).** A baseline
-agent ran the full `jolly start` pipeline on a remote VM against a REUSED org (hit the sandbox env
-limit, deleted a stale env to proceed) and reached a live store — but the recipe stage BLOCKED and
-forced manual `@saleor/configurator` surgery. dk asked for an actionable triage, then "spec #1 + #2".
-Triage kept two real gaps and discarded noise (the "changing Vercel URL" is normal per-deployment-URL
-behaviour; the token leak was the agent's own `awk` print, not a Jolly bug):
-- **#1 recipe blocks on a store from a PRIOR `create store` (headline; confirmed in `src`).**
-  `src/index.ts:3632` uses `allowDeletes: storeData !== undefined`, true ONLY when the store stage
-  auto-provisions THIS run. A store made by a separate earlier `jolly create store` is reused →
-  `storeData` undefined → `--failOnDelete` → recipe blocks deleting Saleor's stock defaults. The
-  documented `create store` → `start` flow (and the `@sandbox` harness, which provisions out-of-band
-  in `provision.ts`) hits exactly this. **Spec (004):** broadened the "Recipe targets a clean
-  environment" Rule to be invocation-independent (bootstrap = the deploy would delete ONLY Saleor
-  stock defaults, not which command provisioned; detection deferred to CLI design) + new `@sandbox`
-  scenario: recipe completes and the store's only channel is the recipe's `us` (proves the default
-  channel was replaced — the destructive contract neither 077 nor 086 pins).
-- **#2 `ENVIRONMENT_LIMIT_REACHED` → empty `nextSteps` (honesty/UX).** Hitting the org limit returned
-  no recovery guidance, against the page's "actionable message on failure" promise. **Spec (008):**
-  new `@logic @exceptional-double` scenario (an org at its env limit is the AGENTS.md-sanctioned
-  double) — the error envelope names freeing an environment + upgrading the plan.
-- **cycle.json:** pass1 = 004 prior-create recipe + 008 env-limit nextSteps. Dry-run: 2 undefined,
-  features parse, names match.
-- **Next role: QM** (fresh context). Crew implements: recipe bootstrap detection by store STATE (not
-  run-locality), and env-limit error → actionable nextSteps.
-- **CAPTAIN.md prune debt:** the released-cycle history below (the second/first retrospectives, octopus
-  pass, v0.7.1 release log — roughly to the "Report backlog" heading) is all shipped and current-design
-  -stale; collapse it to a one-paragraph "shipped" summary on a dedicated notes pass.
+- **Deck:** clean, verification green (logic 123 passed / 1 skipped; tsc clean; dry-run 0 undefined). `cycle.json` retired — third-retrospective pass1 complete (008 verified `@logic`; 004 `@sandbox`, CI-gated).
+- **Outbound:** 2 commits ahead of `origin/main` (`0678aab` specs + `31f1df0` cycle) — the third retrospective, **held local, unreleased.** Awaiting dk's outbound decision (push only vs. version-bump + npm publish + homepage redeploy vs. hold).
+- **Remaining to v1 ship:** the field runs confirm paste→live-store works end-to-end against real Saleor Cloud + Vercel. The launch bar's "checkout reaches the Stripe test payment step" still depends on the irreducible human Stripe-Dashboard key+channel gate; `jolly doctor`'s checkout probe verifies it once done.
 
----
+## Open / deferred work (not lost)
 
-**Earlier this session — shipped (history kept for context; prunable per above).**
-
-**Active cycle — second field retrospective (`~/cool/jolly-notes.md`) → specs.** A baseline agent
-ran `npx @dk/jolly start` end-to-end on a remote VM (against a REUSED org/env, so most ops were
-updates not creates) and reached a live, browsable, stocked storefront — launch bar essentially met
-bar the human Stripe gate. dk asked for an assessment, then "proceed" to spec the four real defects.
-Triage: the report's doc-structure complaints (ask-one-at-a-time, buried warning) are already
-addressed by today's octopus voice pass; the gold was engineering defects. Authored 4 red targets +
-`cycle.json` (pass1 honesty/security/blocker, pass2 ergonomics). Dry-run discovery: 4 undefined (the
-4 new), features parse, names match `cycle.json`.
-
-- **#1 configurator-deploy false success (headline, honesty).** Recipe's `featured-products`
-  collection create FAILED (`CollectionInput.description` is `JSONString`; recipe sent a plain
-  sentence) yet the configurator's summary counted "1 created"; Jolly reported the stage completed
-  while the collection was absent. **Fix (asset):** dropped the collection `description` line in
-  `recipe.yml` (products use plain-string descriptions and deploy fine — collection-specific
-  configurator quirk; field not needed by Paper; re-add as editorjs JSON if ever wanted). Also fixed
-  a header-comment drift (`--fail-on-breaking` → `--failOnDelete`, matching feature 004). **Spec
-  (004):** new `@sandbox` scenario + strengthened "Configurator deploy → Honest reporting" rule —
-  `completed` only after Jolly reads the store back and confirms declared entities (esp. the
-  collection) exist, never from the configurator's optimistic counts.
-- **#3 pnpm build-scripts → Vercel build fails (deploy blocker).** Paper's native deps
-  (`sharp`/`esbuild`/`unrs-resolver`) ship build scripts pnpm 10+ ignores unless approved (no
-  `--allow-build` flag); without approval `next build` fails on Vercel — the report saw 14+ red
-  deploys from this. **Spec (002):** new `@sandbox` scenario + storefront-stage rule clause — the
-  stage approves those build scripts so the `npx vercel --prod` build succeeds; framed as build
-  config, not a source/theme edit, so scenario-84's "leave Paper unmodified" still holds.
-- **#2 `.env` written mode 644 (secret exposure) + #4 `.env` apostrophe breaks `source`.** Both are
-  shared-`.env`-writer invariants. **Spec (018):** new "The .env Jolly writes is private and
-  shell-safe" rule + two `@logic @property @exceptional-double` scenarios (mode 600; POSIX-sourceable
-  round-trip of a space+apostrophe value). They reuse the existing sanctioned "Cloud API unreachable"
-  double to write `.env` locally with no network — no new double class.
-- **Lower-value / not specced (noted only):** stock seeding wants `productVariantStocksUpdate`
-  fallback (skill nit); trusted-origins needs staff `MANAGE_SETTINGS` so it's really a Dashboard
-  action (skill overclaims auto-wiring; e2e still works server-side); Vercel Deployment Protection,
-  `og:image` localhost, agent-detection `null`, `jollx` typo — noise/out-of-scope (upstream
-  configurator counts/deletes are an upstream bug, not ours).
-- **cycle.json (original):** pass1 = 002 build-scripts, 004 collection read-back, 018 `.env` mode-600;
-  pass2 = 018 `.env` shell-sourceable.
-
-**Cycle outcome (2026-06-18, after QM→Crew→Bosun + Captain review) — partial; re-scoped.**
-- **#2/#4 `.env` safety — DONE + verified + committed (`aebfed1`).** `src/lib/env-file.ts`: chmod 600
-  on every write; shell-significant values POSIX single-quoted (unquoted on read) so `set -a; . .env`
-  round-trips. Both `@logic` targets green; `@logic` profile 121 pass / 1 skip; tsc clean.
-- **#1 recipe collection honesty — covered by the asset fix.** `recipe.yml` already carries NO
-  collection `description` (the field that broke the create), so `featured-products` now deploys and
-  exists; the 004 `@sandbox` read-back scenario (executable, skips local) should pass in CI on the
-  asset alone. No production read-back was needed to make it green; the scenario still catches the
-  original "absent collection + false completed" regression.
-- **#3 pnpm build-scripts — DONE (`6215228`, post-v0.7.1, not yet released).** Storefront stage now
-  writes `pnpm.onlyBuiltDependencies` (`sharp`/`esbuild`/`unrs-resolver`) into the cloned
-  `storefront/package.json` before install; local `@logic` target (`002:143`) green, the `@sandbox`
-  build-success scenario stays the CI check.
-- **Re-scope (dk approved): spec a local `@logic` angle, then cycle.** Added `@logic` scenario
-  "Jolly start's storefront preparation approves Paper's native build scripts" (002) — creds-free
-  (reuses the existing no-creds clone+install path), falsifiable (RED now), so a normal QM→Crew loop
-  drives and verifies the fix locally. `cycle.json` re-scoped to that single target. The `@sandbox`
-  "...Vercel build succeeds" scenario stays as the CI end-to-end build check.
-- **Outbound — HELD (dk).** No push/publish/deploy until #3 lands; ship the cycle as one release.
-- **Next role: QM** (fresh context) on the re-scoped `cycle.json`. Crew implements the storefront-stage
-  build-script approval (build config, not a Paper source/theme edit — scenario-84 guarantee holds).
-
----
-
-**Setup-guide voice pass (dk) — octopus installer persona.** dk wanted `setup.md` to have
-personality: strong-but-silent voice + a touch of silly **octopus** (dk chose "octopus is the
-mascot"), installer-like, very concise, focus on needed input/confirmation, minimal interaction,
-ask one question at a time, use pick-an-option inputs over free-text, no walls of spew. Scope dk
-set: **`setup.md` only** ("set up only" / "only") — not the Jolly skill, homepage `index.html`, or
-features. Rewrote `assets/homepage/setup.md`: Jolly is now 🐙 the eight-armed setup octopus; new
-"How to run this" interaction-protocol section (terse / one-question / offer-choices /
-confirm-before-risk / surface-only-decisions / honest); human gates now correctly list **four**
-moments (added the Dashboard Stripe-app gate that the old "What needs a human" section dropped);
-load-bearing reference (provenance, hosts, two-auth-schemes anti-"dead-token", headless-VM, skills,
-boundaries) preserved but moved to a scannable "Reference — read when you need it" tail. Asset-only
-edit (assets are not spec'd/tested → no QM cycle). **Not yet committed/deployed.**
-- **Inconsistency flagged to dk:** homepage `index.html` is still pirate-themed (🏴‍☠️/⚓/🦜); only
-  `setup.md` is octopus now. If the octopus mascot should land consistently, `index.html` + the
-  Jolly skill would follow — deferred by dk's "set up only".
-- **Redeploy needed:** `setup.md` is served at jolly.cool/setup via the homepage Vercel project, so
-  the new copy is live only after a homepage redeploy (outbound — needs dk approval).
-
-
-**Active cycle — real-world agent retrospective → specs.** A baseline agent ran `npx @dk/jolly start` end-to-end on a remote VM and completed the full pipeline (store/recipe/stock/deploy/stripe-app), but needed eight operator interventions; the retrospective (`~/test/jolly-notes.md`, dk-provided) catalogued the friction. Captain converted the Jolly-actionable findings to specs this cycle and routed the agent's own knowledge gaps to `setup.md`. `cycle.json` directs QM through the new red targets (pass1 honesty-critical, pass2 ergonomics).
-
-**Cycle progress (2026-06-18):**
-- Specs/assets/cycle.json committed (`af1319d`).
-- **pass1 10/10 DONE.** 014 cloud-token validity probe (×3) + 005 live-mode `sk_live_` warning (`c24326b`); 018 login headless token sources (`1341a5c`): `--token-file`, `--token-stdin`, `$JOLLY_SALEOR_CLOUD_TOKEN` + precedence, empty-file honest error (`EMPTY_TOKEN_FILE`, never browser-blame), `@sandbox` file-token verify. Production: a headless token-source resolver on `jolly login` (precedence after `--token`); verify-before-write reuses the existing `listOrganizations` (`Token`-auth org GET) path.
-- **Verify:** 018 logic 16 passed / 1 undefined (the pass2 `018:200`); 014+005 logic 23 passed / 1 skipped; tsc clean. The `@sandbox` `018` file-token verify skips local (credential-gated to CI), same as the existing `--token` verify scenario.
-- **pass2 → now the live work (4):** 014 Vercel account naming, 018 headless-listener warning, 006 `--help` usage, 002 `start --dry-run` idempotency. **`cycle.json` advanced** — these became `pass1`; the verified former-pass1 was dropped.
-- **new-pass1 4/4 DONE — directed cycle complete; `cycle.json` retired.**
-  - 014 "Doctor names the authenticated Vercel account" (`da29de3`): `vercel-auth` pass names the account `vercel whoami` reports. Gated `[]` creds + Vercel CLI capability (skip-not-fail without a session).
-  - 018 `018:200` headless-listener warning, 006 `--help` usage, 002 `002:58` dry-run store-skip all landed (`2b2845c`):
-    - **018:200** — bare `jolly login` (no browser) now warns the OAuth callback `127.0.0.1:5375/callback` is served on the machine running Jolly, that a browser on another machine cannot complete it, and directs to `jolly login --token <value>` for that case (src: login presentation summary + nextSteps).
-    - **006:86** — every command/subcommand prints a usage summary on `--help` and exits 0, never entering the flow or aborting (new `commandUsage` + dispatch `--help` interceptor; bare `create --help` keeps its subcommand listing).
-    - **002:58** — `jolly start --dry-run` reports an already-configured store as satisfied and skips provisioning, naming no Cloud API create request (src: `commandStartDryRun` branch on `NEXT_PUBLIC_SALEOR_API_URL`; the shared dry-run When now honours `notes.startEnv` so a configured-store starting state can be supplied to the preview).
-  - **Verify:** `@logic` profile 120 scenarios — 119 passed, 1 skipped, **0 failed**; tsc clean; `--dry-run` discovery clean (0 undefined).
-  - **Verification-layer fix (earlier, `da29de3`, QM):** feature 026 "no forbidden double" RED before that pass — the 018 `.invalid` exceptional-double sat outside the 026 scanner's 3-line window; annotation moved adjacent (comment-only).
-  - **Spec-quality, for the next Bosun sweep:** 014 has two live-session `@sandbox` vercel-auth scenarios (mechanism vs. account-naming); distinct observables, both green; consider consolidating.
-- **INVESTIGATED — 2 `@sandbox` failures = stale local `.env`, NOT a bug or this cycle (dk asked to investigate before push):** the default-profile run (all tags) shows `002:77` (`saleor-connectivity` not `"pass"`) and `002:66` (whole-flow stages not all `"completed"`) failing. **Root cause:** the local `.env` `NEXT_PUBLIC_SALEOR_API_URL` points at `jolly-test-demo-1781717774.saleor.cloud` — a `jolly-test-` **cannon-fodder demo env from a prior retrospective run, since reclaimed/deleted (HTTP 404)** (the "DEMO RESOURCES (cannon fodder)" note below). So `002:77`'s doctor connectivity honestly reports `unknown` (can't verify a 404'd store) ≠ `pass` — **product is correct**; the scenario expects a live store the stale `.env` lacks. `002:66` runs (a Vercel session + Stripe/Cloud creds exist locally) and fails on a real full-deploy condition. **Not a gating gap** in the strict sense: creds are present, the store was just deleted; the gate checks credential PRESENCE, not store reachability. The `@logic` worklist is unaffected and green. Neither touches the changed dry-run/`--help`/shared-When paths — mechanically not `2b2845c`.
-  - **Options for dk:** (a) refresh/clear the stale `.env` store (point at a live store or unset it so `002:77` skip-derives) — simplest; (b) extend `@sandbox` skip-not-fail so a configured-but-unreachable store skips rather than fails (a harness-fidelity item, route via `cycle.json`); (c) leave as-is — local-only noise, CI provisions fresh stores. No spec change either way; this is harness/local-env, not product intent.
-- **RELEASED v0.7.1 (dk approved push/deploy/publish, 2026-06-18).** Bumped `0.7.0 → 0.7.1` (`babe6f1`, tag `v0.7.1`) and:
-  - **push:** `main` + tag `v0.7.1` → `github.com/dmytri/jolly`.
-  - **publish:** `@dk/jolly@0.7.1` → npm (public). prepublishOnly built `dist/index.js`.
-  - **deploy:** homepage → Vercel production (project `homepage`), Ready; `/` and `/setup` both HTTP 200.
-- **Stale-store fix applied (option a, dk):** removed the dead `NEXT_PUBLIC_SALEOR_API_URL` (`jolly-test-demo-1781717774`, 404) and its paired `JOLLY_SALEOR_APP_TOKEN` from the local `.env`; Cloud token + Stripe keys kept, so `@sandbox` store/app-token now skip-derive (provision fresh) instead of failing on the deleted store. `.env` is git-ignored; no commit. (Backup file was created then deleted — never committed.)
-- **Homepage copy fix (dk, retrospective feedback) — `7c20244`, redeployed.** The paste prompt said "...to set up **Jolly**"; the retrospective agent read that as the goal and got confused (Jolly is the helper, not the goal). Now "...to set up **a Saleor store**". Live: `homepage-khaki-eight.vercel.app` serves the new copy. `copyPrompt()` reads `#copyText`, so the HTML span is the single source — no JS duplicate.
-- **Next:** the deferred sandbox sweep + `-p eval` run; the 014 two-vercel-auth-scenario consolidation at the next Bosun sweep.
-
-- **Specs authored (this cycle):**
-  - **018** — flexible token input: `--token-file`, `--token-stdin`, `$JOLLY_SALEOR_CLOUD_TOKEN` with precedence + verify-before-write (so an agent never hand-writes the secret into `.env` and skips verification); a headless-listener warning (the OAuth callback is on the machine running Jolly, so a remote browser cannot complete it).
-  - **014** — doctor probes Cloud-token VALIDITY not presence (real authenticated org GET → `pass` naming the org / `warning` on a real 401 / never a fabricated pass); a per-store-vs-Cloud token fingerprint warning; passing `saleor-cloud-token` + `vercel-auth` checks name the authenticated org slug and Vercel account.
-  - **005** — doctor warns on a live-mode Stripe secret key (`sk_live_`); v1 is test mode only.
-  - **006** — every subcommand prints usage on `--help`, never "Command aborted".
-  - **002** — `jolly start` skips store provisioning when a store endpoint is already configured (idempotency).
-- **Assets refined (agent-knowledge gaps, NOT Jolly bugs):** `setup.md` gained "Saleor Cloud auth — two endpoints, two schemes" (Cloud platform API uses `Token`; store GraphQL uses `Bearer`; probe `/platform/api/organizations/`, never `cloud.saleor.io/graphql/`; two similar token shapes) and "Operating headlessly or on a remote VM". Marketing `index.html` left unchanged (less-is-more; it correctly routes to `/setup`) — **flagged to dk in case visible homepage copy was wanted.**
-- **NOT a bug — the agent's own missteps** (guessed `Bearer`, probed `/graphql/`, concluded the token dead): these drove the `setup.md` refinements, not code changes. `cloud-api.ts:28`'s `Bearer` comment is *correct* — it is the STORE GraphQL appInstall context, a different endpoint from the Cloud platform API (`Token`, `cloud-api.ts:97`).
-
-**Deferred this cycle (dk's recorded order was item-3-then-seam; the retrospective superseded it — dk approved):**
-- **Live `-p eval` run (was "item 3").** Both prior blockers fixed (auth-only seed `54aa9ca`, pre-run reclamation `2b18b17`); `setup.md:97` already steers background+poll. Remaining is an operational run; pi's per-command bash timeout vs the ~8-min `jolly start` is the open risk.
-- **Seam-scoping fidelity fix.** `reclaimLeftoverTestEnvironments` deletes ALL `jolly-test-` envs incl. the current run's; feature 025 + the 026 scenario say "previous run". Harmless today (gated; the eval has no current-run env at pre-run time). Clean fix: scope to previous-run leftovers + seed the 026 leftover under a simulated previous-run namespace. No spec change needed; harness-faithfulness QM item. `026:21` passes but does not assert the current-run env survives — strengthen it when worked.
-
-**Report backlog not yet specced (preserved, not lost):**
-- Manual-OAuth code-paste path (`--manual-oauth`: print URL, read `code` from stdin) — `@iteration`; `--token`/`--token-file` already cover the headless path for v1.
-- JOLLY-010: single source of truth for the Cloud-API `Token`-auth fetch shared by doctor + login (impl preference; Crew may do it when touching the area, not a scenario).
-- JOLLY-011: surface `@saleor/configurator --plan` higher in user-facing output.
-- **DEMO RESOURCES (cannon fodder):** hand-driven live `jolly-test` envs from the retrospective still standing; the next eval run's pre-run reclamation removes them.
-
-- **Remaining to v1 ship:** the retrospective confirmed the paste→live-store flow works end-to-end in the field — all mechanical stages completed against real Saleor Cloud + Vercel. The launch-bar's "checkout reaches the Stripe test payment step" still depends on the irreducible human Stripe-Dashboard key+channel gate; `jolly doctor`'s checkout probe verifies it once done. The ergonomics gaps the run hit are the specs above.
+- **Live `-p eval` run.** Both prior blockers fixed (auth-only seed, pre-run reclamation); `setup.md:97` steers background+poll. Remaining is an operational run; pi's per-command bash timeout vs the ~8-min `jolly start` is the open risk.
+- **Seam-scoping fidelity fix (harness).** `reclaimLeftoverTestEnvironments` deletes ALL `jolly-test-` envs incl. the current run's; feature 025 + the 026 scenario say "previous run". Harmless today (gated; the eval has no current-run env at pre-run time). Clean fix: scope to previous-run leftovers + seed the 026 leftover under a simulated previous-run namespace. No spec change; harness-faithfulness QM item. `026:21` passes but does not assert the current-run env survives — strengthen it when worked.
+- **014 two-vercel-auth-scenario consolidation.** 014 has two live-session `@sandbox` vercel-auth scenarios (mechanism vs. account-naming); distinct observables, both green; consider consolidating at a Bosun sweep.
+- **Report backlog not yet specced:** manual-OAuth code-paste path (`--manual-oauth`: print URL, read `code` from stdin) — `@iteration`; JOLLY-010 single source of truth for the Cloud-API `Token`-auth fetch shared by doctor + login (impl preference, not a scenario); JOLLY-011 surface `@saleor/configurator --plan` higher in user-facing output.
 - **Open follow-up (architectural, non-blocking):** the `NON_FIRST_PARTY_HOST` guard sits only at the `graphqlFetch` seam (where the customer `--url` flows). Sibling seams (`cloudFetch`, `pollTaskStatus`, `timedGraphql`) take only internally-derived first-party URLs and are unguarded — no scenario exercises them. If a future scenario lets a customer-supplied host reach them, centralize the predicate at one canonical request choke point.
-- **Deferred past v1:** tracked by the `@iteration` tag (`cucumber-js -p iteration`). Notable backlog: `009` multi-agent detection matrix, `006` command-surface/flag-matrix robustness, `007` failed-skill-install surfacing, `017` auto-apply safe skill update, `002` resume-skip, `003` Paper guidance-in-plan.
+- **Deferred past v1** (`@iteration` tag; `cucumber-js -p iteration`): `009` multi-agent detection matrix, `006` command-surface/flag-matrix robustness, `007` failed-skill-install surfacing, `017` auto-apply safe skill update, `002` resume-skip, `003` Paper guidance-in-plan.
+- **Octopus consistency (deferred by dk):** homepage `index.html` is still pirate-themed; only `setup.md` is octopus. If the mascot should land consistently, `index.html` + the Jolly skill would follow.
 
 ## Lessons learned → Shipshape upstream (2026-06-15)
 
@@ -260,3 +116,5 @@ Process lessons from the live-by-design design session. Workflow-generic (not Jo
 - Open future item: the npm tarball is large because `assets/skills/jolly/images/` ships product PNGs referenced by the starter recipe — functional, but worth future assets work.
 - Forward goal (not built): step-result caching so unchanged verification is not re-run and status returns fast. Caching needs a mechanism + invalidation rules, reporting cache-backed vs fresh, and must never hide a real failure.
 - Future plan: extract the scenario-writing rubric into a standalone reusable skill — project-local first, then upstream to Shipshape — and audit ALL existing scenarios against it in one pass.
+</content>
+</invoke>
