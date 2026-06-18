@@ -257,10 +257,14 @@ Then(
 );
 
 Then(
-  ".env should contain JOLLY_SALEOR_CLOUD_TOKEN=jolly-login-test-token-abc",
-  function (this: JollyWorld) {
+  // Parametrized: the exact stored value varies per scenario (the unreachable
+  // "stored, not verified" token, plus the --token-file / --token-stdin / env
+  // headless-source tokens). Captures the literal value and asserts the line.
+  /^\.env should contain JOLLY_SALEOR_CLOUD_TOKEN=(\S+)$/,
+  function (this: JollyWorld, value: string) {
     const text = readFileSync(join(this.lastRun!.cwd, ".env"), "utf8");
-    assert.match(text, /^JOLLY_SALEOR_CLOUD_TOKEN=jolly-login-test-token-abc$/m);
+    const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    assert.match(text, new RegExp(`^JOLLY_SALEOR_CLOUD_TOKEN=${escaped}$`, "m"));
   },
 );
 
@@ -1061,3 +1065,171 @@ Then(
     assert.equal(envData(this)["hasCloudToken"], false);
   },
 );
+
+// ─── Headless token sources: --token-file, --token-stdin, $JOLLY_SALEOR_CLOUD_TOKEN ──
+// The non-interactive login sources. The @logic scenarios point the Cloud API
+// at a deliberately-unreachable host (@exceptional-double, the unreachable
+// condition the real test env cannot produce on demand) so login stores the
+// token honestly ("stored, not verified") without a verification round-trip.
+
+const UNREACHABLE_CLOUD_API = "https://jolly-unreachable.invalid";
+
+// Build the child env for a headless-source login. Re-adds a real $JOLLY_SALEOR_
+// CLOUD_TOKEN when the scenario set one (the env-source and precedence cases),
+// and points the Cloud API at the unreachable host when the scenario declared it.
+function headlessLoginEnv(world: JollyWorld): Record<string, string | undefined> {
+  const overrides: Record<string, string | undefined> = {};
+  if (world.notes.cloudUnreachable) {
+    overrides.JOLLY_SALEOR_CLOUD_API_URL = UNREACHABLE_CLOUD_API;
+  }
+  if (world.notes.envToken !== undefined) {
+    overrides.JOLLY_SALEOR_CLOUD_TOKEN = String(world.notes.envToken);
+  }
+  return absentCredentialsEnv(overrides);
+}
+
+Given(
+  "a file at .\\/cloud-token.txt contains the token value {string}",
+  function (this: JollyWorld, token: string) {
+    this.notes.loginToken = token;
+    this.notes.tokenFilePath = "./cloud-token.txt";
+    this.trackSecret(token);
+    // Realistic file shape: trailing newline. Login reads "the token value", so
+    // the stored value is the trimmed token, not the raw bytes.
+    writeFileSync(join(this.projectDir, "cloud-token.txt"), token + "\n");
+  },
+);
+
+When(
+  "the agent runs `jolly login --token-file .\\/cloud-token.txt`",
+  function (this: JollyWorld) {
+    this.runCli(["login", "--token-file", "./cloud-token.txt"], {
+      env: headlessLoginEnv(this),
+    });
+  },
+);
+
+Given(
+  "the token value {string} is provided on standard input",
+  function (this: JollyWorld, token: string) {
+    this.notes.loginToken = token;
+    this.notes.stdinToken = token;
+    this.trackSecret(token);
+  },
+);
+
+When("the agent runs `jolly login --token-stdin`", function (this: JollyWorld) {
+  this.runCli(["login", "--token-stdin"], {
+    env: headlessLoginEnv(this),
+    input: String(this.notes.stdinToken) + "\n",
+  });
+});
+
+Given(
+  "the environment variable JOLLY_SALEOR_CLOUD_TOKEN is set to {string}",
+  function (this: JollyWorld, token: string) {
+    this.notes.envToken = token;
+    this.notes.loginToken = token;
+    this.trackSecret(token);
+  },
+);
+
+When(
+  "the agent runs `jolly login` with no token flag where no browser can be opened",
+  // The env-source path must resolve the token and exit without starting the
+  // browser flow; cap the wait so an unimplemented path (which would block on the
+  // loopback server) fails fast instead of hanging the full default timeout.
+  { timeout: 40_000 },
+  function (this: JollyWorld) {
+    this.runCli(["login"], { env: headlessLoginEnv(this), timeoutMs: 30_000 });
+  },
+);
+
+Then(
+  "it should not present the browser URL-first flow",
+  function (this: JollyWorld) {
+    const data = this.envelope.data as Record<string, unknown>;
+    assert.ok(
+      !data["authorizationUrl"],
+      "env-source login must not present a browser authorization URL",
+    );
+    assert.ok(
+      !/realms\/saleor-cloud\/protocol\/openid-connect\/auth/.test(this.lastRun!.stdout),
+      "env-source login must not print the Keycloak authorization URL",
+    );
+  },
+);
+
+Then(
+  /^the value (\S+) should not appear in \.env$/,
+  function (this: JollyWorld, value: string) {
+    const path = join(this.lastRun!.cwd, ".env");
+    const text = existsSync(path) ? readFileSync(path, "utf8") : "";
+    assert.ok(
+      !text.includes(value),
+      `the superseded value "${value}" must not appear in .env`,
+    );
+  },
+);
+
+Given(
+  "a file at .\\/empty-token.txt that is empty",
+  function (this: JollyWorld) {
+    writeFileSync(join(this.projectDir, "empty-token.txt"), "");
+  },
+);
+
+When(
+  "the agent runs `jolly login --token-file .\\/empty-token.txt --json`",
+  function (this: JollyWorld) {
+    this.runCli(["login", "--token-file", "./empty-token.txt", "--json"], {
+      env: absentCredentialsEnv(),
+    });
+  },
+);
+
+Then(
+  "the envelope status should be \"error\" with a stable `code`",
+  function (this: JollyWorld) {
+    assert.equal(this.envelope.status, "error");
+    assert.ok(this.envelope.errors.length > 0, "expected an error entry");
+    assert.match(this.envelope.errors[0].code as string, /^[A-Z][A-Z0-9_]*$/);
+  },
+);
+
+Then(
+  "the error should name the empty token file as the cause",
+  function (this: JollyWorld) {
+    const reported = (
+      JSON.stringify(this.envelope.errors) +
+      " " +
+      this.envelope.summary
+    ).toLowerCase();
+    assert.ok(reported.includes("empty"), `error must name the empty file as the cause; got: ${reported}`);
+    assert.ok(
+      /token[ -]?file|empty-token\.txt/.test(reported),
+      `error must identify the token file; got: ${reported}`,
+    );
+  },
+);
+
+// ─── @sandbox: verify a --token-file token against the real Cloud API ──────
+// saleorCloud-gated; runs in CI with the real token, skips locally.
+
+Given(
+  "a file containing a valid token from https:\\/\\/cloud.saleor.io\\/tokens",
+  function (this: JollyWorld) {
+    const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
+    assert.ok(token, "the @sandbox valid-token-file scenario requires JOLLY_SALEOR_CLOUD_TOKEN");
+    this.notes.validToken = token;
+    this.trackSecret(token!);
+    const path = join(this.projectDir, "valid-cloud-token.txt");
+    writeFileSync(path, token! + "\n");
+    this.notes.tokenFilePath = path;
+  },
+);
+
+When("the agent runs `jolly login --token-file <path>`", function (this: JollyWorld) {
+  // Real verification against the real Cloud API (no override → cloud.saleor.io).
+  this.runCli(["login", "--token-file", String(this.notes.tokenFilePath), "--json"]);
+});

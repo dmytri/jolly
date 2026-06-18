@@ -115,6 +115,7 @@ interface ParsedArgs {
 // Flags that take a value (so `--name foo` consumes `foo`).
 const VALUE_FLAGS = new Set([
   "token",
+  "token-file",
   "url",
   "name",
   "domain-label",
@@ -312,11 +313,49 @@ function loginRiskContext(dryRunAvailable = true): RiskContext {
 
 async function commandLogin(args: ParsedArgs): Promise<Envelope> {
   const command = "login";
-  const token = args.options["token"];
-  // Bare `jolly login` (no auth-mode flag) defaults to the browser URL-first
-  // flow; `--browser` selects it explicitly, `--token <value>` selects headless
-  // login. An explicit empty `--token ""` is a present-but-empty token, not the
-  // absent-token default — it falls through to be rejected with a stable code.
+  let token = args.options["token"];
+  // Headless token sources, used when no explicit `--token` and not `--browser`,
+  // in precedence order: `--token-file <path>`, `--token-stdin`, then
+  // `$JOLLY_SALEOR_CLOUD_TOKEN`. Any of these selects headless login (never the
+  // browser flow). An empty `--token-file` is rejected honestly, never by
+  // blaming the browser.
+  if (token === undefined && !args.flags.has("browser")) {
+    const tokenFilePath = args.options["token-file"];
+    if (tokenFilePath !== undefined) {
+      const fileToken = readFileSync(tokenFilePath, "utf8").trim();
+      if (fileToken === "") {
+        return errorEnvelope(
+          command,
+          `The token file ${tokenFilePath} is empty. Nothing was written.`,
+          [
+            {
+              code: "EMPTY_TOKEN_FILE",
+              message: `The token file ${tokenFilePath} is empty. No token was read.`,
+              remediation: `Write a token from ${TOKEN_PAGE} into ${tokenFilePath}, or run \`jolly login --token <value>\`.`,
+            },
+          ],
+          {
+            data: { riskContext: loginRiskContext() },
+            nextSteps: [
+              {
+                description: `Create a Saleor Cloud token at ${TOKEN_PAGE} and write it to ${tokenFilePath}.`,
+                command: "jolly login --token-file <path>",
+              },
+            ],
+          },
+        );
+      }
+      token = fileToken;
+    } else if (args.flags.has("token-stdin")) {
+      token = readFileSync(0, "utf8").trim();
+    } else if (process.env["JOLLY_SALEOR_CLOUD_TOKEN"]) {
+      token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"].trim();
+    }
+  }
+  // Bare `jolly login` (no auth-mode flag, no headless source) defaults to the
+  // browser URL-first flow; `--browser` selects it explicitly. An explicit empty
+  // `--token ""` is a present-but-empty token, not the absent-token default — it
+  // falls through to be rejected with a stable code.
   const browser = args.flags.has("browser") || token === undefined;
 
   // browser flows (PKCE preview, or live URL-first loopback OAuth) -------
