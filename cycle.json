@@ -1,7 +1,0 @@
-{
-  "pass1": {
-    "scenarios": [
-      "002-v1-end-to-end-saleor-cloud-storefront.feature:Jolly start's storefront preparation approves Paper's native build scripts"
-    ]
-  }
-}
