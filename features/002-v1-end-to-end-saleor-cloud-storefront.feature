@@ -140,6 +140,12 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And the overall envelope status should be "warning", not "success"
 
   @logic
+  Scenario: Jolly start's storefront preparation approves Paper's native build scripts
+    Given the agent runs `jolly start` with no real Saleor credentials
+    When the run reaches the storefront stage without `--dry-run`
+    Then a fresh `pnpm install` in the prepared storefront should report no ignored build scripts for `sharp` and `esbuild`
+
+  @logic
   Scenario: Jolly start previews the Vercel deploy
     Given a fresh empty project directory
     When the agent runs `jolly start --dry-run --json`

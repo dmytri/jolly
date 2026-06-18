@@ -71,9 +71,30 @@ addressed by today's octopus voice pass; the gold was engineering defects. Autho
   action (skill overclaims auto-wiring; e2e still works server-side); Vercel Deployment Protection,
   `og:image` localhost, agent-detection `null`, `jollx` typo — noise/out-of-scope (upstream
   configurator counts/deletes are an upstream bug, not ours).
-- **cycle.json:** pass1 = 002 build-scripts, 004 collection read-back, 018 `.env` mode-600; pass2 =
-  018 `.env` shell-sourceable. **Next role: QM** (fresh context). Crew implements the read-back,
-  build-script approval, and `.env` writer hardening.
+- **cycle.json (original):** pass1 = 002 build-scripts, 004 collection read-back, 018 `.env` mode-600;
+  pass2 = 018 `.env` shell-sourceable.
+
+**Cycle outcome (2026-06-18, after QM→Crew→Bosun + Captain review) — partial; re-scoped.**
+- **#2/#4 `.env` safety — DONE + verified + committed (`aebfed1`).** `src/lib/env-file.ts`: chmod 600
+  on every write; shell-significant values POSIX single-quoted (unquoted on read) so `set -a; . .env`
+  round-trips. Both `@logic` targets green; `@logic` profile 121 pass / 1 skip; tsc clean.
+- **#1 recipe collection honesty — covered by the asset fix.** `recipe.yml` already carries NO
+  collection `description` (the field that broke the create), so `featured-products` now deploys and
+  exists; the 004 `@sandbox` read-back scenario (executable, skips local) should pass in CI on the
+  asset alone. No production read-back was needed to make it green; the scenario still catches the
+  original "absent collection + false completed" regression.
+- **#3 pnpm build-scripts — NOT IMPLEMENTED (open).** `src/index.ts:3307` still runs a plain
+  `spawnSync("pnpm", ["install"])` — no native-build-script approval — so the 002 `@sandbox` scenario
+  would be RED in CI (it skipped locally → Crew was never driven; skip-blindness, sibling of
+  lessons-learned #1). The storefront-stage Rule already mandates the approval (002:176-181).
+- **Re-scope (dk approved): spec a local `@logic` angle, then cycle.** Added `@logic` scenario
+  "Jolly start's storefront preparation approves Paper's native build scripts" (002) — creds-free
+  (reuses the existing no-creds clone+install path), falsifiable (RED now), so a normal QM→Crew loop
+  drives and verifies the fix locally. `cycle.json` re-scoped to that single target. The `@sandbox`
+  "...Vercel build succeeds" scenario stays as the CI end-to-end build check.
+- **Outbound — HELD (dk).** No push/publish/deploy until #3 lands; ship the cycle as one release.
+- **Next role: QM** (fresh context) on the re-scoped `cycle.json`. Crew implements the storefront-stage
+  build-script approval (build config, not a Paper source/theme edit — scenario-84 guarantee holds).
 
 ---
 
