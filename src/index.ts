@@ -39,6 +39,7 @@ import {
   extractDomainUrl,
   acquireAppToken,
   seedRecipeStock,
+  storeHoldsCustomerCatalog,
   DEFAULT_STOCK_QUANTITY,
   RECIPE_WAREHOUSE_SLUG,
   installStripeApp,
@@ -2967,21 +2968,22 @@ function bundledRecipePath(): string {
  * against raw APIs. Resolves the store GraphQL endpoint and app token from
  * .env/process.env (first-party Saleor host only — the same creds Jolly already
  * manages); if either is missing it pushes a skipped check and blocks rather
- * than fabricating. On a store Jolly itself provisioned this run (bootstrap,
- * `allowDeletes`), the deploy replaces Saleor's stock defaults — the recipe is
- * the store's intended end state, so the expected deletion of undeclared
- * defaults proceeds. On a re-deploy over a pre-existing store it passes
- * `--failOnDelete` so a destructive apply is blocked (exit 6) for the customer's
- * explicit approval, not silently destructive. (The configurator binary exposes
- * only `--failOnDelete`; it has no breaking-changes guard.) Reads the
- * configurator's EXIT CODE and reports honestly: `completed`/`pass` only when it
- * exited 0; `blocked`/`fail` (with the real error) on any non-zero exit or a
- * configurator that cannot be spawned — never a fabricated deploy.
+ * than fabricating. The bootstrap path is decided by the store's STATE, not by
+ * which command provisioned it (feature 004 Rule "Recipe targets a clean
+ * environment"): a store holding only Saleor's stock defaults (no customer
+ * catalog) is the recipe's intended blank canvas — whether `jolly start`
+ * auto-provisioned it this run or a prior `jolly create store` recorded it in
+ * .env — so the deploy omits `--failOnDelete` and the expected deletion of the
+ * undeclared stock defaults proceeds. On a store that already holds customer
+ * catalog it passes `--failOnDelete` so a destructive apply is blocked (exit 6)
+ * for the customer's explicit approval, not silently destructive. (The
+ * configurator binary exposes only `--failOnDelete`; it has no breaking-changes
+ * guard.) Reads the configurator's EXIT CODE and reports honestly:
+ * `completed`/`pass` only when it exited 0; `blocked`/`fail` (with the real
+ * error) on any non-zero exit or a configurator that cannot be spawned — never a
+ * fabricated deploy.
  */
-async function runRecipeStage(
-  checks: Check[],
-  opts: { allowDeletes: boolean },
-): Promise<StageStatus> {
+async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
   const values = loadEnvValues(projectDir());
   const endpoint =
     process.env["NEXT_PUBLIC_SALEOR_API_URL"] ?? values["NEXT_PUBLIC_SALEOR_API_URL"] ?? "";
@@ -3036,6 +3038,19 @@ async function runRecipeStage(
   const reportPath = join(projectDir(), ".jolly-configurator-report.json");
   rmSync(reportPath, { force: true });
 
+  // Decide the bootstrap path by the store's STATE (feature 004 Rule "Recipe
+  // targets a clean environment"): a store with no customer catalog holds only
+  // Saleor's stock defaults, so deleting them to match the recipe is the
+  // intended initial setup and the deploy omits --failOnDelete. A store that
+  // already holds catalog keeps the guard. If the state cannot be read, keep the
+  // safe guard so the apply is never silently destructive.
+  let allowDeletes: boolean;
+  try {
+    allowDeletes = !(await storeHoldsCustomerCatalog(endpoint, token));
+  } catch {
+    allowDeletes = false;
+  }
+
   const deployArgs = [
     "--yes",
     "@saleor/configurator",
@@ -3049,11 +3064,11 @@ async function runRecipeStage(
     "--quiet",
     "--reportPath",
     reportPath,
-    // Guard a destructive apply over a pre-existing store; omitted on the
-    // bootstrap path, where deleting Saleor's stock defaults to match the
+    // Guard a destructive apply over a store that already holds catalog; omitted
+    // on the bootstrap path, where deleting Saleor's stock defaults to match the
     // recipe is the intended initial setup (feature 004 Rule "Recipe targets a
     // clean environment").
-    ...(opts.allowDeletes ? [] : ["--failOnDelete"]),
+    ...(allowDeletes ? [] : ["--failOnDelete"]),
   ];
   const result = spawnSync("npx", deployArgs, {
     cwd: projectDir(),
@@ -3640,11 +3655,10 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
           status = outcome.status;
           storeData = outcome.data;
         } else if (planStage.stage === "recipe") {
-          // Bootstrap path (store auto-provisioned this run → storeData set):
-          // deleting Saleor's stock defaults to match the recipe is the intended
-          // initial setup, so deletions are allowed. A re-deploy over an
-          // already-configured store keeps the --failOnDelete guard.
-          status = await runRecipeStage(checks, { allowDeletes: storeData !== undefined });
+          // The recipe stage decides the bootstrap path by the store's STATE
+          // (feature 004 Rule "Recipe targets a clean environment"), not by
+          // which command provisioned the store.
+          status = await runRecipeStage(checks);
         } else if (planStage.stage === "deploy") {
           const outcome = await runDeployStage(checks);
           status = outcome.status;

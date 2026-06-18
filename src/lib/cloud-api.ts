@@ -465,6 +465,30 @@ export async function queryGetApps(
   return edges.map((edge) => edge.node as { id: string; name: string });
 }
 
+/**
+ * Whether the store already holds customer catalog data — any product variant
+ * beyond Saleor's stock defaults. A blank Saleor Cloud environment ships the
+ * default channel, category, and warehouse but NO products/variants, so an empty
+ * result means the store is the recipe's intended blank canvas. Used to decide
+ * the recipe deploy's bootstrap path by the store's STATE, not by which command
+ * provisioned it (feature 004 Rule "Recipe targets a clean environment"): a
+ * store with no catalog takes the bootstrap path (the stock defaults are deleted
+ * to match the recipe), while a store that already holds catalog keeps the
+ * --failOnDelete guard so a destructive apply is blocked.
+ */
+export async function storeHoldsCustomerCatalog(
+  graphqlUrl: string,
+  token: string,
+): Promise<boolean> {
+  const data = await graphqlFetch(
+    graphqlUrl,
+    token,
+    `query { productVariants(first: 1) { edges { node { id } } } }`,
+  );
+  const variants = data.productVariants as { edges?: Array<unknown> } | undefined;
+  return (variants?.edges?.length ?? 0) > 0;
+}
+
 /** All PermissionEnum values supported by the instance. */
 async function queryPermissionEnum(
   graphqlUrl: string,

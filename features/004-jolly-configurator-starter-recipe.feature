@@ -87,7 +87,7 @@ Feature: Jolly Configurator starter recipe
     Given a blank Saleor Cloud environment created by a prior `jolly create store --create-environment` and recorded in `.env`
     When the agent runs `jolly start --yes` and the run reaches the configurator-deploy stage
     Then the recipe stage should be reported "completed", not "blocked"
-    And the store's only channel should be the recipe's `us` channel, the Saleor stock default channel having been replaced
+    And the recipe's `us` channel should exist and be active in the store
 
   @sandbox
   Scenario: Jolly start confirms the recipe's featured collection exists before reporting the recipe stage completed
@@ -117,14 +117,14 @@ Feature: Jolly Configurator starter recipe
 
   Rule: Recipe targets a clean environment
     - The recipe is a complete *declarative* `@saleor/configurator` config: a `deploy` reconciles
-      the store to match it, which means it deletes catalog entities the recipe does not declare —
-      including the stock defaults (e.g. `default-channel`, `default-category`, the default
-      warehouse) that even a "blank" Saleor Cloud environment ships with.
+      the store to it — creating the recipe's entities, updating existing ones, and removing
+      deletable entities the recipe does not declare. Saleor protects some stock defaults a "blank"
+      Cloud environment ships with — notably the default channel — from deletion, so they may remain;
+      the recipe ADDS its own active `us` channel rather than relying on the default channel's removal.
     - On the bootstrap path — a blank store Jolly provisioned, whether `jolly start` auto-provisioned
       it this run or a prior `jolly create store --create-environment` provisioned it and recorded it
       in `.env` — Jolly owns the store and the recipe is its intended end state, so the deploy proceeds
-      WITHOUT `--failOnDelete`: replacing the Saleor stock defaults (`default-channel`,
-      `default-category`, the default warehouse) that even a blank environment ships with is the
+      WITHOUT `--failOnDelete`: removing the deletable Saleor stock defaults to match the recipe is the
       expected initial setup, not a destructive accident. The bootstrap path is decided by the store's
       state, not by which command provisioned it: when the only entities the deploy would delete are
       Saleor's stock defaults, the apply proceeds; how Jolly determines this is deferred to CLI design.
@@ -194,8 +194,9 @@ Feature: Jolly Configurator starter recipe
     - On the bootstrap path — a store whose only deletable entities are Saleor's stock defaults,
       whether `jolly start` auto-provisioned it this run or a prior `jolly create store
       --create-environment` provisioned it and recorded it in `.env` — the deploy omits
-      `--failOnDelete`: replacing Saleor's stock defaults to match the recipe is the intended initial
-      setup, and the apply exits 0. On a re-deploy over a store that already holds customer catalog
+      `--failOnDelete`: removing the deletable Saleor stock defaults to match the recipe is the
+      intended initial setup, and the apply succeeds (exit 0, or the spurious exit-5 "partial" the
+      honest-reporting rule below handles). On a re-deploy over a store that already holds customer catalog
       data Jolly passes `--failOnDelete` so a destructive apply is BLOCKED (exit 6), not silently
       destructive. The bootstrap path is decided by the store's state, not by which command
       provisioned it (Rule "Recipe targets a clean environment"); how Jolly determines this is
@@ -207,8 +208,8 @@ Feature: Jolly Configurator starter recipe
       performing no deployment and spawning nothing.
     - Honest reporting (integrity rule): the stage is reported `completed` when the configurator
       exited 0 OR its deployment report records `status: success` — the exit code alone is unreliable
-      for the bootstrap apply, which yields a spurious exit 5 ("partial") while replacing Saleor's
-      protected stock defaults even though the report records success and zero errors. On exit 6
+      for the bootstrap apply, which yields a spurious exit 5 ("partial") because Saleor protects some
+      stock defaults from deletion, even though the report records success and zero errors. On exit 6
       (deletions over a pre-existing store) it is `blocked` with the destructive diff surfaced and an
       explicit-approval requirement to deploy; any other non-zero exit without a successful report, or
       a configurator that cannot be spawned, is reported `blocked`/`failed` honestly with the
