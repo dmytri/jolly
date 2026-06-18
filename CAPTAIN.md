@@ -43,8 +43,8 @@ History lives in git, not here. These notes describe only the current design and
 - **pass1 10/10 DONE.** 014 cloud-token validity probe (×3) + 005 live-mode `sk_live_` warning (`c24326b`); 018 login headless token sources (`1341a5c`): `--token-file`, `--token-stdin`, `$JOLLY_SALEOR_CLOUD_TOKEN` + precedence, empty-file honest error (`EMPTY_TOKEN_FILE`, never browser-blame), `@sandbox` file-token verify. Production: a headless token-source resolver on `jolly login` (precedence after `--token`); verify-before-write reuses the existing `listOrganizations` (`Token`-auth org GET) path.
 - **Verify:** 018 logic 16 passed / 1 undefined (the pass2 `018:200`); 014+005 logic 23 passed / 1 skipped; tsc clean. The `@sandbox` `018` file-token verify skips local (credential-gated to CI), same as the existing `--token` verify scenario.
 - **pass2 → now the live work (4):** 014 Vercel account naming, 018 headless-listener warning, 006 `--help` usage, 002 `start --dry-run` idempotency. **`cycle.json` advanced** — these are now `pass1`; the verified former-pass1 was dropped.
-- **Push (dk, 2026-06-18):** `af1319d` + `c24326b` + `1341a5c` (+ this notes commit) unpushed on `main`. pass1-complete is the agreed revisit point; push decision pending with dk this session.
-- **Next:** dk's push call + whether to run the new pass1 (former pass2) this session; clear context → `/qm`.
+- **Push STILL HELD (dk, 2026-06-18):** at pass1-complete dk chose to keep holding — push the whole cycle once the former-pass2 ergonomics also land. All commits (`af1319d`+`c24326b`+`1341a5c`+notes) stay local on `main`.
+- **Next (dk, 2026-06-18):** run the new pass1 (former-pass2 ergonomics) this session. Clear context → `/qm`.
 
 - **Specs authored (this cycle):**
   - **018** — flexible token input: `--token-file`, `--token-stdin`, `$JOLLY_SALEOR_CLOUD_TOKEN` with precedence + verify-before-write (so an agent never hand-writes the secret into `.env` and skips verification); a headless-listener warning (the OAuth callback is on the machine running Jolly, so a remote browser cannot complete it).
