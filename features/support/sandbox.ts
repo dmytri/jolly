@@ -68,6 +68,11 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   ],
   "Jolly start creates a deployable storefront from Saleor Paper": ["saleorEndpoint"],
   "Jolly start deploys to Vercel by spawning the official Vercel CLI": ["saleorEndpoint"],
+  // The storefront's native deps (sharp, esbuild) must build so the production
+  // build completes. Clone+install is credential-independent; the production
+  // build's codegen needs a reachable Saleor schema (saleorEndpoint).
+  "Jolly start lets Paper's native dependencies run their build scripts so the Vercel build succeeds":
+    ["saleorEndpoint"],
   // Auto-provision: `jolly start --yes` provisions a store itself when none is
   // configured. It needs only the Cloud token; it must NOT pre-derive a store
   // endpoint (the scenario's premise is "no NEXT_PUBLIC_SALEOR_API_URL"), so
@@ -109,6 +114,10 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
     "saleorEndpoint",
     "saleorAppToken",
   ],
+  // Read-back of the recipe's featured collection against the live store; the
+  // store endpoint + app token are derivable from the Cloud token.
+  "Jolly start confirms the recipe's featured collection exists before reporting the recipe stage completed":
+    ["saleorEndpoint", "saleorAppToken"],
   // 005-stripe-checkout-setup
   // The Stripe-CLI import path writes the session's keys to .env and contacts no
   // Saleor/Stripe service, so it needs NO Jolly credential group. Its premise —

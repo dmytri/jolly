@@ -27,7 +27,7 @@
 // "stored, not verified" condition the real test env cannot produce on demand.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   closeSync,
@@ -1291,3 +1291,86 @@ When("the agent runs `jolly login --token-file <path>`", function (this: JollyWo
   // Real verification against the real Cloud API (no override → cloud.saleor.io).
   this.runCli(["login", "--token-file", String(this.notes.tokenFilePath), "--json"]);
 });
+
+// ─── @property: the .env Jolly writes is private to its owner (mode 600) ────
+// The shared .env writer must create the file owner-read/write only. Exercised
+// via the stored-not-verified path against the deliberately-unreachable Cloud
+// API (the inline @exceptional-double) so the local WRITE is observed without a
+// real verify round-trip.
+
+When(
+  "the agent runs `jolly login --token jolly-perms-test-token-001`",
+  function (this: JollyWorld) {
+    const token = String(this.notes.loginToken ?? "jolly-perms-test-token-001");
+    this.trackSecret(token);
+    this.runCli(["login", "--token", token, "--json"], {
+      env: headlessLoginEnv(this),
+    });
+  },
+);
+
+Then(
+  /^the \.env file Jolly wrote should be readable and writable only by its owner \(mode 600\)$/,
+  function (this: JollyWorld) {
+    const path = join(this.lastRun!.cwd, ".env");
+    assert.ok(existsSync(path), ".env must have been written");
+    const mode = statSync(path).mode & 0o777;
+    assert.equal(
+      mode,
+      0o600,
+      `.env must be mode 600 (owner read/write only); got ${mode.toString(8)}`,
+    );
+  },
+);
+
+// ─── @property: the .env Jolly writes survives POSIX shell sourcing ─────────
+// A value carrying a space and an apostrophe must be quoted so `set -a; . .env`
+// sources without error and round-trips the original value. Same stored-not-
+// verified path against the unreachable Cloud API.
+
+Given(
+  "a file at .\\/odd-token.txt contains the token value {string}",
+  function (this: JollyWorld, token: string) {
+    this.notes.loginToken = token;
+    this.notes.tokenFilePath = "./odd-token.txt";
+    this.trackSecret(token);
+    writeFileSync(join(this.projectDir, "odd-token.txt"), token + "\n");
+  },
+);
+
+When(
+  "the agent runs `jolly login --token-file .\\/odd-token.txt`",
+  function (this: JollyWorld) {
+    this.runCli(["login", "--token-file", "./odd-token.txt"], {
+      env: headlessLoginEnv(this),
+    });
+  },
+);
+
+Then(
+  "sourcing the written .env in a POSIX shell should exit zero",
+  function (this: JollyWorld) {
+    const result = spawnSync("sh", ["-c", "set -a; . ./.env"], {
+      cwd: this.lastRun!.cwd,
+      encoding: "utf8",
+    });
+    assert.equal(
+      result.status,
+      0,
+      `sourcing .env must exit zero; status ${result.status}, stderr: ${result.stderr}`,
+    );
+  },
+);
+
+Then(
+  "the value read back for JOLLY_SALEOR_CLOUD_TOKEN should equal {string}",
+  function (this: JollyWorld, expected: string) {
+    const result = spawnSync(
+      "sh",
+      ["-c", 'set -a; . ./.env; printf %s "$JOLLY_SALEOR_CLOUD_TOKEN"'],
+      { cwd: this.lastRun!.cwd, encoding: "utf8" },
+    );
+    assert.equal(result.status, 0, `sourcing .env failed: ${result.stderr}`);
+    assert.equal(result.stdout, expected);
+  },
+);

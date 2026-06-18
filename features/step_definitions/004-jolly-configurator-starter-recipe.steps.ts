@@ -994,3 +994,77 @@ Then(
     }
   },
 );
+
+// ─── Scenario: Jolly start confirms the recipe's featured collection exists
+//     before reporting the recipe stage completed (@sandbox) ──────────────────
+//
+// Gated by SANDBOX_REQUIREMENTS["Jolly start confirms the recipe's featured
+// collection exists before reporting the recipe stage completed"] (saleorEndpoint
+// + saleorAppToken; derivable from the Cloud token via per-run provisioning) →
+// skips locally. Shares the Given "a freshly created blank Saleor Cloud
+// environment" and the When "Jolly start runs the configurator-deploy stage with
+// approval" with the configurator-deploy @sandbox scenario above — the When sets
+// notes.skipRecipe when the recipe stage does not complete in this environment,
+// so the premise (recipe deployed) is not fabricated. The integrity contract:
+// Jolly reports the recipe stage `completed` only after it reads the store back
+// and confirms the recipe's declared catalog entities exist there — so the real
+// teeth are the live read-back of the `featured-products` collection holding its
+// products, not the configurator's summary counts.
+
+const FEATURED_COLLECTION_SLUG = "featured-products";
+
+Then(
+  "the recipe's `featured-products` collection should exist in the store holding its declared products",
+  { timeout: 60_000 },
+  async function (this: JollyWorld) {
+    if (this.notes.skipRecipe) return "skipped";
+    const endpoint = String(this.notes.storeEndpoint);
+    const token = this.notes.storeToken as string | undefined;
+    const result = await saleorGraphql(
+      endpoint,
+      token,
+      `query($slug: String!) {
+         collection(slug: $slug, channel: "us") {
+           id
+           slug
+           products(first: 100) { totalCount }
+         }
+       }`,
+      { slug: FEATURED_COLLECTION_SLUG },
+    );
+    const collection = result.data?.collection as
+      | { slug?: string; products?: { totalCount?: number } }
+      | null
+      | undefined;
+    assert.ok(
+      collection,
+      `the recipe's "${FEATURED_COLLECTION_SLUG}" collection must exist in the store`,
+    );
+    const count = collection!.products?.totalCount ?? 0;
+    assert.ok(
+      count > 0,
+      `the "${FEATURED_COLLECTION_SLUG}" collection must hold its declared products, found ${count}`,
+    );
+  },
+);
+
+Then(
+  'the recipe stage should be reported "completed" only after Jolly reads the store back and confirms the recipe\'s declared catalog entities exist there, not from the configurator\'s summary counts alone',
+  function (this: JollyWorld) {
+    if (this.notes.skipRecipe) return "skipped";
+    // Reaching here means the When saw the recipe stage `completed` AND the
+    // preceding Then confirmed the `featured-products` collection actually exists
+    // in the store via a real read-back. Together they pin the contract: a
+    // `completed` recipe stage implies the declared catalog entities really exist
+    // (had Jolly reported `completed` from configurator summary counts while the
+    // collection was absent, the read-back above would have failed).
+    const stages = (this.envelope.data.stages ?? []) as ResultStage[];
+    const recipe = stages.find((s) => s.stage === "recipe");
+    assert.ok(recipe, "the recipe stage must be present");
+    assert.equal(
+      recipe!.status,
+      "completed",
+      "the recipe stage is reported completed only after the store read-back confirms the catalog",
+    );
+  },
+);

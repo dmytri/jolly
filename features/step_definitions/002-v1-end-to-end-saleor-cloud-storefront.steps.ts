@@ -22,6 +22,7 @@
 // the deploy scenario) and skip locally.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadEnvValues, writeEnvValues } from "../../src/lib/env-file.ts";
@@ -1372,6 +1373,119 @@ Then(
       check!.status,
       "pass",
       "the deployed-storefront-reaches-Saleor check must pass in the whole-flow run",
+    );
+  },
+);
+
+// ─── Scenario: Jolly start lets Paper's native dependencies run their build
+//     scripts so the Vercel build succeeds (@sandbox) ─────────────────────────
+//
+// pnpm v10 does not run a dependency's install/build scripts unless that
+// dependency is approved (pnpm.onlyBuiltDependencies). Paper depends on the
+// native modules `sharp` and `esbuild`, whose build scripts MUST run or the
+// production build fails on unbuilt native binaries. `jolly start`'s storefront
+// preparation must approve those builds so the install does not silently ignore
+// them and the production build the Vercel deploy runs completes. Gated by
+// SANDBOX_REQUIREMENTS["Jolly start lets Paper's native dependencies run their
+// build scripts so the Vercel build succeeds"] (saleorEndpoint — the build's
+// codegen needs a reachable Saleor schema) → skips locally.
+//
+// The clone+install (Given) is the credential-independent storefront stage, so
+// it runs with the runtime credentials unset — only that stage does real local
+// work; the credential-gated stages block, so the configured store is not
+// mutated. The production build (final Then) is the same `pnpm build` the Vercel
+// deploy runs; running it directly verifies the build completes without unbuilt
+// native modules, harmlessly (no live deployment is published).
+
+Given(
+  "Jolly has cloned and installed the Paper storefront",
+  { timeout: 600_000 },
+  function (this: JollyWorld) {
+    // Real clone + install via `jolly start`'s storefront stage (credential-
+    // independent — see the no-fabrication scenario above, which confirms
+    // storefront/package.json after a no-creds `jolly start --yes`). Skip — the
+    // premise is not producible — if the storefront was not prepared (e.g. git or
+    // pnpm unavailable in this environment).
+    this.runCli(["start", "--yes", "--json"], {
+      env: absentCredentialsEnv(),
+      timeoutMs: 540_000,
+    });
+    const storefrontDir = join(this.lastRun!.cwd, "storefront");
+    if (!existsSync(join(storefrontDir, "package.json"))) {
+      this.attach(
+        "Skipped: the Paper storefront was not cloned/installed in this environment",
+        "text/plain",
+      );
+      this.notes.skipNativeBuild = true;
+      return "skipped";
+    }
+    this.notes.storefrontDir = storefrontDir;
+  },
+);
+
+When(
+  "`jolly start` prepares the storefront for the Vercel deploy",
+  function (this: JollyWorld) {
+    // The storefront preparation already ran in the Given (the `jolly start`
+    // storefront stage). The assertions below inspect its result.
+  },
+);
+
+Then(
+  "`pnpm install` in the storefront should report no ignored build scripts for Paper's native dependencies `sharp` and `esbuild`",
+  { timeout: 300_000 },
+  function (this: JollyWorld) {
+    if (this.notes.skipNativeBuild) return "skipped" as const;
+    const dir = String(this.notes.storefrontDir);
+    // Re-run the install (idempotent) and capture pnpm's ignored-build-scripts
+    // report. After Jolly's preparation, neither sharp nor esbuild may appear
+    // among the build scripts pnpm ignored.
+    const result = spawnSync("npx", ["pnpm", "install"], {
+      cwd: dir,
+      encoding: "utf8",
+      timeout: 240_000,
+    });
+    const output = (result.stdout ?? "") + (result.stderr ?? "");
+    const ignoredMatch = /ignored build scripts?[:\s]*([^\n]*)/i.exec(output);
+    const ignored = ignoredMatch?.[1] ?? "";
+    assert.ok(
+      !/\bsharp\b/i.test(ignored),
+      `pnpm must not ignore sharp's build script; ignored build scripts: "${ignored}"`,
+    );
+    assert.ok(
+      !/\besbuild\b/i.test(ignored),
+      `pnpm must not ignore esbuild's build script; ignored build scripts: "${ignored}"`,
+    );
+  },
+);
+
+Then(
+  "the `npx vercel --prod` production build should complete, not fail on unbuilt native modules",
+  { timeout: 900_000 },
+  function (this: JollyWorld) {
+    if (this.notes.skipNativeBuild) return "skipped" as const;
+    const dir = String(this.notes.storefrontDir);
+    // Run the same production build the Vercel deploy runs (Paper's `pnpm build`),
+    // directly and harmlessly (no live deployment published). The build inherits
+    // the process environment, so the @sandbox NEXT_PUBLIC_SALEOR_API_URL drives
+    // Paper's codegen. An unbuilt sharp/esbuild native module fails this build;
+    // its success is the falsifiable observable that the native build scripts ran.
+    const result = spawnSync("npx", ["pnpm", "build"], {
+      cwd: dir,
+      encoding: "utf8",
+      timeout: 840_000,
+    });
+    const output = (result.stdout ?? "") + (result.stderr ?? "");
+    assert.equal(
+      result.status,
+      0,
+      `the production build must complete; exit ${result.status}.\n${output}`,
+    );
+    assert.ok(
+      !/(could not load|cannot find|failed to load|invalid ELF|prebuilt binaries|install.*sharp|sharp.*install|esbuild.*install)/i.test(
+        output,
+      ),
+      `the production build must not fail on unbuilt native modules:\n${output}`,
     );
   },
 );
