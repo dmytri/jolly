@@ -342,7 +342,12 @@ Given("a fresh empty project directory", function (this: JollyWorld) {
 });
 
 When("the agent runs `jolly start --dry-run --json`", function (this: JollyWorld) {
-  this.runCli(["start", "--dry-run", "--json"], { env: absentCredentialsEnv() });
+  // Default: every runtime credential genuinely unset. A scenario whose Given
+  // configures a starting state (e.g. a store endpoint already set) supplies it
+  // via notes.startEnv; the preview reads it as a real agent's pre-set env.
+  this.runCli(["start", "--dry-run", "--json"], {
+    env: (this.notes.startEnv as Record<string, string | undefined>) ?? absentCredentialsEnv(),
+  });
   // The "no remote side effects should occur during the dry run" step is
   // shared with feature 021, which reads this note; record a riskContext from
   // the preview so the shared assertion holds for this scenario too.

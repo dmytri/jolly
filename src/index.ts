@@ -635,7 +635,7 @@ async function loginBrowserLive(command: string, args: ParsedArgs): Promise<Enve
     command,
     status: "warning",
     summary:
-      "Open the authorization URL in a browser to sign in. Jolly opens it automatically when a browser is available and otherwise leaves you to open it manually. Listening for the OAuth consent redirect on http://127.0.0.1:5375/callback.",
+      "Open the authorization URL in a browser to sign in. Jolly opens it automatically when a browser is available and otherwise leaves you to open it manually. Listening for the OAuth consent redirect on http://127.0.0.1:5375/callback, which is served on the machine where Jolly runs. A browser on a different machine cannot complete that callback.",
     data: {
       authorizationUrl,
       redirectUri,
@@ -650,7 +650,7 @@ async function loginBrowserLive(command: string, args: ParsedArgs): Promise<Enve
     nextSteps: [
       {
         description:
-          "Open the authorization URL in a browser (Jolly opens it automatically when one is available; otherwise click it or copy and paste it yourself) to complete OAuth, or use jolly login --token <value>.",
+          "Open the authorization URL in a browser (Jolly opens it automatically when one is available; otherwise click it or copy and paste it yourself) to complete OAuth. When the browser is on a different machine than the one running Jolly, run jolly login --token <value> instead.",
         command: "jolly login --token <value>",
       },
     ],
@@ -1849,8 +1849,12 @@ function commandCreateHelp(): Envelope {
 
 async function commandCreate(args: ParsedArgs): Promise<Envelope> {
   const sub = args.positionals[1];
-  if (!sub || args.help || sub === "help") {
+  if (!sub || sub === "help") {
     return commandCreateHelp();
+  }
+  // `jolly create <sub> --help` prints usage for the subcommand, not the flow.
+  if (args.help) {
+    return commandUsage(args);
   }
   switch (sub) {
     case "store":
@@ -2747,6 +2751,35 @@ const HIGH_RISK_STAGES = ["store", "recipe", "deploy"] as const;
 function commandStartDryRun(): Envelope {
   const command = "start";
   const plan = startPlan();
+  // When a store endpoint is already configured, the store stage is already
+  // satisfied: the preview reports the configured store and skips provisioning,
+  // naming no Cloud API create request. Absent a configured endpoint, the store
+  // stage keeps its provision plan (createStoreGateTarget).
+  const storeEndpoint =
+    loadEnvValues(projectDir())["NEXT_PUBLIC_SALEOR_API_URL"] ??
+    process.env["NEXT_PUBLIC_SALEOR_API_URL"];
+  if (storeEndpoint) {
+    const store = plan.find((s) => s.stage === "store");
+    if (store) {
+      store.effects = {
+        directoriesCreated: [],
+        filesWritten: [],
+        networkHostsContacted: [],
+        repositoriesCloned: [],
+      };
+      store.riskContext = {
+        action: "skip store provisioning",
+        target: `already-configured store ${storeEndpoint}`,
+        riskLevel: "low",
+        categories: [],
+        reversible: true,
+        sideEffects: [
+          `A store endpoint is already configured (NEXT_PUBLIC_SALEOR_API_URL=${storeEndpoint}); the store stage is already satisfied and provisioning is skipped`,
+        ],
+        dryRunAvailable: true,
+      };
+    }
+  }
   return envelope({
     command,
     status: "success",
@@ -3777,8 +3810,31 @@ function commandHelp(): Envelope {
 
 // ─── dispatch ─────────────────────────────────────────────────────────────
 
+// `--help` for any command/subcommand prints a usage summary naming the command
+// and its flags and exits successfully — never entering the command's flow. Bare
+// `jolly --help`/`jolly help` keep the full command listing (commandHelp); bare
+// `jolly create --help` keeps its subcommand listing (handled in commandCreate).
+function commandUsage(args: ParsedArgs): Envelope {
+  const path = args.positionals.join(" ");
+  const flags = ["--json", "--quiet", "--yes", "--dry-run", "--help"];
+  const usage = `jolly ${path} [${flags.join("] [")}]`;
+  return envelope({
+    command: `${path} --help`,
+    status: "success",
+    summary: `Usage: ${usage}`,
+    data: { usage, command: path, flags },
+  });
+}
+
 async function dispatch(args: ParsedArgs): Promise<Envelope> {
   const cmd = args.positionals[0];
+
+  // Top-level `--help`: usage summary, never the command flow. `create` runs its
+  // own help (bare listing vs. per-subcommand usage); bare `jolly`/`help` keep
+  // the full command listing.
+  if (args.help && cmd !== undefined && cmd !== "help" && cmd !== "create") {
+    return commandUsage(args);
+  }
 
   switch (cmd) {
     case undefined:

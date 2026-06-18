@@ -269,3 +269,66 @@ Then(
     );
   },
 );
+
+// --- Scenario Outline: every subcommand prints usage on --help -------------
+// `--help` is how an agent learns a command's flags without guessing. Every
+// command and subcommand must print a usage summary naming itself and its
+// flags, exit 0, and never abort with "Command aborted" or fall into the
+// command's normal flow (a broken `login --help` starts the OAuth listener and
+// hangs). Run with credentials genuinely unset so no --help path can reach a
+// real account, and cap the wait so a broken (flow-entering) path fails fast.
+
+Given("the published Jolly CLI", function () {
+  // Framing; the command is invoked in the When via the standard CLI entry.
+});
+
+When(
+  /^the agent runs `jolly (.+) --help`$/,
+  { timeout: 30_000 },
+  function (this: JollyWorld, command: string) {
+    this.notes.helpCommand = command;
+    this.runCli([...command.split(" "), "--help"], {
+      env: absentCredentialsEnv(),
+      timeoutMs: 15_000,
+    });
+  },
+);
+
+Then("the command should exit successfully", function (this: JollyWorld) {
+  assert.equal(
+    this.lastRun!.exitCode,
+    0,
+    `\`jolly ${this.notes.helpCommand} --help\` must exit 0; got ${this.lastRun!.exitCode}; stderr:\n${this.lastRun!.stderr}`,
+  );
+});
+
+Then(
+  "it should print a usage summary naming the command and its flags",
+  function (this: JollyWorld) {
+    const command = String(this.notes.helpCommand);
+    const text = (this.lastRun!.stdout + " " + this.lastRun!.stderr).toLowerCase();
+    // Names the command (its last word — the leaf subcommand) and the usage.
+    const leaf = command.split(" ").pop()!.toLowerCase();
+    assert.ok(text.includes("usage"), `--help output must include a usage summary; got: ${text}`);
+    assert.ok(
+      text.includes(leaf),
+      `--help output must name the command "${leaf}"; got: ${text}`,
+    );
+    // Names at least one flag (an option printed as --something).
+    assert.ok(
+      /--[a-z]/.test(text),
+      `--help output must name the command's flags; got: ${text}`,
+    );
+  },
+);
+
+Then(
+  "it should not abort with {string}",
+  function (this: JollyWorld, abortText: string) {
+    const text = this.lastRun!.stdout + " " + this.lastRun!.stderr;
+    assert.ok(
+      !text.includes(abortText),
+      `\`jolly ${this.notes.helpCommand} --help\` must not abort with "${abortText}"; got: ${text}`,
+    );
+  },
+);

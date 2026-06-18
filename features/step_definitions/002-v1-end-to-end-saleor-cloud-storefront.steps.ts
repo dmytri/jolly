@@ -1203,6 +1203,63 @@ Then(
   },
 );
 
+// --- Scenario: jolly start --dry-run skips store provisioning when a store ----
+//     endpoint is already configured (@logic) ----------------------------------
+//
+// A real agent that already has a store: NEXT_PUBLIC_SALEOR_API_URL is set in the
+// run's env (the way a prior `jolly create store`/connect leaves it). The dry-run
+// plan's store stage must report the configured store as already satisfied and
+// skip provisioning — naming no Cloud API create request — the branch opposite
+// the "provision a new store" preview above. A @logic dry-run performs no network,
+// so a real-format stand-in store URL suffices; supplied via notes.startEnv so the
+// shared `jolly start --dry-run --json` When reads it (no .env is written, so the
+// shared "create nothing" assertion still holds).
+
+Given(
+  "`JOLLY_SALEOR_CLOUD_TOKEN` is set and `NEXT_PUBLIC_SALEOR_API_URL` is configured to an existing store",
+  function (this: JollyWorld) {
+    this.notes.startEnv = absentCredentialsEnv({
+      JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN,
+      NEXT_PUBLIC_SALEOR_API_URL: "https://existing-store.saleor.cloud/graphql/",
+    });
+  },
+);
+
+Then(
+  "the `store` stage preview should report the configured store as already satisfied and skip provisioning",
+  function (this: JollyWorld) {
+    const plan = (this.envelope.data.plan ?? []) as Array<{ stage?: string; status?: string }>;
+    const store = plan.find((s) => s.stage === "store");
+    assert.ok(store, "the start --dry-run plan must include the store stage");
+    const blob = JSON.stringify(store).toLowerCase();
+    assert.ok(
+      /already (satisfied|configured)|already (have|set)|configured store|store .*(already|configured)|satisfied/.test(
+        blob,
+      ),
+      `the store stage preview must report the configured store as already satisfied: ${blob}`,
+    );
+    assert.ok(
+      /skip|skipped|skipping|no provision|not provision|already/.test(blob),
+      `the store stage preview must indicate it skips provisioning: ${blob}`,
+    );
+  },
+);
+
+Then(
+  "it should not name a Cloud API request to create a new project or environment",
+  function (this: JollyWorld) {
+    const plan = (this.envelope.data.plan ?? []) as Array<{ stage?: string }>;
+    const store = plan.find((s) => s.stage === "store");
+    const blob = JSON.stringify(store ?? {});
+    assert.ok(
+      !/organizations\/\{organization\}\/environments\//.test(blob) &&
+        !/create (a )?(new )?(project|environment)/i.test(blob) &&
+        !/environments\/"?\s*[,}]/.test(blob),
+      `with a store already configured, the store stage must name no Cloud API create request: ${blob}`,
+    );
+  },
+);
+
 // --- Scenario: One jolly start drives the whole flow from a real agent's -----
 //     starting state (@sandbox) -----------------------------------------------
 //

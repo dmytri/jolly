@@ -586,6 +586,64 @@ Then(
   },
 );
 
+// ─── Scenario: login warns the callback listener is on the machine running Jolly ──
+// The loopback OAuth callback server binds 127.0.0.1:5375 on the SAME machine
+// that runs Jolly. When the agent runs Jolly on one machine but the human opens
+// the authorization URL in a browser on another machine, that browser's redirect
+// reaches the other machine's loopback, not Jolly's — so the callback cannot
+// complete. The output must name the callback endpoint as local to where Jolly
+// runs, warn that a browser on a different machine cannot complete it, and point
+// to the always-available `jolly login --token <value>` path for that case.
+
+Then(
+  "the output should state that the OAuth callback http:\\/\\/127.0.0.1:5375\\/callback is served on the machine where Jolly runs",
+  function (this: JollyWorld) {
+    const text = presentationText(this);
+    assert.ok(
+      text.includes(CALLBACK_ENDPOINT),
+      `output must name the loopback callback endpoint ${CALLBACK_ENDPOINT}`,
+    );
+    assert.ok(
+      /machine (where|on which|that) jolly runs|machine running jolly|machine jolly runs|machine where jolly is running|same machine|this machine|local machine|locally/.test(
+        text,
+      ),
+      "output must state the callback is served on the machine where Jolly runs",
+    );
+  },
+);
+
+Then(
+  "it should state that a browser on a different machine cannot complete that callback",
+  function (this: JollyWorld) {
+    const text = presentationText(this);
+    assert.ok(
+      /(different|another|other|remote|separate) (machine|host|computer|device)/.test(text),
+      "output must mention a browser on a different machine",
+    );
+    assert.ok(
+      /(can ?not|cannot|can'?t|won'?t|will not|unable to|cannot be able) (complete|reach|deliver|finish|hit|connect)/.test(
+        text,
+      ),
+      "output must state that a different-machine browser cannot complete the callback",
+    );
+  },
+);
+
+Then(
+  "it should direct the user to run `jolly login --token <value>` when the browser is on another machine",
+  function (this: JollyWorld) {
+    const text = presentationText(this);
+    assert.ok(
+      text.includes("jolly login --token"),
+      "output must direct the user to `jolly login --token <value>`",
+    );
+    assert.ok(
+      /(different|another|other|remote|separate) (machine|host|computer|device)/.test(text),
+      "the --token guidance must be tied to the browser being on another machine",
+    );
+  },
+);
+
 // ─── Scenario: login previews the OAuth code exchange requests ─────────────
 
 Given(
