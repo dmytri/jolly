@@ -19,7 +19,7 @@ import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CHECK_STATUSES } from "../support/envelope.ts";
 import { absentCredentialsEnv } from "../support/creds-env.ts";
-import { vercelCliAuthenticated } from "../support/sandbox.ts";
+import { vercelCliAuthenticated, vercelWhoamiAccount } from "../support/sandbox.ts";
 import { listOrganizations } from "../../src/lib/cloud-api.ts";
 import type { JollyWorld } from "../support/world.ts";
 
@@ -322,6 +322,26 @@ Then(
     assert.ok(
       [a, b].includes(String(check!.status)),
       `${id} with no session must be "${a}" or "${b}", got "${check!.status}"`,
+    );
+  },
+);
+
+Then(
+  "the {string} check should name the logged-in Vercel account reported by `vercel whoami`",
+  function (this: JollyWorld, id: string) {
+    const check = this.findCheck(id);
+    assert.ok(check, `doctor deployment must report a \`${id}\` check`);
+    // @sandbox: reaching here means a real Vercel session exists (the hook gate),
+    // so read the real account the upstream CLI reports and require the check to
+    // name it — a pass that names the account, never a fabricated one.
+    const account = vercelWhoamiAccount();
+    assert.ok(
+      account.length > 0,
+      "the logged-in Vercel account must be readable via `vercel whoami`",
+    );
+    assert.ok(
+      JSON.stringify(check).includes(account),
+      `the ${id} check must name the logged-in Vercel account "${account}" reported by \`vercel whoami\``,
     );
   },
 );

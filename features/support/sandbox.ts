@@ -168,6 +168,9 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   // The vercel-auth "logged in" case needs only a real authenticated Vercel CLI
   // session (a capability gated via VERCEL_CLI_SCENARIOS) — no JOLLY_* credential.
   "Doctor confirms the Vercel CLI login state when a session exists": [],
+  // The vercel-auth "names the account" case likewise needs only a real
+  // authenticated Vercel CLI session (gated via VERCEL_CLI_SCENARIOS).
+  "Doctor names the authenticated Vercel account": [],
   "Jolly start runs doctor automatically": FULL_END_TO_END,
   // 018-jolly-auth-commands
   // The failed-exchange and invalid-token scenarios need only outbound
@@ -220,6 +223,7 @@ export const VERCEL_CLI_SCENARIOS: ReadonlySet<string> = new Set([
   "Agent verifies checkout readiness",
   "Doctor checks deployment and payment readiness",
   "Doctor confirms the Vercel CLI login state when a session exists",
+  "Doctor names the authenticated Vercel account",
   "Jolly start runs doctor automatically",
   "Jolly start resumes from the first incomplete stage",
   "Composed subcommands and start agree on state",
@@ -245,6 +249,30 @@ export function vercelCliAuthenticated(): boolean {
     return result.status === 0;
   } catch {
     return false;
+  }
+}
+
+/**
+ * The logged-in Vercel account reported by `npx vercel whoami` (the last
+ * non-empty stdout line, trimmed), or "" when no session. Read-only identity
+ * probe, the same spawn as vercelCliAuthenticated; used to assert doctor's
+ * vercel-auth check names the real account. Any spawn failure reads as "".
+ */
+export function vercelWhoamiAccount(): string {
+  try {
+    const result = spawnSync("npx", ["vercel", "whoami"], {
+      encoding: "utf8",
+      timeout: 60_000,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    if (result.status !== 0) return "";
+    const lines = (result.stdout ?? "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    return lines.length > 0 ? lines[lines.length - 1]! : "";
+  } catch {
+    return "";
   }
 }
 

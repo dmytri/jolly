@@ -1068,10 +1068,10 @@ Then(
 
 // ─── Headless token sources: --token-file, --token-stdin, $JOLLY_SALEOR_CLOUD_TOKEN ──
 // The non-interactive login sources. The @logic scenarios point the Cloud API
-// at a deliberately-unreachable host (@exceptional-double, the unreachable
-// condition the real test env cannot produce on demand) so login stores the
-// token honestly ("stored, not verified") without a verification round-trip.
+// at a deliberately-unreachable host so login stores the token honestly
+// ("stored, not verified") without a verification round-trip.
 
+// @exceptional-double: deliberately-unreachable Cloud API host for the "stored, not verified" path the real test env cannot produce on demand.
 const UNREACHABLE_CLOUD_API = "https://jolly-unreachable.invalid";
 
 // Build the child env for a headless-source login. Re-adds a real $JOLLY_SALEOR_

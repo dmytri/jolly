@@ -2292,12 +2292,17 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
     } else {
       vercelStatus = "fail";
     }
+    const vercelAccount = (vercelResult?.stdout ?? "")
+      .split("\n")
+      .map((line: string) => line.trim())
+      .filter((line: string) => line.length > 0)
+      .at(-1) ?? "";
     checks.push({
       id: "vercel-auth",
       status: vercelStatus,
       description:
         vercelStatus === "pass"
-          ? "Vercel CLI session confirmed by running `vercel whoami`."
+          ? `Vercel CLI session confirmed by running \`vercel whoami\`: logged in as ${vercelAccount}.`
           : vercelStatus === "fail"
             ? "No Vercel CLI session: `vercel whoami` reported you are not logged in."
             : "Could not read the Vercel CLI login state by running `vercel whoami` (CLI unavailable).",
