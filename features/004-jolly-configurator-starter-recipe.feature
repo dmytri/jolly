@@ -191,11 +191,15 @@ Feature: Jolly Configurator starter recipe
       `@saleor/configurator` auto-activates non-interactive mode in a non-TTY subprocess, so Jolly
       spawns it as a non-interactive batch command and reads its EXIT CODE — no stdio passthrough
       (unlike the interactive `vercel login`/`stripe login` gates).
-    - On the bootstrap path (the store `jolly start` itself provisioned this run) the deploy omits
+    - On the bootstrap path — a store whose only deletable entities are Saleor's stock defaults,
+      whether `jolly start` auto-provisioned it this run or a prior `jolly create store
+      --create-environment` provisioned it and recorded it in `.env` — the deploy omits
       `--failOnDelete`: replacing Saleor's stock defaults to match the recipe is the intended initial
-      setup, and the apply exits 0. On a re-deploy over a pre-existing store Jolly passes
-      `--failOnDelete` so a destructive apply is BLOCKED (exit 6), not silently destructive (Rule
-      "Recipe targets a clean environment").
+      setup, and the apply exits 0. On a re-deploy over a store that already holds customer catalog
+      data Jolly passes `--failOnDelete` so a destructive apply is BLOCKED (exit 6), not silently
+      destructive. The bootstrap path is decided by the store's state, not by which command
+      provisioned it (Rule "Recipe targets a clean environment"); how Jolly determines this is
+      deferred to CLI design.
     - High-risk → approval: the stage emits the feature 021 `riskContext` (deploy store configuration)
       and pauses for the agent to approve; `--yes` pre-approves. `--dry-run` previews the stage by
       naming the spawned command, the bundled recipe, the store URL + app token (by name only), and

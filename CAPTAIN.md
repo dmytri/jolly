@@ -36,13 +36,48 @@ History lives in git, not here. These notes describe only the current design and
 
 ## Shipped to date (history in git)
 
-Through **v0.7.2** (released 2026-06-18: push `main`+tag to `github.com/dmytri/jolly`, publish `@dk/jolly` to npm; homepage Vercel prod last deployed at v0.7.1, unchanged since). The product reaches the launch bar mechanically: homepage paste → live deployed Paper storefront on Vercel → browsable/stocked store against Saleor Cloud → checkout reaches the Stripe test step (behind the irreducible human Stripe-Dashboard gate). Built across several field-retrospective cycles that converted real remote-VM `jolly start` runs into specs: honesty contracts (configurator deploy read-back, no fabricated success), headless/remote-VM auth (`--token`/`--token-file`/`--token-stdin`/`$JOLLY_SALEOR_CLOUD_TOKEN`, URL-first OAuth, headless-listener warning), doctor validity probes (Cloud token, Vercel account, `sk_live_` warning), `.env` safety (mode 600, shell-sourceable), `--help` usage on every subcommand, `start` idempotency/dry-run, pnpm native-build-script approval for Vercel, and the octopus-voice `setup.md`. The **third retrospective** cycle (shipped in v0.7.2) added: recipe bootstrap detection by store STATE not run-locality (004 — recipe deploys over Saleor's stock defaults even on a store from a prior `create store`), and `ENVIRONMENT_LIMIT_REACHED` → actionable `nextSteps` (008).
+Through **v0.7.2** (released 2026-06-18: push `main`+tag to `github.com/dmytri/jolly`, publish `@dk/jolly` to npm; homepage Vercel prod last deployed at v0.7.1, unchanged since). The product reaches the launch bar mechanically: homepage paste → live deployed Paper storefront on Vercel → browsable/stocked store against Saleor Cloud → checkout reaches the Stripe test step (behind the irreducible human Stripe-Dashboard gate). Built across several field-retrospective cycles that converted real remote-VM `jolly start` runs into specs: honesty contracts (configurator deploy read-back, no fabricated success), headless/remote-VM auth (`--token`/`--token-file`/`--token-stdin`/`$JOLLY_SALEOR_CLOUD_TOKEN`, URL-first OAuth, headless-listener warning), doctor validity probes (Cloud token, Vercel account, `sk_live_` warning), `.env` safety (mode 600, shell-sourceable), `--help` usage on every subcommand, `start` idempotency/dry-run, pnpm native-build-script approval for Vercel, and the octopus-voice `setup.md`. The **third retrospective** cycle (v0.7.2) shipped ONLY its 008 target: `ENVIRONMENT_LIMIT_REACHED` → actionable `nextSteps`. **Its headline 004 target — recipe bootstrap by store STATE, not run-locality — did NOT ship; the v0.7.2 release note and the prior version of this summary wrongly claimed it did (corrected 2026-06-18).** See "Current state → corrective cycle" below.
 
 ## Current state (2026-06-18)
 
-- **Deck:** clean, verification green (logic 123 passed / 1 skipped; tsc clean; dry-run 0 undefined). `cycle.json` retired — third-retrospective pass1 complete (008 verified `@logic`; 004 `@sandbox`, CI-gated).
-- **Outbound:** third retrospective **shipped as v0.7.2** (dk approved full release): `main`+tag pushed to GitHub, `@dk/jolly@0.7.2` published to npm. Homepage unchanged this cycle (no redeploy). Tree synced with `origin/main`.
-- **Remaining to v1 ship:** the field runs confirm paste→live-store works end-to-end against real Saleor Cloud + Vercel. The launch bar's "checkout reaches the Stripe test payment step" still depends on the irreducible human Stripe-Dashboard key+channel gate; `jolly doctor`'s checkout probe verifies it once done.
+**ACTIVE corrective cycle — recipe bootstrap by store STATE (the unshipped v0.7.2 #1).** Found by a
+post-release "run the whole suite + poke around" pass:
+- **The fix was never made.** `src/index.ts:3647` still gates `allowDeletes: storeData !== undefined`
+  (run-locality). `runStoreStage` returns `data` only when it *provisions*; an already-configured store
+  (prior `create store`, read from `.env`) returns `{status:"completed"}` with no data → `storeData`
+  undefined → recipe spawns with `--failOnDelete` → BLOCKS on deleting Saleor's stock defaults. Live
+  bug, unchanged since before v0.7.1 (not a regression).
+- **The test cannot catch it (skip-mask).** `004:86`'s `When` step returned `"skipped"` whenever the
+  recipe stage was not `completed` — i.e. it skipped on the exact buggy outcome. The `@sandbox`
+  harness provisions out-of-band and writes the endpoint to `.env` *before* `jolly start`, so
+  `storeData` is ALWAYS undefined for these runs: both recipe `@sandbox` scenarios (`004:86` and the
+  fresh-blank `Jolly start deploys the starter recipe…`) have effectively ALWAYS skipped. That
+  coverage has never actually run green. This is lesson #1 (green-suite blindness) in the flesh — here
+  a SKIP, not a fake, hid the gap.
+- **The spec was self-contradictory.** Rule "Recipe targets a clean environment" said store-STATE
+  (invocation-independent); Rule "Configurator deploy" still said "the store `jolly start` itself
+  provisioned this run" (run-locality). Crew followed the run-locality clause. **Fixed this pass** —
+  the Configurator-deploy clause now reads store-STATE, consistent.
+- **cycle.json:** pass1 = `004:86`. The corrective loop: **QM** makes the step faithful — a recipe
+  stage that executes and does not `complete` is a FAILURE; the `@sandbox` gating already skips on
+  absent creds, so the in-step `skipBootstrap` branch must go (RED, because production still
+  run-locality). **Crew** implements bootstrap detection by store STATE (read the store back; when the
+  only deletable entities are Saleor's stock defaults, omit `--failOnDelete`) → GREEN.
+- **Sibling skip-masks (same file, address in the QM pass):** the fresh-blank recipe scenario (~steps
+  line 689) and any other recipe `@sandbox` step using the `if (status !== "completed") return
+  "skipped"` pattern share the defect; make them faithful too — a reached-but-not-completed stage is a
+  failure, not a skip.
+- **Creds are present locally** (Cloud token + Vercel session + Stripe test keys), so the corrective
+  `004:86` will genuinely RUN locally this time (provision → deploy → must complete), not just in CI.
+- **Next role: QM** (fresh context).
+
+- **Deck before this cycle:** v0.7.2 released (`main`+tag on GitHub, `@dk/jolly@0.7.2` on npm; homepage
+  unchanged). 008 env-limit fix is real and correctly shipped. v0.7.2 stays published — no regression,
+  008 is a genuine improvement; the real 004 fix ships as **v0.7.3** when this cycle closes.
+- **Remaining to v1 ship:** the field runs confirm paste→live-store works end-to-end against real
+  Saleor Cloud + Vercel. The launch bar's "checkout reaches the Stripe test payment step" still depends
+  on the irreducible human Stripe-Dashboard key+channel gate; `jolly doctor`'s checkout probe verifies
+  it once done.
 
 ## Open / deferred work (not lost)
 
@@ -69,6 +104,8 @@ Process lessons from the live-by-design design session. Workflow-generic (not Jo
 5. **Encode constraints as positive observables, not prohibitions.** The enforceable form of "Jolly shall not call the API directly" is a positive scenario whose observable is the desired behavior ("Jolly invokes the official CLI"). *Upstream:* guide authors to express security/architecture constraints as positive falsifiable observables.
 
 6. **Directed work needs a firewall-safe channel.** Genuinely non-red-discoverable work (refactors, conformance seeding) has no firewall-safe entry except `cycle.json`. *Upstream:* define a sanctioned "directed cycle" handoff — a durable, QM-readable scope artifact.
+
+8. **A graceful skip is green-suite blindness too (skip-mask).** (2026-06-18, found post-release.) A `@sandbox` step that returns `"skipped"` whenever the observed status is not the success value turns the target failure into a skip — the scenario can never go red on the very bug it was written for, and a credentialed run looks "all green." Tier gating (Before-hook skip on absent creds) is the ONLY legitimate skip; once a scenario's steps execute, a not-as-asserted observable MUST fail, never skip. *Upstream:* QM rubric — an in-step "premise not producible → skip" is allowed only for a premise the step genuinely cannot construct, never for the asserted outcome itself; prefer letting tier gating own the skip and keeping steps strictly assert-or-fail. A skipped target is not a passing target; report skips distinctly and treat a persistently-skipping `@sandbox` scenario as un-verified, not done.
 
 7. **On a role takeover, the predecessor's flagged blockers are the primary input — the role prompts don't enforce it.** (2026-06-17, observed live.) Captain took over after a QM→Crew→Bosun cycle whose final report listed blockers, but led with the outbound decision and imported a stale `CAPTAIN.md` worklist instead. *Upstream:* every role prompt's opening should make the immediately-preceding role's final-report blockers/open-questions the FIRST agenda item, read verbatim; state that a takeover is often several situations at once (handle all, blockers first); rank the fresh handoff above accumulated notes on conflict. (Local stopgap in `AGENTS.md` → "Role handoffs".)
 
