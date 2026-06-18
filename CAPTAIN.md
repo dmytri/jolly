@@ -36,6 +36,25 @@ History lives in git, not here. These notes describe only the current design and
 
 ## Current state (2026-06-18)
 
+**Setup-guide voice pass (dk) — octopus installer persona.** dk wanted `setup.md` to have
+personality: strong-but-silent voice + a touch of silly **octopus** (dk chose "octopus is the
+mascot"), installer-like, very concise, focus on needed input/confirmation, minimal interaction,
+ask one question at a time, use pick-an-option inputs over free-text, no walls of spew. Scope dk
+set: **`setup.md` only** ("set up only" / "only") — not the Jolly skill, homepage `index.html`, or
+features. Rewrote `assets/homepage/setup.md`: Jolly is now 🐙 the eight-armed setup octopus; new
+"How to run this" interaction-protocol section (terse / one-question / offer-choices /
+confirm-before-risk / surface-only-decisions / honest); human gates now correctly list **four**
+moments (added the Dashboard Stripe-app gate that the old "What needs a human" section dropped);
+load-bearing reference (provenance, hosts, two-auth-schemes anti-"dead-token", headless-VM, skills,
+boundaries) preserved but moved to a scannable "Reference — read when you need it" tail. Asset-only
+edit (assets are not spec'd/tested → no QM cycle). **Not yet committed/deployed.**
+- **Inconsistency flagged to dk:** homepage `index.html` is still pirate-themed (🏴‍☠️/⚓/🦜); only
+  `setup.md` is octopus now. If the octopus mascot should land consistently, `index.html` + the
+  Jolly skill would follow — deferred by dk's "set up only".
+- **Redeploy needed:** `setup.md` is served at jolly.cool/setup via the homepage Vercel project, so
+  the new copy is live only after a homepage redeploy (outbound — needs dk approval).
+
+
 **Active cycle — real-world agent retrospective → specs.** A baseline agent ran `npx @dk/jolly start` end-to-end on a remote VM and completed the full pipeline (store/recipe/stock/deploy/stripe-app), but needed eight operator interventions; the retrospective (`~/test/jolly-notes.md`, dk-provided) catalogued the friction. Captain converted the Jolly-actionable findings to specs this cycle and routed the agent's own knowledge gaps to `setup.md`. `cycle.json` directs QM through the new red targets (pass1 honesty-critical, pass2 ergonomics).
 
 **Cycle progress (2026-06-18):**
