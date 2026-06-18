@@ -59,6 +59,7 @@ History lives in git, not here. These notes describe only the current design and
   - **publish:** `@dk/jolly@0.7.1` → npm (public). prepublishOnly built `dist/index.js`.
   - **deploy:** homepage → Vercel production (project `homepage`), Ready; `/` and `/setup` both HTTP 200.
 - **Stale-store fix applied (option a, dk):** removed the dead `NEXT_PUBLIC_SALEOR_API_URL` (`jolly-test-demo-1781717774`, 404) and its paired `JOLLY_SALEOR_APP_TOKEN` from the local `.env`; Cloud token + Stripe keys kept, so `@sandbox` store/app-token now skip-derive (provision fresh) instead of failing on the deleted store. `.env` is git-ignored; no commit. (Backup file was created then deleted — never committed.)
+- **Homepage copy fix (dk, retrospective feedback) — `7c20244`, redeployed.** The paste prompt said "...to set up **Jolly**"; the retrospective agent read that as the goal and got confused (Jolly is the helper, not the goal). Now "...to set up **a Saleor store**". Live: `homepage-khaki-eight.vercel.app` serves the new copy. `copyPrompt()` reads `#copyText`, so the HTML span is the single source — no JS duplicate.
 - **Next:** the deferred sandbox sweep + `-p eval` run; the 014 two-vercel-auth-scenario consolidation at the next Bosun sweep.
 
 - **Specs authored (this cycle):**
