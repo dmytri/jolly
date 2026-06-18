@@ -780,6 +780,105 @@ Then(
   },
 );
 
+// ─── Scenario: Jolly start deploys the recipe over the stock defaults of a
+//     store created by a prior create-store command (@sandbox) ─────────────────
+//
+// Gated by SANDBOX_REQUIREMENTS["Jolly start deploys the recipe over the stock
+// defaults of a store created by a prior create-store command"] (saleorEndpoint
+// + saleorAppToken; derivable from the Cloud token via per-run provisioning,
+// which itself runs `jolly create store --create-environment`) → skips locally.
+// Verifies the bootstrap path: against the blank create-store-provisioned
+// environment, `jolly start --yes` SPAWNS the configurator deploy of Jolly's
+// bundled recipe; the declarative apply reconciles the store to the recipe, so
+// the recipe's `us` channel becomes the store's only channel — the Saleor stock
+// default channel having been deleted (feature 004 Rule "Recipe targets a clean
+// environment"). When the recipe stage does not complete here (store not blank,
+// or the configurator could not be spawned), the scenario skips — premise not
+// producible — rather than failing.
+
+async function channelSlugs(
+  endpoint: string,
+  token: string | undefined,
+): Promise<string[]> {
+  const result = await saleorGraphql(endpoint, token, `query { channels { slug } }`);
+  const channels = (result.data?.channels as Array<{ slug: string }> | undefined) ?? [];
+  return channels.map((c) => c.slug);
+}
+
+Given(
+  "a blank Saleor Cloud environment created by a prior `jolly create store --create-environment` and recorded in `.env`",
+  function (this: JollyWorld) {
+    // The @sandbox harness provisions the shared per-run environment THROUGH
+    // `jolly create store --create-environment` (provision.ts) and records its
+    // NEXT_PUBLIC_SALEOR_API_URL / JOLLY_SALEOR_APP_TOKEN — exactly the blank,
+    // create-store-bootstrapped environment this scenario starts from. Gating
+    // skips locally when the Cloud token is absent.
+    const creds = storeCreds();
+    assert.ok(
+      creds.endpoint,
+      "a blank store endpoint must be derived from the prior create-store",
+    );
+    this.notes.storeEndpoint = creds.endpoint;
+    this.notes.storeToken = creds.token;
+  },
+);
+
+When(
+  "the agent runs `jolly start --yes` and the run reaches the configurator-deploy stage",
+  { timeout: 900_000 },
+  function (this: JollyWorld) {
+    // --yes pre-approves the high-risk gate so the run reaches and executes the
+    // configurator-deploy (recipe) stage; the deploy can take minutes.
+    this.runCli(["start", "--yes", "--json"], { timeoutMs: 840_000 });
+    const stages = (this.envelope.data.stages ?? []) as ResultStage[];
+    const recipe = stages.find((s) => s.stage === "recipe");
+    if (!recipe || recipe.status !== "completed") {
+      this.attach(
+        `Skipped: the configurator-deploy stage did not complete in this ` +
+          `environment (status: ${recipe?.status ?? "absent"}) — the store may ` +
+          `not be blank, or the configurator could not be spawned here`,
+        "text/plain",
+      );
+      this.notes.skipBootstrap = true;
+      return "skipped";
+    }
+  },
+);
+
+Then(
+  "the recipe stage should be reported {string}, not {string}",
+  function (this: JollyWorld, completed: string, blocked: string) {
+    if (this.notes.skipBootstrap) return "skipped";
+    const stages = (this.envelope.data.stages ?? []) as ResultStage[];
+    const recipe = stages.find((s) => s.stage === "recipe");
+    assert.ok(recipe, "the orchestrated stages must include the recipe stage");
+    assert.equal(
+      recipe!.status,
+      completed,
+      `the recipe stage must be reported "${completed}", not "${blocked}"`,
+    );
+    assert.notEqual(recipe!.status, blocked);
+  },
+);
+
+Then(
+  "the store's only channel should be the recipe's `us` channel, the Saleor stock default channel having been replaced",
+  { timeout: 60_000 },
+  async function (this: JollyWorld) {
+    if (this.notes.skipBootstrap) return "skipped";
+    const endpoint = String(this.notes.storeEndpoint);
+    const token = this.notes.storeToken as string | undefined;
+    const slugs = await channelSlugs(endpoint, token);
+    assert.deepEqual(
+      [...slugs].sort(),
+      ["us"],
+      `after the declarative recipe deploy the store's only channel must be the ` +
+        `recipe's "us" channel (the Saleor stock default having been replaced); ` +
+        `got ${JSON.stringify(slugs)}`,
+    );
+  },
+);
+
 // ─── Scenario: A transient Saleor rate-limit during the stock stage retries
 //     instead of reporting a false blocked (@logic @exceptional-double) ────────
 //

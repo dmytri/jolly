@@ -1520,7 +1520,22 @@ function cloudErrorEnvelope(command: string, err: unknown, riskContext: RiskCont
               : "Confirm the Cloud token and that the Cloud API is reachable.",
       },
     ],
-    { data: { riskContext } },
+    {
+      data: { riskContext },
+      nextSteps:
+        code === "ENVIRONMENT_LIMIT_REACHED"
+          ? [
+              {
+                description:
+                  "Free a sandbox environment by deleting an unused one, then re-run.",
+              },
+              {
+                description:
+                  "Upgrade the plan to raise the sandbox environment limit, then re-run.",
+              },
+            ]
+          : [],
+    },
   );
 }
 

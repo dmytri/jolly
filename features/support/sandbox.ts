@@ -118,6 +118,12 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   // store endpoint + app token are derivable from the Cloud token.
   "Jolly start confirms the recipe's featured collection exists before reporting the recipe stage completed":
     ["saleorEndpoint", "saleorAppToken"],
+  // Bootstrap path: a blank environment created by a prior `create store`
+  // (the harness provisions the shared env through exactly that command), then
+  // `jolly start` deploys the recipe over the stock defaults. Read-back of the
+  // store's channels needs only the store endpoint + app token (derivable).
+  "Jolly start deploys the recipe over the stock defaults of a store created by a prior create-store command":
+    ["saleorEndpoint", "saleorAppToken"],
   // 005-stripe-checkout-setup
   // The Stripe-CLI import path writes the session's keys to .env and contacts no
   // Saleor/Stripe service, so it needs NO Jolly credential group. Its premise —

@@ -40,6 +40,7 @@ import {
   listAllEnvironments,
 } from "../support/cloud.ts";
 import { makeNamespace } from "../support/sandbox.ts";
+import { startLimitRejectingCloudApi } from "../support/limit-cloud-api.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 function envData(world: JollyWorld): Record<string, unknown> {
@@ -627,78 +628,12 @@ Then(
 );
 
 // ─── Scenario: reports ENVIRONMENT_LIMIT_REACHED when the sandbox limit is hit ─
-// @logic: drive the REAL create-environment path against a LOCAL in-process
-// Cloud API that answers the read GETs (org/projects/envs/services) but rejects
-// the environment-creation POST with a 4xx "limit" payload — exactly the
-// condition Jolly maps to the stable ENVIRONMENT_LIMIT_REACHED code. The shared
-// When (002 step file) runs the real command against this loopback harness with
-// the credentials unset (plus a stand-in token), so no real account is touched.
-
-interface LimitHarness {
-  server: Server;
-  baseUrl: string;
-  /** Writes (POST/PUT/DELETE) the run issued; only the env-create POST is expected. */
-  writes: Array<{ method: string; url: string }>;
-}
-
-async function startLimitRejectingCloudApi(
-  world: JollyWorld,
-): Promise<LimitHarness> {
-  const writes: Array<{ method: string; url: string }> = [];
-  const server = createServer((req, res) => {
-    const method = req.method ?? "GET";
-    const url = req.url ?? "/";
-    res.setHeader("Content-Type", "application/json");
-    if (method === "POST" && /\/environments\/?($|\?)/.test(url)) {
-      // The org's sandbox environment limit is reached: reject the creation.
-      writes.push({ method, url });
-      res.statusCode = 403;
-      res.end(
-        JSON.stringify({
-          detail:
-            "You have reached the sandbox environment limit for this organization.",
-        }),
-      );
-      return;
-    }
-    if (method !== "GET") {
-      writes.push({ method, url });
-      res.statusCode = 500;
-      res.end(JSON.stringify({ detail: "unexpected write during limit scenario" }));
-      return;
-    }
-    res.statusCode = 200;
-    // Order: /services/ before /projects/ (the services path also contains
-    // "/projects/"). Return an existing project so creation REUSES it (no
-    // project-creation POST), then an empty environment list, so the run
-    // proceeds straight to the rejected environment-creation POST.
-    if (/\/services\/?($|\?)/.test(url)) {
-      res.end(JSON.stringify([]));
-      return;
-    }
-    if (/\/projects\/?($|\?)/.test(url)) {
-      res.end(JSON.stringify([{ name: "jolly-store", slug: "jolly-store" }]));
-      return;
-    }
-    if (/\/environments\/?($|\?)/.test(url)) {
-      res.end(JSON.stringify([]));
-      return;
-    }
-    if (/\/organizations\/?($|\?)/.test(url)) {
-      res.end(JSON.stringify([{ slug: "demo-org", name: "Demo Org" }]));
-      return;
-    }
-    res.end(JSON.stringify([]));
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
-  const port = typeof address === "object" && address ? address.port : 0;
-  const baseUrl = `http://127.0.0.1:${port}/platform/api`;
-  world.cleanup.register(`limit-rejecting Cloud API server :${port}`, () => {
-    return new Promise<void>((resolve) => server.close(() => resolve()));
-  });
-  return { server, baseUrl, writes };
-}
+// @logic: drive the REAL create-environment path against the shared LOCAL
+// in-process Cloud API (features/support/limit-cloud-api.ts) that answers the
+// read GETs but rejects the environment-creation POST with a 4xx "limit"
+// payload — the condition Jolly maps to the stable ENVIRONMENT_LIMIT_REACHED
+// code. The shared When (002 step file) runs the real command against this
+// loopback with credentials unset (plus a stand-in token), touching no account.
 
 Given(
   "the Cloud API rejects environment creation because the organization's sandbox environment limit is reached",

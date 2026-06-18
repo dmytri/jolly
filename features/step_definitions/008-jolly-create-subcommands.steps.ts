@@ -21,6 +21,7 @@ import { join } from "node:path";
 import { loadEnvValues, writeEnvValues } from "../../src/lib/env-file.ts";
 import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 import { findRiskContexts } from "../support/envelope.ts";
+import { startLimitRejectingCloudApi } from "../support/limit-cloud-api.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 // --- Background ------------------------------------------------------------
@@ -518,6 +519,64 @@ Then(
       blob.includes("graphql"),
       "the preview must name the real Saleor GraphQL request it would send to acquire the app token",
     );
+  },
+);
+
+// ─── Scenario: actionable recovery when the org is at its environment limit ──
+// @logic @exceptional-double. The shared limit-rejecting Cloud API loopback
+// (features/support/limit-cloud-api.ts) returns the real ENVIRONMENT_LIMIT_REACHED
+// rejection on the create POST; the shared When (002 step file) runs the real
+// `create store --create-environment` against it when notes.limitHarness is set,
+// with credentials unset (plus a stand-in token), so no real account is touched.
+
+Given(
+  "the Saleor Cloud environments endpoint returns ENVIRONMENT_LIMIT_REACHED",
+  async function (this: JollyWorld) {
+    const harness = await startLimitRejectingCloudApi(this);
+    this.notes.limitHarness = { baseUrl: harness.baseUrl };
+  },
+);
+
+Then(
+  "nextSteps should name freeing a sandbox environment and upgrading the plan as recovery options",
+  function (this: JollyWorld) {
+    const text = JSON.stringify(this.envelope.nextSteps ?? []).toLowerCase();
+    assert.match(
+      text,
+      /(free|delete|remove).*(sandbox|environment)/,
+      `nextSteps must offer freeing a sandbox environment as a recovery option; ` +
+        `got ${JSON.stringify(this.envelope.nextSteps)}`,
+    );
+    assert.match(
+      text,
+      /upgrade.*plan/,
+      `nextSteps must offer upgrading the plan as a recovery option; ` +
+        `got ${JSON.stringify(this.envelope.nextSteps)}`,
+    );
+  },
+);
+
+Then(
+  "it should not report a created or stored environment",
+  function (this: JollyWorld) {
+    assert.notEqual(
+      this.envelope.status,
+      "success",
+      "a limit-rejected run must not succeed",
+    );
+    // Scan summary + data (sans the forward-looking riskContext preview) + checks;
+    // strip honest negations before checking for a fabricated created/stored claim.
+    let scan = envelopeText(this);
+    scan = scan.replace(
+      /\b(nothing(?: was)?|no|not|never|without)\b[^.;:,"}]*?\b(created|stored|provisioned)\b/g,
+      "",
+    );
+    for (const claim of ["created", "stored", "provisioned"]) {
+      assert.ok(
+        !new RegExp(`\\b${claim}\\b`).test(scan),
+        `a limit-rejected run must not report an environment ${claim}; scan: ${scan}`,
+      );
+    }
   },
 );
 
