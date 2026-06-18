@@ -34,9 +34,17 @@ History lives in git, not here. These notes describe only the current design and
 - **Browser OAuth is URL-first (feature 018).** `jolly login` / `--browser` generate the Keycloak authorization URL, print it for click/copy-paste, start the localhost callback server, and open a browser only when one is available (convenience). A missing browser is never an error; `--token` is the always-available non-interactive path. Jolly never sees/holds the user's credentials. There is no Playwright tier, no `@requires-browser`, no email/password knobs.
 - **All CLIs via npx (tooling).** configurator, vercel, and stripe are all used via `npx`; a missing global binary is NOT a failure. Recorded to memory ([[clis-via-npx]]) and in AGENTS.md (Runtime and Build).
 
-## Current state (2026-06-17)
+## Current state (2026-06-18)
 
-**Active cycle — real-world agent retrospective → specs.** A baseline agent ran `npx @dk/jolly start` end-to-end on a remote VM and completed the full pipeline (store/recipe/stock/deploy/stripe-app), but needed eight operator interventions; the retrospective (`~/test/jolly-notes.md`, dk-provided) catalogued the friction. Captain converted the Jolly-actionable findings to specs this cycle and routed the agent's own knowledge gaps to `setup.md`. `cycle.json` directs QM through the new red targets (pass1 honesty-critical, pass2 ergonomics). **Specs/assets/cycle.json are uncommitted → Bosun, then clear → `/qm`.**
+**Active cycle — real-world agent retrospective → specs.** A baseline agent ran `npx @dk/jolly start` end-to-end on a remote VM and completed the full pipeline (store/recipe/stock/deploy/stripe-app), but needed eight operator interventions; the retrospective (`~/test/jolly-notes.md`, dk-provided) catalogued the friction. Captain converted the Jolly-actionable findings to specs this cycle and routed the agent's own knowledge gaps to `setup.md`. `cycle.json` directs QM through the new red targets (pass1 honesty-critical, pass2 ergonomics).
+
+**Cycle progress (2026-06-18):**
+- Specs/assets/cycle.json committed (`af1319d`).
+- **pass1 4/10 DONE** (`c24326b`): 014 cloud-token validity probe (×3) + 005 live-mode `sk_live_` warning. Harness: per-scenario env overrides via `world.notes` so the shared doctor `saleor`/`stripe` `When` drives the real probe; `@sandbox` cloud-token scenario scoped to `saleorCloud`.
+- **pass1 remaining (6):** 018 login token-input — `--token-file`, `--token-stdin`, `$JOLLY_SALEOR_CLOUD_TOKEN` fallback + precedence, empty-file honest error, `@sandbox` file-token verify-before-write. Real new production: a token-source resolver + verify-before-write on `jolly login`.
+- **pass2 (4):** untouched ergonomics — 014 Vercel account naming, 018 headless-listener warning, 006 `--help` usage, 002 `start --dry-run` idempotency.
+- **Push HELD (dk, 2026-06-18):** `af1319d` + `c24326b` unpushed on `main` by choice; revisit after more of the cycle lands. Deck clean, logic tier + tsc green.
+- **Next:** clear context → `/qm` for the 018 login targets.
 
 - **Specs authored (this cycle):**
   - **018** — flexible token input: `--token-file`, `--token-stdin`, `$JOLLY_SALEOR_CLOUD_TOKEN` with precedence + verify-before-write (so an agent never hand-writes the secret into `.env` and skips verification); a headless-listener warning (the OAuth callback is on the machine running Jolly, so a remote browser cannot complete it).
