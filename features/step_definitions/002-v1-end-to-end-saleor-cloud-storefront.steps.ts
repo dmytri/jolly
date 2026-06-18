@@ -604,6 +604,46 @@ Then(
   },
 );
 
+// --- Scenario: Jolly start's storefront preparation approves native builds --
+
+Then(
+  "a fresh `pnpm install` in the prepared storefront should report no ignored build scripts for `sharp` and `esbuild`",
+  { timeout: 300_000 },
+  function (this: JollyWorld) {
+    // The When ran a real no-creds `jolly start --yes` — its storefront stage
+    // does credential-independent local work (git clone + pnpm install). Skip —
+    // premise not producible — if the storefront was not prepared (git/pnpm
+    // unavailable in this environment).
+    const dir = join(this.lastRun!.cwd, "storefront");
+    if (!existsSync(join(dir, "package.json"))) {
+      this.attach(
+        "Skipped: the Paper storefront was not cloned/installed in this environment",
+        "text/plain",
+      );
+      return "skipped" as const;
+    }
+    // Re-run the install (idempotent) and capture pnpm's ignored-build-scripts
+    // report. After Jolly's preparation, neither sharp nor esbuild may appear
+    // among the build scripts pnpm ignored.
+    const result = spawnSync("npx", ["pnpm", "install"], {
+      cwd: dir,
+      encoding: "utf8",
+      timeout: 240_000,
+    });
+    const output = (result.stdout ?? "") + (result.stderr ?? "");
+    const ignoredMatch = /ignored build scripts?[:\s]*([^\n]*)/i.exec(output);
+    const ignored = ignoredMatch?.[1] ?? "";
+    assert.ok(
+      !/\bsharp\b/i.test(ignored),
+      `pnpm must not ignore sharp's build script; ignored build scripts: "${ignored}"`,
+    );
+    assert.ok(
+      !/\besbuild\b/i.test(ignored),
+      `pnpm must not ignore esbuild's build script; ignored build scripts: "${ignored}"`,
+    );
+  },
+);
+
 // --- Scenario: Jolly start previews the Vercel deploy -----------------------
 
 Then(

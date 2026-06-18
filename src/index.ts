@@ -3303,6 +3303,21 @@ async function runStorefrontStage(checks: Check[]): Promise<StageStatus> {
     }
   }
 
+  // Approve Paper's native dependency build scripts. pnpm 10+ ignores a
+  // dependency's build script unless it is listed in `pnpm.onlyBuiltDependencies`;
+  // Paper's native modules (sharp, esbuild, unrs-resolver) must build or the
+  // Vercel production build fails on unbuilt native binaries. Persist the
+  // approval into storefront/package.json so even a fresh `pnpm install` runs them.
+  const pkgPath = join(dir, "package.json");
+  const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as Record<string, unknown>;
+  const pnpmCfg = (pkg.pnpm ??= {}) as Record<string, unknown>;
+  const approved = new Set(
+    (Array.isArray(pnpmCfg.onlyBuiltDependencies) ? pnpmCfg.onlyBuiltDependencies : []) as string[],
+  );
+  for (const dep of ["sharp", "esbuild", "unrs-resolver"]) approved.add(dep);
+  pnpmCfg.onlyBuiltDependencies = [...approved];
+  writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+
   // Install Paper's dependencies with pnpm.
   const install = spawnSync("pnpm", ["install"], {
     cwd: dir,
