@@ -1,20 +1,6 @@
 {
   "pass1": {
     "scenarios": [
-      "014-jolly-doctor-diagnostics.feature:Doctor validates the Saleor Cloud token, not just its presence",
-      "014-jolly-doctor-diagnostics.feature:Doctor reports a rejected Saleor Cloud token as warning, never pass",
-      "014-jolly-doctor-diagnostics.feature:Doctor warns when a per-store token is in the Cloud token slot",
-      "005-stripe-checkout-setup.feature:Jolly doctor warns when a live-mode Stripe secret key is configured",
-      "018-jolly-auth-commands.feature:Jolly login reads the token from a file with --token-file",
-      "018-jolly-auth-commands.feature:Jolly login reads the token from standard input with --token-stdin",
-      "018-jolly-auth-commands.feature:Jolly login reads the token from $JOLLY_SALEOR_CLOUD_TOKEN when no token flag is given",
-      "018-jolly-auth-commands.feature:--token-file takes precedence over the $JOLLY_SALEOR_CLOUD_TOKEN environment variable",
-      "018-jolly-auth-commands.feature:Jolly login --token-file with an empty file fails honestly and writes nothing",
-      "018-jolly-auth-commands.feature:Jolly login --token-file verifies the file's token against the Cloud API"
-    ]
-  },
-  "pass2": {
-    "scenarios": [
       "014-jolly-doctor-diagnostics.feature:Doctor names the authenticated Vercel account",
       "018-jolly-auth-commands.feature:Jolly login warns that the OAuth callback listener is on the machine running Jolly",
       "006-npx-cli-command-surface.feature:Every subcommand prints usage on --help instead of aborting",

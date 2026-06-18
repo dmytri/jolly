@@ -40,11 +40,11 @@ History lives in git, not here. These notes describe only the current design and
 
 **Cycle progress (2026-06-18):**
 - Specs/assets/cycle.json committed (`af1319d`).
-- **pass1 4/10 DONE** (`c24326b`): 014 cloud-token validity probe (×3) + 005 live-mode `sk_live_` warning. Harness: per-scenario env overrides via `world.notes` so the shared doctor `saleor`/`stripe` `When` drives the real probe; `@sandbox` cloud-token scenario scoped to `saleorCloud`.
-- **pass1 remaining (6):** 018 login token-input — `--token-file`, `--token-stdin`, `$JOLLY_SALEOR_CLOUD_TOKEN` fallback + precedence, empty-file honest error, `@sandbox` file-token verify-before-write. Real new production: a token-source resolver + verify-before-write on `jolly login`.
-- **pass2 (4):** untouched ergonomics — 014 Vercel account naming, 018 headless-listener warning, 006 `--help` usage, 002 `start --dry-run` idempotency.
-- **Push HELD (dk, 2026-06-18):** `af1319d` + `c24326b` unpushed on `main` by choice; revisit after more of the cycle lands. Deck clean, logic tier + tsc green.
-- **Next:** clear context → `/qm` for the 018 login targets.
+- **pass1 10/10 DONE.** 014 cloud-token validity probe (×3) + 005 live-mode `sk_live_` warning (`c24326b`); 018 login headless token sources (`1341a5c`): `--token-file`, `--token-stdin`, `$JOLLY_SALEOR_CLOUD_TOKEN` + precedence, empty-file honest error (`EMPTY_TOKEN_FILE`, never browser-blame), `@sandbox` file-token verify. Production: a headless token-source resolver on `jolly login` (precedence after `--token`); verify-before-write reuses the existing `listOrganizations` (`Token`-auth org GET) path.
+- **Verify:** 018 logic 16 passed / 1 undefined (the pass2 `018:200`); 014+005 logic 23 passed / 1 skipped; tsc clean. The `@sandbox` `018` file-token verify skips local (credential-gated to CI), same as the existing `--token` verify scenario.
+- **pass2 → now the live work (4):** 014 Vercel account naming, 018 headless-listener warning, 006 `--help` usage, 002 `start --dry-run` idempotency. **`cycle.json` advanced** — these are now `pass1`; the verified former-pass1 was dropped.
+- **Push (dk, 2026-06-18):** `af1319d` + `c24326b` + `1341a5c` (+ this notes commit) unpushed on `main`. pass1-complete is the agreed revisit point; push decision pending with dk this session.
+- **Next:** dk's push call + whether to run the new pass1 (former pass2) this session; clear context → `/qm`.
 
 - **Specs authored (this cycle):**
   - **018** — flexible token input: `--token-file`, `--token-stdin`, `$JOLLY_SALEOR_CLOUD_TOKEN` with precedence + verify-before-write (so an agent never hand-writes the secret into `.env` and skips verification); a headless-listener warning (the OAuth callback is on the machine running Jolly, so a remote browser cannot complete it).
