@@ -93,6 +93,13 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And `jolly doctor storefront --full-validation` should run Paper's generate, typecheck, and build steps and report each as a check
     And it should leave Paper's source and theme files unmodified after the clone and install
 
+  @sandbox
+  Scenario: Jolly start lets Paper's native dependencies run their build scripts so the Vercel build succeeds
+    Given Jolly has cloned and installed the Paper storefront
+    When `jolly start` prepares the storefront for the Vercel deploy
+    Then `pnpm install` in the storefront should report no ignored build scripts for Paper's native dependencies `sharp` and `esbuild`
+    And the `npx vercel --prod` production build should complete, not fail on unbuilt native modules
+
   @sandbox @iteration
   Scenario: jolly start resumes and skips an already-completed storefront stage
     Given a `storefront/` directory already cloned and installed from a previous run
@@ -166,6 +173,12 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
       reads the child exit codes and reports `completed` only when the clone + install actually
       succeeded; `blocked`/`failed` honestly otherwise — never a fabricated completion. Idempotent
       (feature 022): an already-cloned/installed `storefront/` is detected and the stage is skipped.
+    - The storefront stage also approves the build scripts of Paper's native dependencies (e.g.
+      `sharp`, `esbuild`, `unrs-resolver`) so they run under pnpm and the subsequent `npx vercel`
+      production build does not fail on unbuilt native modules. pnpm 10+ ignores dependency build
+      scripts unless they are approved (there is no `--allow-build` flag), so without this the
+      Vercel build fails. This is build configuration, not a change to Paper's source or theme,
+      so the "leave Paper's source and theme files unmodified" guarantee still holds.
     - Deploy stage: Jolly spawns `npx vercel` (and `npx vercel --prod`) under the Vercel CLI's OWN
       `vercel login` session to deploy `storefront/`, sets the required Vercel env vars through the
       CLI, disables Vercel Deployment Protection (on by default — SSO/"Vercel Authentication") via

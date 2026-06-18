@@ -82,6 +82,13 @@ Feature: Jolly Configurator starter recipe
     And the stage should be reported completed only when the configurator's deployment report records success
     And re-running the stage should reconcile to a no-op diff rather than creating duplicate entities
 
+  @sandbox
+  Scenario: Jolly start confirms the recipe's featured collection exists before reporting the recipe stage completed
+    Given a freshly created blank Saleor Cloud environment
+    When Jolly start runs the configurator-deploy stage with approval
+    Then the recipe's `featured-products` collection should exist in the store holding its declared products
+    And the recipe stage should be reported "completed" only after Jolly reads the store back and confirms the recipe's declared catalog entities exist there, not from the configurator's summary counts alone
+
   Rule: Starter recipe goals
     - Make a freshly created Saleor Cloud environment immediately useful with Paper.
     - Use a playful pirate-themed demo catalog: stuff that pirates would buy.
@@ -191,6 +198,13 @@ Feature: Jolly Configurator starter recipe
       explicit-approval requirement to deploy; any other non-zero exit without a successful report, or
       a configurator that cannot be spawned, is reported `blocked`/`failed` honestly with the
       configurator's real error — never a fabricated `completed` or "recipe deployed".
+    - Completion is confirmed against the STORE, not the configurator's optimistic summary counts:
+      the configurator counts a create in its summary even when the operation failed at the API
+      (e.g. a `JSONString` rejection on a collection's `description`), so `completed` is reported
+      only after Jolly reads the store back and confirms the recipe's declared catalog entities — in
+      particular the `featured-products` collection — actually exist. A declared entity that the
+      configurator reported created but that is absent from the store is reported `blocked`/`failed`
+      naming what is missing, never `completed`.
     - Idempotent and resumable (feature 022): re-deploying the same declarative recipe reconciles the
       store to the same state (a no-op diff once deployed), creating no duplicates; `jolly start` may
       skip the stage when the store already matches the recipe.

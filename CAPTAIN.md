@@ -36,6 +36,47 @@ History lives in git, not here. These notes describe only the current design and
 
 ## Current state (2026-06-18)
 
+**Active cycle — second field retrospective (`~/cool/jolly-notes.md`) → specs.** A baseline agent
+ran `npx @dk/jolly start` end-to-end on a remote VM (against a REUSED org/env, so most ops were
+updates not creates) and reached a live, browsable, stocked storefront — launch bar essentially met
+bar the human Stripe gate. dk asked for an assessment, then "proceed" to spec the four real defects.
+Triage: the report's doc-structure complaints (ask-one-at-a-time, buried warning) are already
+addressed by today's octopus voice pass; the gold was engineering defects. Authored 4 red targets +
+`cycle.json` (pass1 honesty/security/blocker, pass2 ergonomics). Dry-run discovery: 4 undefined (the
+4 new), features parse, names match `cycle.json`.
+
+- **#1 configurator-deploy false success (headline, honesty).** Recipe's `featured-products`
+  collection create FAILED (`CollectionInput.description` is `JSONString`; recipe sent a plain
+  sentence) yet the configurator's summary counted "1 created"; Jolly reported the stage completed
+  while the collection was absent. **Fix (asset):** dropped the collection `description` line in
+  `recipe.yml` (products use plain-string descriptions and deploy fine — collection-specific
+  configurator quirk; field not needed by Paper; re-add as editorjs JSON if ever wanted). Also fixed
+  a header-comment drift (`--fail-on-breaking` → `--failOnDelete`, matching feature 004). **Spec
+  (004):** new `@sandbox` scenario + strengthened "Configurator deploy → Honest reporting" rule —
+  `completed` only after Jolly reads the store back and confirms declared entities (esp. the
+  collection) exist, never from the configurator's optimistic counts.
+- **#3 pnpm build-scripts → Vercel build fails (deploy blocker).** Paper's native deps
+  (`sharp`/`esbuild`/`unrs-resolver`) ship build scripts pnpm 10+ ignores unless approved (no
+  `--allow-build` flag); without approval `next build` fails on Vercel — the report saw 14+ red
+  deploys from this. **Spec (002):** new `@sandbox` scenario + storefront-stage rule clause — the
+  stage approves those build scripts so the `npx vercel --prod` build succeeds; framed as build
+  config, not a source/theme edit, so scenario-84's "leave Paper unmodified" still holds.
+- **#2 `.env` written mode 644 (secret exposure) + #4 `.env` apostrophe breaks `source`.** Both are
+  shared-`.env`-writer invariants. **Spec (018):** new "The .env Jolly writes is private and
+  shell-safe" rule + two `@logic @property @exceptional-double` scenarios (mode 600; POSIX-sourceable
+  round-trip of a space+apostrophe value). They reuse the existing sanctioned "Cloud API unreachable"
+  double to write `.env` locally with no network — no new double class.
+- **Lower-value / not specced (noted only):** stock seeding wants `productVariantStocksUpdate`
+  fallback (skill nit); trusted-origins needs staff `MANAGE_SETTINGS` so it's really a Dashboard
+  action (skill overclaims auto-wiring; e2e still works server-side); Vercel Deployment Protection,
+  `og:image` localhost, agent-detection `null`, `jollx` typo — noise/out-of-scope (upstream
+  configurator counts/deletes are an upstream bug, not ours).
+- **cycle.json:** pass1 = 002 build-scripts, 004 collection read-back, 018 `.env` mode-600; pass2 =
+  018 `.env` shell-sourceable. **Next role: QM** (fresh context). Crew implements the read-back,
+  build-script approval, and `.env` writer hardening.
+
+---
+
 **Setup-guide voice pass (dk) — octopus installer persona.** dk wanted `setup.md` to have
 personality: strong-but-silent voice + a touch of silly **octopus** (dk chose "octopus is the
 mascot"), installer-like, very concise, focus on needed input/confirmation, minimal interaction,

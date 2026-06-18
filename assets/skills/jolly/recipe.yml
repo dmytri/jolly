@@ -10,7 +10,7 @@
 #   npx @saleor/configurator diff   --url "$NEXT_PUBLIC_SALEOR_API_URL" \
 #       --token "$JOLLY_SALEOR_APP_TOKEN" --config saleor-config.yml
 #   npx @saleor/configurator deploy --url "$NEXT_PUBLIC_SALEOR_API_URL" \
-#       --token "$JOLLY_SALEOR_APP_TOKEN" --config saleor-config.yml --fail-on-breaking
+#       --token "$JOLLY_SALEOR_APP_TOKEN" --config saleor-config.yml --failOnDelete
 #
 # Then point the Paper storefront at this channel: NEXT_PUBLIC_DEFAULT_CHANNEL=us
 #
@@ -335,7 +335,6 @@ collections:
     # (src/lib/catalog/get-featured-products.ts). Keep this slug so the storefront
     # home page shows products out of the box.
     slug: featured-products
-    description: "What every well-equipped pirate carries aboard."
     products:
       - the-jolly
       - cutlass

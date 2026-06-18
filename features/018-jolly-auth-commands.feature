@@ -205,6 +205,42 @@ Feature: Jolly auth commands
     And it should direct the user to run `jolly login --token <value>` when the browser is on another machine
     And no token value should appear in the output
 
+  @logic @property @exceptional-double
+  Scenario: The .env Jolly writes is private to its owner
+    # @exceptional-double: this invariant is about the local .env WRITE, not the
+    # network verify. A reachable Cloud API would require a real valid token (a
+    # @sandbox concern), so the write is exercised via the stored-not-verified
+    # path against an unreachable Cloud API — the only double, never the normal
+    # verify path (the @sandbox login scenarios cover that).
+    Given the Saleor Cloud API is unreachable
+    And the agent has a Saleor Cloud token value "jolly-perms-test-token-001"
+    When the agent runs `jolly login --token jolly-perms-test-token-001`
+    Then the .env file Jolly wrote should be readable and writable only by its owner (mode 600)
+    And Jolly should not print the token value
+
+  @logic @property @exceptional-double
+  Scenario: The .env Jolly writes survives POSIX shell sourcing
+    # @exceptional-double: as above, the local .env write is exercised via the
+    # stored-not-verified path against an unreachable Cloud API; the real verify
+    # path is the @sandbox login scenarios. The token value carries a space and
+    # an apostrophe to exercise shell-quoting of the value the writer emits.
+    Given the Saleor Cloud API is unreachable
+    And a file at ./odd-token.txt contains the token value "jolly token's value 002"
+    When the agent runs `jolly login --token-file ./odd-token.txt`
+    Then sourcing the written .env in a POSIX shell should exit zero
+    And the value read back for JOLLY_SALEOR_CLOUD_TOKEN should equal "jolly token's value 002"
+
+  Rule: The .env Jolly writes is private and shell-safe
+    - Every .env Jolly creates or updates (the Cloud token, app token, organization name,
+      Stripe keys, storefront variables) is written with owner-only permissions (mode 600);
+      a file holding credentials is never group- or world-readable.
+    - Values are written so the file stays a valid POSIX shell env file: a value containing
+      whitespace, an apostrophe, or another shell-significant character is quoted so
+      `set -a; . ./.env` sources it without error and round-trips the original value. An
+      apostrophe in the organization name (e.g. "Dmytri's Organization") is the common case.
+    - This is a cross-cutting invariant of the shared .env writer, not one command's behaviour;
+      it holds wherever Jolly writes .env.
+
   Rule: Auth command principles
     - V1 should include `jolly login`, `jolly logout`, and `jolly auth status`.
     - Auth commands are helpers that empower the customer's agent; they do not make Jolly a separate control plane.
