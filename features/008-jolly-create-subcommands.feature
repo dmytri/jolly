@@ -77,6 +77,20 @@ Feature: Jolly create subcommands
     And the preview should report that the Cloud token it would authenticate with was read from the project `.env`
     And it should not create, configure, or store anything
 
+  @logic @exceptional-double
+  Scenario: jolly create store gives actionable recovery when the organization is at its environment limit
+    # @exceptional-double: an organization already at its Saleor Cloud sandbox-environment
+    # limit cannot be produced on demand against the real test org — the harness reclaims
+    # capacity by deleting jolly-test environments — so this lone scenario points
+    # create-store's Cloud API at an endpoint that returns the real
+    # ENVIRONMENT_LIMIT_REACHED rejection. It never replaces the real create path; the
+    # feature 004/012 @sandbox provisioning exercises a real `create store`.
+    Given the Saleor Cloud environments endpoint returns ENVIRONMENT_LIMIT_REACHED
+    When the agent runs `jolly create store --create-environment --json`
+    Then the envelope status should be "error" with a stable error code
+    And nextSteps should name freeing a sandbox environment and upgrading the plan as recovery options
+    And it should not report a created or stored environment
+
   Rule: No fabricated create results
     - This Rule applies feature 020's "No fabricated success" contract to every `jolly create` subcommand.
     - A create subcommand reports success and `pass` checks only for resources it actually created, or work it actually performed and confirmed, during the run.

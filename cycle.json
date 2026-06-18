@@ -1,0 +1,8 @@
+{
+  "pass1": {
+    "scenarios": [
+      "004-jolly-configurator-starter-recipe.feature:Jolly start deploys the recipe over the stock defaults of a store created by a prior create-store command",
+      "008-jolly-create-subcommands.feature:jolly create store gives actionable recovery when the organization is at its environment limit"
+    ]
+  }
+}

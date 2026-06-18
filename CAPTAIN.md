@@ -36,6 +36,38 @@ History lives in git, not here. These notes describe only the current design and
 
 ## Current state (2026-06-18)
 
+**Active cycle — THIRD field retrospective (`~/hey/jolly-notes.md`) → specs (2026-06-18).** A baseline
+agent ran the full `jolly start` pipeline on a remote VM against a REUSED org (hit the sandbox env
+limit, deleted a stale env to proceed) and reached a live store — but the recipe stage BLOCKED and
+forced manual `@saleor/configurator` surgery. dk asked for an actionable triage, then "spec #1 + #2".
+Triage kept two real gaps and discarded noise (the "changing Vercel URL" is normal per-deployment-URL
+behaviour; the token leak was the agent's own `awk` print, not a Jolly bug):
+- **#1 recipe blocks on a store from a PRIOR `create store` (headline; confirmed in `src`).**
+  `src/index.ts:3632` uses `allowDeletes: storeData !== undefined`, true ONLY when the store stage
+  auto-provisions THIS run. A store made by a separate earlier `jolly create store` is reused →
+  `storeData` undefined → `--failOnDelete` → recipe blocks deleting Saleor's stock defaults. The
+  documented `create store` → `start` flow (and the `@sandbox` harness, which provisions out-of-band
+  in `provision.ts`) hits exactly this. **Spec (004):** broadened the "Recipe targets a clean
+  environment" Rule to be invocation-independent (bootstrap = the deploy would delete ONLY Saleor
+  stock defaults, not which command provisioned; detection deferred to CLI design) + new `@sandbox`
+  scenario: recipe completes and the store's only channel is the recipe's `us` (proves the default
+  channel was replaced — the destructive contract neither 077 nor 086 pins).
+- **#2 `ENVIRONMENT_LIMIT_REACHED` → empty `nextSteps` (honesty/UX).** Hitting the org limit returned
+  no recovery guidance, against the page's "actionable message on failure" promise. **Spec (008):**
+  new `@logic @exceptional-double` scenario (an org at its env limit is the AGENTS.md-sanctioned
+  double) — the error envelope names freeing an environment + upgrading the plan.
+- **cycle.json:** pass1 = 004 prior-create recipe + 008 env-limit nextSteps. Dry-run: 2 undefined,
+  features parse, names match.
+- **Next role: QM** (fresh context). Crew implements: recipe bootstrap detection by store STATE (not
+  run-locality), and env-limit error → actionable nextSteps.
+- **CAPTAIN.md prune debt:** the released-cycle history below (the second/first retrospectives, octopus
+  pass, v0.7.1 release log — roughly to the "Report backlog" heading) is all shipped and current-design
+  -stale; collapse it to a one-paragraph "shipped" summary on a dedicated notes pass.
+
+---
+
+**Earlier this session — shipped (history kept for context; prunable per above).**
+
 **Active cycle — second field retrospective (`~/cool/jolly-notes.md`) → specs.** A baseline agent
 ran `npx @dk/jolly start` end-to-end on a remote VM (against a REUSED org/env, so most ops were
 updates not creates) and reached a live, browsable, stocked storefront — launch bar essentially met
@@ -83,10 +115,10 @@ addressed by today's octopus voice pass; the gold was engineering defects. Autho
   exists; the 004 `@sandbox` read-back scenario (executable, skips local) should pass in CI on the
   asset alone. No production read-back was needed to make it green; the scenario still catches the
   original "absent collection + false completed" regression.
-- **#3 pnpm build-scripts — NOT IMPLEMENTED (open).** `src/index.ts:3307` still runs a plain
-  `spawnSync("pnpm", ["install"])` — no native-build-script approval — so the 002 `@sandbox` scenario
-  would be RED in CI (it skipped locally → Crew was never driven; skip-blindness, sibling of
-  lessons-learned #1). The storefront-stage Rule already mandates the approval (002:176-181).
+- **#3 pnpm build-scripts — DONE (`6215228`, post-v0.7.1, not yet released).** Storefront stage now
+  writes `pnpm.onlyBuiltDependencies` (`sharp`/`esbuild`/`unrs-resolver`) into the cloned
+  `storefront/package.json` before install; local `@logic` target (`002:143`) green, the `@sandbox`
+  build-success scenario stays the CI check.
 - **Re-scope (dk approved): spec a local `@logic` angle, then cycle.** Added `@logic` scenario
   "Jolly start's storefront preparation approves Paper's native build scripts" (002) — creds-free
   (reuses the existing no-creds clone+install path), falsifiable (RED now), so a normal QM→Crew loop

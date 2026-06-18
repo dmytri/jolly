@@ -83,6 +83,13 @@ Feature: Jolly Configurator starter recipe
     And re-running the stage should reconcile to a no-op diff rather than creating duplicate entities
 
   @sandbox
+  Scenario: Jolly start deploys the recipe over the stock defaults of a store created by a prior create-store command
+    Given a blank Saleor Cloud environment created by a prior `jolly create store --create-environment` and recorded in `.env`
+    When the agent runs `jolly start --yes` and the run reaches the configurator-deploy stage
+    Then the recipe stage should be reported "completed", not "blocked"
+    And the store's only channel should be the recipe's `us` channel, the Saleor stock default channel having been replaced
+
+  @sandbox
   Scenario: Jolly start confirms the recipe's featured collection exists before reporting the recipe stage completed
     Given a freshly created blank Saleor Cloud environment
     When Jolly start runs the configurator-deploy stage with approval
@@ -113,13 +120,17 @@ Feature: Jolly Configurator starter recipe
       the store to match it, which means it deletes catalog entities the recipe does not declare —
       including the stock defaults (e.g. `default-channel`, `default-category`, the default
       warehouse) that even a "blank" Saleor Cloud environment ships with.
-    - On the bootstrap path — the store `jolly start` itself just provisioned — Jolly owns the store
-      and the recipe is its intended end state, so the deploy proceeds WITHOUT `--failOnDelete`:
-      replacing those Saleor stock defaults is the expected initial setup, not a destructive
-      accident.
-    - On a store that already holds catalog data (a re-deploy / pre-existing store), the apply is
-      destructive — the `--failOnDelete` guard correctly blocks it (exit 6). On such a store the
-      agent must surface the destructive diff and get the customer's explicit approval before
+    - On the bootstrap path — a blank store Jolly provisioned, whether `jolly start` auto-provisioned
+      it this run or a prior `jolly create store --create-environment` provisioned it and recorded it
+      in `.env` — Jolly owns the store and the recipe is its intended end state, so the deploy proceeds
+      WITHOUT `--failOnDelete`: replacing the Saleor stock defaults (`default-channel`,
+      `default-category`, the default warehouse) that even a blank environment ships with is the
+      expected initial setup, not a destructive accident. The bootstrap path is decided by the store's
+      state, not by which command provisioned it: when the only entities the deploy would delete are
+      Saleor's stock defaults, the apply proceeds; how Jolly determines this is deferred to CLI design.
+    - On a store that already holds customer catalog data (a re-deploy / pre-existing store), the apply
+      would delete real data — the `--failOnDelete` guard correctly blocks it (exit 6). On such a store
+      the agent must surface the destructive diff and get the customer's explicit approval before
       applying. The skill carries this guidance.
     - `jolly create store --create-environment` provisions the environment WITHOUT Saleor's
       demo/sample data (`database_population: null` — the Cloud "blank" template) so the recipe is
