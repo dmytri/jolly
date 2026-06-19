@@ -32,7 +32,8 @@ Four moments. Stop and ask — one at a time:
 - 🧑 **Browser login consent** — Saleor OAuth, `vercel login`, `stripe login`
 - 🧑 **Saleor's Stripe app** — Dashboard → Extensions → Stripe, mapped to the `us` channel (no CLI
   can do this)
-- 🧑 **A secret to paste** — only when no CLI can hand it over
+- 🧑 **A secret to paste** — only when no CLI can hand it over, and only if you want to: you can
+  drop any key into the gitignored `.env` yourself instead of pasting it to me
 
 Everything else, I do.
 

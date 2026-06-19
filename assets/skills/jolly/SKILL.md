@@ -57,6 +57,12 @@ Preview first with `--dry-run --json`: the `data.plan` lists every stage, its ef
   account, the **Saleor Dashboard Stripe app** (configure with the keys + map to the `us`
   channel), and pasting a secret no CLI hands over. `start` prints the exact step (in the
   envelope, so you can relay it) and waits, then resumes.
+- **Never make the human paste a secret to you if they would rather not.** Whenever a key or
+  token must come from the human, offer the private path: they can write it into the gitignored
+  `.env` themselves under the variable name you give them (the Saleor Cloud token is
+  `JOLLY_SALEOR_CLOUD_TOKEN`; Stripe keys are what `jolly create stripe` writes) and you carry on —
+  Jolly reads `.env`, so you never need to see or hold the value. Pasting it to you is only a
+  convenience, never a requirement.
 - **Verify and report honestly** — it runs `jolly doctor` automatically and reports only the
   stages it actually performed, with the deployed URL and any remaining manual steps. A stage
   that is pending, paused for approval, or waiting at a human gate is reported as such (envelope
@@ -74,7 +80,9 @@ and mediate it yourself. The order and the load-bearing specifics:
 1. **Bootstrap** — `jolly init` (skills + `.mcp.json` + scaffold + doctor). Never overwrite
    Jolly's marked `AGENTS.md` section.
 2. **Authenticate Saleor Cloud** — `jolly login` (browser OAuth, or a pasted `--token`). Stores
-   `JOLLY_SALEOR_CLOUD_TOKEN` in `.env`. For a brand-new account, send the human to
+   `JOLLY_SALEOR_CLOUD_TOKEN` in `.env`. If the human prefers not to paste the token to you, they
+   can set `JOLLY_SALEOR_CLOUD_TOKEN` in `.env` themselves (or `jolly login --token-file`/
+   `--token-stdin`) — `jolly doctor` then verifies it. For a brand-new account, send the human to
    cloud.saleor.io to sign up, then resume.
 3. **Provision the store** — `jolly create store` (creates/reuses the Cloud organization,
    project, and a **blank** environment via the Cloud API). High-risk → approval gate.
