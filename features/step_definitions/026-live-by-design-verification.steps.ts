@@ -32,6 +32,10 @@ import {
   listAllEnvironments,
 } from "../support/cloud.ts";
 import { makeNamespace } from "../support/sandbox.ts";
+import {
+  provisionSharedEnvironment,
+  type ProvisionOutcome,
+} from "../support/provision.ts";
 
 const TEST_LAYER_DIRS = [
   join(REPO_ROOT, "features", "step_definitions"),
@@ -386,6 +390,60 @@ Then(
     assert.ok(
       reclaimed.some((e) => e.name === name),
       `reclamation must report the leftover ${name} among the environments it deleted`,
+    );
+  },
+);
+
+// Feature 026 — fourth scenario (@sandbox): the @sandbox PROVISIONER reclaims a
+// leftover jolly-test environment instead of skipping. AGENTS.md ("Leftover
+// handling"): before creating the run's shared environment, the harness deletes
+// leftover jolly-test-namespaced environments to reclaim capacity — the
+// jolly-test- prefix IS the protection boundary — rather than skipping the run.
+// The masked defect was a skip-on-leftover branch; this scenario makes the
+// reclaim-not-skip contract executable and falsifiable. Live by design: a REAL
+// leftover (seeded by the shared Given through Jolly's own create path) and the
+// REAL provisioner creating a REAL shared environment. provisionSharedEnvironment
+// is driven directly — not the once-per-run memoized ensureSharedEnvironment — so
+// the provision path runs fresh regardless of where this scenario falls in the
+// serial @sandbox suite.
+When(
+  "the @sandbox harness provisions its shared environment for a run",
+  { timeout: 900_000 },
+  async function (this: JollyWorld) {
+    const token = this.notes.reclaimToken as string;
+    const before = await listAllEnvironments(token);
+    this.notes.provisionOutcome = await provisionSharedEnvironment();
+    const after = await listAllEnvironments(token);
+    const afterKeys = new Set(after.map((e) => `${e.org}/${e.key}`));
+    // What provisioning reclaimed: present before, absent after.
+    this.notes.reclaimed = before.filter(
+      (e) => !afterKeys.has(`${e.org}/${e.key}`),
+    );
+  },
+);
+
+Then(
+  "it should reclaim the leftover `jolly-test`-namespaced environment and provision the run's environment, not skip the run",
+  { timeout: 120_000 },
+  async function (this: JollyWorld) {
+    const token = this.notes.reclaimToken as string;
+    const name = this.notes.leftoverName as string;
+    const outcome = this.notes.provisionOutcome as ProvisionOutcome;
+    assert.equal(
+      outcome.status,
+      "ready",
+      `provisioning must reclaim the leftover and proceed, not skip the run` +
+        (outcome.status === "skip" ? `: ${outcome.reason}` : ""),
+    );
+    const after = await listAllEnvironments(token);
+    assert.ok(
+      !after.some((e) => e.name === name),
+      `the leftover ${name} must be reclaimed during provisioning; it still stands in the org`,
+    );
+    const reclaimed = this.notes.reclaimed as CloudEnvironment[];
+    assert.ok(
+      reclaimed.some((e) => e.name === name),
+      `provisioning must reclaim the leftover ${name} to free capacity`,
     );
   },
 );

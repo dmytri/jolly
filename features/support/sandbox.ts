@@ -208,6 +208,13 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   "The eval reclaims a leftover jolly-test environment before a run provisions": [
     "saleorCloud",
   ],
+  // The @sandbox provisioner's leftover reclamation drives only the Cloud API
+  // (list + delete) and Jolly's own create-environment path; the Cloud token
+  // alone is required. NOT derivable, so the Before hook does not pre-provision a
+  // shared environment before this scenario seeds its leftover.
+  "The @sandbox provisioner reclaims a leftover jolly-test environment instead of skipping the run": [
+    "saleorCloud",
+  ],
   // 019-iteration-phase
   "Agent has live store access from day one": ["saleorEndpoint", "saleorAppToken"],
   // 021-agent-risk-context

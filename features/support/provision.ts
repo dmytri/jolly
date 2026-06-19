@@ -8,20 +8,20 @@
 // overrides carrying the per-run jolly-test namespace — derives both values
 // from it, and tears it down when the run ends (AfterAll in hooks.ts).
 //
+// Leftover jolly-test environments from previous runs are RECLAIMED before
+// creating, never skipped: the jolly-test- prefix is the protection boundary
+// (AGENTS.md "Leftover handling"), so they are this dedicated test org's
+// disposable resources and are deleted freely to free capacity.
+//
 // Skip-not-fail stays only for what cannot be derived or produced harmlessly:
-//   - ENVIRONMENT_LIMIT_REACHED (account capacity, not Jolly's behavior)
-//   - a leftover jolly-test environment from a previous run (never deleted
-//     without explicit approval; non-interactive runs skip, naming it)
+//   - ENVIRONMENT_LIMIT_REACHED that reclamation could not clear (genuine
+//     non-jolly-test capacity the harness must never delete)
 // Any other provisioning failure is a real failure and throws.
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  deleteEnvironment,
-  leftoverTestEnvironments,
-  listAllEnvironments,
-} from "./cloud.ts";
+import { deleteEnvironment, listAllEnvironments } from "./cloud.ts";
 import { findEnvelope } from "./envelope.ts";
 import { CleanupRegistry, makeNamespace, runId, type CleanupFailure } from "./sandbox.ts";
 import { REPO_ROOT } from "./world.ts";
@@ -64,28 +64,30 @@ export async function teardownSharedEnvironment(): Promise<CleanupFailure[]> {
   return teardownRegistry.runAll();
 }
 
-async function provisionSharedEnvironment(): Promise<ProvisionOutcome> {
+/**
+ * The un-memoized provisioning logic: reclaim leftover jolly-test environments,
+ * then create the run's shared environment and derive its runtime values.
+ * `ensureSharedEnvironment` wraps this once-per-run; the feature 026 @sandbox
+ * conformance scenario drives it directly to exercise the provision path fresh,
+ * regardless of suite order.
+ */
+export async function provisionSharedEnvironment(): Promise<ProvisionOutcome> {
   const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
   if (!cloudToken || cloudToken.trim() === "") {
     // Callers gate on the Cloud token before calling; this is a backstop.
     return { status: "skip", reason: "missing JOLLY_SALEOR_CLOUD_TOKEN" };
   }
 
-  // Leftover jolly-test environments from previous runs block creation.
-  // This run cannot positively identify them as its own, so it never deletes
-  // them — it skips, naming the leftover so the customer can remove it.
+  // Reclaim leftover jolly-test environments before creating, instead of
+  // skipping: they consume capacity and can block creation, and the jolly-test-
+  // prefix positively marks them as this dedicated test org's disposable
+  // resources (AGENTS.md "Leftover handling"). Delete them freely to free
+  // capacity; an environment lacking the prefix is never touched.
   const before = await listAllEnvironments(cloudToken);
-  const leftovers = leftoverTestEnvironments(before, makeNamespace(runId()));
-  if (leftovers.length > 0) {
-    const named = leftovers
-      .map((env) => `${env.org}/${env.key} ("${env.name}")`)
-      .join(", ");
-    return {
-      status: "skip",
-      reason:
-        `leftover jolly-test environment(s) from a previous run block ` +
-        `provisioning: ${named}. Delete them to re-enable these scenarios.`,
-    };
+  for (const env of before) {
+    if (env.name.startsWith("jolly-test-")) {
+      await deleteEnvironment(cloudToken, env.org, env.key);
+    }
   }
 
   // Catch-all teardown registered BEFORE the CLI can create anything: if the
