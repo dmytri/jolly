@@ -40,6 +40,18 @@ Through **v0.7.2** (released 2026-06-18: push `main`+tag to `github.com/dmytri/j
 
 ## Current state (2026-06-19)
 
+**ACTIVE re-verification cycle — clean-room QM pass over the v0.7.4 recipe work.** v0.7.4 was built
+and verified in a SINGLE context (QM/Crew/Bosun/Captain interleaved), so the context firewall was
+never actually exercised. `cycle.json` pass1 scopes the four `@sandbox` recipe scenarios
+(`004:86/77/93/33`) for a fresh-context QM to independently re-verify live. **Next role: QM (MUST
+clear context before `/qm`).** No production change expected — this confirms the shipped fixes hold
+under clean-room verification; a RED is a real regression → Crew.
+- *Execution note (Captain continuity; not binding on QM):* the harness provisions ONE shared env per
+  run, and each blank-env recipe scenario re-deploys the recipe. The shipped `storeHoldsForeignCatalog`
+  decision makes a re-deploy over the recipe's own catalog idempotent, so a shared-env `-p sandbox` run
+  SHOULD pass; if a scenario collides, run it in its own invocation (fresh env). This was how each was
+  verified during the build.
+
 **SHIPPED — feature-004 skip-mask sweep + the two defects it exposed → v0.7.4** (2026-06-19;
 `main`+tag on GitHub, `@dk/jolly@0.7.4` on npm). De-masking `004:33/77/93` (skip only on a genuine
 could-not-spawn, never on a blocked/incomplete stage) turned green-by-skipping into real `@sandbox`
