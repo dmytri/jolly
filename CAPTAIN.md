@@ -36,44 +36,35 @@ History lives in git, not here. These notes describe only the current design and
 
 ## Shipped to date (history in git)
 
-Through **v0.7.2** (released 2026-06-18: push `main`+tag to `github.com/dmytri/jolly`, publish `@dk/jolly` to npm; homepage Vercel prod last deployed at v0.7.1, unchanged since). The product reaches the launch bar mechanically: homepage paste → live deployed Paper storefront on Vercel → browsable/stocked store against Saleor Cloud → checkout reaches the Stripe test step (behind the irreducible human Stripe-Dashboard gate). Built across several field-retrospective cycles that converted real remote-VM `jolly start` runs into specs: honesty contracts (configurator deploy read-back, no fabricated success), headless/remote-VM auth (`--token`/`--token-file`/`--token-stdin`/`$JOLLY_SALEOR_CLOUD_TOKEN`, URL-first OAuth, headless-listener warning), doctor validity probes (Cloud token, Vercel account, `sk_live_` warning), `.env` safety (mode 600, shell-sourceable), `--help` usage on every subcommand, `start` idempotency/dry-run, pnpm native-build-script approval for Vercel, and the octopus-voice `setup.md`. The **third retrospective** cycle (v0.7.2) shipped ONLY its 008 target: `ENVIRONMENT_LIMIT_REACHED` → actionable `nextSteps`. **Its headline 004 target — recipe bootstrap by store STATE, not run-locality — did NOT ship; the v0.7.2 release note and the prior version of this summary wrongly claimed it did (corrected 2026-06-18).** See "Current state → corrective cycle" below.
+Through **v0.7.2** (released 2026-06-18: push `main`+tag to `github.com/dmytri/jolly`, publish `@dk/jolly` to npm; homepage Vercel prod last deployed at v0.7.1, unchanged since). The product reaches the launch bar mechanically: homepage paste → live deployed Paper storefront on Vercel → browsable/stocked store against Saleor Cloud → checkout reaches the Stripe test step (behind the irreducible human Stripe-Dashboard gate). Built across several field-retrospective cycles that converted real remote-VM `jolly start` runs into specs: honesty contracts (configurator deploy read-back, no fabricated success), headless/remote-VM auth (`--token`/`--token-file`/`--token-stdin`/`$JOLLY_SALEOR_CLOUD_TOKEN`, URL-first OAuth, headless-listener warning), doctor validity probes (Cloud token, Vercel account, `sk_live_` warning), `.env` safety (mode 600, shell-sourceable), `--help` usage on every subcommand, `start` idempotency/dry-run, pnpm native-build-script approval for Vercel, and the octopus-voice `setup.md`. The **third retrospective** cycle (v0.7.2) shipped ONLY its 008 target: `ENVIRONMENT_LIMIT_REACHED` → actionable `nextSteps`; its headline 004 target — recipe bootstrap by store STATE, not run-locality — did NOT ship (the v0.7.2 release note wrongly claimed it did). **v0.7.3** (released 2026-06-19) shipped that corrective 004 target: `runRecipeStage` decides the bootstrap path by store STATE via `storeHoldsCustomerCatalog`, verified live against a freshly provisioned blank env (`004:86`).
 
 ## Current state (2026-06-18)
 
-**ACTIVE corrective cycle — recipe bootstrap by store STATE (the unshipped v0.7.2 #1).** Two fixes
-landed this session and a third issue surfaced and was resolved in spec:
-- **Production STATE fix (Crew, on disk, uncommitted).** `src/index.ts` recipe stage no longer gates
-  `allowDeletes` on `storeData !== undefined` (run-locality). It now decides by store STATE via a new
-  `storeHoldsCustomerCatalog` probe (`cloud-api.ts`): a store with no catalog (only Saleor stock
-  defaults) omits `--failOnDelete`; a store holding catalog keeps the guard. `004:86`'s first
-  assertion — recipe stage `completed`, not `blocked` — now PASSES on a prior-`create store` blank env.
-- **Skip-mask removed (QM, on disk).** `004:86`'s `When` no longer returns `"skipped"` on a
-  non-`completed` recipe stage; it skips only on a genuine "configurator could not be spawned"
-  environmental inability, so a destructive-diff block now FAILS the Then. (Sibling skip-masks in the
-  same file — the fresh-blank recipe scenario ~steps 689 — still use the old pattern; address them in a
-  later QM pass.)
-- **Spec observable was unachievable → reconciled (this pass).** `004:86`'s second assertion required
-  the store's ONLY channel to be `us` ("default channel replaced"). Empirically `@saleor/configurator`
-  does NOT delete Saleor's protected default channel — it survives the deploy (the exit-5 "partial"
-  line 210 already named). The intent (prove the bootstrap deploy reconciled a blank store) is sound;
-  the observable was not deliverable. **Decision (dk framing — MVP, don't chase edge cases):** assert
-  what the configurator delivers — the recipe's `us` channel exists and is active. A leftover unused
-  `default-channel` is invisible to a Paper storefront pointed at `NEXT_PUBLIC_DEFAULT_CHANNEL=us`.
-  Forcing `["us"]`-only would need Jolly's own `channelDelete` (order-migration target design) — a
-  post-MVP iteration, not a v1 requirement. Corrected Rule "Recipe targets a clean environment" + the
-  Configurator-deploy clause (`exits 0` → `exit 0 or spurious exit-5 partial`; protected channel may
-  remain) accordingly.
-- **cycle.json:** pass1 = `004:86`, still the target. Remaining loop: **QM (fresh context)** makes the
-  now-changed second Then (`the recipe's us channel should exist and be active in the store`)
-  executable — the old `only channel` step is orphaned — and re-verifies; the on-disk production STATE
-  fix should carry it GREEN. Then **Bosun** commits the whole cycle as **v0.7.3**.
-- **Creds present locally** (Cloud token + Vercel session + Stripe test keys), so `004:86` genuinely
-  RUNS locally (provision → deploy → must complete).
-- **Next role: QM** (fresh context — MUST clear before `/qm`).
+**SHIPPED corrective cycle — recipe bootstrap by store STATE (the unshipped v0.7.2 #1) → v0.7.3.**
+Code+spec+steps committed at `4ffeb7d`; released as **v0.7.3** on 2026-06-19 (`main`+tag on GitHub,
+`@dk/jolly@0.7.3` on npm).
+- **Production STATE fix (Crew).** `runRecipeStage` decides the bootstrap path by store STATE, not by
+  which command provisioned it: new `storeHoldsCustomerCatalog` probe (`cloud-api.ts`) — a store with no
+  customer catalog (only Saleor stock defaults) omits `--failOnDelete`; a store holding catalog keeps
+  the guard. Dropped the run-locality `allowDeletes: storeData !== undefined` gate.
+- **Skip-mask removed (QM).** `004:86`'s `When` no longer masks a non-`completed` recipe stage as
+  `"skipped"`; it skips only on a genuine "configurator could not be spawned" environmental inability,
+  so a destructive-diff block now FAILS the Then. (Sibling skip-mask — the fresh-blank recipe scenario
+  ~steps 689 — still uses the old pattern; address in a later QM pass.)
+- **Spec observable reconciled (Captain).** Empirically `@saleor/configurator` does NOT delete Saleor's
+  protected default channel. The old "store's ONLY channel is `us`" observable was undeliverable;
+  **decision (dk — MVP, don't chase edge cases):** assert what the configurator delivers — the recipe's
+  `us` channel exists and is active (a leftover unused `default-channel` is invisible to a Paper
+  storefront pointed at `NEXT_PUBLIC_DEFAULT_CHANNEL=us`). Forcing `["us"]`-only would need Jolly's own
+  `channelDelete` (order-migration target design) — post-MVP, not a v1 requirement. Rule "Recipe
+  targets a clean environment" + the Configurator-deploy clause corrected accordingly.
+- **Verified live:** `004:86` ran green against a freshly provisioned blank env (1 passed, 4m28s);
+  logic tier 123 passed / 0 failed; typecheck clean; full dry-run 0 undefined/ambiguous. `cycle.json`
+  retired (pass1 verified).
 
-- **Deck before this cycle:** v0.7.2 released (`main`+tag on GitHub, `@dk/jolly@0.7.2` on npm; homepage
-  unchanged). 008 env-limit fix is real and correctly shipped. v0.7.2 stays published — no regression,
-  008 is a genuine improvement; the real 004 fix ships as **v0.7.3** when this cycle closes.
+- **Deck:** v0.7.2 released (`main`+tag on GitHub, `@dk/jolly@0.7.2` on npm; homepage unchanged). 008
+  env-limit fix is real and correctly shipped. v0.7.2 stays published — no regression; the real 004 fix
+  ships as **v0.7.3** on outbound approval.
 - **Remaining to v1 ship:** the field runs confirm paste→live-store works end-to-end against real
   Saleor Cloud + Vercel. The launch bar's "checkout reaches the Stripe test payment step" still depends
   on the irreducible human Stripe-Dashboard key+channel gate; `jolly doctor`'s checkout probe verifies
