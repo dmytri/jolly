@@ -89,10 +89,15 @@ and mediate it yourself. The order and the load-bearing specifics:
    it into the storefront repo as `saleor-config.yml` (version-controlled, reviewable), then apply
    with `@saleor/configurator`'s safe workflow — `diff` to preview, then `deploy` — passing
    `--url "$NEXT_PUBLIC_SALEOR_API_URL" --token "$JOLLY_SALEOR_APP_TOKEN" --config saleor-config.yml`
-   (or `SALEOR_URL`/`SALEOR_TOKEN`), with `--fail-on-breaking` on `deploy`. High-risk → approval
-   gate; review the diff before the deploy writes. (`deploy` reconciles the store to the recipe; on
-   a **blank** environment that is purely additive — Jolly provisions environments blank for
-   exactly this.) **After the deploy, `start` seeds stock** — it sets a default quantity (100) for
+   (or `SALEOR_URL`/`SALEOR_TOKEN`). High-risk → approval gate; review the diff before the deploy
+   writes. `deploy` reconciles the store to the recipe: it creates the recipe's entities and removes
+   the empty stock placeholders a new Saleor environment ships (a default channel, category, and
+   warehouse — never products). **On a store you just created this is safe, not data loss: those
+   placeholders are not your catalog, and a fresh environment has no products to delete.** A Saleor
+   environment can't be provisioned with zero entities — the placeholders always ship — so the
+   recipe replaces them. Jolly gates this by the store's STATE: over a store that already holds real
+   catalog it passes `--failOnDelete`, so a destructive apply is BLOCKED (exit 6) for your explicit
+   approval rather than silently deleting anything. **After the deploy, `start` seeds stock** — it sets a default quantity (100) for
    every recipe variant in the recipe warehouse via Saleor GraphQL, because `@saleor/configurator`
    cannot set stock or `trackInventory` (it hardcodes `trackInventory: true`). Without this the
    catalog has zero stock and checkout fails with `INSUFFICIENT_STOCK` before reaching payment.
