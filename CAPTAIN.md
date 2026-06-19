@@ -38,11 +38,28 @@ History lives in git, not here. These notes describe only the current design and
 
 Through **v0.7.2** (released 2026-06-18: push `main`+tag to `github.com/dmytri/jolly`, publish `@dk/jolly` to npm; homepage Vercel prod last deployed at v0.7.1, unchanged since). The product reaches the launch bar mechanically: homepage paste → live deployed Paper storefront on Vercel → browsable/stocked store against Saleor Cloud → checkout reaches the Stripe test step (behind the irreducible human Stripe-Dashboard gate). Built across several field-retrospective cycles that converted real remote-VM `jolly start` runs into specs: honesty contracts (configurator deploy read-back, no fabricated success), headless/remote-VM auth (`--token`/`--token-file`/`--token-stdin`/`$JOLLY_SALEOR_CLOUD_TOKEN`, URL-first OAuth, headless-listener warning), doctor validity probes (Cloud token, Vercel account, `sk_live_` warning), `.env` safety (mode 600, shell-sourceable), `--help` usage on every subcommand, `start` idempotency/dry-run, pnpm native-build-script approval for Vercel, and the octopus-voice `setup.md`. The **third retrospective** cycle (v0.7.2) shipped ONLY its 008 target: `ENVIRONMENT_LIMIT_REACHED` → actionable `nextSteps`; its headline 004 target — recipe bootstrap by store STATE, not run-locality — did NOT ship (the v0.7.2 release note wrongly claimed it did). **v0.7.3** (released 2026-06-19) shipped that corrective 004 target: `runRecipeStage` decides the bootstrap path by store STATE via `storeHoldsCustomerCatalog`, verified live against a freshly provisioned blank env (`004:86`).
 
-## Current state (2026-06-18)
+## Current state (2026-06-19)
 
-**SHIPPED corrective cycle — recipe bootstrap by store STATE (the unshipped v0.7.2 #1) → v0.7.3.**
-Code+spec+steps committed at `4ffeb7d`; released as **v0.7.3** on 2026-06-19 (`main`+tag on GitHub,
-`@dk/jolly@0.7.3` on npm).
+**ACTIVE directed cycle — eliminate the remaining feature-004 skip-masks.** Same defect class the
+v0.7.3 fix exposed (green-suite blindness, lesson #8): two more `@sandbox` steps still return
+`"skipped"` whenever a stage status is not `completed` — masking a `blocked`/honest-pending outcome
+(the bug) as a skip. Not red-discoverable (they pass by skipping), so directed via `cycle.json`.
+- **Recipe-deploy mask** (`steps.ts:679`, the `When "Jolly start runs the configurator-deploy stage
+  with approval"`, SHARED by `004:77` and `004:93`): skips on recipe stage `!== completed`. Narrow the
+  escape to the genuine could-not-spawn environmental inability only (as `004:86` now does); a `blocked`
+  must fail the Then.
+- **Stock mask** (`steps.ts:280`, the `When "Jolly start completes the recipe stage"` for `004:33`,
+  plus the nested "no variants → skip" at ~`steps.ts:312`): same narrowing.
+- **Why it should now run GREEN for real, not just stop skipping:** the v0.7.3 STATE fix means the
+  recipe actually deploys over a blank `@sandbox` env, so the stages reach `completed`, stock seeds, and
+  variants exist — de-masking gives real coverage at last. If a de-masked scenario goes RED, that is a
+  genuine defect → Crew.
+- **cycle.json:** pass1 = `004:77`, `004:93`, `004:33`. **Next role: QM** (fresh context — MUST clear
+  before `/qm`).
+
+- **SHIPPED last cycle — recipe bootstrap by store STATE (the unshipped v0.7.2 #1) → v0.7.3.**
+  Code+spec+steps committed at `4ffeb7d`; released as **v0.7.3** on 2026-06-19 (`main`+tag on GitHub,
+  `@dk/jolly@0.7.3` on npm).
 - **Production STATE fix (Crew).** `runRecipeStage` decides the bootstrap path by store STATE, not by
   which command provisioned it: new `storeHoldsCustomerCatalog` probe (`cloud-api.ts`) — a store with no
   customer catalog (only Saleor stock defaults) omits `--failOnDelete`; a store holding catalog keeps
