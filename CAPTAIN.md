@@ -40,24 +40,28 @@ Through **v0.7.2** (released 2026-06-18: push `main`+tag to `github.com/dmytri/j
 
 ## Current state (2026-06-19)
 
-**ACTIVE cycle — clean-room re-verification (pass1) + provisioner skip-mask fix (pass2).** **Next
-role: QM (MUST clear context before `/qm`).**
+**ACTIVE cycle — clean-room re-verification (pass1). Next role: QM (MUST clear context before
+`/qm`).** dk's call (2026-06-19): finish pass1, then push everything. No outbound until pass1 is
+re-verified green in a firewalled context.
 - **pass1 — re-verify the v0.7.4 recipe work.** v0.7.4 was built and verified in a SINGLE context
   (QM/Crew/Bosun/Captain interleaved), so the firewall was never exercised. Scopes the four `@sandbox`
-  recipe scenarios (`004:86/77/93/33`) for a fresh QM to independently re-verify live. No production
-  change expected; a RED is a real regression → Crew.
-- **pass2 — fix the `@sandbox` provisioner skip-mask (same lesson #8 class as the 004 sweep).**
-  `features/support/provision.ts` SKIPS the run on a leftover `jolly-test` env (and on
-  `ENVIRONMENT_LIMIT_REACHED`) — a skip-mask that can hide a defect and reach a release. This is a
-  conformance gap, not a decision: AGENTS.md (binding harness discipline) says reclaim `jolly-test`
-  envs freely (disposable cannon fodder; env-limit is NOT a skip) and feature 026's Rule already
-  asserts "the same reclamation the `@sandbox` provision path performs" — only the code and a stale
-  feature-012 clause lagged. Captain reconciliation done this turn: removed the wrong harness-skip
-  clause from feature 012's Rule; added falsifiable scenario `026:The @sandbox provisioner reclaims a
-  leftover jolly-test environment instead of skipping the run`. QM makes it executable (mirror the
-  eval path's `reclaimLeftoverTestEnvironments`, `eval.ts:369`) and fixes `provision.ts` to reclaim
-  before creating instead of skipping → GREEN. `provision.ts` is harness (QM write-scope), so no Crew
-  needed.
+  recipe scenarios (`004:86/77/93/33`) for a fresh QM to independently re-verify live. These are
+  already defined and green, so this is a DIRECTED re-verification: the fresh QM runs the `cycle.json`
+  scoped scenarios live to confirm, not a make-executable pass. No production change expected; a RED is
+  a real regression → Crew. Run each in its own invocation if a shared-env `-p sandbox` run collides
+  (see execution note below). After pass1 green: push `main` and retire `cycle.json`.
+
+**SHIPPED-LOCAL — pass2: `@sandbox` provisioner skip-mask reconciled (`7b474b6`, not yet pushed).**
+Same lesson #8 class as the 004 sweep. `features/support/provision.ts` SKIPPED the run on a leftover
+`jolly-test` env — a skip-mask that can hide a defect and reach a release. AGENTS.md (binding harness
+discipline) says reclaim `jolly-test` envs freely (disposable cannon fodder), and feature 026's Rule
+already asserts "the same reclamation the `@sandbox` provision path performs"; only the code lagged.
+Fix (QM, harness write-scope, no Crew): `provisionSharedEnvironment` now deletes leftover `jolly-test-`
+envs before creating (the `jolly-test-` prefix IS the protection boundary), exported so the new
+falsifiable scenario `026:The @sandbox provisioner reclaims a leftover jolly-test environment instead
+of skipping the run` drives the provision path fresh. Verified live (focused scenario green, 3m44s real
+Cloud provisioning); logic tier 123 passed / 1 skipped; typecheck clean; dry-run 0 undefined. Pushes
+with pass1.
 - *Execution note (Captain continuity; not binding on QM):* the harness provisions ONE shared env per
   run, and each blank-env recipe scenario re-deploys the recipe. The shipped `storeHoldsForeignCatalog`
   decision makes a re-deploy over the recipe's own catalog idempotent, so a shared-env `-p sandbox` run
@@ -99,7 +103,13 @@ coverage and immediately surfaced two live production defects:
 
 - **Live `-p eval` run.** Both prior blockers fixed (auth-only seed, pre-run reclamation); `setup.md:97` steers background+poll. Remaining is an operational run; pi's per-command bash timeout vs the ~8-min `jolly start` is the open risk.
 - **Seam-scoping fidelity fix (harness).** `reclaimLeftoverTestEnvironments` deletes ALL `jolly-test-` envs incl. the current run's; feature 025 + the 026 scenario say "previous run". Harmless today (gated; the eval has no current-run env at pre-run time). Clean fix: scope to previous-run leftovers + seed the 026 leftover under a simulated previous-run namespace. No spec change; harness-faithfulness QM item. `026:21` passes but does not assert the current-run env survives — strengthen it when worked.
-- **Leftover/env-limit policy is split (harness, found 2026-06-18).** A leftover `jolly-test-…-shared` env from a crashed prior run skip-masked `004:86` this session (deleted by hand as sanctioned cannon fodder to unblock). `provision.ts` SKIPS the whole run on a leftover and on `ENVIRONMENT_LIMIT_REACHED`, which matches feature 012 Rule lines 139–142 (env-limit → harness skip) but contradicts AGENTS.md ("dedicated test org; reclaim `jolly-test` envs, env-limit is NOT a skip") and feature 026's eval-only pre-run reclamation. Net: the general `@sandbox` provisioner can silently skip-mask on leftover test debris. Reconcile in a follow-up cycle — either have the general provisioner reclaim `jolly-test` leftovers before creating (like the eval path) or align feature 012's skip Rule with AGENTS.md. Decide which artifact is authoritative; needs a spec/AGENTS.md decision, not just code.
+- **Leftover reclamation — RESOLVED (pass2, `7b474b6`).** The general `@sandbox` provisioner
+  (`provision.ts`) now reclaims leftover `jolly-test-` envs before creating instead of skip-masking the
+  run, matching AGENTS.md and the eval pre-run reclamation; feature 026's new scenario gates it. Feature
+  012's Rule was already corrected to product-only `ENVIRONMENT_LIMIT_REACHED` emission (no harness-skip
+  clause). Residual: the provisioner's `ENVIRONMENT_LIMIT_REACHED` branch still returns a skip — now a
+  LEGITIMATE narrow skip (genuine non-`jolly-test` capacity reclamation cannot clear), not a mask; no
+  scenario covers it and none is required.
 - **014 two-vercel-auth-scenario consolidation.** 014 has two live-session `@sandbox` vercel-auth scenarios (mechanism vs. account-naming); distinct observables, both green; consider consolidating at a Bosun sweep.
 - **Report backlog not yet specced:** manual-OAuth code-paste path (`--manual-oauth`: print URL, read `code` from stdin) — `@iteration`; JOLLY-010 single source of truth for the Cloud-API `Token`-auth fetch shared by doctor + login (impl preference, not a scenario); JOLLY-011 surface `@saleor/configurator --plan` higher in user-facing output.
 - **Open follow-up (architectural, non-blocking):** the `NON_FIRST_PARTY_HOST` guard sits only at the `graphqlFetch` seam (where the customer `--url` flows). Sibling seams (`cloudFetch`, `pollTaskStatus`, `timedGraphql`) take only internally-derived first-party URLs and are unguarded — no scenario exercises them. If a future scenario lets a customer-supplied host reach them, centralize the predicate at one canonical request choke point.
