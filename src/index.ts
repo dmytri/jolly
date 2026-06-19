@@ -39,9 +39,12 @@ import {
   extractDomainUrl,
   acquireAppToken,
   seedRecipeStock,
-  storeHoldsCustomerCatalog,
+  assignCollectionProducts,
+  storeHoldsForeignCatalog,
   DEFAULT_STOCK_QUANTITY,
   RECIPE_WAREHOUSE_SLUG,
+  RECIPE_COLLECTIONS,
+  RECIPE_PRODUCT_SLUGS,
   installStripeApp,
   STRIPE_APP_MANIFEST_URL,
   probeCheckoutPaymentGateway,
@@ -3039,14 +3042,16 @@ async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
   rmSync(reportPath, { force: true });
 
   // Decide the bootstrap path by the store's STATE (feature 004 Rule "Recipe
-  // targets a clean environment"): a store with no customer catalog holds only
-  // Saleor's stock defaults, so deleting them to match the recipe is the
-  // intended initial setup and the deploy omits --failOnDelete. A store that
-  // already holds catalog keeps the guard. If the state cannot be read, keep the
-  // safe guard so the apply is never silently destructive.
+  // targets a clean environment"): omit --failOnDelete only when the store holds
+  // no product catalog beyond the recipe's own. A blank store (no products) and
+  // an idempotent re-run over Jolly's own store (only the recipe's products) both
+  // take the bootstrap path, so the re-deploy reconciles cleanly instead of
+  // blocking on the lingering protected default channel; a store that already
+  // holds the customer's own products keeps the guard so a destructive apply is
+  // blocked (exit 6). If the state cannot be read, keep the safe guard.
   let allowDeletes: boolean;
   try {
-    allowDeletes = !(await storeHoldsCustomerCatalog(endpoint, token));
+    allowDeletes = !(await storeHoldsForeignCatalog(endpoint, token, RECIPE_PRODUCT_SLUGS));
   } catch {
     allowDeletes = false;
   }
@@ -3102,7 +3107,13 @@ async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
       status: "pass",
       description: "Deployed the starter recipe via @saleor/configurator deploy.",
     });
-    return "completed";
+    // The configurator cannot populate a collection's membership in one deploy
+    // (its pipeline creates Collections before Products, and the product schema
+    // has no `collections` field), so the recipe's featured collection deploys
+    // empty. Assign its declared products via GraphQL now — the same post-deploy
+    // fix-up Jolly does for stock the configurator cannot set. Idempotent, so a
+    // re-run reconciles cleanly.
+    return await assignRecipeCollections(endpoint, token, checks);
   }
 
   const stderr = (result.stderr ?? "").toString().slice(0, 2000);
@@ -3125,6 +3136,49 @@ async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
       "Verify NEXT_PUBLIC_SALEOR_API_URL and JOLLY_SALEOR_APP_TOKEN reach the store, then re-run jolly start --yes.",
   });
   return "blocked";
+}
+
+/**
+ * Assign the recipe's declared collection products after a successful deploy
+ * (feature 004). The configurator cannot populate collection membership in a
+ * single deploy, so a `completed` recipe stage requires Jolly to fill it in via
+ * GraphQL. Pushes an honest `recipe-collections` check and returns `completed`
+ * only when every recipe collection was populated; `blocked` (never a fabricated
+ * completion) when the assignment fails. A no-op `completed` when the recipe
+ * declares no collections.
+ */
+async function assignRecipeCollections(
+  endpoint: string,
+  token: string,
+  checks: Check[],
+): Promise<StageStatus> {
+  if (RECIPE_COLLECTIONS.length === 0) return "completed";
+  try {
+    let assigned = 0;
+    for (const collection of RECIPE_COLLECTIONS) {
+      assigned += await assignCollectionProducts(
+        endpoint,
+        token,
+        collection.slug,
+        collection.productSlugs,
+      );
+    }
+    checks.push({
+      id: "recipe-collections",
+      status: "pass",
+      description: `Assigned ${assigned} product(s) to the recipe's featured collection(s) via collectionAddProducts (the configurator cannot populate collection membership in a single deploy).`,
+    });
+    return "completed";
+  } catch (err) {
+    checks.push({
+      id: "recipe-collections",
+      status: "fail",
+      description: `Deployed the starter recipe but could not populate its featured collection: ${err instanceof Error ? err.message : String(err)}.`,
+      remediation:
+        "Verify NEXT_PUBLIC_SALEOR_API_URL and JOLLY_SALEOR_APP_TOKEN reach the store, then re-run jolly start --yes.",
+    });
+    return "blocked";
+  }
 }
 
 /**

@@ -278,22 +278,21 @@ Given(
 );
 
 When("Jolly start completes the recipe stage", function (this: JollyWorld) {
-  // Re-pointed onto the `stock` stage: `jolly start` performs the stock-seeding
-  // itself (it does NOT deploy the recipe), so the genuinely-executing outcome to
-  // verify is the `stock` stage reporting `completed`. When the recipe is not
-  // deployed in this environment there are no variants to seed and Jolly reports
-  // the stage `pending`/`blocked` honestly (never a fabricated `completed`), so
-  // the scenario skips — premise not producible — rather than failing.
-  const stages = (this.envelope.data.stages ?? []) as Array<{
-    stage: string;
-    status: string;
-  }>;
-  const stock = stages.find((s) => s.stage === "stock");
-  if (!stock || stock.status !== "completed") {
+  // `jolly start` ran in the Given. The recipe must deploy for there to be
+  // variants to seed, so the only premise this scenario genuinely cannot
+  // construct is the @saleor/configurator binary failing to spawn (npx
+  // fetch/network) — an environmental inability the real test env cannot produce
+  // on demand. A stock stage `blocked`/`pending` for any other reason is the
+  // behaviour under test and MUST fail the Then, never be masked as a skip.
+  const recipeCheck = this.findCheck("recipe-deployed");
+  const couldNotSpawn = /could not be spawned/i.test(
+    String(recipeCheck?.description ?? ""),
+  );
+  if (couldNotSpawn) {
     this.attach(
-      `Skipped: the stock-seeding stage did not complete in this environment ` +
-        `(status: ${stock?.status ?? "absent"}) — the starter recipe is not ` +
-        `deployed here, so there are no variants to seed`,
+      `Skipped: the @saleor/configurator binary could not be spawned in this ` +
+        `environment — an environmental inability the real test env cannot ` +
+        `produce on demand, not the stock contract under test`,
       "text/plain",
     );
     this.notes.skipStock = true;
@@ -309,11 +308,10 @@ Then(
     const endpoint = String(this.notes.storeEndpoint);
     const token = this.notes.storeToken as string | undefined;
     const variants = await recipeVariants(endpoint, token);
-    if (variants.length === 0) {
-      this.attach("Skipped: no product variants found on the store", "text/plain");
-      this.notes.skipStock = true;
-      return "skipped";
-    }
+    assert.ok(
+      variants.length > 0,
+      "the recipe deploy must have created product variants to seed stock for",
+    );
     for (const variant of variants) {
       const stock = variant.stocks.find(
         (s) => s.warehouse.slug === RECIPE_WAREHOUSE_SLUG,
@@ -684,13 +682,21 @@ When(
     // configurator-deploy (recipe) stage. The configurator deploy can take
     // minutes against a real store, so allow a long timeout.
     this.runCli(["start", "--yes", "--json"], { timeoutMs: 840_000 });
-    const stages = (this.envelope.data.stages ?? []) as ResultStage[];
-    const recipe = stages.find((s) => s.stage === "recipe");
-    if (!recipe || recipe.status !== "completed") {
+    // Narrow environmental escape ONLY (mirrors 004:86): the @saleor/configurator
+    // binary could genuinely not be spawned here (npx fetch/network) — a condition
+    // the real test env cannot produce on demand — so the deploy premise was not
+    // reachable and the scenario skips. A recipe stage `blocked`/`failed` for ANY
+    // other reason is exactly the behaviour under test and MUST fail the Then,
+    // never be masked as a skip.
+    const recipeCheck = this.findCheck("recipe-deployed");
+    const couldNotSpawn = /could not be spawned/i.test(
+      String(recipeCheck?.description ?? ""),
+    );
+    if (couldNotSpawn) {
       this.attach(
-        `Skipped: the configurator-deploy stage did not complete in this ` +
-          `environment (status: ${recipe?.status ?? "absent"}) — the store may ` +
-          `not be blank, or the configurator could not be spawned here`,
+        `Skipped: the @saleor/configurator binary could not be spawned in this ` +
+          `environment — an environmental inability the real test env cannot ` +
+          `produce on demand, not the recipe-deploy contract under test`,
         "text/plain",
       );
       this.notes.skipRecipe = true;

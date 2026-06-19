@@ -466,27 +466,39 @@ export async function queryGetApps(
 }
 
 /**
- * Whether the store already holds customer catalog data — any product variant
- * beyond Saleor's stock defaults. A blank Saleor Cloud environment ships the
- * default channel, category, and warehouse but NO products/variants, so an empty
- * result means the store is the recipe's intended blank canvas. Used to decide
- * the recipe deploy's bootstrap path by the store's STATE, not by which command
- * provisioned it (feature 004 Rule "Recipe targets a clean environment"): a
- * store with no catalog takes the bootstrap path (the stock defaults are deleted
- * to match the recipe), while a store that already holds catalog keeps the
- * --failOnDelete guard so a destructive apply is blocked.
+ * Whether the store holds product catalog the recipe does NOT declare — i.e.
+ * products beyond the recipe's own. Decides the recipe deploy's bootstrap path by
+ * the store's STATE (feature 004 Rule "Recipe targets a clean environment"),
+ * robustly across both a blank store and an idempotent re-run:
+ *
+ * - A blank Saleor environment ships the default channel/category/warehouse but
+ *   NO products, so the result is empty → bootstrap (omit --failOnDelete; the
+ *   undeclared stock defaults are deleted to match the recipe).
+ * - A re-run over Jolly's own store holds only the recipe's products → still
+ *   empty of FOREIGN catalog → bootstrap, so the re-deploy reconciles cleanly
+ *   instead of blocking on the lingering protected default channel.
+ * - A store that already holds the customer's own products → foreign catalog
+ *   present → keep the --failOnDelete guard so a destructive apply is blocked
+ *   (exit 6) for explicit approval, never silently destructive.
+ *
+ * Checking products (not "any deletion in the diff") avoids both an expensive
+ * second configurator introspection and the unreliable job of deciding by name
+ * which deletions are Saleor's stock defaults.
  */
-export async function storeHoldsCustomerCatalog(
+export async function storeHoldsForeignCatalog(
   graphqlUrl: string,
   token: string,
+  recipeProductSlugs: readonly string[],
 ): Promise<boolean> {
   const data = await graphqlFetch(
     graphqlUrl,
     token,
-    `query { productVariants(first: 1) { edges { node { id } } } }`,
+    `query { products(first: 100) { edges { node { slug } } } }`,
   );
-  const variants = data.productVariants as { edges?: Array<unknown> } | undefined;
-  return (variants?.edges?.length ?? 0) > 0;
+  const edges = ((data.products as { edges?: unknown } | undefined)?.edges ??
+    []) as Array<{ node: { slug: string } }>;
+  const recipeSlugs = new Set(recipeProductSlugs);
+  return edges.some((edge) => !recipeSlugs.has(edge.node.slug));
 }
 
 /** All PermissionEnum values supported by the instance. */
@@ -621,6 +633,52 @@ export async function acquireAppToken(
 
 export const RECIPE_WAREHOUSE_SLUG = "port-royal";
 export const DEFAULT_STOCK_QUANTITY = 100;
+
+/**
+ * The recipe's collections and their member product slugs, mirrored from
+ * `assets/skills/jolly/recipe.yml` (`collections[].slug` + `products`). Hardcoded
+ * here — like {@link RECIPE_WAREHOUSE_SLUG} — because Jolly uses only Node
+ * built-ins (no YAML parser at runtime). The `@saleor/configurator` deploy cannot
+ * populate collection membership in one pass (collections precede products in its
+ * pipeline), so Jolly assigns it after the deploy from this list. Keep in sync
+ * with the recipe.
+ */
+export const RECIPE_COLLECTIONS: ReadonlyArray<{
+  slug: string;
+  productSlugs: readonly string[];
+}> = [
+  {
+    slug: "featured-products",
+    productSlugs: [
+      "the-jolly",
+      "cutlass",
+      "brass-spyglass",
+      "tricorne-hat",
+      "jolly-roger-flag",
+    ],
+  },
+];
+
+/**
+ * Every product slug the recipe declares, mirrored from
+ * `assets/skills/jolly/recipe.yml` (`products[].slug`). Hardcoded — like
+ * {@link RECIPE_WAREHOUSE_SLUG} — because Jolly uses only Node built-ins at
+ * runtime. Used by {@link storeHoldsForeignCatalog} to tell the recipe's own
+ * catalog apart from a customer's. Keep in sync with the recipe.
+ */
+export const RECIPE_PRODUCT_SLUGS: readonly string[] = [
+  "cutlass",
+  "flintlock-pistol",
+  "brass-spyglass",
+  "pirates-compass",
+  "tricorne-hat",
+  "leather-eyepatch",
+  "treasure-map",
+  "pieces-of-eight",
+  "oak-rum-barrel",
+  "jolly-roger-flag",
+  "the-jolly",
+];
 
 interface SeedStockResult {
   warehouseId: string;
@@ -796,6 +854,78 @@ export async function seedRecipeStock(
     variantCount: variants.length,
     seededCount: variants.length,
   };
+}
+
+/**
+ * Assign a recipe collection's declared products to it by slug, via GraphQL.
+ * The `@saleor/configurator` deploy CANNOT populate a collection's membership in
+ * one pass: its pipeline processes Collections (stage 7) BEFORE Products (stage
+ * 10) and the product schema has no `collections` field, so a collection's
+ * `products:` slugs reference products that do not exist yet and the collection
+ * is created empty. Jolly fills it in after the deploy — the same reason it seeds
+ * stock the configurator cannot set. Resolves the collection and product ids by
+ * slug, then `collectionAddProducts` (idempotent — re-adding a member is a
+ * no-op, so a re-run reconciles cleanly). Returns how many products were
+ * assigned; throws COLLECTION_NOT_FOUND when the collection is absent (the
+ * deploy did not create it) or COLLECTION_ASSIGN_FAILED on a payload error, so
+ * the caller reports the stage honestly instead of a fabricated completion.
+ */
+export async function assignCollectionProducts(
+  graphqlUrl: string,
+  token: string,
+  collectionSlug: string,
+  productSlugs: readonly string[],
+): Promise<number> {
+  const collData = await graphqlFetch(
+    graphqlUrl,
+    token,
+    `query { collections(first: 100) { edges { node { id slug } } } }`,
+  );
+  const collEdges = ((collData.collections as { edges?: unknown } | undefined)?.edges ??
+    []) as Array<{ node: { id: string; slug: string } }>;
+  const collection = collEdges.map((e) => e.node).find((n) => n.slug === collectionSlug);
+  if (!collection) {
+    throw new CloudApiError(
+      `Recipe collection "${collectionSlug}" not found; the starter recipe is not deployed`,
+      "COLLECTION_NOT_FOUND",
+    );
+  }
+
+  const prodData = await graphqlFetch(
+    graphqlUrl,
+    token,
+    `query { products(first: 100) { edges { node { id slug } } } }`,
+  );
+  const prodEdges = ((prodData.products as { edges?: unknown } | undefined)?.edges ??
+    []) as Array<{ node: { id: string; slug: string } }>;
+  const idBySlug = new Map(prodEdges.map((e) => [e.node.slug, e.node.id]));
+  const productIds = productSlugs
+    .map((slug) => idBySlug.get(slug))
+    .filter((id): id is string => Boolean(id));
+  if (productIds.length === 0) return 0;
+
+  const addData = await graphqlFetch(
+    graphqlUrl,
+    token,
+    `mutation AddToCollection($collectionId: ID!, $products: [ID!]!) {
+      collectionAddProducts(collectionId: $collectionId, products: $products) {
+        collection { id }
+        errors { code field message }
+      }
+    }`,
+    { collectionId: collection.id, products: productIds },
+  );
+  const payload = addData.collectionAddProducts as
+    | { errors?: Array<Record<string, unknown>> }
+    | undefined;
+  const errors = payload?.errors ?? [];
+  if (errors.length > 0) {
+    throw new CloudApiError(
+      `Failed to assign products to collection "${collectionSlug}": ${JSON.stringify(errors)}`,
+      "COLLECTION_ASSIGN_FAILED",
+    );
+  }
+  return productIds.length;
 }
 
 // ── Stripe app install (feature 005 Rule "`jolly start` Stripe stage") ─────
