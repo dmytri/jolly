@@ -136,9 +136,6 @@ Feature: Existing Saleor store connection
       environment limit is reached, Jolly must emit `status` "error" with the stable error
       code `ENVIRONMENT_LIMIT_REACHED` and a message guiding the customer to delete an
       unused environment or upgrade the plan.
-    - The sandbox test harness treats an `ENVIRONMENT_LIMIT_REACHED` outcome as an
-      environmental skip (like absent credentials), not a failure: the account's capacity,
-      not Jolly's behavior, is what prevented the run.
 
   Rule: Created environments are provisioned blank
     - `jolly create store --create-environment` provisions the environment with NO sample data

@@ -40,12 +40,24 @@ Through **v0.7.2** (released 2026-06-18: push `main`+tag to `github.com/dmytri/j
 
 ## Current state (2026-06-19)
 
-**ACTIVE re-verification cycle — clean-room QM pass over the v0.7.4 recipe work.** v0.7.4 was built
-and verified in a SINGLE context (QM/Crew/Bosun/Captain interleaved), so the context firewall was
-never actually exercised. `cycle.json` pass1 scopes the four `@sandbox` recipe scenarios
-(`004:86/77/93/33`) for a fresh-context QM to independently re-verify live. **Next role: QM (MUST
-clear context before `/qm`).** No production change expected — this confirms the shipped fixes hold
-under clean-room verification; a RED is a real regression → Crew.
+**ACTIVE cycle — clean-room re-verification (pass1) + provisioner skip-mask fix (pass2).** **Next
+role: QM (MUST clear context before `/qm`).**
+- **pass1 — re-verify the v0.7.4 recipe work.** v0.7.4 was built and verified in a SINGLE context
+  (QM/Crew/Bosun/Captain interleaved), so the firewall was never exercised. Scopes the four `@sandbox`
+  recipe scenarios (`004:86/77/93/33`) for a fresh QM to independently re-verify live. No production
+  change expected; a RED is a real regression → Crew.
+- **pass2 — fix the `@sandbox` provisioner skip-mask (same lesson #8 class as the 004 sweep).**
+  `features/support/provision.ts` SKIPS the run on a leftover `jolly-test` env (and on
+  `ENVIRONMENT_LIMIT_REACHED`) — a skip-mask that can hide a defect and reach a release. This is a
+  conformance gap, not a decision: AGENTS.md (binding harness discipline) says reclaim `jolly-test`
+  envs freely (disposable cannon fodder; env-limit is NOT a skip) and feature 026's Rule already
+  asserts "the same reclamation the `@sandbox` provision path performs" — only the code and a stale
+  feature-012 clause lagged. Captain reconciliation done this turn: removed the wrong harness-skip
+  clause from feature 012's Rule; added falsifiable scenario `026:The @sandbox provisioner reclaims a
+  leftover jolly-test environment instead of skipping the run`. QM makes it executable (mirror the
+  eval path's `reclaimLeftoverTestEnvironments`, `eval.ts:369`) and fixes `provision.ts` to reclaim
+  before creating instead of skipping → GREEN. `provision.ts` is harness (QM write-scope), so no Crew
+  needed.
 - *Execution note (Captain continuity; not binding on QM):* the harness provisions ONE shared env per
   run, and each blank-env recipe scenario re-deploys the recipe. The shipped `storeHoldsForeignCatalog`
   decision makes a re-deploy over the recipe's own catalog idempotent, so a shared-env `-p sandbox` run

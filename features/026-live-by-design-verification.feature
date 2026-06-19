@@ -24,6 +24,13 @@ Feature: Live-by-design verification conformance
     Then the leftover `jolly-test`-namespaced environment should no longer exist in the org
     And every environment lacking the `jolly-test` prefix should still be present afterward
 
+  @sandbox
+  Scenario: The @sandbox provisioner reclaims a leftover jolly-test environment instead of skipping the run
+    Given a leftover `jolly-test`-namespaced Saleor environment standing in the org from a previous run
+    When the @sandbox harness provisions its shared environment for a run
+    Then it should reclaim the leftover `jolly-test`-namespaced environment and provision the run's environment, not skip the run
+    And every environment lacking the `jolly-test` prefix should still be present afterward
+
   Rule: Live-by-design conformance
     - Binding test methodology lives in AGENTS.md ("Real services always — never mock or fake"); this feature makes its one testable invariant executable, so a suite that is green while still carrying a forbidden double fails here instead of passing silently.
     - A forbidden double is any stand-in for the normal path: a fake CLI replacing a real one, a dummy or forced-safe credential, or an unroutable endpoint replacing a real service.
