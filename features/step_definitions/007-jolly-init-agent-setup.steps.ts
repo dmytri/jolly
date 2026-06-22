@@ -35,6 +35,7 @@ const DEFAULT_SKILL_IDS = [
   "storefront-builder",
   "saleor-core",
   "saleor-app",
+  "stripe-best-practices",
 ];
 
 function skillsBaseDir(world: JollyWorld): string {
@@ -106,7 +107,7 @@ Then(
 );
 
 Then(
-  "the default skill set should include the Jolly skill plus `saleor-storefront`, `saleor-configurator`, `storefront-builder`, `saleor-core`, and `saleor-app`",
+  "the default skill set should include the Jolly skill plus `saleor-storefront`, `saleor-configurator`, `storefront-builder`, `saleor-core`, `saleor-app`, and `stripe-best-practices`",
   function (this: JollyWorld) {
     const skills = this.envelope.data.skills as string[];
     assert.ok(Array.isArray(skills), "data.skills must list the installed skills");
@@ -186,6 +187,19 @@ Then(
 Then("the envelope `data` should list the installed skill ids", function (this: JollyWorld) {
   assert.ok(this.envelope.summary.length > 0, "init must summarize what it did");
 });
+
+Then(
+  "the nextSteps should advise reloading the agent so the installed skills are loaded",
+  function (this: JollyWorld) {
+    const advises = this.envelope.nextSteps.some((s) =>
+      /reload|restart/i.test(String((s as { description?: unknown }).description ?? "")),
+    );
+    assert.ok(
+      advises,
+      "init nextSteps must advise reloading the agent so the installed skills are loaded",
+    );
+  },
+);
 
 Then(
   "Jolly should not create remote Saleor Cloud or Vercel resources",

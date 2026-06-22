@@ -278,6 +278,7 @@ const DEFAULT_SKILLS: SkillSpec[] = [
   { id: "storefront-builder", ref: "https://github.com/saleor/agent-skills/tree/main/skills/storefront-builder", description: "Storefront build guidance" },
   { id: "saleor-core", ref: "https://github.com/saleor/agent-skills/tree/main/skills/saleor-core", description: "Saleor core concepts" },
   { id: "saleor-app", ref: "https://github.com/saleor/agent-skills/tree/main/skills/saleor-app", description: "Saleor app development guidance" },
+  { id: "stripe-best-practices", ref: "stripe/ai@stripe-best-practices", description: "Stripe integration best practices" },
 ];
 
 // Universal project-local skill location `npx skills add` (no --agent) writes
@@ -1540,6 +1541,10 @@ function commandInit(_args: ParsedArgs): Envelope {
     },
     checks,
     nextSteps: [
+      {
+        description:
+          "Reload or restart your agent so the newly installed skills are loaded into its context.",
+      },
       {
         description: "Run jolly start to bootstrap setup and get the ordered playbook.",
         command: "jolly start",
