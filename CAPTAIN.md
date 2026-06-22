@@ -78,6 +78,15 @@ the 002 continue-ready-repo + Vercel-deploy-preview scenarios; helper-refactor (
 check/envelope builders). Captain authoring COMPLETE (002 continue-ready scenario, Vercel-URL clause,
 recipe.yml collection description, optimized recipe images).
 
+**006:79 contradiction RESOLVED (Captain, 2026-06-22).** QM blocked: the "Command output names only
+the @dk/jolly package" `@property` required naming the spawned official CLIs (incl. `@saleor/configurator`,
+which `jolly start --json` does name) while the same scenario + Rule forbade any `@saleor/...` scope in
+output. Reworded both: the prohibition now targets *impersonation/substitution* only — `@dk/jolly` is the
+sole name for the Jolly tool/official product; the delegated CLIs (`@saleor/configurator`/`vercel`/`git`/`pnpm`)
+are explicitly allowed, named as the tools the agent runs. Output still must name `@dk/jolly` (likely a
+small Crew add — help header + start envelope currently omit the literal). 006:30/22/64 already landed
+green by QM (`df55adc`).
+
 ### Stale-removal manifest for the CODE cycle (Bosun audit, 2026-06-22)
 
 Dropping Saleor OAuth and the Stripe CLI left extensive stale artifacts. This is Captain's

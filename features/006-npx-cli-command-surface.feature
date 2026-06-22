@@ -71,8 +71,8 @@ Feature: Npx-first Jolly CLI command surface
   Scenario Outline: Command output names only the @dk/jolly package
     Given the published Jolly CLI
     When the agent runs `<command>`
-    Then the output should name `@dk/jolly` and the official CLIs Jolly spawns
-    And it should never present another package name (such as an `@saleor/...` scope) as runnable or official
+    Then the output should name the Jolly package as `@dk/jolly`
+    And the only package it presents as the Jolly tool or an official product is `@dk/jolly`, with the official CLIs Jolly spawns (`@saleor/configurator`, `vercel`, `git`, `pnpm`) named only as the delegated tools the agent runs
 
     Examples:
       | command            |
@@ -109,11 +109,15 @@ Feature: Npx-first Jolly CLI command surface
     - All CLI commands should support `--quiet`.
     - All CLI commands should support `--yes` / `-y` to skip Jolly prompts where the agent environment allows.
     - Side-effecting remote/action commands should support `--dry-run` for preview/no-side-effects mode.
-    - The package name is `@dk/jolly`, everywhere. Jolly is a
-      tool by Dmytri Kleiner that helps agents set up a store quickly using Saleor,
-      Vercel and Stripe; it is not an official product of any of those. No other
-      package name (including any `@saleor/...` scope) may be mentioned in code,
-      output, or docs — not as runnable, not as "future/official"; docs describe
+    - The package name is `@dk/jolly`, everywhere; it is the only name for the
+      Jolly tool. Jolly is a tool by Dmytri Kleiner that helps agents set up a
+      store quickly using Saleor, Vercel and Stripe; it is not an official product
+      of any of those. Output and docs present only `@dk/jolly` as the Jolly tool
+      or as an official product — no other package, including any `@saleor/...`
+      scope, stands in for `@dk/jolly` or is named as runnable-as-Jolly or as
+      "future/official". The official CLIs Jolly spawns — `npx @saleor/configurator`,
+      `vercel`, `git`, `pnpm` — are named only as the delegated tools the agent
+      runs, which is correct and expected, not a Jolly substitute. Docs describe
       only what exists and can be run.
     - The published Jolly CLI is a Node.js program: the launcher (`bin/jolly`) runs
       under Node.js >= 23. The project's dev and CI runtime is also Node.js >= 23 + npm.
