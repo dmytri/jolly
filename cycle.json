@@ -1,7 +1,0 @@
-{
-  "pass1": {
-    "scenarios": [
-      "018-jolly-auth-commands.feature:Jolly login prompts the interactive user to paste a token when no source is given"
-    ]
-  }
-}
