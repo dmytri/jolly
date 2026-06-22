@@ -49,20 +49,34 @@ Through **v0.7.2** (released 2026-06-18: push `main`+tag to `github.com/dmytri/j
 *pasted* token (TTY, echo off) so the secret reaches Jolly via the terminal, never the LLM context.
 Verified `@logic` green via a real PTY and pushed (commits `063012f`/`6385925`).
 
-**ACTIVE — polish cycle (dk, 2026-06-22). Captain spec/asset pass done; CODE cycle pending fresh QM.**
+**ACTIVE — polish CODE cycle (dk, 2026-06-22). pass1 LARGELY LANDED; JOLLY_STRIPE hygiene + pass2 remain.**
 Decisions captured above (token-only Saleor, Jolly-driven Vercel device flow, Stripe app+skill, no
-Stripe CLI). Captain pass landed across specs (018 rewrite; 005 rewrite; 008/006/002/020/025/026/
-014/001/004 consistency; 006/007/009/017 graduated off `@iteration`; 007 skill set + reload-agent
-nextStep) and assets (setup.md, SKILL.md). **Remaining = a directed QM/Crew/Bosun CODE cycle:**
-strip OAuth (~400 lines) + all Stripe-CLI code (`readStripeCliKeys`, `create stripe`,
-`stripe-cli-trace.ts`, `JOLLY_STRIPE_*` in creds-env/eval/sandbox/step-defs/src) + the
-`auth.saleor.io`/`127.0.0.1` host-allowlist entries; make `jolly start` run the Vercel device flow
-and surface the URL; add `stripe-best-practices` to the installed set; implement the graduated
-006/007/009/017; helper-refactor (error-fmt, cred-resolver, check/envelope builders). Captain
-authoring COMPLETE: 002 continue-ready-repo scenario added (unmodified-Paper already at 002:94;
-Vercel-surfaces-URL clause added to the deploy preview); recipe.yml collection description added;
-recipe product images optimized (20M → 8.1M, resized to 1024px). The CODE cycle is the only
-remaining work.
+Stripe CLI). Captain spec/asset pass complete. **pass1 (isolated removal+rewire) committed `e5131f1`:**
+OAuth machinery removed, token-only login wired, `jolly create stripe` + Stripe-CLI command removed,
+`auth.saleor.io`/`127.0.0.1` dropped from the host allowlist, eval auth-only seed. All pass1 cycle
+scenarios green; typecheck clean. Loopback test stand-ins now reach Jolly via the documented
+`JOLLY_SALEOR_CLOUD_API_URL` override (loopback no longer first-party), keeping `127.0.0.1` out of src.
+
+**Remaining pass1 hygiene (grep done-criterion below; Bosun flagged `e5131f1` incomplete here):** the
+`JOLLY_STRIPE_*` plumbing is NOT yet stripped — it lingers in `src/index.ts` (the doctor `stripe-keys`/
+`sk_live_` check ~1808–1846, dead now Jolly holds no keys; keep the `checkout-payment-gateway` probe),
+`creds-env.ts` (`CREDENTIAL_VARS`), `sandbox.ts` (`stripe` group + `FULL_END_TO_END` + the two scenario
+gates), the 002 whole-flow step seeding, and the 025 eval. Plus: `support/stripe-cli-trace.ts` is
+undeleted and still wired into 025 (orphaned — feature 025 never specced a Stripe-CLI-import affordance);
+`src/index.ts` ~3278 still names "browser OAuth"/"`stripe login`" in the human-run fallback nextStep;
+`sandbox.ts:168` keeps the orphaned `"A failed OAuth code exchange"` `@sandbox` requirement (018 removed
+that scenario). **RESOLVED the Bosun spec blocker:** feature `002:67` whole-flow `Given` no longer seeds
+"the Stripe test keys" — that one-line spec edit unblocks the cascade (the 002 step Given text now
+mismatches → QM rediscovers it undefined and rewrites it without `JOLLY_STRIPE`). Bosun over-escalated
+two: **014:37** is NOT a spec issue (spec says "a stripe check"; only step def `014 steps:216` hard-codes
+`findCheck("stripe-keys")` → QM re-keys it to `checkout-payment-gateway` and re-gates off the `stripe`
+group); **025** is NOT a spec issue (the `stripe-cli-trace.ts` wiring is unspecced orphan → delete).
+
+**Remaining pass2 (graduations on the cleaned slate):** make `jolly start` run the Vercel device flow and
+surface the URL; add `stripe-best-practices` to the installed set; implement graduated 006/007/009/017 +
+the 002 continue-ready-repo + Vercel-deploy-preview scenarios; helper-refactor (error-fmt, cred-resolver,
+check/envelope builders). Captain authoring COMPLETE (002 continue-ready scenario, Vercel-URL clause,
+recipe.yml collection description, optimized recipe images).
 
 ### Stale-removal manifest for the CODE cycle (Bosun audit, 2026-06-22)
 

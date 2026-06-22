@@ -64,7 +64,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
 
   @sandbox
   Scenario: One jolly start drives the whole flow from a real agent's starting state
-    Given a fresh project directory whose `.env` holds only `JOLLY_SALEOR_CLOUD_TOKEN` and the Stripe test keys, with no credential exported into the process environment
+    Given a fresh project directory whose `.env` holds only `JOLLY_SALEOR_CLOUD_TOKEN`, with no credential exported into the process environment
     And no `NEXT_PUBLIC_SALEOR_API_URL` is configured
     When the agent runs `jolly start --yes --json`
     Then the `store`, `recipe`, `stock`, and `deploy` stages should each report status "completed"
