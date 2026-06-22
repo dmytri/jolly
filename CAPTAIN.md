@@ -55,10 +55,12 @@ double" so a green suite carrying a fake fails there.
 
 ## Shipped
 
-Through **v0.7.4** (2026-06-19; `main`+tag on GitHub, `@dk/jolly` on npm). The launch bar is met
-mechanically: homepage paste → live deployed Paper storefront on Vercel → browsable/stocked store
-against Saleor Cloud → checkout reaches the Stripe test step (behind the human Stripe-Dashboard gate).
-Full history in git.
+Through **v0.8.0** (2026-06-22; `main`+tag on GitHub, `@dk/jolly` on npm, homepage redeployed to Vercel
+prod). v0.8.0 is the first published release with token-only Saleor auth (browser OAuth removed), Stripe
+= app + skill (Stripe CLI removed), `@dk/jolly` naming, and the `stripe-best-practices` skill in the
+default set. The launch bar is met mechanically: homepage paste → live deployed Paper storefront on
+Vercel → browsable/stocked store against Saleor Cloud → checkout reaches the Stripe test step (behind the
+human Stripe-Dashboard gate). Full history in git.
 
 ## MVP-clean checkpoint (2026-06-22)
 
