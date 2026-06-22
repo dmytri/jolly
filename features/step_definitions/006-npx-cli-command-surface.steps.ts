@@ -19,7 +19,7 @@
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, symlinkSync } from "node:fs";
+import { existsSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { findEnvelope } from "../support/envelope.ts";
 import { absentCredentialsEnv } from "../support/creds-env.ts";
@@ -329,6 +329,189 @@ Then(
     assert.ok(
       !text.includes(abortText),
       `\`jolly ${this.notes.helpCommand} --help\` must not abort with "${abortText}"; got: ${text}`,
+    );
+  },
+);
+
+// --- Scenario: The CLI exposes exactly the supported command surface -------
+// `jolly --help` publishes the command surface in its envelope `data.commands`;
+// `jolly create --help` publishes create's subcommands in `data.subcommands`.
+// Run with credentials genuinely unset so no help path can reach a real account.
+
+When("the agent inspects `jolly --help`", function (this: JollyWorld) {
+  this.runCli(["--help"], { env: absentCredentialsEnv() });
+});
+
+Then(
+  "it should list exactly the commands `login`, `logout`, `auth status`, `init`, `start`, `doctor`, `upgrade`, `skills`, and `create`",
+  function (this: JollyWorld) {
+    const expected = [
+      "login",
+      "logout",
+      "auth status",
+      "init",
+      "start",
+      "doctor",
+      "upgrade",
+      "skills",
+      "create",
+    ];
+    const data = this.envelope.data as { commands?: unknown };
+    const listed = Array.isArray(data.commands) ? (data.commands as string[]) : [];
+    assert.ok(listed.length > 0, "`jolly --help` must list its commands in the envelope");
+    // Collapse create's subcommands (e.g. `create store`) to the top-level `create`.
+    const topLevel = new Set(listed.map((c) => (c.startsWith("create ") ? "create" : c)));
+    assert.deepEqual(
+      [...topLevel].sort(),
+      [...expected].sort(),
+      `command surface must be exactly ${expected.join(", ")}; got ${[...topLevel].join(", ")}`,
+    );
+  },
+);
+
+Then(
+  "`jolly create --help` should list only the subcommands `store` and `app-token`",
+  function (this: JollyWorld) {
+    this.runCli(["create", "--help"], { env: absentCredentialsEnv() });
+    const data = this.envelope.data as { subcommands?: Array<{ name?: string }> };
+    const names = (Array.isArray(data.subcommands) ? data.subcommands : [])
+      .map((s) => s.name)
+      .filter((n): n is string => typeof n === "string");
+    assert.deepEqual(
+      [...names].sort(),
+      ["app-token", "store"],
+      `\`jolly create --help\` must list only store and app-token; got ${names.join(", ")}`,
+    );
+  },
+);
+
+Then(
+  "no `deployment`, `deploy`, `recipe`, or `storefront` subcommand should appear anywhere in the surface",
+  function (this: JollyWorld) {
+    const forbidden = ["deployment", "deploy", "recipe", "storefront"];
+    this.runCli(["--help"], { env: absentCredentialsEnv() });
+    const rootData = this.envelope.data as { commands?: unknown };
+    const rootCommands = Array.isArray(rootData.commands)
+      ? (rootData.commands as string[])
+      : [];
+    this.runCli(["create", "--help"], { env: absentCredentialsEnv() });
+    const createData = this.envelope.data as { subcommands?: Array<{ name?: string }> };
+    const createSubs = (Array.isArray(createData.subcommands) ? createData.subcommands : [])
+      .map((s) => s.name)
+      .filter((n): n is string => typeof n === "string");
+    const surface = [...rootCommands, ...createSubs].map((c) => c.toLowerCase());
+    for (const term of forbidden) {
+      assert.ok(
+        !surface.some((c) => c === term || c.split(" ").includes(term)),
+        `no \`${term}\` subcommand may appear in the command surface; got ${surface.join(", ")}`,
+      );
+    }
+  },
+);
+
+// --- Scenario Outline: Every command accepts the global output flags -------
+// `--json`/`--quiet`/`--yes` are global flags every command parses. The tight
+// command alternation matches ONLY `jolly <command> <flag>` exactly, never the
+// many existing parametric run-steps (e.g. `jolly login --token ... --json`).
+// The lookahead skips `start|doctor|upgrade --json`, which already have
+// dedicated When steps (features 006/020/019); those rows reuse them, every
+// other row runs here. Credentials unset so no flag path can reach a real
+// account.
+
+When(
+  /^the agent runs `jolly (?!(?:start|doctor|upgrade) --json`)(login|init|start|doctor|upgrade|skills|create store|create app-token) (--json|--quiet|--yes)`$/,
+  function (this: JollyWorld, command: string, flag: string) {
+    this.runCli([...command.split(" "), flag], { env: absentCredentialsEnv() });
+  },
+);
+
+Then("the flag should be accepted, not rejected as unknown", function (this: JollyWorld) {
+  const run = this.lastRun!;
+  const text = (run.stdout + " " + run.stderr).toLowerCase();
+  assert.ok(
+    !/unknown option|unknown argument|unrecognized option|unknown command/.test(text),
+    `global flag must be accepted, not rejected as unknown; got exit ${run.exitCode}:\n${run.stdout}\n${run.stderr}`,
+  );
+  // A parsed flag lets the command run to its envelope; a rejected flag aborts before output.
+  assert.ok(
+    run.envelope,
+    `command must run and emit its envelope, proving the flag parsed; got exit ${run.exitCode}`,
+  );
+});
+
+Then(
+  /^`jolly (.+) --json` should emit the output envelope on stdout per feature 020$/,
+  function (this: JollyWorld, command: string) {
+    this.runCli([...command.split(" "), "--json"], { env: absentCredentialsEnv() });
+    const envelope = this.envelope; // validated against the feature 020 shape
+    assert.ok(
+      typeof envelope.command === "string" && envelope.command.length > 0,
+      "the --json envelope must name the command",
+    );
+  },
+);
+
+// --- Scenario: The launcher fails clearly on an unsupported Node version ----
+// bin/jolly's guard reads process.versions.node. A Node older than the minimum
+// cannot be produced on demand here (only the current Node exists), so drive the
+// REAL guard by overriding the runtime's reported version through a --require
+// preload. This exercises bin/jolly's actual version check — not a stand-in for
+// it: no fake CLI, no credential, no endpoint (see feature 026's no-double rule).
+
+Given(
+  "a Node.js runtime older than the minimum the launcher requires",
+  function (this: JollyWorld) {
+    const preload = join(this.newTempDir("old-node"), "old-node.cjs");
+    writeFileSync(
+      preload,
+      `Object.defineProperty(process.versions, "node", { value: "18.20.0", configurable: true, writable: true });\n`,
+    );
+    this.notes.oldNodePreload = preload;
+  },
+);
+
+When("the published `jolly` launcher runs", function (this: JollyWorld) {
+  const launcher = join(REPO_ROOT, "bin", "jolly");
+  // The guard exits before dist/index.js loads, so no setup stage runs; the
+  // inherited env only needs `node` resolvable on PATH.
+  const result = spawnSync(
+    "node",
+    ["--require", String(this.notes.oldNodePreload), launcher, "start", "--json"],
+    { cwd: this.projectDir, encoding: "utf8", timeout: 30_000 },
+  );
+  if (result.error) {
+    throw new Error(`failed to run the jolly launcher: ${result.error.message}`);
+  }
+  this.notes.launcherExit = result.status;
+  this.notes.launcherStdout = result.stdout ?? "";
+  this.notes.launcherStderr = result.stderr ?? "";
+});
+
+Then(
+  "it should exit with an error naming the minimum Node version",
+  function (this: JollyWorld) {
+    assert.notEqual(
+      this.notes.launcherExit,
+      0,
+      "the launcher must exit non-zero on a too-old Node",
+    );
+    const text = String(this.notes.launcherStdout) + String(this.notes.launcherStderr);
+    assert.ok(
+      /\b23\b/.test(text),
+      `the error must name the minimum Node version (>= 23); got:\n${text}`,
+    );
+  },
+);
+
+Then(
+  "it should not surface a raw syntax or module-resolution error",
+  function (this: JollyWorld) {
+    const text = String(this.notes.launcherStdout) + String(this.notes.launcherStderr);
+    assert.ok(
+      !/SyntaxError|Cannot find module|ERR_MODULE_NOT_FOUND|ReferenceError|Unexpected token/.test(
+        text,
+      ),
+      `the launcher must fail with a clear version message, not a raw syntax/module error; got:\n${text}`,
     );
   },
 );
