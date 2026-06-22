@@ -26,8 +26,8 @@ Feature: Human-facing interactive CLI experience
       analogue of feature 021's per-stage riskContext approval. The default is to proceed, so
       Enter advances; declining stops honestly and never fabricates later-stage success.
     - The interactive layer shows progress for the long mechanical stages and announces the
-      irreducible human gates (the Vercel sign-in, the Dashboard Stripe app). It MAY use
-      Bombshell spinners. It stays minimal: beautiful, quiet, and never nagging.
+      irreducible human gates (the Vercel sign-in, the Dashboard Stripe app); it MAY use
+      Bombshell spinners.
     - The interactive layer and its Bombshell dependencies are bundled into the published
       `dist/index.js`, so `npx @dk/jolly` runs self-contained (feature 006's published-launcher
       scenario guards this).
@@ -40,6 +40,32 @@ Feature: Human-facing interactive CLI experience
     Then Jolly should present interactive setup prompts
     And the previewed plan should equal the plan from `jolly start --dry-run --yes --json`
     And no file should be created or modified in the project directory
+
+  @logic
+  Scenario: Interactive start prompts to choose the organization only when the token has more than one
+    Given a fresh empty project directory
+    And the Cloud token can access organizations "org-one" and "org-two"
+    And `jolly start --dry-run` runs in an interactive terminal
+    When the user presses Enter at every prompt
+    Then Jolly should prompt the human to choose between organizations "org-one" and "org-two"
+    And the previewed plan should target the organization the human accepted by default
+
+  @logic
+  Scenario: Interactive start uses the only organization without asking when the token has exactly one
+    Given a fresh empty project directory
+    And the Cloud token can access organization "org-solo" only
+    And `jolly start --dry-run` runs in an interactive terminal
+    When the user presses Enter at every prompt
+    Then Jolly should not prompt for an organization
+    And the previewed plan should target organization "org-solo"
+
+  @logic
+  Scenario: Interactive start announces the irreducible human gates it will require
+    Given a fresh empty project directory
+    And `jolly start --dry-run` runs in an interactive terminal
+    When the user presses Enter at every prompt
+    Then Jolly should announce the Vercel sign-in gate
+    And Jolly should announce the Dashboard Stripe app gate
 
   @logic
   Scenario: --yes runs jolly start with no prompt even on an interactive terminal
@@ -81,6 +107,11 @@ Feature: Human-facing interactive CLI experience
     When the agent runs `jolly completion bash`
     Then stdout should contain a shell completion script for the `jolly` command
     And the script should reference the supported commands login, logout, init, start, doctor, upgrade, skills, and create
+
+  @logic
+  Scenario: Shell completion returns candidate completions at completion time
+    When the agent runs `jolly complete -- lo`
+    Then stdout should list the candidate completions `login` and `logout`
 
   Rule: Typed arguments and shell completion
     - Argument parsing for every `jolly` invocation — agent and human alike — runs through a
