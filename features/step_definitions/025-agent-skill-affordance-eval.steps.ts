@@ -15,7 +15,6 @@
 // HARNESS_OPENROUTER_API_KEY is absent, so this never gates normal CI.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { assertEnvelopeShape, type Envelope, findEnvelope } from "../support/envelope.ts";
@@ -34,7 +33,6 @@ import {
   subcommandOf,
   type TraceRecord,
 } from "../support/eval.ts";
-import { writeStripeCliTraceWrapper } from "../support/stripe-cli-trace.ts";
 import { listAllEnvironments, deleteEnvironment } from "../support/cloud.ts";
 import type { JollyWorld } from "../support/world.ts";
 
@@ -101,41 +99,6 @@ Given(
 );
 
 Given(
-  "a real Stripe CLI test-mode session is available",
-  function (this: JollyWorld) {
-    // Live by design: use the runner's REAL Stripe CLI, never a fake. A
-    // passthrough trace wrapper (records argv, then execs the real binary) is
-    // placed first on the agent PATH so the eval can observe a read-only
-    // `config --list`. The browser `stripe login` is a human step that cannot be
-    // provisioned on demand; when no real test-mode session is present the
-    // Stripe-import affordance is simply not exercised here (it is covered by
-    // feature 005) and the run proceeds against the other real credentials.
-    const c = ctx(this);
-    const probe = spawnSync("stripe", ["config", "--list"], { encoding: "utf8" });
-    const stdout = typeof probe.stdout === "string" ? probe.stdout : "";
-    const pub = /test_mode_pub_key\s*=\s*["']?(pk_test_[^"'\s]+)/.exec(stdout)?.[1];
-    const secret = /test_mode_api_key\s*=\s*["']?((?:sk|rk)_test_[^"'\s]+)/.exec(stdout)?.[1];
-    if (probe.status !== 0 || !pub || !secret) {
-      this.attach(
-        "No real Stripe CLI test-mode session on the runner; the Stripe-import " +
-          "affordance is not exercised in this run (covered by feature 005).",
-        "text/plain",
-      );
-      return;
-    }
-    const resolved = spawnSync("sh", ["-c", "command -v stripe"], { encoding: "utf8" });
-    const realStripePath = (resolved.stdout ?? "").trim();
-    assert.ok(realStripePath, "must resolve the real `stripe` binary path");
-    this.trackSecret(pub);
-    this.trackSecret(secret);
-    writeStripeCliTraceWrapper(c.shimDir, {
-      traceFile: c.stripeTraceFile,
-      realStripePath,
-    });
-  },
-);
-
-Given(
   "the agent is run with the real integrated test-env credentials, every resource it creates `jolly-test`-namespaced and removed in teardown",
   function (this: JollyWorld) {
     // The workspace `.env` was seeded with the REAL runtime credentials by
@@ -153,8 +116,6 @@ Given(
     for (const name of [
       "JOLLY_SALEOR_CLOUD_TOKEN",
       "JOLLY_SALEOR_APP_TOKEN",
-      "JOLLY_STRIPE_SECRET_KEY",
-      "JOLLY_STRIPE_PUBLISHABLE_KEY",
     ]) {
       const v = process.env[name];
       if (v && v.trim() !== "") this.trackSecret(v);

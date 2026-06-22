@@ -3,7 +3,7 @@ Feature: Agent-first Jolly onboarding and CLI
   I want Jolly to give my agent clear setup instructions and agent-oriented CLI tools
   So that my agent can scaffold, inspect, and operate a Saleor storefront project effectively
 
-  @sandbox
+  @sandbox @iteration
   Scenario: Jolly start orchestrates the setup by spawning the official CLIs
     Given a project directory with `JOLLY_SALEOR_CLOUD_TOKEN` set and `--yes` passed
     When `jolly start --json` runs to completion

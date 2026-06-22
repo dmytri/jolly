@@ -1302,21 +1302,17 @@ Then(
 // --- Scenario: One jolly start drives the whole flow from a real agent's -----
 //     starting state (@sandbox) -----------------------------------------------
 //
-// The agent's real starting state: a `.env` holding only the Cloud token and the
-// Stripe test keys, with NOTHING exported into the process environment. So every
-// credential is read from the `.env` FILE; start auto-provisions the store,
-// deploys the recipe/stock/storefront, and deploys to Vercel — the full chain.
+// The agent's real starting state: a `.env` holding only the Cloud token, with
+// NOTHING exported into the process environment. So every credential is read from
+// the `.env` FILE; start auto-provisions the store, deploys the
+// recipe/stock/storefront, and deploys to Vercel — the full chain.
 
 Given(
-  "a fresh project directory whose `.env` holds only `JOLLY_SALEOR_CLOUD_TOKEN` and the Stripe test keys, with no credential exported into the process environment",
+  "a fresh project directory whose `.env` holds only `JOLLY_SALEOR_CLOUD_TOKEN`, with no credential exported into the process environment",
   function (this: JollyWorld) {
     const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? STAND_IN_TOKEN;
-    const stripePub = process.env["JOLLY_STRIPE_PUBLISHABLE_KEY"] ?? "pk_test_jolly";
-    const stripeSecret = process.env["JOLLY_STRIPE_SECRET_KEY"] ?? "sk_test_jolly";
     writeEnvValues(this.projectDir, {
       JOLLY_SALEOR_CLOUD_TOKEN: cloudToken,
-      JOLLY_STRIPE_PUBLISHABLE_KEY: stripePub,
-      JOLLY_STRIPE_SECRET_KEY: stripeSecret,
     });
     // Nothing exported into the process environment: every credential is unset
     // for the child, so start can only succeed by reading the `.env` FILE.

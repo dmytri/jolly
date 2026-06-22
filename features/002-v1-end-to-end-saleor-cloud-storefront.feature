@@ -62,7 +62,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And it should not name a Cloud API request to create a new project or environment
     And it should not create, configure, or store anything
 
-  @sandbox
+  @sandbox @iteration
   Scenario: One jolly start drives the whole flow from a real agent's starting state
     Given a fresh project directory whose `.env` holds only `JOLLY_SALEOR_CLOUD_TOKEN`, with no credential exported into the process environment
     And no `NEXT_PUBLIC_SALEOR_API_URL` is configured
@@ -93,7 +93,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And `jolly doctor storefront --full-validation` should run Paper's generate, typecheck, and build steps and report each as a check
     And it should leave Paper's source and theme files unmodified after the clone and install
 
-  @sandbox
+  @sandbox @iteration
   Scenario: Jolly start leaves a continue-ready storefront repo in the working directory
     Given Saleor connectivity has been verified and the starter recipe deployed
     When `jolly start` has prepared and configured the storefront
@@ -154,7 +154,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     When the run reaches the storefront stage without `--dry-run`
     Then a fresh `pnpm install` in the prepared storefront should report no ignored build scripts for `sharp` and `esbuild`
 
-  @logic
+  @logic @iteration
   Scenario: Jolly start previews the Vercel deploy
     Given a fresh empty project directory
     When the agent runs `jolly start --dry-run --json`

@@ -213,7 +213,7 @@ Then(
     if (name === "stripe") {
       // Stripe readiness lives in the stripe group; confirm doctor exposes it.
       this.runCli(["doctor", "stripe", "--json"]);
-      assert.ok(this.findCheck("stripe-keys"), "doctor stripe must report a Stripe check");
+      assert.ok(this.findCheck("checkout-payment-gateway"), "doctor stripe must report a Stripe check");
       return;
     }
     const check = this.findCheck("deployment-status");
@@ -468,7 +468,7 @@ const DOCTOR_GROUP_IDS: Record<string, (id: string) => boolean> = {
   saleor: (id) => id.startsWith("saleor-"),
   storefront: (id) => id.startsWith("storefront-"),
   deployment: (id) => id.startsWith("deployment-"),
-  stripe: (id) => id.startsWith("stripe-"),
+  stripe: (id) => id.startsWith("stripe-") || id === "checkout-payment-gateway",
 };
 
 function assertOnlyGroupRan(world: JollyWorld, group: string): void {

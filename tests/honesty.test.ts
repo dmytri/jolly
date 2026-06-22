@@ -104,24 +104,4 @@ describe("junk input never yields success language (feature 020 rule)", () => {
     },
   );
 
-  test(
-    "the browser OAuth --dry-run preview claims no exchange, verification, or login",
-    { timeout: 35_000 },
-    () => {
-      const { envelope } = runCli(["login", "--browser", "--dry-run", "--json"]);
-      // A pure preview: it shows the request material but must never claim the
-      // exchange/verification/login happened.
-      expectNoFabricatedSuccess(envelope);
-      for (const check of envelope.checks) {
-        const text = `${check.id} ${String(check.description ?? "")}`;
-        if (/exchang/i.test(text)) {
-          assert.doesNotMatch(`${check.id}=${check.status}`, /=pass$/);
-        }
-      }
-      assert.doesNotMatch(
-        JSON.stringify(envelope),
-        /\b(exchanged|succeeded|authenticated|logged in)\b/i,
-      );
-    },
-  );
 });

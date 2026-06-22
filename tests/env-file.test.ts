@@ -19,7 +19,7 @@ function tempProject(): string {
 describe("writeEnvValues", () => {
   test("ensures .env is Git-ignored before writing secrets", () => {
     const dir = tempProject();
-    writeEnvValues(dir, { JOLLY_STRIPE_SECRET_KEY: "sk_test_123" });
+    writeEnvValues(dir, { JOLLY_SALEOR_APP_TOKEN: "tok_test_123" });
     assert.strictEqual(existsSync(join(dir, ".gitignore")), true);
     const ignored = readFileSync(join(dir, ".gitignore"), "utf8")
       .split("\n")

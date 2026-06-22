@@ -1814,46 +1814,6 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
   }
 
   if (wants("stripe")) {
-    const hasPub = Boolean(
-      values["JOLLY_STRIPE_PUBLISHABLE_KEY"] ?? process.env["JOLLY_STRIPE_PUBLISHABLE_KEY"],
-    );
-    const hasSecret = Boolean(
-      values["JOLLY_STRIPE_SECRET_KEY"] ?? process.env["JOLLY_STRIPE_SECRET_KEY"],
-    );
-    const secretKey = String(
-      values["JOLLY_STRIPE_SECRET_KEY"] ?? process.env["JOLLY_STRIPE_SECRET_KEY"] ?? "",
-    ).trim();
-    if (hasPub && hasSecret && secretKey.startsWith("sk_live_")) {
-      // v1 is Stripe test mode only; a live-mode secret is a warning, not a
-      // fabricated pass — direct the customer to a test-mode key.
-      checks.push({
-        id: "stripe-keys",
-        status: "warning",
-        description:
-          "A live-mode Stripe secret key (sk_live_) was detected. v1 supports " +
-          "Stripe test mode only; replace it with a test-mode key beginning " +
-          "with sk_test_.",
-      });
-    } else if (hasPub && hasSecret) {
-      checks.push({
-        id: "stripe-keys",
-        status: "pass",
-        description: "Stripe test-mode keys present in .env.",
-      });
-    } else {
-      // No keys configured. The Stripe app's keys live in its own Saleor
-      // Dashboard configuration (a guided human gate), so this is a fail
-      // directing the customer to that step — never a fabricated pass.
-      checks.push({
-        id: "stripe-keys",
-        status: "fail",
-        description:
-          "Stripe keys not configured. Paste the publishable and restricted " +
-          "keys into the installed Stripe app's Saleor Dashboard configuration " +
-          "and map it to the `us` channel.",
-      });
-    }
-
     // Checkout-readiness probe (feature 005 Rule "Checkout-readiness verify
     // probe"): the authoritative signal that checkout reaches the Stripe test
     // payment step is whether a real `us` checkout is offered the Stripe gateway.
@@ -3277,14 +3237,14 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
   // backup path"): whenever this run could not run to completion (status
   // `warning` — paused at a gate, or with blocked/failed downstream stages),
   // offer to ask the human to run `jolly start` in a plain shell, the natural
-  // way to clear the irreducibly-interactive gates (account creation, browser
-  // OAuth, `vercel login`, `stripe login`) a non-TTY agent cannot pass. Then
+  // way to clear the irreducibly-interactive gates (account creation,
+  // `vercel login`) a non-TTY agent cannot pass. Then
   // they start their agent in that project to iterate — the skills jolly init
   // installed are already on disk. Offered, never fabricated as performed.
   if (!bootstrapFailed) {
     nextSteps.push({
       description:
-        "If the agent cannot clear an interactive gate (account creation, browser OAuth, `vercel login`, `stripe login`), ask the human to run `jolly start` in a plain shell, then start their agent in that project to iterate (the skills jolly init installed are already on disk). This is a fallback — Jolly has not run it.",
+        "If the agent cannot clear an interactive gate (account creation, `vercel login`), ask the human to run `jolly start` in a plain shell, then start their agent in that project to iterate (the skills jolly init installed are already on disk). This is a fallback — Jolly has not run it.",
       command: "jolly start",
     });
   }

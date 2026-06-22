@@ -158,7 +158,7 @@ Then(
 );
 
 Then(
-  "at interactive CLI gates \\(`vercel login`, `stripe login`) it should pass stdio straight through and continue on the child's exit",
+  "at the interactive Vercel sign-in \\(`vercel login`) it should pass stdio straight through and continue on the child's exit",
   function () {
     // stdio passthrough + continue-on-exit is a spawn behavior of the live run
     // (not capturable from the JSON envelope); verified by the acceptance run.

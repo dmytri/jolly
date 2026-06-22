@@ -25,7 +25,6 @@ export const CREDENTIAL_GROUPS = {
   saleorEndpoint: ["NEXT_PUBLIC_SALEOR_API_URL"],
   saleorAppToken: ["JOLLY_SALEOR_APP_TOKEN"],
   saleorCloud: ["JOLLY_SALEOR_CLOUD_TOKEN"],
-  stripe: ["JOLLY_STRIPE_PUBLISHABLE_KEY", "JOLLY_STRIPE_SECRET_KEY"],
 } as const;
 
 export type CredentialGroup = keyof typeof CREDENTIAL_GROUPS;
@@ -39,7 +38,6 @@ export const ALL_CREDENTIAL_GROUPS = Object.keys(
 const FULL_END_TO_END: CredentialGroup[] = [
   "saleorEndpoint",
   "saleorAppToken",
-  "stripe",
 ];
 
 /**
@@ -80,11 +78,10 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   "jolly start auto-provisions a new store when none is configured": ["saleorCloud"],
   // Whole-flow run from only a `.env`: start auto-provisions the store, deploys
   // the recipe/stock/storefront, and deploys to Vercel. The Cloud token (provision)
-  // and Stripe keys are read from the `.env` the scenario writes; the store
-  // endpoint/app token are derived by start itself, so they are not required here.
+  // is read from the `.env` the scenario writes; the store endpoint/app token are
+  // derived by start itself, so they are not required here.
   "One jolly start drives the whole flow from a real agent's starting state": [
     "saleorCloud",
-    "stripe",
   ],
   // The live-storefront acceptance check requires an actual deployed storefront
   // URL, which only a full (human-gated) `jolly start` produces — the harness
@@ -154,7 +151,7 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   "Doctor validates the Saleor Cloud token, not just its presence": ["saleorCloud"],
   "Doctor checks Saleor connectivity": ["saleorEndpoint"],
   "Doctor checks storefront readiness": ["saleorEndpoint"],
-  "Doctor checks deployment and payment readiness": ["stripe"],
+  "Doctor checks deployment and payment readiness": ["saleorEndpoint", "saleorAppToken"],
   // The vercel-auth "logged in" case needs only a real authenticated Vercel CLI
   // session (a capability gated via VERCEL_CLI_SCENARIOS) — no JOLLY_* credential.
   "Doctor confirms the Vercel CLI login state when a session exists": [],
@@ -163,9 +160,8 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   "Doctor names the authenticated Vercel account": [],
   "Jolly start runs doctor automatically": FULL_END_TO_END,
   // 018-jolly-auth-commands
-  // The failed-exchange and invalid-token scenarios need only outbound
-  // network (real requests, really rejected) — no credentials at all.
-  "A failed OAuth code exchange is reported honestly": [],
+  // The invalid-token scenario needs only outbound network (a real request,
+  // really rejected) — no credentials at all.
   "Jolly login rejects an invalid token gracefully": [],
   "Jolly login verifies a headless token against the Cloud API": ["saleorCloud"],
   "Jolly login --token-file verifies the file's token against the Cloud API": ["saleorCloud"],
