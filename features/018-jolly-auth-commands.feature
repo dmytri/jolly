@@ -129,6 +129,7 @@ Feature: Jolly auth commands
     And `jolly login` runs in an interactive terminal with no token flag and no token in the environment
     When the user pastes the token value "jolly-pasted-token-004" at the prompt
     Then Jolly should prompt the user to paste their Saleor Cloud token
+    And the token prompt should render with Bombshell's interactive prompt UI
     And .env should contain JOLLY_SALEOR_CLOUD_TOKEN=jolly-pasted-token-004
     And the terminal output should not contain the pasted token value
 
@@ -237,8 +238,10 @@ Feature: Jolly auth commands
       has to hand-write the secret into `.env` itself and skip Jolly's verify-before-write.
     - When none of those four sources supplies a token AND `jolly login` runs in an
       interactive terminal (stdin is a TTY), Jolly prompts the user to paste the Cloud
-      token and reads it from the controlling terminal with echo disabled, then verifies
-      and stores it exactly as a `--token <value>` login. This interactive paste is the
+      token through a Bombshell (`@clack/prompts`) masked password prompt — the same
+      interactive-prompt stack `jolly start` uses (feature 027), so Jolly drives every human
+      prompt through one mechanism — which never echoes the secret to the terminal, then
+      verifies and stores it exactly as a `--token <value>` login. This interactive paste is the
       lowest-precedence source — any explicit source above skips it. It lets a human at the
       terminal hand Jolly the secret directly, so when an agent is driving Jolly the token
       reaches Jolly through the terminal and never through the agent's process arguments,
