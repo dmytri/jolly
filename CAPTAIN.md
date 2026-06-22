@@ -38,35 +38,36 @@ History lives in git, not here. These notes describe only the current design and
 
 Through **v0.7.2** (released 2026-06-18: push `main`+tag to `github.com/dmytri/jolly`, publish `@dk/jolly` to npm; homepage Vercel prod last deployed at v0.7.1, unchanged since). The product reaches the launch bar mechanically: homepage paste → live deployed Paper storefront on Vercel → browsable/stocked store against Saleor Cloud → checkout reaches the Stripe test step (behind the irreducible human Stripe-Dashboard gate). Built across several field-retrospective cycles that converted real remote-VM `jolly start` runs into specs: honesty contracts (configurator deploy read-back, no fabricated success), headless/remote-VM auth (`--token`/`--token-file`/`--token-stdin`/`$JOLLY_SALEOR_CLOUD_TOKEN`, URL-first OAuth, headless-listener warning), doctor validity probes (Cloud token, Vercel account, `sk_live_` warning), `.env` safety (mode 600, shell-sourceable), `--help` usage on every subcommand, `start` idempotency/dry-run, pnpm native-build-script approval for Vercel, and the octopus-voice `setup.md`. The **third retrospective** cycle (v0.7.2) shipped ONLY its 008 target: `ENVIRONMENT_LIMIT_REACHED` → actionable `nextSteps`; its headline 004 target — recipe bootstrap by store STATE, not run-locality — did NOT ship (the v0.7.2 release note wrongly claimed it did). **v0.7.3** (released 2026-06-19) shipped that corrective 004 target: `runRecipeStage` decides the bootstrap path by store STATE, verified live against a freshly provisioned blank env (`004:86`). **v0.7.4** (released 2026-06-19) swept the remaining feature-004 skip-masks, which exposed and fixed two live defects (empty featured collection → post-deploy `collectionAddProducts`; non-idempotent re-run → `storeHoldsForeignCatalog` bootstrap decision) and added agent-reassurance copy.
 
-## Current state (2026-06-19)
+## Current state (2026-06-22)
 
-**ACTIVE cycle — clean-room re-verification (pass1). Next role: QM (MUST clear context before
-`/qm`).** dk's call (2026-06-19): finish pass1, then push everything. No outbound until pass1 is
-re-verified green in a firewalled context.
-- **pass1 — re-verify the v0.7.4 recipe work.** v0.7.4 was built and verified in a SINGLE context
-  (QM/Crew/Bosun/Captain interleaved), so the firewall was never exercised. Scopes the four `@sandbox`
-  recipe scenarios (`004:86/77/93/33`) for a fresh QM to independently re-verify live. These are
-  already defined and green, so this is a DIRECTED re-verification: the fresh QM runs the `cycle.json`
-  scoped scenarios live to confirm, not a make-executable pass. No production change expected; a RED is
-  a real regression → Crew. Run each in its own invocation if a shared-env `-p sandbox` run collides
-  (see execution note below). After pass1 green: push `main` and retire `cycle.json`.
+**ACTIVE cycle — spec the interactive token-paste source (feature 018). Captain spec work in
+progress; fresh QM after.** dk's idea (2026-06-22): have `jolly login` interactively accept a
+*pasted* token so the secret reaches Jolly via the terminal and never passes through the LLM
+context/transcript.
+- **Design (agreed with dk before speccing).** It is an ADDITIVE fifth token source, not a
+  replacement: when `jolly login` runs with an interactive TTY and no token source is given, it
+  prompts the human to paste the token, reads it from the controlling TTY with echo OFF, then runs
+  the existing verify-before-write path unchanged. The value never enters `argv`, the screen,
+  shell history, or the LLM.
+- **The deciding caveat — TTY-only.** Reading from a TTY bypasses the LLM only when a human is at
+  that terminal (the "human runs Jolly" backup path). In the agent-driven NON-TTY subprocess case
+  the prompt MUST NOT fire (it would hang waiting for input nobody can give); that world is already
+  served by the existing `--token-file`/`--token-stdin`/`$JOLLY_SALEOR_CLOUD_TOKEN` sources
+  (Rule "Token input is flexible…", 018) plus the `03bd887` self-add-to-`.env` guidance. Same
+  machine-locality boundary as the OAuth-callback-is-local rule (018:319).
+- **Testable for real (no mock).** Drive the real `jolly` process under a pseudo-terminal (PTY),
+  write the token to the TTY, assert `.env` received it, `argv` never did, and the value was never
+  printed. `@logic` tier.
+- **Scope:** one or two scenarios + a clause on Rule "Token input is flexible so the secret need
+  never be a process argument" in `018`. Honesty contract (verify-before-write, "stored, not
+  verified", never-print) reused unchanged.
 
-**SHIPPED-LOCAL — pass2: `@sandbox` provisioner skip-mask reconciled (`7b474b6`, not yet pushed).**
-Same lesson #8 class as the 004 sweep. `features/support/provision.ts` SKIPPED the run on a leftover
-`jolly-test` env — a skip-mask that can hide a defect and reach a release. AGENTS.md (binding harness
-discipline) says reclaim `jolly-test` envs freely (disposable cannon fodder), and feature 026's Rule
-already asserts "the same reclamation the `@sandbox` provision path performs"; only the code lagged.
-Fix (QM, harness write-scope, no Crew): `provisionSharedEnvironment` now deletes leftover `jolly-test-`
-envs before creating (the `jolly-test-` prefix IS the protection boundary), exported so the new
-falsifiable scenario `026:The @sandbox provisioner reclaims a leftover jolly-test environment instead
-of skipping the run` drives the provision path fresh. Verified live (focused scenario green, 3m44s real
-Cloud provisioning); logic tier 123 passed / 1 skipped; typecheck clean; dry-run 0 undefined. Pushes
-with pass1.
-- *Execution note (Captain continuity; not binding on QM):* the harness provisions ONE shared env per
-  run, and each blank-env recipe scenario re-deploys the recipe. The shipped `storeHoldsForeignCatalog`
-  decision makes a re-deploy over the recipe's own catalog idempotent, so a shared-env `-p sandbox` run
-  SHOULD pass; if a scenario collides, run it in its own invocation (fresh env). This was how each was
-  verified during the build.
+**pass1 + pass2 — VERIFIED & PUSHED (2026-06-22).** The four `@sandbox` recipe scenarios
+(`004:86/77/93/33`) were independently re-verified live by a fresh firewalled QM: `4 scenarios /
+19 steps`, all passed, exit 0, 16m55s real Cloud provisioning + deploy + stock-seed + teardown,
+deck clean before and after. That satisfied dk's gate ("no outbound until pass1 is re-verified
+green in a firewalled context"). `cycle.json` retired; the pass2 provisioner-reclamation fix
+(`7b474b6`) and the cycle bookkeeping (`9e82dcf`) pushed to `main` with the retirement.
 
 **SHIPPED — feature-004 skip-mask sweep + the two defects it exposed → v0.7.4** (2026-06-19;
 `main`+tag on GitHub, `@dk/jolly@0.7.4` on npm). De-masking `004:33/77/93` (skip only on a genuine
