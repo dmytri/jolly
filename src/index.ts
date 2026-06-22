@@ -21,9 +21,7 @@
 import { existsSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createHash, randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 import {
   cloudApiBase,
@@ -349,12 +347,10 @@ function promptForToken(): Promise<string> {
 async function commandLogin(args: ParsedArgs): Promise<Envelope> {
   const command = "login";
   let token = args.options["token"];
-  // Headless token sources, used when no explicit `--token` and not `--browser`,
-  // in precedence order: `--token-file <path>`, `--token-stdin`, then
-  // `$JOLLY_SALEOR_CLOUD_TOKEN`. Any of these selects headless login (never the
-  // browser flow). An empty `--token-file` is rejected honestly, never by
-  // blaming the browser.
-  if (token === undefined && !args.flags.has("browser")) {
+  // Headless token sources, used when no explicit `--token`, in precedence
+  // order: `--token-file <path>`, `--token-stdin`, then
+  // `$JOLLY_SALEOR_CLOUD_TOKEN`. An empty `--token-file` is rejected honestly.
+  if (token === undefined) {
     const tokenFilePath = args.options["token-file"];
     if (tokenFilePath !== undefined) {
       const fileToken = readFileSync(tokenFilePath, "utf8").trim();
@@ -390,36 +386,42 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
   // Lowest-precedence source: when no explicit source supplied a token and Jolly
   // runs in an interactive terminal (stdin is a TTY), prompt the user to paste
   // the Cloud token and read it from the terminal with echo disabled, then treat
-  // it as a `--token <value>` login. When stdin is not a TTY (the agent-driven
-  // subprocess case), never prompt — fall through to the browser URL-first flow.
-  if (
-    token === undefined &&
-    !args.flags.has("browser") &&
-    !args.dryRun &&
-    process.stdin.isTTY
-  ) {
+  // it as a `--token <value>` login.
+  if (token === undefined && !args.dryRun && process.stdin.isTTY) {
     token = await promptForToken();
   }
-  // Bare `jolly login` (no auth-mode flag, no headless source) defaults to the
-  // browser URL-first flow; `--browser` selects it explicitly. An explicit empty
-  // `--token ""` is a present-but-empty token, not the absent-token default — it
-  // falls through to be rejected with a stable code.
-  const browser = args.flags.has("browser") || token === undefined;
 
-  // browser flows (PKCE preview, or live URL-first loopback OAuth) -------
-  if (browser) {
-    if (args.dryRun) {
-      return loginBrowserDryRun(command);
-    }
-    // URL-first live flow: print the authorization URL + loopback callback,
-    // best-effort open a browser, then run the real PKCE code exchange.
-    return loginBrowserLive(command, args);
+  if (token === undefined) {
+    // No token from any source (`--token`/`--token-file`/`--token-stdin`/
+    // `$JOLLY_SALEOR_CLOUD_TOKEN`) and stdin is not a TTY, so there is no
+    // interactive paste either. Fail honestly, write nothing, and point to the
+    // token flag — token-only auth has no browser fallback.
+    return errorEnvelope(
+      command,
+      "No Saleor Cloud token was provided. Nothing was written.",
+      [
+        {
+          code: "NO_TOKEN_SOURCE",
+          message:
+            "`jolly login` found no token from any source. Provide one with `jolly login --token <value>`.",
+          remediation: `Create a token at ${TOKEN_PAGE} and run \`jolly login --token <value>\`.`,
+        },
+      ],
+      {
+        nextSteps: [
+          {
+            description: `Create a Saleor Cloud token at ${TOKEN_PAGE}, then run jolly login --token <value>.`,
+            command: "jolly login --token <value>",
+          },
+        ],
+        data: { riskContext: loginRiskContext() },
+      },
+    );
   }
 
   if (!token) {
-    // An explicit `--token ""` is a present-but-empty token (an absent token
-    // routes to the browser flow above). Reject it honestly as the empty token
-    // it is — never by claiming the browser path is unavailable.
+    // An explicit `--token ""` is a present-but-empty token. Reject it honestly
+    // as the empty token it is.
     return errorEnvelope(
       command,
       "No token value was provided. Nothing was written.",
@@ -567,416 +569,6 @@ function resolveOrgName(orgs: CloudOrganization[]): string | undefined {
   if (!first) return undefined;
   const name = first.name ?? first.slug;
   return typeof name === "string" && name.length > 0 ? name : undefined;
-}
-
-function base64url(buf: Buffer): string {
-  return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function loginBrowserDryRun(command: string): Envelope {
-  const verifier = base64url(randomBytes(32));
-  const challenge = base64url(createHash("sha256").update(verifier).digest());
-  const state = base64url(randomBytes(16));
-  const redirectUri = "http://127.0.0.1:5375/callback";
-  const authBase = "https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/auth";
-  const params = new URLSearchParams({
-    response_type: "code",
-    client_id: "saleor-cli",
-    code_challenge: challenge,
-    code_challenge_method: "S256",
-    state,
-    redirect_uri: redirectUri,
-    scope: "email openid profile",
-  });
-  const authorizationUrl = `${authBase}?${params.toString()}`;
-
-  // The code-exchange preview: the two real POSTs the localhost callback would
-  // make, described without sending them or claiming any of them succeeded
-  // (feature 018, "previews the OAuth code exchange requests"). The token
-  // endpoint is Keycloak (auth.saleor.io); the resulting OIDC id_token is then
-  // exchanged for a Cloud API token at /platform/api/tokens.
-  const tokenEndpoint =
-    "https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/token";
-  const tokensEndpoint = `${cloudApiBase()}/tokens`;
-  const exchangePreview = {
-    tokenExchange: {
-      method: "POST",
-      url: tokenEndpoint,
-      body: {
-        grant_type: "authorization_code",
-        code: "<authorization code from the localhost callback>",
-        code_verifier: "<the PKCE code_verifier>",
-        client_id: "saleor-cli",
-        redirect_uri: redirectUri,
-      },
-    },
-    cloudTokenExchange: {
-      method: "POST",
-      url: tokensEndpoint,
-      requestPath: "/platform/api/tokens",
-      body: { id_token: "<the OIDC id_token returned by Keycloak>" },
-    },
-  };
-
-  return envelope({
-    command,
-    status: "success",
-    summary:
-      "Prepared the browser OAuth authorization URL and code-exchange preview (PKCE). Jolly opens the URL in a browser when one is available and otherwise leaves you to open it manually. Nothing was written.",
-    data: {
-      dryRun: true,
-      authorizationUrl,
-      pkce: { codeChallengeMethod: "S256", codeChallenge: challenge },
-      state,
-      redirectUri,
-      scope: "email openid profile",
-      clientId: "saleor-cli",
-      responseType: "code",
-      exchangePreview,
-      riskContext: loginRiskContext(),
-    },
-    nextSteps: [
-      {
-        description:
-          "Jolly opens the authorization URL in a browser when one is available; otherwise click it or copy and paste it into any browser yourself to complete OAuth, or use jolly login --token <value>.",
-        command: "jolly login --browser",
-      },
-    ],
-  });
-}
-
-const KEYCLOAK_AUTH_ENDPOINT =
-  "https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/auth";
-const KEYCLOAK_TOKEN_ENDPOINT =
-  "https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/token";
-const LOOPBACK_REDIRECT_URI = "http://127.0.0.1:5375/callback";
-const LOOPBACK_HOST = "127.0.0.1";
-const LOOPBACK_PORT = 5375;
-
-/**
- * Live, URL-first browser OAuth (feature 018, "Browser OAuth is URL-first" +
- * "Token verification is a real request"). Prints the authorization URL and the
- * loopback callback endpoint up front (a non-error presentation, flushed before
- * blocking), best-effort opens a native browser, then runs the loopback server
- * and the REAL PKCE code exchange. A missing browser is never an error; a failed
- * exchange is reported honestly, writing nothing to .env.
- */
-async function loginBrowserLive(command: string, args: ParsedArgs): Promise<Envelope> {
-  const verifier = base64url(randomBytes(32));
-  const challenge = base64url(createHash("sha256").update(verifier).digest());
-  const state = base64url(randomBytes(16));
-  const redirectUri = LOOPBACK_REDIRECT_URI;
-  const params = new URLSearchParams({
-    response_type: "code",
-    client_id: "saleor-cli",
-    code_challenge: challenge,
-    code_challenge_method: "S256",
-    state,
-    redirect_uri: redirectUri,
-    scope: "email openid profile",
-  });
-  const authorizationUrl = `${KEYCLOAK_AUTH_ENDPOINT}?${params.toString()}`;
-
-  // Presentation envelope FIRST, flushed before we block on the callback. It is
-  // never an error (a missing browser is not an error) and carries no token.
-  const presentation = envelope({
-    command,
-    status: "warning",
-    summary:
-      "Open the authorization URL in a browser to sign in. Jolly opens it automatically when a browser is available and otherwise leaves you to open it manually. Listening for the OAuth consent redirect on http://127.0.0.1:5375/callback, which is served on the machine where Jolly runs. A browser on a different machine cannot complete that callback.",
-    data: {
-      authorizationUrl,
-      redirectUri,
-      callbackEndpoint: redirectUri,
-      pkce: { codeChallengeMethod: "S256", codeChallenge: challenge },
-      state,
-      scope: "email openid profile",
-      clientId: "saleor-cli",
-      responseType: "code",
-      riskContext: loginRiskContext(),
-    },
-    nextSteps: [
-      {
-        description:
-          "Open the authorization URL in a browser (Jolly opens it automatically when one is available; otherwise click it or copy and paste it yourself) to complete OAuth. When the browser is on a different machine than the one running Jolly, run jolly login --token <value> instead.",
-        command: "jolly login --token <value>",
-      },
-    ],
-  });
-  emit(presentation, args);
-  // Ensure the presentation reaches the parent before we start waiting.
-  await new Promise<void>((resolve) => {
-    if (process.stdout.write("")) resolve();
-    else process.stdout.once("drain", () => resolve());
-  });
-
-  // Best-effort native browser open. A missing or non-zero-exit open command is
-  // NOT an error — we proceed URL-first.
-  tryOpenBrowser(authorizationUrl);
-
-  // Real loopback OAuth callback server; resolves with the received code/state.
-  let callback: { code?: string; state?: string; error?: string };
-  try {
-    callback = await awaitLoopbackCallback();
-  } catch (err) {
-    return errorEnvelope(
-      command,
-      "The loopback OAuth callback server could not be started.",
-      [
-        {
-          code: "OAUTH_CALLBACK_SERVER_FAILED",
-          message: `Could not bind the loopback callback server on ${LOOPBACK_HOST}:${LOOPBACK_PORT}: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-          remediation: `Create a token at ${TOKEN_PAGE} and run \`jolly login --token <value>\`.`,
-        },
-      ],
-      { data: { riskContext: loginRiskContext() } },
-    );
-  }
-
-  if (callback.state !== state || !callback.code) {
-    return errorEnvelope(
-      command,
-      "The OAuth consent redirect was invalid; nothing was written.",
-      [
-        {
-          code: "OAUTH_STATE_MISMATCH",
-          message: callback.error
-            ? `The authorization server returned an error on the callback: ${callback.error}.`
-            : "The loopback callback did not carry a matching state and authorization code.",
-          remediation: `Re-run \`jolly login --browser\`, or create a token at ${TOKEN_PAGE} and run \`jolly login --token <value>\`.`,
-        },
-      ],
-      { data: { riskContext: loginRiskContext() } },
-    );
-  }
-
-  // REAL token exchange POST to the auth.saleor.io Keycloak token endpoint.
-  let exchange: Response;
-  let exchangeBody = "";
-  try {
-    exchange = await fetch(KEYCLOAK_TOKEN_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "authorization_code",
-        code: callback.code,
-        code_verifier: verifier,
-        client_id: "saleor-cli",
-        redirect_uri: redirectUri,
-      }).toString(),
-    });
-    exchangeBody = await exchange.text();
-  } catch (err) {
-    return errorEnvelope(
-      command,
-      "The OAuth code exchange request to the auth.saleor.io token endpoint failed; nothing was written.",
-      [
-        {
-          code: "OAUTH_TOKEN_EXCHANGE_FAILED",
-          message: `The POST to the auth.saleor.io token endpoint (${KEYCLOAK_TOKEN_ENDPOINT}) could not be sent: ${
-            err instanceof Error ? err.message : String(err)
-          }.`,
-          remediation: `Create a token at ${TOKEN_PAGE} and run \`jolly login --token <value>\`.`,
-        },
-      ],
-      { data: { riskContext: loginRiskContext() } },
-    );
-  }
-
-  if (!exchange.ok) {
-    // Keycloak rejected the authorization code: a real, honest failure of the
-    // token-exchange POST. Write nothing; name the failed step.
-    return errorEnvelope(
-      command,
-      "The OAuth code exchange POST to the auth.saleor.io token endpoint was rejected; nothing was written.",
-      [
-        {
-          code: "OAUTH_TOKEN_EXCHANGE_FAILED",
-          message: `The token exchange POST to the auth.saleor.io token endpoint (${KEYCLOAK_TOKEN_ENDPOINT}) was rejected with HTTP ${exchange.status}: ${
-            exchangeBody.slice(0, 500) || "no response body"
-          }.`,
-          remediation: `Create a token at ${TOKEN_PAGE} and run \`jolly login --token <value>\`.`,
-        },
-      ],
-      {
-        checks: [
-          {
-            id: "oauth-token-exchange",
-            status: "fail",
-            description: `auth.saleor.io token endpoint rejected the authorization code (HTTP ${exchange.status}).`,
-          },
-        ],
-        data: { riskContext: loginRiskContext() },
-      },
-    );
-  }
-
-  // Successful exchange (real human consent — not exercised by CI). Parse the
-  // id_token and exchange it for a Cloud API token.
-  let idToken: string | undefined;
-  try {
-    idToken = (JSON.parse(exchangeBody) as { id_token?: string }).id_token;
-  } catch {
-    idToken = undefined;
-  }
-  if (!idToken) {
-    return errorEnvelope(
-      command,
-      "The auth.saleor.io token endpoint response did not include an id_token; nothing was written.",
-      [
-        {
-          code: "OAUTH_ID_TOKEN_MISSING",
-          message: `The token exchange response from the auth.saleor.io token endpoint (${KEYCLOAK_TOKEN_ENDPOINT}) did not include an id_token.`,
-          remediation: `Create a token at ${TOKEN_PAGE} and run \`jolly login --token <value>\`.`,
-        },
-      ],
-      { data: { riskContext: loginRiskContext() } },
-    );
-  }
-
-  const tokensEndpoint = `${cloudApiBase()}/tokens`;
-  let cloudToken: string | undefined;
-  let orgName: string | undefined;
-  try {
-    const res = await fetch(tokensEndpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id_token: idToken }),
-    });
-    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-    if (!res.ok) {
-      return errorEnvelope(
-        command,
-        "The Cloud API rejected the OAuth id_token exchange; nothing was written.",
-        [
-          {
-            code: "CLOUD_TOKEN_EXCHANGE_FAILED",
-            message: `The POST of the OIDC id_token to the Cloud API tokens endpoint (${tokensEndpoint}) was rejected with HTTP ${res.status}.`,
-            remediation: `Create a token at ${TOKEN_PAGE} and run \`jolly login --token <value>\`.`,
-          },
-        ],
-        { data: { riskContext: loginRiskContext() } },
-      );
-    }
-    cloudToken =
-      typeof body["token"] === "string"
-        ? (body["token"] as string)
-        : typeof body["access_token"] === "string"
-          ? (body["access_token"] as string)
-          : undefined;
-  } catch (err) {
-    return errorEnvelope(
-      command,
-      "The Cloud API id_token exchange request failed; nothing was written.",
-      [
-        {
-          code: "CLOUD_TOKEN_EXCHANGE_FAILED",
-          message: `The POST of the OIDC id_token to the Cloud API tokens endpoint (${tokensEndpoint}) could not be sent: ${
-            err instanceof Error ? err.message : String(err)
-          }.`,
-          remediation: `Create a token at ${TOKEN_PAGE} and run \`jolly login --token <value>\`.`,
-        },
-      ],
-      { data: { riskContext: loginRiskContext() } },
-    );
-  }
-
-  if (!cloudToken) {
-    return errorEnvelope(
-      command,
-      "The Cloud API id_token exchange did not return a token; nothing was written.",
-      [
-        {
-          code: "CLOUD_TOKEN_MISSING",
-          message: `The Cloud API tokens endpoint (${tokensEndpoint}) response did not include a token.`,
-          remediation: `Create a token at ${TOKEN_PAGE} and run \`jolly login --token <value>\`.`,
-        },
-      ],
-      { data: { riskContext: loginRiskContext() } },
-    );
-  }
-
-  // Verify + resolve the org name with the freshly minted Cloud token.
-  try {
-    orgName = resolveOrgName(await listOrganizations(cloudToken));
-  } catch {
-    orgName = undefined;
-  }
-  const values: Record<string, string> = { JOLLY_SALEOR_CLOUD_TOKEN: cloudToken };
-  if (orgName) values["JOLLY_SALEOR_ORGANIZATION"] = orgName;
-  writeEnvValues(projectDir(), values);
-
-  return envelope({
-    command,
-    status: "success",
-    summary: orgName
-      ? `Browser login complete; the Cloud token was stored. Authenticated as "${orgName}".`
-      : "Browser login complete; the Cloud token was stored.",
-    data: {
-      cloudTokenStored: true,
-      accountContext: orgName ?? "unknown",
-      riskContext: loginRiskContext(),
-    },
-    checks: [
-      { id: "oauth-token-exchange", status: "pass", description: "Exchanged the authorization code for a Cloud token." },
-    ],
-    nextSteps: [
-      {
-        description: "Run jolly create store to provision a Saleor Cloud environment.",
-        command: "jolly create store --create-environment",
-      },
-    ],
-  });
-}
-
-/**
- * Best-effort native browser open. A missing open command, a spawn error, or a
- * non-zero exit is NOT an error — login proceeds URL-first regardless.
- */
-function tryOpenBrowser(url: string): void {
-  const opener =
-    process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-  try {
-    spawnSync(opener, [url], { stdio: "ignore" });
-  } catch {
-    // Ignore — URL-first means a missing browser is never an error.
-  }
-}
-
-/**
- * Start the loopback HTTP server, handle a single GET /callback, validate that
- * the request carries an authorization code, respond to the browser so its
- * request completes, then close the server (draining the event loop).
- */
-function awaitLoopbackCallback(): Promise<{ code?: string; state?: string; error?: string }> {
-  return new Promise((resolve, reject) => {
-    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-      let url: URL;
-      try {
-        url = new URL(req.url ?? "/", `http://${LOOPBACK_HOST}:${LOOPBACK_PORT}`);
-      } catch {
-        res.statusCode = 400;
-        res.end("Bad request.");
-        return;
-      }
-      if (url.pathname !== "/callback") {
-        res.statusCode = 404;
-        res.end("Not found.");
-        return;
-      }
-      const code = url.searchParams.get("code") ?? undefined;
-      const state = url.searchParams.get("state") ?? undefined;
-      const error = url.searchParams.get("error") ?? undefined;
-      res.statusCode = 200;
-      res.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res.end("Jolly received the OAuth redirect. You may close this window and return to your terminal.");
-      server.close(() => resolve({ code, state, error }));
-    });
-    server.on("error", (err) => reject(err));
-    server.listen(LOOPBACK_PORT, LOOPBACK_HOST);
-  });
 }
 
 // ─── logout (feature 018) ─────────────────────────────────────────────────
@@ -1715,178 +1307,16 @@ async function commandCreateAppToken(args: ParsedArgs): Promise<Envelope> {
   }
 }
 
-// ─── create stripe (feature 005) ──────────────────────────────────────────
-
-function stripeRiskContext(): RiskContext {
-  return {
-    action: "create stripe",
-    target: ".env (JOLLY_STRIPE_PUBLISHABLE_KEY, JOLLY_STRIPE_SECRET_KEY)",
-    riskLevel: "medium",
-    categories: ["payment setup", "credential handling"],
-    reversible: true,
-    sideEffects: ["Writes Stripe test-mode keys to .env"],
-    dryRunAvailable: true,
-  };
-}
-
-/**
- * Read the default profile's test-mode keys from a logged-in Stripe CLI session
- * via its own read-only interface (`stripe config --list`). Returns the parsed
- * keys, or undefined when the CLI is missing, not logged in, or holds no
- * test-mode keys. Read-only and side-effect free; never runs `login`/OAuth and
- * makes no network call. The parser tolerates single/double/no quotes and the
- * `sk_test_`/`rk_test_` secret-key forms (feature 005).
- */
-function readStripeCliKeys():
-  | { publishable?: string; secret?: string; expiresAt?: string }
-  | undefined {
-  let result;
-  try {
-    // Bare command name so PATH resolves the Stripe CLI (or the harness fake).
-    result = spawnSync("stripe", ["config", "--list"], { encoding: "utf8" });
-  } catch {
-    return undefined;
-  }
-  if (result.error || result.status !== 0 || typeof result.stdout !== "string") {
-    return undefined;
-  }
-
-  const unquote = (raw: string): string => {
-    const trimmed = raw.trim();
-    if (
-      (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-      (trimmed.startsWith("'") && trimmed.endsWith("'"))
-    ) {
-      return trimmed.slice(1, -1);
-    }
-    return trimmed;
-  };
-
-  let publishable: string | undefined;
-  let secret: string | undefined;
-  let expiresAt: string | undefined;
-  // Parse the [default] profile only; stop if another profile table begins.
-  let inDefault = false;
-  for (const line of result.stdout.split("\n")) {
-    const trimmed = line.trim();
-    const table = /^\[(.+)\]$/.exec(trimmed);
-    if (table) {
-      inDefault = table[1] === "default";
-      continue;
-    }
-    if (!inDefault) continue;
-    const kv = /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(trimmed);
-    if (!kv) continue;
-    const [, key, rawValue] = kv;
-    const value = unquote(rawValue);
-    if (key === "test_mode_pub_key" && /^pk_test_/.test(value)) publishable = value;
-    else if (key === "test_mode_api_key" && /^(sk_test_|rk_test_)/.test(value)) secret = value;
-    else if (key === "test_mode_key_expires_at" && value) expiresAt = value;
-  }
-
-  if (!publishable && !secret && !expiresAt) return undefined;
-  return { publishable, secret, expiresAt };
-}
-
-function commandCreateStripe(args: ParsedArgs): Envelope {
-  const command = "create stripe";
-  const flagPublishable = args.options["publishable-key"];
-  const flagSecret = args.options["secret-key"];
-
-  // Flags always override the import (durable Dashboard keys). With neither
-  // flag, import from a logged-in Stripe CLI session (read-only).
-  const fromCli = !flagPublishable && !flagSecret ? readStripeCliKeys() : undefined;
-  const publishable = flagPublishable ?? fromCli?.publishable;
-  const secret = flagSecret ?? fromCli?.secret;
-  const imported = !flagPublishable && !flagSecret && Boolean(publishable && secret);
-
-  if (!publishable || !secret) {
-    return errorEnvelope(
-      command,
-      "Both --publishable-key and --secret-key are required.",
-      [
-        {
-          code: "MISSING_STRIPE_KEYS",
-          message:
-            "create stripe found no Stripe test-mode keys: pass --publishable-key <pk_test_...> and --secret-key <sk_test_...>, or log in to the Stripe CLI so Jolly can import them.",
-          remediation:
-            "Run `npx @stripe/cli login` to complete the Stripe CLI OAuth (then re-run `jolly create stripe`), or copy both test-mode keys from the Stripe Dashboard and pass them as --publishable-key/--secret-key.",
-        },
-      ],
-      { data: { riskContext: stripeRiskContext() } },
-    );
-  }
-
-  if (args.dryRun) {
-    return envelope({
-      command,
-      status: "success",
-      summary: "Previewed Stripe key storage; nothing was written.",
-      data: { dryRun: true, riskContext: stripeRiskContext() },
-      nextSteps: [
-        {
-          description: "Run the command without --dry-run to write the Stripe keys to .env.",
-          command: "jolly create stripe --publishable-key <pk> --secret-key <sk>",
-        },
-      ],
-    });
-  }
-
-  writeEnvValues(projectDir(), {
-    JOLLY_STRIPE_PUBLISHABLE_KEY: publishable,
-    JOLLY_STRIPE_SECRET_KEY: secret,
-  });
-
-  const expiresAt = imported ? fromCli?.expiresAt : undefined;
-  return envelope({
-    command,
-    status: "success",
-    summary: imported
-      ? "Wrote Stripe test-mode keys from the Stripe CLI session into .env as JOLLY_STRIPE_PUBLISHABLE_KEY and JOLLY_STRIPE_SECRET_KEY; the keys are stored, not verified."
-      : "Wrote Stripe test-mode keys to .env as JOLLY_STRIPE_PUBLISHABLE_KEY and JOLLY_STRIPE_SECRET_KEY; the keys are stored, not verified.",
-    data: {
-      stored: true,
-      imported,
-      ...(imported ? { source: "stripe-cli" } : {}),
-      ...(expiresAt ? { expiresAt } : {}),
-      riskContext: stripeRiskContext(),
-    },
-    checks: [
-      {
-        id: "stripe-keys-stored",
-        status: "pass",
-        description: imported
-          ? "Stripe test-mode keys from the Stripe CLI session written to .env; the keys are stored, not verified."
-          : "Stripe test-mode keys written to .env; the keys are stored, not verified.",
-      },
-    ],
-    nextSteps: [
-      ...(expiresAt
-        ? [
-            {
-              description: `These Stripe CLI test-mode keys expire ${expiresAt}; before then, replace them with durable Stripe Dashboard keys (re-run jolly create stripe).`,
-            },
-          ]
-        : []),
-      {
-        description:
-          "Configure Saleor's Stripe integration via @saleor/configurator, guided by the Jolly skill.",
-        command: "jolly doctor stripe",
-      },
-    ],
-  });
-}
-
 // ─── create dispatcher + help ─────────────────────────────────────────────
 
-const CREATE_SUBCOMMANDS = ["store", "app-token", "stripe"] as const;
+const CREATE_SUBCOMMANDS = ["store", "app-token"] as const;
 
 function commandCreateHelp(): Envelope {
   const command = "create --help";
   return envelope({
     command,
     status: "success",
-    summary: "jolly create exposes the plumbing subcommands store, app-token, and stripe.",
+    summary: "jolly create exposes the plumbing subcommands store and app-token.",
     data: {
       subcommands: [
         {
@@ -1897,7 +1327,6 @@ function commandCreateHelp(): Envelope {
           name: "app-token",
           description: "Acquire a Saleor app token via GraphQL and write it to .env.",
         },
-        { name: "stripe", description: "Write Stripe test-mode keys to .env." },
       ],
       note: "Other setup work is run by your agent via the official CLIs, guided by the Jolly skill.",
     },
@@ -1924,8 +1353,6 @@ async function commandCreate(args: ParsedArgs): Promise<Envelope> {
       return commandCreateStore(args);
     case "app-token":
       return commandCreateAppToken(args);
-    case "stripe":
-      return commandCreateStripe(args);
     default:
       return errorEnvelope("create", `Unknown create subcommand "${sub}".`, [
         {
@@ -2397,8 +1824,6 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
           "A live-mode Stripe secret key (sk_live_) was detected. v1 supports " +
           "Stripe test mode only; replace it with a test-mode key beginning " +
           "with sk_test_.",
-        command:
-          "jolly create stripe --publishable-key <pk_test_...> --secret-key <sk_test_...>",
       });
     } else if (hasPub && hasSecret) {
       checks.push({
@@ -2407,19 +1832,16 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
         description: "Stripe test-mode keys present in .env.",
       });
     } else {
-      // No .env keys: if the Stripe CLI is logged in with test-mode keys, Jolly
-      // can import them — surface a warning (not a fail) pointing at the import.
-      const cliKeys = readStripeCliKeys();
-      const cliHasKeys = Boolean(cliKeys?.publishable && cliKeys?.secret);
+      // No keys configured. The Stripe app's keys live in its own Saleor
+      // Dashboard configuration (a guided human gate), so this is a fail
+      // directing the customer to that step — never a fabricated pass.
       checks.push({
         id: "stripe-keys",
-        status: cliHasKeys ? "warning" : "fail",
-        description: cliHasKeys
-          ? "Stripe test-mode keys are available from the logged-in Stripe CLI session; run jolly create stripe to import them into .env."
-          : "Stripe keys not configured.",
-        command: cliHasKeys
-          ? "jolly create stripe"
-          : "jolly create stripe --publishable-key <pk> --secret-key <sk>",
+        status: "fail",
+        description:
+          "Stripe keys not configured. Paste the publishable and restricted " +
+          "keys into the installed Stripe app's Saleor Dashboard configuration " +
+          "and map it to the `us` channel.",
       });
     }
 
@@ -2674,7 +2096,7 @@ function startPlan(): PlanStage[] {
       effects: {
         directoriesCreated: [],
         filesWritten: [".env"],
-        networkHostsContacted: ["cloud.saleor.io", "auth.saleor.io"],
+        networkHostsContacted: ["cloud.saleor.io"],
         repositoriesCloned: [],
       },
       riskContext: {
@@ -2879,9 +2301,6 @@ interface StartStage {
   stage: string;
   status: StageStatus;
   riskContext?: RiskContext;
-  // Present on the auth stage when no Cloud token is configured: the Keycloak
-  // browser-login URL the gate presents (it cannot mint a token itself).
-  authorizationUrl?: string;
 }
 
 /**
@@ -3690,32 +3109,15 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
   // human gate is announced regardless of whether appInstall succeeded.
   let stripeStageReached = false;
 
-  // `.env`-first Cloud-token presence (feature 002 OAuth-walkthrough scenario):
-  // a real agent leaves the token in the project `.env`; it may also be exported.
-  // When NEITHER carries a token, the auth stage cannot silently complete — it
-  // presents a Keycloak browser-login gate it cannot self-clear.
+  // `.env`-first Cloud-token presence (feature 002): a real agent leaves the
+  // token in the project `.env`; it may also be exported. When NEITHER carries a
+  // token, the auth stage cannot silently complete — it reports the token is
+  // needed (a gate it cannot self-clear), token-only with no browser flow.
   const startEnvValues = loadEnvValues(projectDir());
   const hasCloudToken = Boolean(
     startEnvValues["JOLLY_SALEOR_CLOUD_TOKEN"] ?? process.env["JOLLY_SALEOR_CLOUD_TOKEN"],
   );
-  // Built lazily so the URL is presented (and offered in nextSteps) only when the
-  // auth gate is actually engaged. Reuses loginBrowserLive's URL-first OAuth
-  // construction; we PRESENT the URL only — never block on the loopback callback.
-  let authGate: { authorizationUrl: string } | undefined;
-  if (!hasCloudToken) {
-    const verifier = base64url(randomBytes(32));
-    const challenge = base64url(createHash("sha256").update(verifier).digest());
-    const params = new URLSearchParams({
-      response_type: "code",
-      client_id: "saleor-cli",
-      code_challenge: challenge,
-      code_challenge_method: "S256",
-      state: base64url(randomBytes(16)),
-      redirect_uri: LOOPBACK_REDIRECT_URI,
-      scope: "email openid profile",
-    });
-    authGate = { authorizationUrl: `${KEYCLOAK_AUTH_ENDPOINT}?${params.toString()}` };
-  }
+  const needsToken = !hasCloudToken;
 
   for (const planStage of plan) {
     const isBootstrap = planStage.stage === "init" || planStage.stage === "auth";
@@ -3725,14 +3127,14 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
     if (bootstrapFailed) {
       // Bootstrap itself failed; nothing downstream was attempted.
       status = isBootstrap && planStage.stage === "init" ? "error" : "pending";
-    } else if (planStage.stage === "auth" && authGate) {
-      // No Cloud token configured: the auth stage presents the browser-login gate
-      // (it cannot mint a token itself), so it is reported `blocked` — a gate it
-      // cannot self-clear — never a fabricated `completed`. It does NOT set the
-      // approval `gate` (reserved for the high-risk per-stage approval pause): the
-      // run proceeds through the remaining stages, which block/pend honestly on
-      // the still-missing credentials. `blocked` (not `awaiting-approval`) keeps
-      // a `--yes` run free of any per-stage approval pause.
+    } else if (planStage.stage === "auth" && needsToken) {
+      // No Cloud token configured: the auth stage cannot mint a token itself, so
+      // it is reported `blocked` — a gate it cannot self-clear — never a
+      // fabricated `completed`. It does NOT set the approval `gate` (reserved for
+      // the high-risk per-stage approval pause): the run proceeds through the
+      // remaining stages, which block/pend honestly on the still-missing
+      // credentials. `blocked` (not `awaiting-approval`) keeps a `--yes` run free
+      // of any per-stage approval pause.
       status = "blocked";
     } else if (isBootstrap) {
       status = "completed";
@@ -3812,9 +3214,6 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
       stage: planStage.stage,
       status,
       ...(planStage.riskContext ? { riskContext: planStage.riskContext } : {}),
-      ...(planStage.stage === "auth" && authGate
-        ? { authorizationUrl: authGate.authorizationUrl }
-        : {}),
     });
   }
 
@@ -3842,13 +3241,12 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
     });
   }
 
-  // No Cloud token configured (feature 002 OAuth-walkthrough scenario): offer
-  // completing browser login by opening the presented Keycloak authorization URL,
-  // OR supplying the token directly with `jolly login --token <value>`. Offered as
-  // a gate Jolly cannot self-clear — never fabricated as performed.
-  if (authGate) {
+  // No Cloud token configured (feature 002): direct the user to create a Saleor
+  // Cloud token and supply it with `jolly login --token <value>`, then re-run.
+  // Token-only auth — a gate Jolly cannot self-clear, never fabricated as done.
+  if (needsToken) {
     nextSteps.push({
-      description: `Complete browser login by opening the Keycloak authorization URL (${authGate.authorizationUrl}), or run jolly login --token <value> to supply a Saleor Cloud token, then re-run jolly start.`,
+      description: `Create a Saleor Cloud token at ${TOKEN_PAGE} and run jolly login --token <value> to supply it, then re-run jolly start.`,
       command: "jolly login --token <value>",
     });
   }
@@ -3937,7 +3335,6 @@ function commandHelp(): Envelope {
         "skills",
         "create store",
         "create app-token",
-        "create stripe",
       ],
       globalFlags: ["--json", "--quiet", "--yes/-y", "--dry-run"],
     },

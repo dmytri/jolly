@@ -125,37 +125,12 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   "Jolly start deploys the recipe over the stock defaults of a store created by a prior create-store command":
     ["saleorEndpoint", "saleorAppToken"],
   // 005-stripe-checkout-setup
-  // The Stripe-CLI import path writes the session's keys to .env and contacts no
-  // Saleor/Stripe service, so it needs NO Jolly credential group. Its premise —
-  // a real, logged-in Stripe CLI holding test-mode keys — is a runner CAPABILITY
-  // (signup + browser OAuth are human steps, not provisionable), gated in the
-  // scenario's Given which skips when no such session is present.
-  "Jolly create stripe imports keys from the Stripe CLI session when none are passed": [],
-  "Agent configures Saleor for Stripe": [
-    "saleorEndpoint",
-    "saleorAppToken",
-    "stripe",
-  ],
-  "Agent verifies checkout readiness": [
-    "saleorEndpoint",
-    "saleorAppToken",
-    "stripe",
-  ],
   // The Stripe app install is `jolly start`'s own Saleor GraphQL appInstall,
   // authenticated with the Cloud STAFF token (an app token gets
   // PermissionDenied) against the store GraphQL endpoint.
   "Jolly start installs the Stripe app and surfaces the keys and channel gate": [
     "saleorEndpoint",
     "saleorCloud",
-  ],
-  // `jolly start` runs `stripe login` interactively when the Stripe CLI has no
-  // test-mode session. Reaching the Stripe stage needs a store (Cloud token +
-  // endpoint); the "Stripe CLI not authenticated" premise and the stdio/TTY
-  // requirement are runner capabilities gated in the scenario's Given/When,
-  // which skip when they cannot be produced.
-  "jolly start runs stripe login interactively when the Stripe CLI is not authenticated": [
-    "saleorCloud",
-    "saleorEndpoint",
   ],
   // The checkout-readiness probe is Jolly's own Saleor GraphQL (create + revert a
   // `us` test checkout, read availablePaymentGateways) — no CLI spawn, no Vercel.

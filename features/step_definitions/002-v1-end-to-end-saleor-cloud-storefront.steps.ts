@@ -66,7 +66,7 @@ Given(
   function () {},
 );
 Given(
-  "the setup path must minimize human intervention to new account creation, browser OAuth consent, and providing secret values",
+  "the setup path must minimize human intervention to new account creation, the Vercel sign-in, and providing secret values",
   function () {},
 );
 
@@ -110,12 +110,12 @@ Then(
 
 // --- Scenario: Agent helps register a new Saleor Cloud store (@sandbox) ------
 //
-// Deep registration behavior (Cloud APIs, browser OAuth, headless token, env
-// creation) is pinned in features 018/012/024. Here it is asserted only at the
-// Jolly surface: `jolly create store` carries the right riskContext and (under
-// real creds) provisions an environment. Gated by SANDBOX_REQUIREMENTS
-// ["Agent helps register a new Saleor Cloud store"] (saleorCloud) → skips
-// locally. The browser/account-signup steps stay narrative no-ops.
+// Deep registration behavior (Cloud APIs, token auth, env creation) is pinned in
+// features 018/012/024. Here it is asserted only at the Jolly surface: `jolly
+// create store` carries the right riskContext and (under real creds) provisions
+// an environment. Gated by SANDBOX_REQUIREMENTS["Agent helps register a new
+// Saleor Cloud store"] (saleorCloud) → skips locally. The account-signup steps
+// stay narrative no-ops.
 
 Given("`JOLLY_SALEOR_CLOUD_TOKEN` is set for an organization with no project", function (this: JollyWorld) {
   this.notes.registerBranch = true;
@@ -969,10 +969,10 @@ Then(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Whole-flow "real agent's starting state" scenarios (commit f755756): OAuth
-// walkthrough when no Cloud token is configured, store auto-provisioning when no
-// store URL is configured, the dry-run provision plan, and the full end-to-end
-// run from only a `.env` (no exported credentials).
+// Whole-flow "real agent's starting state" scenarios: the token-needed guidance
+// when no Cloud token is configured, store auto-provisioning when no store URL is
+// configured, the dry-run provision plan, and the full end-to-end run from only a
+// `.env` (no exported credentials).
 // ═══════════════════════════════════════════════════════════════════════════
 
 interface StartStage {
@@ -989,14 +989,15 @@ function startStage(world: JollyWorld, name: string): StartStage | undefined {
   return startStages(world).find((s) => s.stage === name);
 }
 
-// --- Scenario: jolly start walks the user through OAuth when no Cloud token --
-//     is configured (@logic) ----------------------------------------------------
+// --- Scenario: jolly start guides the user to provide a Saleor Cloud token ---
+//     when none is configured (@logic) ------------------------------------------
 //
-// A real agent's first run with no Cloud token: `jolly start` must present the
-// Keycloak browser-login URL as a gate (it cannot mint a token itself), without
-// treating the missing token or the missing browser as an error. The runtime
-// credentials are genuinely unset (absentCredentialsEnv), and the headless test
-// process is non-TTY, so "no browser can be opened" is produced for real.
+// A real agent's first run with no Cloud token: `jolly start` must report the
+// auth stage needs a token and direct the user to create one at the token page
+// and run `jolly login --token <value>` — it cannot mint a token itself — without
+// treating the missing token as a fatal error and without fabricating success.
+// The runtime credentials are genuinely unset (absentCredentialsEnv), and the
+// child is a non-TTY subprocess (the agent-driven case).
 
 Given(
   "a fresh project directory with no `JOLLY_SALEOR_CLOUD_TOKEN` configured",
@@ -1006,8 +1007,11 @@ Given(
 );
 
 When(
-  "the agent runs `jolly start --json` where no browser can be opened",
+  "the agent runs `jolly start --json` in a non-interactive shell",
   function (this: JollyWorld) {
+    // runCli spawns a non-TTY subprocess (the agent-driven case): no token from
+    // any source, so the auth stage must report a token is needed and point to
+    // the token flag — never a browser OAuth gate, never a fabricated success.
     this.runCli(["start", "--json"], {
       env: (this.notes.startEnv as Record<string, string | undefined>) ?? absentCredentialsEnv(),
       timeoutMs: 240_000,
@@ -1015,61 +1019,55 @@ When(
   },
 );
 
-/** Any Keycloak authorization URL (auth.saleor.io) carried anywhere in the run. */
-function keycloakAuthorizationUrl(world: JollyWorld): string | undefined {
-  const blob = JSON.stringify(world.envelope) + " " + world.lastRun!.stdout;
-  const match = /https:\/\/auth\.saleor\.io\/[^\s"'`]+/.exec(blob);
-  return match?.[0];
-}
-
 Then(
-  "the `auth` stage should present the Keycloak authorization URL for the user to complete browser login",
+  "the `auth` stage should report that a Saleor Cloud token is needed",
   function (this: JollyWorld) {
     const auth = startStage(this, "auth");
     assert.ok(auth, "the orchestrated stages must include the auth stage");
-    // With no Cloud token, the auth stage cannot silently complete — it presents
-    // the browser-login gate, so its status is not a fabricated "completed".
+    // No token configured: the auth stage cannot silently complete — it reports
+    // the token is needed, never a fabricated "completed".
     assert.notEqual(
       auth!.status,
       "completed",
       "the auth stage must not report completed when no Cloud token is configured",
     );
-    const url = keycloakAuthorizationUrl(this);
+    // Token-only auth: the auth stage must NOT present a browser OAuth URL.
+    const blob = JSON.stringify(this.envelope) + " " + this.lastRun!.stdout;
     assert.ok(
-      url,
-      "the auth stage must present a Keycloak authorization URL at auth.saleor.io for browser login",
-    );
-    const parsed = new URL(url!);
-    assert.equal(parsed.hostname, "auth.saleor.io", "the authorization URL must be a Keycloak (auth.saleor.io) URL");
-    assert.equal(
-      parsed.searchParams.get("response_type"),
-      "code",
-      "the authorization URL must be an OAuth authorization-code request",
+      !/auth\.saleor\.io/.test(blob),
+      "the auth stage must not present a browser OAuth authorization URL",
     );
   },
 );
 
 Then(
-  "it should not report the missing token as a fatal error or a missing browser as an error",
+  "`nextSteps` should direct the user to create a token at https:\\/\\/cloud.saleor.io\\/tokens and run `jolly login --token <value>`",
   function (this: JollyWorld) {
-    assert.notEqual(this.envelope.status, "error", "a missing Cloud token must not be a fatal error");
-    const text = (JSON.stringify(this.envelope) + " " + this.lastRun!.stdout).toLowerCase();
+    const text = JSON.stringify(this.envelope.nextSteps ?? []);
     assert.ok(
-      !/(no browser|browser not found|cannot open (a |the )?browser|browser unavailable|no display)/.test(text),
-      "a missing browser must not be presented as an error",
+      text.includes("https://cloud.saleor.io/tokens"),
+      `nextSteps must direct the user to create a token at the token page: ${text}`,
+    );
+    assert.ok(
+      text.includes("jolly login --token"),
+      `nextSteps must direct the user to run jolly login --token <value>: ${text}`,
     );
   },
 );
 
 Then(
-  "`nextSteps` should offer completing browser login or `jolly login --token <value>`",
+  "it should not fabricate that authentication succeeded",
   function (this: JollyWorld) {
-    const text = JSON.stringify(this.envelope.nextSteps ?? []).toLowerCase();
-    assert.ok(
-      text.includes("jolly login --token") ||
-        (text.includes("browser") && text.includes("login")),
-      `nextSteps must offer completing browser login or jolly login --token <value>: ${JSON.stringify(this.envelope.nextSteps)}`,
+    const auth = startStage(this, "auth");
+    assert.notEqual(
+      auth!.status,
+      "completed",
+      "the auth stage must not fabricate a completed status without a token",
     );
+    const text = (this.envelope.summary + " " + JSON.stringify(this.envelope.data)).toLowerCase();
+    for (const claim of ["authentication succeeded", "authenticated as", "logged in", "token verified"]) {
+      assert.ok(!text.includes(claim), `must not fabricate authentication success ("${claim}")`);
+    }
   },
 );
 

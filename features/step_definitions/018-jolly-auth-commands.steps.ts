@@ -4,20 +4,19 @@
 //   - login --token when the Cloud API is unreachable: token stored honestly,
 //     status "warning", "stored, not verified", verification check "unknown"
 //     (never "pass"), no organization written, token never printed.
-//   - login --browser --dry-run: real PKCE (S256 = base64url(SHA-256(verifier))
-//     recomputed and compared), Keycloak authz URL at auth.saleor.io with the
-//     pinned params and redirect_uri 127.0.0.1:5375/callback.
-//   - login (code exchange) --dry-run preview: POST to the auth.saleor.io token
-//     endpoint + POST id_token to the Cloud API /platform/api/tokens; no success
-//     language; nothing written.
+//   - login token sources: --token-file, --token-stdin, $JOLLY_SALEOR_CLOUD_TOKEN,
+//     and the interactive paste prompt (real PTY); precedence and empty-source
+//     honest errors.
+//   - login with no token source in a non-interactive shell: honest error
+//     pointing to `jolly login --token <value>`; never prompts or blocks.
 //   - logout: removes the Jolly-managed auth vars, preserves third-party vars.
 //   - auth status: configuration only, accountContext from
 //     JOLLY_SALEOR_ORGANIZATION or "unknown", no token printed, --json/--quiet.
 //   - login --token --dry-run: riskContext action "login", .env not created,
 //     non-empty nextSteps.
 //
-// @sandbox scenarios (failed exchange, invalid/valid token verification, full
-// browser flow) have bodies written for credentialed CI; they SKIP locally.
+// @sandbox scenarios (invalid/valid token verification) have bodies written for
+// credentialed CI; they SKIP locally.
 //
 // Safety: every @logic command runs with the runtime credentials genuinely
 // UNSET (absentCredentialsEnv) — real absence, never dummy values — so no @logic
@@ -27,193 +26,19 @@
 // "stored, not verified" condition the real test env cannot produce on demand.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { createHash } from "node:crypto";
-import {
-  closeSync,
-  existsSync,
-  openSync,
-  readFileSync,
-  statSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { get as httpGet } from "node:http";
-import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { absentCredentialsEnv } from "../support/creds-env.ts";
 import { ptyAvailable, runUnderPty } from "../support/pty.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
-import { findEnvelope } from "../support/envelope.ts";
-import { REPO_ROOT, type CliResult, type JollyWorld } from "../support/world.ts";
+import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
 
 const TOKEN_PAGE = "https://cloud.saleor.io/tokens";
-
-function base64urlOfSha256(verifier: string): string {
-  return createHash("sha256")
-    .update(verifier)
-    .digest("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
+const CLI_ENTRY = join(REPO_ROOT, "src", "index.ts");
 
 function envData(world: JollyWorld): Record<string, unknown> {
   return world.envelope.data as Record<string, unknown>;
-}
-
-// ─── Live loopback browser-OAuth driver ────────────────────────────────────
-// The non-dry-run `jolly login --browser` flow prints the authorization URL +
-// loopback callback endpoint, attempts to open a browser, starts the localhost
-// OAuth callback server on 127.0.0.1:5375, and waits for the consent redirect.
-// These helpers drive that real flow without faking anything: they spawn the
-// CLI, read its real stdout, and (for the failed-exchange scenario) act as the
-// browser by delivering a code to the real loopback callback so Jolly performs
-// the real token-exchange POST. There is no mock — the consent redirect is the
-// one mechanically-deliverable step; the exchange and its failure are real.
-
-const LOGIN_BROWSER_ARGS = ["login", "--browser", "--json"];
-// Bare `jolly login` with no auth-mode flag; `--json` is the harness's
-// envelope-observation mechanism, the same convention every @logic login step
-// here uses. The product-relevant point is the absence of `--browser`/`--token`.
-const LOGIN_NOFLAGS_ARGS = ["login", "--json"];
-const CLI_ENTRY = join(REPO_ROOT, "src", "index.ts");
-const CALLBACK_ENDPOINT = "http://127.0.0.1:5375/callback";
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-interface BrowserRun {
-  child: ChildProcess;
-  args: string[];
-  stdout: () => string;
-  stderr: () => string;
-  release: () => void;
-}
-
-// ─── Cross-worker loopback-port mutex ──────────────────────────────────────
-// Every live browser-login scenario binds the fixed, spec-mandated loopback
-// port 127.0.0.1:5375. That port is shared OS state, so two cucumber parallel
-// workers (the logic profile runs parallel: 2) must never drive these scenarios
-// at the same time — the loser hits EADDRINUSE and the CLI honestly reports
-// OAUTH_CALLBACK_SERVER_FAILED, with no authorizationUrl to observe. A
-// cross-process file lock serializes them. The port stays 5375 (product
-// behavior); this only isolates the tests from each other.
-const LOOPBACK_LOCK_PATH = join(tmpdir(), "jolly-loopback-5375.lock");
-// Backstop only: longer than the longest live-login scenario timeout, so a lock
-// leaked by a crashed worker is reclaimed instead of deadlocking later runs.
-const LOOPBACK_LOCK_TTL_MS = 130_000;
-
-async function acquireLoopbackLock(): Promise<() => void> {
-  for (;;) {
-    try {
-      // O_CREAT|O_EXCL: atomic "create iff absent" — the file IS the lock.
-      closeSync(openSync(LOOPBACK_LOCK_PATH, "wx"));
-      let released = false;
-      return () => {
-        if (released) return;
-        released = true;
-        try {
-          unlinkSync(LOOPBACK_LOCK_PATH);
-        } catch {
-          /* already gone */
-        }
-      };
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
-      try {
-        if (Date.now() - statSync(LOOPBACK_LOCK_PATH).mtimeMs > LOOPBACK_LOCK_TTL_MS) {
-          unlinkSync(LOOPBACK_LOCK_PATH); // steal a stale lock from a crashed worker
-          continue;
-        }
-      } catch {
-        /* vanished between stat and now — just retry the create */
-      }
-      await delay(100);
-    }
-  }
-}
-
-async function spawnBrowserLogin(
-  world: JollyWorld,
-  envOverrides: Record<string, string | undefined> = {},
-  args: string[] = LOGIN_BROWSER_ARGS,
-): Promise<BrowserRun> {
-  const release = await acquireLoopbackLock();
-  const runtime = process.env.HARNESS_CLI_RUNTIME ?? "node";
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries({ ...process.env, ...envOverrides })) {
-    if (value !== undefined) env[key] = value;
-  }
-  const child = spawn(runtime, [CLI_ENTRY, ...args], {
-    cwd: world.projectDir,
-    env,
-  });
-  let stdout = "";
-  let stderr = "";
-  child.stdout!.on("data", (chunk: Buffer) => (stdout += chunk));
-  child.stderr!.on("data", (chunk: Buffer) => (stderr += chunk));
-  return { child, args, stdout: () => stdout, stderr: () => stderr, release };
-}
-
-// Record the run, then free the loopback port for the next worker. Callers must
-// await the child's exit before calling this, so the OS has released port 5375
-// by the time the lock is dropped.
-function recordBrowserRun(world: JollyWorld, run: BrowserRun, exitCode: number): void {
-  const stdout = run.stdout();
-  const result: CliResult = {
-    args: run.args,
-    cwd: world.projectDir,
-    exitCode,
-    stdout,
-    stderr: run.stderr(),
-    envelope: findEnvelope(stdout),
-  };
-  world.previousRun = world.lastRun;
-  world.lastRun = result;
-  run.release();
-}
-
-/** GET the loopback callback URL; resolves true once the server answers. */
-function deliverToCallback(url: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const req = httpGet(url, (res) => {
-      res.resume();
-      res.on("end", () => resolve(true));
-    });
-    req.on("error", () => resolve(false));
-    req.setTimeout(3000, () => {
-      req.destroy();
-      resolve(false);
-    });
-  });
-}
-
-function waitForExit(child: ChildProcess, ms: number): Promise<number> {
-  return new Promise((resolve) => {
-    if (child.exitCode !== null) return resolve(child.exitCode);
-    const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-      resolve(child.exitCode ?? -1);
-    }, ms);
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve(code ?? -1);
-    });
-  });
-}
-
-// SIGKILL now and resolve once the process is fully gone (its `close` fires in
-// milliseconds), so the loopback port is freed before the lock is released. Used
-// by the URL-first scenarios whose child blocks forever on the consent redirect
-// and so never exits on its own.
-function killAndWait(child: ChildProcess): Promise<number> {
-  return new Promise((resolve) => {
-    if (child.exitCode !== null) return resolve(child.exitCode);
-    child.once("close", (code) => resolve(code ?? -1));
-    child.kill("SIGKILL");
-  });
 }
 
 // ─── Scenario: login stores a token honestly when verification unreachable ──
@@ -329,152 +154,12 @@ Then(
   },
 );
 
-// ─── Scenario: login --browser --dry-run prepares OAuth material ───────────
+// ─── Shared: no existing authentication / no token value in output ──────────
 
 Given(
   "the agent has no existing Saleor Cloud authentication",
   function (this: JollyWorld) {
     // The scenario's temp project has no .env; nothing to do.
-  },
-);
-
-When(
-  "the agent runs `jolly login --browser --dry-run`",
-  function (this: JollyWorld) {
-    this.runCli(["login", "--browser", "--dry-run", "--json"], {
-      env: absentCredentialsEnv(),
-    });
-  },
-);
-
-Then(
-  "Jolly should generate a PKCE code challenge and verifier",
-  function (this: JollyWorld) {
-    const pkce = envData(this)["pkce"] as Record<string, unknown> | undefined;
-    assert.ok(pkce, "envelope.data.pkce must be present");
-    assert.equal(pkce!["codeChallengeMethod"], "S256");
-    assert.equal(typeof pkce!["codeChallenge"], "string");
-    assert.ok((pkce!["codeChallenge"] as string).length > 0, "codeChallenge non-empty");
-  },
-);
-
-Then(
-  "it should construct a Keycloak authorization URL at auth.saleor.io",
-  function (this: JollyWorld) {
-    const authorizationUrl = String(envData(this)["authorizationUrl"]);
-    const url = new URL(authorizationUrl);
-    assert.equal(url.hostname, "auth.saleor.io");
-    assert.match(url.pathname, /realms\/saleor-cloud/);
-    this.notes.authorizationUrl = authorizationUrl;
-  },
-);
-
-Then(
-  "the authorization URL should include response_type=code, client_id={string}, code_challenge, code_challenge_method=S256, state, redirect_uri, and scope={string}",
-  function (this: JollyWorld, clientId: string, scope: string) {
-    const url = new URL(String(this.notes.authorizationUrl ?? envData(this)["authorizationUrl"]));
-    const p = url.searchParams;
-    assert.equal(p.get("response_type"), "code");
-    assert.equal(p.get("client_id"), clientId);
-    assert.equal(p.get("code_challenge_method"), "S256");
-    assert.ok(p.get("code_challenge"), "code_challenge must be present");
-    assert.ok(p.get("state"), "state must be present");
-    assert.ok(p.get("redirect_uri"), "redirect_uri must be present");
-    assert.equal(p.get("scope"), scope);
-
-    // Real PKCE: the challenge must be base64url(SHA-256(verifier)). The
-    // verifier is not printed (it is held in memory only) but if the preview
-    // exposes it we recompute and compare; otherwise we confirm the challenge
-    // is a well-formed base64url S256 digest length (43 chars, no padding).
-    const challenge = p.get("code_challenge")!;
-    const verifier = (envData(this)["pkce"] as Record<string, unknown> | undefined)?.[
-      "codeVerifier"
-    ];
-    if (typeof verifier === "string") {
-      assert.equal(
-        challenge,
-        base64urlOfSha256(verifier),
-        "code_challenge must equal base64url(SHA-256(code_verifier))",
-      );
-    } else {
-      assert.match(
-        challenge,
-        /^[A-Za-z0-9_-]{43}$/,
-        "code_challenge must be a base64url-encoded SHA-256 digest (43 chars, unpadded)",
-      );
-    }
-  },
-);
-
-Then(
-  "the redirect_uri should point to {float}.{float}:{int}\\/callback",
-  function (this: JollyWorld, _a: number, _b: number, _port: number) {
-    const url = new URL(String(this.notes.authorizationUrl ?? envData(this)["authorizationUrl"]));
-    assert.equal(url.searchParams.get("redirect_uri"), "http://127.0.0.1:5375/callback");
-  },
-);
-
-// ─── Scenario: login presents the authorization URL and offers a browser ───
-// URL-first browser login (like the Vercel/Stripe CLIs): the dry-run preview
-// must present the Keycloak authorization URL for the user to click/copy, state
-// that Jolly opens it automatically when a browser is available and otherwise
-// leaves the user to open it manually, never treat a missing browser as an
-// error, and never leak a token value.
-
-function presentationText(world: JollyWorld): string {
-  // The human-facing statement: summary + the nextSteps narrative. Deliberately
-  // excludes the machine `data` block so we match what Jolly tells the user, not
-  // JSON field names like `dryRunAvailable`.
-  const steps = world.envelope.nextSteps
-    .map((s) => `${s.description ?? ""} ${s.command ?? ""}`)
-    .join(" ");
-  return (world.envelope.summary + " " + steps).toLowerCase();
-}
-
-Then(
-  "the output should present the Keycloak authorization URL for the user to click or copy and paste",
-  function (this: JollyWorld) {
-    const authorizationUrl = String(envData(this)["authorizationUrl"]);
-    const url = new URL(authorizationUrl);
-    assert.equal(url.hostname, "auth.saleor.io");
-    assert.match(url.pathname, /realms\/saleor-cloud\/protocol\/openid-connect\/auth/);
-    // The clickable / copy-pasteable URL must appear verbatim in the output.
-    assert.ok(
-      this.lastRun!.stdout.includes(authorizationUrl),
-      "the authorization URL must be present in the output for the user to click or copy and paste",
-    );
-  },
-);
-
-Then(
-  "the output should state that Jolly opens the URL in a browser when one is available and otherwise leaves the user to open it manually",
-  function (this: JollyWorld) {
-    const text = presentationText(this);
-    assert.ok(text.includes("browser"), "output must mention a browser");
-    // States that Jolly opens the URL automatically when a browser is available.
-    assert.ok(
-      /open/.test(text) &&
-        /(available|when (a|one|your)|if (a|one|your))/.test(text),
-      'output must state that Jolly opens the URL in a browser when one is available',
-    );
-    // ...and otherwise leaves the user to open it manually.
-    assert.ok(
-      /(manual|yourself|copy|paste|otherwise|open it)/.test(text),
-      "output must state that otherwise the user opens the URL manually",
-    );
-  },
-);
-
-Then(
-  "the output should not present a missing browser as an error",
-  function (this: JollyWorld) {
-    assert.notEqual(this.envelope.status, "error");
-    assert.equal(this.envelope.errors.length, 0, "a missing browser must not produce an error entry");
-    const text = presentationText(this);
-    assert.ok(
-      !/(no browser|browser not found|cannot open (a |the )?browser|browser unavailable|no display)/.test(text),
-      "a missing browser must not be presented as an error",
-    );
   },
 );
 
@@ -491,342 +176,6 @@ Then("no token value should appear in the output", function (this: JollyWorld) {
     "no concrete token value should appear in the output",
   );
 });
-
-// ─── Scenario: --browser never treats a missing browser as an error ────────
-// The REAL (non-dry-run) URL-first path. In this headless test env no
-// `open`/`xdg-open`/`start` command exists, so "no browser can be opened" is
-// produced for real, not faked. Jolly must print the authorization URL + the
-// loopback callback endpoint + guidance as a non-error presentation up front,
-// then wait on the loopback server for the consent redirect. We capture that
-// up-front presentation envelope and end the still-waiting process — the human
-// consent round-trip is exercised manually, not here.
-
-When(
-  "the agent runs `jolly login --browser` where no browser can be opened",
-  // Generous timeout: the step may wait on the cross-worker loopback-port lock
-  // (held by a sibling live-login scenario) before it can spawn and observe.
-  { timeout: 60_000 },
-  async function (this: JollyWorld) {
-    const run = await spawnBrowserLogin(this, absentCredentialsEnv());
-    const deadline = Date.now() + 30_000;
-    while (Date.now() < deadline) {
-      const found = findEnvelope(run.stdout());
-      if (found && (found.data as Record<string, unknown>)["authorizationUrl"]) break;
-      if (run.child.exitCode !== null) break; // exited on its own (e.g. unimplemented)
-      await delay(100);
-    }
-    const exitCode = await killAndWait(run.child); // fully dead → port freed
-    recordBrowserRun(this, run, exitCode);
-  },
-);
-
-// ─── Scenario: bare `jolly login` defaults to the browser URL-first flow ────
-// Identical to the `--browser` path above, but invoked with no auth-mode flag.
-// Bare `jolly login` must default to the same URL-first browser flow: print the
-// authorization URL + guidance up front, never treating a missing browser as an
-// error. Same real (non-dry-run) headless env where no browser can be opened.
-
-When(
-  "the agent runs `jolly login` with no flags where no browser can be opened",
-  // Generous timeout: the step may wait on the cross-worker loopback-port lock
-  // (held by a sibling live-login scenario) before it can spawn and observe.
-  { timeout: 60_000 },
-  async function (this: JollyWorld) {
-    const run = await spawnBrowserLogin(this, absentCredentialsEnv(), LOGIN_NOFLAGS_ARGS);
-    const deadline = Date.now() + 30_000;
-    while (Date.now() < deadline) {
-      const found = findEnvelope(run.stdout());
-      if (found && (found.data as Record<string, unknown>)["authorizationUrl"]) break;
-      if (run.child.exitCode !== null) break; // exited on its own (e.g. unimplemented)
-      await delay(100);
-    }
-    const exitCode = await killAndWait(run.child); // fully dead → port freed
-    recordBrowserRun(this, run, exitCode);
-  },
-);
-
-Then(
-  "the output should report the loopback OAuth callback endpoint http:\\/\\/127.0.0.1:5375\\/callback where Jolly listens for the consent redirect",
-  function (this: JollyWorld) {
-    const inData = JSON.stringify(this.envelope.data);
-    assert.ok(
-      this.lastRun!.stdout.includes(CALLBACK_ENDPOINT) || inData.includes(CALLBACK_ENDPOINT),
-      `output must report the loopback callback endpoint ${CALLBACK_ENDPOINT}`,
-    );
-  },
-);
-
-Then(
-  "it should not present a missing browser as an error",
-  function (this: JollyWorld) {
-    assert.notEqual(this.envelope.status, "error");
-    assert.equal(
-      this.envelope.errors.length,
-      0,
-      "a missing browser must not produce an error entry",
-    );
-    const text = presentationText(this);
-    assert.ok(
-      !/(no browser|browser not found|cannot open (a |the )?browser|browser unavailable|no display|browser_login_unavailable)/.test(
-        text,
-      ),
-      "a missing browser must not be presented as an error",
-    );
-  },
-);
-
-Then(
-  "it should direct the user to open the URL in a browser or use `jolly login --token <value>`",
-  function (this: JollyWorld) {
-    const text = presentationText(this);
-    assert.ok(text.includes("browser"), "must direct the user to open the URL in a browser");
-    assert.ok(
-      text.includes("--token"),
-      "must offer `jolly login --token <value>` as the always-available alternative",
-    );
-  },
-);
-
-// ─── Scenario: login warns the callback listener is on the machine running Jolly ──
-// The loopback OAuth callback server binds 127.0.0.1:5375 on the SAME machine
-// that runs Jolly. When the agent runs Jolly on one machine but the human opens
-// the authorization URL in a browser on another machine, that browser's redirect
-// reaches the other machine's loopback, not Jolly's — so the callback cannot
-// complete. The output must name the callback endpoint as local to where Jolly
-// runs, warn that a browser on a different machine cannot complete it, and point
-// to the always-available `jolly login --token <value>` path for that case.
-
-Then(
-  "the output should state that the OAuth callback http:\\/\\/127.0.0.1:5375\\/callback is served on the machine where Jolly runs",
-  function (this: JollyWorld) {
-    const text = presentationText(this);
-    assert.ok(
-      text.includes(CALLBACK_ENDPOINT),
-      `output must name the loopback callback endpoint ${CALLBACK_ENDPOINT}`,
-    );
-    assert.ok(
-      /machine (where|on which|that) jolly runs|machine running jolly|machine jolly runs|machine where jolly is running|same machine|this machine|local machine|locally/.test(
-        text,
-      ),
-      "output must state the callback is served on the machine where Jolly runs",
-    );
-  },
-);
-
-Then(
-  "it should state that a browser on a different machine cannot complete that callback",
-  function (this: JollyWorld) {
-    const text = presentationText(this);
-    assert.ok(
-      /(different|another|other|remote|separate) (machine|host|computer|device)/.test(text),
-      "output must mention a browser on a different machine",
-    );
-    assert.ok(
-      /(can ?not|cannot|can'?t|won'?t|will not|unable to|cannot be able) (complete|reach|deliver|finish|hit|connect)/.test(
-        text,
-      ),
-      "output must state that a different-machine browser cannot complete the callback",
-    );
-  },
-);
-
-Then(
-  "it should direct the user to run `jolly login --token <value>` when the browser is on another machine",
-  function (this: JollyWorld) {
-    const text = presentationText(this);
-    assert.ok(
-      text.includes("jolly login --token"),
-      "output must direct the user to `jolly login --token <value>`",
-    );
-    assert.ok(
-      /(different|another|other|remote|separate) (machine|host|computer|device)/.test(text),
-      "the --token guidance must be tied to the browser being on another machine",
-    );
-  },
-);
-
-// ─── Scenario: login previews the OAuth code exchange requests ─────────────
-
-Given(
-  "Jolly receives an authorization code on the localhost callback",
-  function (this: JollyWorld) {
-    // Framing; the exchange preview is invoked in the When below. There is no
-    // real callback in a @logic run — the --dry-run preview describes the
-    // requests that WOULD be made, without making them.
-    this.notes.haveAuthCode = true;
-  },
-);
-
-When("it previews the code exchange with `--dry-run`", function (this: JollyWorld) {
-  // The browser dry-run preview is the artifact that describes the exchange
-  // POSTs (token endpoint + Cloud API /platform/api/tokens).
-  this.runCli(["login", "--browser", "--dry-run", "--json"], {
-    env: absentCredentialsEnv(),
-  });
-});
-
-function exchangePreviewText(world: JollyWorld): string {
-  return JSON.stringify(world.envelope).toLowerCase();
-}
-
-Then(
-  "the preview should show a POST of the code, code_verifier, client_id={string}, and redirect_uri to the auth.saleor.io token endpoint",
-  function (this: JollyWorld, _clientId: string) {
-    const text = exchangePreviewText(this);
-    assert.ok(text.includes("auth.saleor.io"), "preview must name the auth.saleor.io token endpoint");
-    // The exchange preview must reference the OAuth token endpoint path.
-    assert.ok(
-      /openid-connect\/token|\/token/.test(text),
-      "preview must reference the Keycloak token endpoint",
-    );
-  },
-);
-
-Then(
-  "the preview should show a POST of the resulting OIDC id_token to the Cloud API \\/platform\\/api\\/tokens endpoint",
-  function (this: JollyWorld) {
-    const text = exchangePreviewText(this);
-    assert.ok(
-      text.includes("/platform/api/tokens"),
-      "preview must reference the Cloud API /platform/api/tokens endpoint",
-    );
-  },
-);
-
-Then(
-  "the preview must not claim any exchange, verification, or login succeeded",
-  function (this: JollyWorld) {
-    const text = (this.envelope.summary + " " + JSON.stringify(this.envelope.data)).toLowerCase();
-    for (const claim of ["logged in", "authenticated", "verified", "exchange succeeded", "login succeeded"]) {
-      assert.ok(!text.includes(claim), `preview must not claim "${claim}"`);
-    }
-  },
-);
-
-Then("no token should be written to .env", function (this: JollyWorld) {
-  const path = join(this.lastRun!.cwd, ".env");
-  if (existsSync(path)) {
-    const text = readFileSync(path, "utf8");
-    assert.ok(
-      !/JOLLY_SALEOR_CLOUD_TOKEN=/.test(text),
-      "a --dry-run preview must not write a token to .env",
-    );
-  }
-});
-
-// ─── @sandbox: A failed OAuth code exchange is reported honestly ───────────
-// Needs only outbound network (no creds): SANDBOX_REQUIREMENTS keys it `[]`.
-// Jolly starts the real loopback OAuth server; we act as the browser and
-// deliver a rejectable code to the real /callback, so Jolly performs the real
-// token-exchange POST to auth.saleor.io, which really rejects it. Nothing is
-// faked: real server, real request, real failure.
-
-Given(
-  "Keycloak will reject the authorization code Jolly receives on the callback",
-  function (this: JollyWorld) {
-    // A bogus authorization code Keycloak will reject. Delivered to the real
-    // loopback callback in the When; Jolly POSTs it to the real token endpoint,
-    // which really rejects it. Real bad input — never a mock.
-    this.notes.rejectableCode = `bogus-code-${this.namespace}`;
-  },
-);
-
-When(
-  "the agent runs `jolly login --browser` and the loopback callback delivers the rejectable code",
-  // Unlike the fast-kill browser steps above, this one must await the real,
-  // failing token exchange against auth.saleor.io to completion (the scenario
-  // verifies the real failure envelope). Its internal deadlines sum to ~75s
-  // (30s for the auth URL + 15s to deliver the callback + 30s for Jolly to
-  // exit), so the cucumber step timeout must exceed them — the 5000ms default
-  // would kill it mid-exchange.
-  { timeout: 120_000 },
-  async function (this: JollyWorld) {
-    const code = String(this.notes.rejectableCode ?? `bogus-code-${this.namespace}`);
-    this.notes.rejectableCode = code;
-    // Real network; no credentials needed. Jolly prints the authorization URL,
-    // starts the loopback OAuth server on 127.0.0.1:5375, and waits. We act as
-    // the browser: read the printed `state`, then deliver the rejectable code
-    // to the real /callback so Jolly performs the real, failing exchange.
-    const run = await spawnBrowserLogin(this);
-    const startDeadline = Date.now() + 30_000;
-    let state: string | null = null;
-    while (Date.now() < startDeadline) {
-      if (run.child.exitCode !== null) break; // exited before listening (unimplemented)
-      const match = run.stdout().match(/https:\/\/auth\.saleor\.io\/[^\s"'\\]+/);
-      if (match) {
-        try {
-          state = new URL(match[0]).searchParams.get("state");
-        } catch {
-          state = null;
-        }
-        if (state) break;
-      }
-      await delay(100);
-    }
-    if (state !== null && run.child.exitCode === null) {
-      const params = new URLSearchParams({ code, state });
-      const url = `${CALLBACK_ENDPOINT}?${params.toString()}`;
-      const callbackDeadline = Date.now() + 15_000;
-      while (Date.now() < callbackDeadline && run.child.exitCode === null) {
-        if (await deliverToCallback(url)) break;
-        await delay(200);
-      }
-    }
-    // Let Jolly finish the real (failing) exchange and emit its final envelope.
-    const exitCode = await waitForExit(run.child, 30_000);
-    recordBrowserRun(this, run, exitCode);
-  },
-);
-
-Then(
-  "Jolly should really POST the code to the auth.saleor.io token endpoint and the request should really fail",
-  function (this: JollyWorld) {
-    // The real exchange was attempted and really failed: the command did not
-    // succeed, and the failure it reports identifies the token-exchange POST to
-    // the auth.saleor.io token endpoint — not a "browser unavailable" placeholder.
-    assert.notEqual(this.envelope.status, "success");
-    const reported = (
-      JSON.stringify(this.envelope.errors) +
-      " " +
-      this.envelope.summary
-    ).toLowerCase();
-    assert.ok(
-      /auth\.saleor\.io|token (exchange|endpoint)|invalid_grant|authorization code/.test(reported),
-      `the reported failure must identify the real auth.saleor.io token-exchange POST; got: ${reported}`,
-    );
-  },
-);
-
-Then(
-  "Jolly should emit an error envelope naming the step that failed",
-  function (this: JollyWorld) {
-    assert.equal(this.envelope.status, "error");
-    assert.ok(this.envelope.errors.length > 0, "expected an error entry");
-    for (const err of this.envelope.errors) {
-      assert.match(err.code as string, /^[A-Z][A-Z0-9_]*$/);
-    }
-  },
-);
-
-Then(
-  "the login error should not claim that browser login is unavailable",
-  function (this: JollyWorld) {
-    // An empty `--token` value is junk input: login must fail on the bad token,
-    // never deflect by claiming the browser path is unavailable. Blaming the
-    // browser for a token-mode failure is the dishonest message this rules out.
-    const reported = (
-      JSON.stringify(this.envelope.errors) +
-      " " +
-      this.envelope.summary
-    ).toLowerCase();
-    assert.ok(
-      !/browser login (is )?(not available|unavailable)|no browser|browser (not found|unavailable)|cannot open (a |the )?browser|no browser\/playwright|browser_login_unavailable/.test(
-        reported,
-      ),
-      `a token-mode failure must not blame the browser; got: ${reported}`,
-    );
-  },
-);
 
 Then("it should not write any value to .env", function (this: JollyWorld) {
   const path = join(this.lastRun!.cwd, ".env");
@@ -1193,29 +542,39 @@ Given(
   },
 );
 
+// ─── Scenario: no token source in a non-interactive shell fails honestly ────
+// Non-TTY subprocess (runCli pipes stdin) with every token source absent: login
+// must fail honestly with a stable code that points to `jolly login --token
+// <value>`, never prompt and never block waiting for terminal input.
+
 When(
-  "the agent runs `jolly login` with no token flag where no browser can be opened",
-  // The env-source path must resolve the token and exit without starting the
-  // browser flow; cap the wait so an unimplemented path (which would block on the
-  // loopback server) fails fast instead of hanging the full default timeout.
-  { timeout: 40_000 },
+  "the agent runs `jolly login --json` with no token source in a non-interactive shell",
   function (this: JollyWorld) {
-    this.runCli(["login"], { env: headlessLoginEnv(this), timeoutMs: 30_000 });
+    this.runCli(["login", "--json"], { env: absentCredentialsEnv() });
   },
 );
 
 Then(
-  "it should not present the browser URL-first flow",
+  "it should direct the user to run `jolly login --token <value>`",
   function (this: JollyWorld) {
-    const data = this.envelope.data as Record<string, unknown>;
+    const text =
+      JSON.stringify(this.envelope.errors) + " " + JSON.stringify(this.envelope.nextSteps);
     assert.ok(
-      !data["authorizationUrl"],
-      "env-source login must not present a browser authorization URL",
+      text.includes("jolly login --token"),
+      `login must direct the user to run jolly login --token <value>; got: ${text}`,
     );
-    assert.ok(
-      !/realms\/saleor-cloud\/protocol\/openid-connect\/auth/.test(this.lastRun!.stdout),
-      "env-source login must not print the Keycloak authorization URL",
-    );
+  },
+);
+
+// ─── Scenario: env-source token in a non-interactive shell ──────────────────
+// Non-TTY subprocess with no token flag: login resolves the token from
+// $JOLLY_SALEOR_CLOUD_TOKEN and stores it (stored-not-verified against the
+// deliberately-unreachable Cloud API), never prompting or blocking on input.
+
+When(
+  "the agent runs `jolly login` with no token flag in a non-interactive shell",
+  function (this: JollyWorld) {
+    this.runCli(["login"], { env: headlessLoginEnv(this) });
   },
 );
 

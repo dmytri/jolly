@@ -338,8 +338,6 @@ export function setupEvalContext(
 export const SEEDED_CREDENTIAL_VARS = [
   "JOLLY_SALEOR_CLOUD_TOKEN",
   "JOLLY_SALEOR_CLOUD_API_URL",
-  "JOLLY_STRIPE_PUBLISHABLE_KEY",
-  "JOLLY_STRIPE_SECRET_KEY",
 ] as const;
 
 /**
@@ -503,9 +501,10 @@ export function evalSetupLocal(): boolean {
  * the task in place of the live URL, so the agent fetches the LOCAL guide. The
  * server is registered for teardown with the supplied cleanup register.
  *
- * 127.0.0.1 is first-party, so Jolly's NON_FIRST_PARTY_HOST guard never refuses
- * it, and the agent's documented network rules are unchanged — only the URL the
- * task points at moves from the published mirror to its local source.
+ * The agent fetches this local guide with its own tooling — it is not routed
+ * through Jolly's first-party request guard — so only the URL the task points at
+ * moves from the published mirror to its local source; the guide content is the
+ * real `assets/homepage/setup.md`, not a stand-in.
  */
 export function resolveEvalTask(
   task: string,

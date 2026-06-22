@@ -11,7 +11,7 @@
 // path can reach a real account.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   CHECK_STATUSES,
@@ -20,10 +20,9 @@ import {
 import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
 
-// Real-format secret values used purely as redaction probes: passed as command
-// input and asserted never to be echoed. Not credentials for any real service.
+// Real-format secret value used purely as a redaction probe: passed as command
+// input and asserted never to be echoed. Not a credential for any real service.
 const REDACTION_PROBE_CLOUD_TOKEN = "saleor-cloud-token-redaction-probe";
-const REDACTION_PROBE_STRIPE_SECRET = "sk_test_redactionprobe";
 
 // --- Background ------------------------------------------------------------
 
@@ -342,19 +341,6 @@ When(
   },
 );
 
-When(
-  "the agent runs `jolly create stripe --secret-key <value>` in default, `--json`, and `--quiet` modes",
-  function (this: JollyWorld) {
-    this.trackSecret(REDACTION_PROBE_STRIPE_SECRET);
-    assertNoLeakAcrossModes(this, [
-      "create",
-      "stripe",
-      "--secret-key",
-      REDACTION_PROBE_STRIPE_SECRET,
-    ]);
-  },
-);
-
 Then(
   "no field in the envelope or human text should contain the secret value",
   function (this: JollyWorld) {
@@ -375,17 +361,17 @@ Then(
 // --- Scenario: Jolly's request code contacts only first-party hosts ---------
 //
 // The first-party-hosts allowlist is a security contract: Jolly's own
-// request-sending code contacts ONLY auth.saleor.io, cloud.saleor.io, the
-// customer's *.saleor.cloud domains, github.com, and 127.0.0.1, plus any
-// JOLLY_SALEOR_CLOUD_API_URL override. To make "the hosts it can contact"
-// enumerable and "exactly" assertable, Jolly declares the allowlist in one
-// canonical module (src/lib/hosts.ts) that the request layer honors — the
-// enumeration reads that declaration. Neither api.vercel.com nor api.stripe.com
-// is first-party: Vercel is reached only by the spawned Vercel CLI and Stripe
-// only by the spawned Stripe CLI, so neither host appears in Jolly's own request
-// code; this and the retired id.saleor.online / api.saleor.cloud are checked by
-// scanning the whole of src (Jolly's code). Long Then patterns use RegExp so
-// Cucumber Expressions don't mis-parse "127.0.0.1" as a {float}.{float} param.
+// request-sending code contacts ONLY cloud.saleor.io, the customer's
+// *.saleor.cloud domains, and github.com, plus any JOLLY_SALEOR_CLOUD_API_URL
+// override. To make "the hosts it can contact" enumerable and "exactly"
+// assertable, Jolly declares the allowlist in one canonical module
+// (src/lib/hosts.ts) that the request layer honors — the enumeration reads that
+// declaration. Neither api.vercel.com nor api.stripe.com is first-party: Vercel
+// is reached only by the spawned Vercel CLI and Stripe only by the spawned
+// Stripe CLI, so neither host appears in Jolly's own request code; this and the
+// retired id.saleor.online / api.saleor.cloud are checked by scanning the whole
+// of src (Jolly's code). Long Then patterns use RegExp so Cucumber Expressions
+// don't mis-parse a dotted host literal as a {float}.{float} param.
 
 /** Concatenate every TypeScript file under src (Jolly's own code) for scanning. */
 function allSrcText(): string {
@@ -403,10 +389,8 @@ function allSrcText(): string {
 }
 
 const EXPECTED_FIRST_PARTY_HOSTS = [
-  "auth.saleor.io",
   "cloud.saleor.io",
   "github.com",
-  "127.0.0.1",
 ].sort();
 
 Given("Jolly's own network-request-sending code", function (this: JollyWorld) {
@@ -425,7 +409,7 @@ When("the hosts it can contact are enumerated", async function (this: JollyWorld
 });
 
 Then(
-  /^they should be exactly auth\.saleor\.io, cloud\.saleor\.io, the customer's `\*\.saleor\.cloud` domains, github\.com, and 127\.0\.0\.1, plus any `JOLLY_SALEOR_CLOUD_API_URL` override$/,
+  /^they should be exactly cloud\.saleor\.io, the customer's `\*\.saleor\.cloud` domains, and github\.com, plus any `JOLLY_SALEOR_CLOUD_API_URL` override$/,
   function (this: JollyWorld) {
     const mod = this.notes.hostsModule as
       | { FIRST_PARTY_HOSTS?: unknown; isFirstPartyHost?: (h: string) => boolean }
@@ -561,3 +545,16 @@ Then(
     );
   },
 );
+
+Then("nothing should be written to .env", function (this: JollyWorld) {
+  // A refused request must not write any Jolly-managed credential to .env. The
+  // strongest form is that the refused command created no .env at all; if one
+  // pre-existed, it must carry no JOLLY_ credential the refused command writes.
+  const envPath = join(this.lastRun!.cwd, ".env");
+  if (!existsSync(envPath)) return;
+  const text = readFileSync(envPath, "utf8");
+  assert.ok(
+    !/^JOLLY_[A-Z_]+=/m.test(text),
+    ".env must carry no Jolly-managed credential after a refused request",
+  );
+});

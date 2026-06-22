@@ -1059,6 +1059,10 @@ When(
       env: absentCredentialsEnv({
         NEXT_PUBLIC_SALEOR_API_URL: String(this.notes.stockRateLimitEndpoint),
         JOLLY_SALEOR_APP_TOKEN: STAND_IN_TOKEN,
+        // Loopback is reached via the documented JOLLY_SALEOR_CLOUD_API_URL
+        // override, whose host Jolly treats as first-party (feature 018 Rule);
+        // loopback is not a fixed first-party host (feature 020).
+        JOLLY_SALEOR_CLOUD_API_URL: String(this.notes.stockRateLimitEndpoint),
       }),
       timeoutMs: 840_000,
     });

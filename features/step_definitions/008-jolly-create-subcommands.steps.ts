@@ -63,13 +63,13 @@ function helpSubcommandNames(world: JollyWorld): string[] {
 }
 
 Then(
-  "it should see only the plumbing subcommands `store`, `app-token`, and `stripe`",
+  "it should see only the plumbing subcommands `store` and `app-token`",
   function (this: JollyWorld) {
     const names = helpSubcommandNames(this);
     assert.deepEqual(
       [...names].sort(),
-      ["app-token", "store", "stripe"],
-      `create --help should list exactly store, app-token, stripe; got ${JSON.stringify(names)}`,
+      ["app-token", "store"],
+      `create --help should list exactly store and app-token; got ${JSON.stringify(names)}`,
     );
   },
 );
@@ -280,19 +280,20 @@ Given(
         ["create", "store", "--url", "https://logic-store.saleor.cloud/graphql/", "--json"],
         { env: absentCredentialsEnv() },
       );
-    } else if (subcommand === "stripe") {
-      // Stripe test keys are written to .env without being exercised against
-      // Stripe — stored, not verified.
-      this.runCli(
-        ["create", "stripe", "--publishable-key", "pk_test_logic", "--secret-key", "sk_test_logic", "--json"],
-        { env: absentCredentialsEnv() },
-      );
     } else {
       // app-token mints a token via GraphQL (the stand-in returns one) and
       // stores it, but never exercises it — stored, not verified.
       const endpoint = await startGraphqlStandIn(this);
+      // The loopback stand-in is reached through the documented
+      // JOLLY_SALEOR_CLOUD_API_URL override, whose host Jolly treats as
+      // first-party (feature 018 Rule — self-routing is the customer's explicit
+      // choice). Loopback is not a fixed first-party host (feature 020), so the
+      // override is the harness's legitimate route to a local stand-in.
       await this.runCliAsync(["create", "app-token", "--url", endpoint, "--json"], {
-        env: absentCredentialsEnv({ JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN }),
+        env: absentCredentialsEnv({
+          JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN,
+          JOLLY_SALEOR_CLOUD_API_URL: endpoint,
+        }),
       });
     }
   },
@@ -358,18 +359,6 @@ Given(
   },
 );
 
-Given(
-  "the agent runs `jolly create stripe --dry-run`",
-  function (this: JollyWorld) {
-    this.notes.subcommand = "stripe";
-    // Keys must be present to preview storing them.
-    this.runCli(
-      ["create", "stripe", "--publishable-key", "pk_test_logic", "--secret-key", "sk_test_logic", "--dry-run", "--json"],
-      { env: absentCredentialsEnv() },
-    );
-  },
-);
-
 When("the preview is produced", function (this: JollyWorld) {
   assert.ok(this.lastRun?.envelope, "expected a --json preview envelope");
   assert.equal(this.envelope.data["dryRun"], true, "a --dry-run preview must mark dryRun: true");
@@ -380,7 +369,7 @@ Then(
   function (this: JollyWorld) {
     const data = this.envelope.data as Record<string, unknown>;
     // Branch on the envelope's own command (robust whether the Given was 008's
-    // store/stripe step or 024's shared app-token --dry-run step).
+    // store step or 024's shared app-token --dry-run step).
     const command = this.envelope.command;
     if (command.includes("store")) {
       // Cloud API request: host + path + resolved organization.
@@ -388,17 +377,11 @@ Then(
       assert.match(requestUrl, /\/platform\/api\/organizations\/demo-org\/environments\/$/,
         `store preview must name the real Cloud API request URL; got "${requestUrl}"`);
       assert.equal(data["organization"], "demo-org", "store preview must name the resolved organization");
-    } else if (command.includes("app-token")) {
-      // GraphQL request: the resolved instance endpoint (host + /graphql/ path).
+    } else {
+      // app-token GraphQL request: the resolved instance endpoint (host + /graphql/ path).
       const instanceUrl = String(data["instanceUrl"] ?? "");
       assert.match(instanceUrl, /^https?:\/\/[^/]+\/graphql\/?$/,
         `app-token preview must name the resolved instance GraphQL endpoint; got "${instanceUrl}"`);
-    } else {
-      // stripe writes locally (no network host): the preview must name the
-      // concrete target it would write — the .env Stripe key variables.
-      const target = String((this.envelope.data["riskContext"] as Record<string, unknown> | undefined)?.["target"] ?? "");
-      assert.match(target, /\.env/i, "stripe preview must name the .env target it would write");
-      assert.match(target, /STRIPE/i, "stripe preview must name the Stripe key variables it would write");
     }
   },
 );
@@ -426,8 +409,6 @@ Then("it should not create, configure, or store anything", function (this: Jolly
     for (const key of [
       "NEXT_PUBLIC_SALEOR_API_URL",
       "JOLLY_SALEOR_APP_TOKEN",
-      "JOLLY_STRIPE_PUBLISHABLE_KEY",
-      "JOLLY_STRIPE_SECRET_KEY",
     ]) {
       assert.ok(!(key in values), `a dry-run must not write ${key} to .env`);
     }

@@ -217,13 +217,13 @@ Then(
 // exactly what realEnvFileContents writes) so the regression fails HERE.
 
 // The credentials a baseline agent needs only to AUTHENTICATE to the real
-// services: the Saleor Cloud token, the optional Cloud API override, and the
-// Stripe test-mode keys. Nothing here identifies a particular store.
+// services: the Saleor Cloud token and the optional Cloud API override. Nothing
+// here identifies a particular store. Stripe keys are NOT seeded — the Stripe
+// app is installed via Saleor `appInstall` and its keys are entered by the
+// human in the Dashboard, never written to the workspace `.env` by Jolly.
 const AUTHENTICATION_CREDENTIALS = new Set<string>([
   "JOLLY_SALEOR_CLOUD_TOKEN",
   "JOLLY_SALEOR_CLOUD_API_URL",
-  "JOLLY_STRIPE_PUBLISHABLE_KEY",
-  "JOLLY_STRIPE_SECRET_KEY",
 ]);
 
 // The store-identifying variables that must NOT be seeded: their presence makes
@@ -247,7 +247,7 @@ When("the credential variables it writes are enumerated", function (this: JollyW
 });
 
 Then(
-  "the seed should include only the credentials the agent needs to authenticate — the Saleor Cloud token, any Cloud API override, and the Stripe test-mode keys",
+  "the seed should include only the credentials the agent needs to authenticate — the Saleor Cloud token and any Cloud API override",
   function (this: JollyWorld) {
     const vars = this.notes.enumeratedSeedVars as string[];
     const extraneous = vars.filter((v) => !AUTHENTICATION_CREDENTIALS.has(v));
