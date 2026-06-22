@@ -42,6 +42,7 @@ import { get as httpGet } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { absentCredentialsEnv } from "../support/creds-env.ts";
+import { ptyAvailable, runUnderPty } from "../support/pty.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
 import { findEnvelope } from "../support/envelope.ts";
 import { REPO_ROOT, type CliResult, type JollyWorld } from "../support/world.ts";
@@ -1372,5 +1373,93 @@ Then(
     );
     assert.equal(result.status, 0, `sourcing .env failed: ${result.stderr}`);
     assert.equal(result.stdout, expected);
+  },
+);
+
+// ─── Scenario: interactive prompt pastes the token when no source is given ──
+// The lowest-precedence token source. With no --token-file/--token-stdin/--token
+// flag and no $JOLLY_SALEOR_CLOUD_TOKEN, an interactive `jolly login` (stdin a
+// TTY) prompts the user to paste the Cloud token and reads it from the terminal
+// with echo disabled. Exercised against a REAL kernel PTY (support/pty.ts) — the
+// CLI genuinely sees an interactive terminal; nothing about the terminal is
+// faked. @exceptional-double: the verify is short-circuited by pointing the
+// Cloud API at the unreachable host (stored-not-verified), so the contract under
+// test is the local terminal read, not the network verify.
+
+function resolvedChildEnv(
+  overrides: Record<string, string | undefined>,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries({ ...process.env, ...overrides })) {
+    if (value !== undefined) env[key] = value;
+  }
+  return env;
+}
+
+Given(
+  "`jolly login` runs in an interactive terminal with no token flag and no token in the environment",
+  function (this: JollyWorld) {
+    // Framing for the When: an interactive (TTY) invocation with no token from
+    // any explicit source. The TTY is the real PTY the When allocates; the
+    // env-token is absent because the child env unsets every runtime credential.
+    this.notes.interactiveLogin = true;
+  },
+);
+
+When(
+  "the user pastes the token value {string} at the prompt",
+  { timeout: 45_000 },
+  function (this: JollyWorld, token: string) {
+    if (!ptyAvailable()) return "skipped";
+    this.notes.loginToken = token;
+    this.trackSecret(token);
+    // No token flag and no env token (absentCredentialsEnv unsets the runtime
+    // credentials); the Cloud API points at the deliberately-unreachable host so
+    // the pasted token follows the stored-not-verified path.
+    const env = resolvedChildEnv(
+      absentCredentialsEnv({ JOLLY_SALEOR_CLOUD_API_URL: UNREACHABLE_CLOUD_API }),
+    );
+    const runtime = process.env.HARNESS_CLI_RUNTIME ?? "node";
+    const run = runUnderPty({
+      runtime,
+      argv: [CLI_ENTRY, "login"],
+      cwd: this.projectDir,
+      env,
+      input: token,
+    });
+    this.previousRun = this.lastRun;
+    this.lastRun = {
+      args: ["login"],
+      cwd: this.projectDir,
+      exitCode: run.exitCode,
+      stdout: run.output,
+      stderr: "",
+    };
+  },
+);
+
+Then(
+  "Jolly should prompt the user to paste their Saleor Cloud token",
+  function (this: JollyWorld) {
+    const text = this.lastRun!.stdout.toLowerCase();
+    // Must be a prompt to paste the TOKEN at the terminal — not the browser
+    // URL-first guidance ("copy and paste it into any browser"), which also
+    // mentions paste and --token. Require "paste <your/the/their> [Saleor
+    // Cloud] token".
+    assert.ok(
+      /paste\s+(your|the|their)\s+(saleor\s+cloud\s+)?token/.test(text),
+      `the terminal output must prompt the user to paste their Saleor Cloud token; got: ${this.lastRun!.stdout}`,
+    );
+  },
+);
+
+Then(
+  "the terminal output should not contain the pasted token value",
+  function (this: JollyWorld) {
+    const token = String(this.notes.loginToken);
+    assert.ok(
+      !this.lastRun!.stdout.includes(token),
+      "the pasted token must be read with echo disabled and never appear in the terminal output",
+    );
   },
 );

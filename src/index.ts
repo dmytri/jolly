@@ -315,6 +315,37 @@ function loginRiskContext(dryRunAvailable = true): RiskContext {
   };
 }
 
+// Prompt the interactive user to paste their Cloud token and read it from the
+// controlling terminal with echo disabled, so the secret never appears on the
+// terminal. The lowest-precedence token source, used only when no explicit
+// source supplied one and stdin is a TTY.
+function promptForToken(): Promise<string> {
+  return new Promise((resolve) => {
+    const stdin = process.stdin;
+    process.stderr.write("Paste your Saleor Cloud token: ");
+    const wasRaw = stdin.isRaw;
+    let buf = "";
+    stdin.setEncoding("utf8");
+    if (stdin.setRawMode) stdin.setRawMode(true);
+    stdin.resume();
+    const onData = (chunk: string): void => {
+      for (const ch of chunk) {
+        if (ch === "\n" || ch === "\r" || ch === "\u0004") {
+          stdin.removeListener("data", onData);
+          if (stdin.setRawMode) stdin.setRawMode(wasRaw ?? false);
+          stdin.pause();
+          process.stderr.write("\n");
+          resolve(buf.trim());
+          return;
+        }
+        if (ch === "\u0003") process.exit(130); // Ctrl-C
+        buf += ch;
+      }
+    };
+    stdin.on("data", onData);
+  });
+}
+
 async function commandLogin(args: ParsedArgs): Promise<Envelope> {
   const command = "login";
   let token = args.options["token"];
@@ -355,6 +386,19 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
     } else if (process.env["JOLLY_SALEOR_CLOUD_TOKEN"]) {
       token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"].trim();
     }
+  }
+  // Lowest-precedence source: when no explicit source supplied a token and Jolly
+  // runs in an interactive terminal (stdin is a TTY), prompt the user to paste
+  // the Cloud token and read it from the terminal with echo disabled, then treat
+  // it as a `--token <value>` login. When stdin is not a TTY (the agent-driven
+  // subprocess case), never prompt — fall through to the browser URL-first flow.
+  if (
+    token === undefined &&
+    !args.flags.has("browser") &&
+    !args.dryRun &&
+    process.stdin.isTTY
+  ) {
+    token = await promptForToken();
   }
   // Bare `jolly login` (no auth-mode flag, no headless source) defaults to the
   // browser URL-first flow; `--browser` selects it explicitly. An explicit empty
