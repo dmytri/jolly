@@ -76,7 +76,9 @@ Feature: Jolly CLI output contract
     And nothing should be written to .env
 
   Rule: Output envelope principles
-    - Every command should emit one consistent top-level JSON envelope.
+    - Every command should emit one consistent top-level JSON envelope. The single exception
+      is `completion` (feature 027), whose output is a shell-completion script consumed via
+      `source`, not a JSON envelope.
     - The envelope fields are `command`, `status`, `summary`, `data`, `checks`, `nextSteps`, and `errors`.
     - `status` is one of `success`, `warning`, or `error`.
     - `checks[].status` reuses the doctor vocabulary: pass, warning, fail, skipped, unknown.

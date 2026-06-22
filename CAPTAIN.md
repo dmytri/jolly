@@ -50,6 +50,16 @@ double" so a green suite carrying a fake fails there.
 - **All CLIs via `npx`** — configurator/vercel; a missing global binary is not a failure ([[clis-via-npx]]).
 - **Docs describe only current behavior, positively** — no references to removed paths, no "don't do X"
   negatives ([[no-self-defeating-absence-assertions]]).
+- **Human CLI DX via Bombshell (027, current iteration).** `jolly start` gains a TTY-gated interactive
+  discovery built on `@clack/prompts`: it prompts only for genuine human decisions (org pick when >1,
+  env name, project dir), every prompt has a sane default, and Enter always advances to the same config
+  `--yes` would reach. Design law: **beautiful but never nagging — less is more**; never ask for what can
+  be inferred/defaulted (001/012). The layer is **purely additive**: `--json`, `--yes`, and non-TTY are
+  byte-for-byte the agent path (020 firewall holds). Side-effecting stages get a default-proceed confirm
+  (human analogue of 021's riskContext); declining stops honestly, no fabrication. Also adopted:
+  `@bomb.sh/args` (typed parse; unsupported command/flag errors clearly) and `@bomb.sh/tab` (`jolly
+  completion <shell>` script — the one command exempt from the 020 envelope). All bundled into
+  `dist/index.js` so `npx @dk/jolly` stays self-contained. Not yet shipped — specs written, awaiting QM/Crew.
 
 ## Shipped
 

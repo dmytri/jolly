@@ -1,0 +1,88 @@
+Feature: Human-facing interactive CLI experience
+  As a developer running Jolly by hand in a terminal
+  I want jolly start to walk me through setup with clear prompts and sane defaults
+  So that I can launch a store interactively without memorizing flags, while the agent path stays unchanged
+
+  Background:
+    Given Jolly is executable via `npx`
+
+  Rule: Interactive start discovery is TTY-gated, additive, and never blocks the agent path
+    - When stdin and stdout are an interactive terminal and neither `--json` nor `--yes`/`-y`
+      is set, `jolly start` runs an interactive discovery — built on Bombshell
+      (`@clack/prompts`) — that walks the human through only the setup decisions that cannot
+      be safely inferred or defaulted.
+    - The interactive layer is purely additive. With `--json`, with `--yes`/`-y`, or with no
+      interactive terminal (the agent-driven subprocess), `jolly start` behaves exactly as the
+      agent-first command does today: no prompt is shown, nothing blocks waiting for input, and
+      `--json` stdout stays a single envelope (feature 020).
+    - Every interactive prompt carries a sane default, and pressing Enter accepts it. Accepting
+      every default reaches the same resolved configuration as the non-interactive `--yes` run.
+      Jolly never asks for a value it can infer, detect, or safely default (feature 001).
+    - Discovery prompts the human only for what is genuinely a human decision: the Saleor
+      organization to use when the token resolves more than one (with exactly one, Jolly uses
+      it without asking, per feature 012), the environment name when none is configured, and
+      the storefront project directory — each pre-filled with a sane default.
+    - Each side-effecting create or deploy stage is confirmed before it runs — the human
+      analogue of feature 021's per-stage riskContext approval. The default is to proceed, so
+      Enter advances; declining stops honestly and never fabricates later-stage success.
+    - The interactive layer shows progress for the long mechanical stages and announces the
+      irreducible human gates (the Vercel sign-in, the Dashboard Stripe app). It MAY use
+      Bombshell spinners. It stays minimal: beautiful, quiet, and never nagging.
+    - The interactive layer and its Bombshell dependencies are bundled into the published
+      `dist/index.js`, so `npx @dk/jolly` runs self-contained (feature 006's published-launcher
+      scenario guards this).
+
+  @logic
+  Scenario: Interactive start previews the plan, and Enter accepts every default
+    Given a fresh empty project directory
+    And `jolly start --dry-run` runs in an interactive terminal with no flag beyond `--dry-run`
+    When the user presses Enter at every prompt
+    Then Jolly should present interactive setup prompts
+    And the previewed plan should equal the plan from `jolly start --dry-run --yes --json`
+    And no file should be created or modified in the project directory
+
+  @logic
+  Scenario: --yes runs jolly start with no prompt even on an interactive terminal
+    Given a fresh empty project directory
+    When `jolly start --dry-run --yes` runs in an interactive terminal and receives no input
+    Then Jolly should complete without blocking for any prompt
+    And no interactive prompt should be shown
+
+  @logic
+  Scenario: Declining the confirmation before a side-effecting stage stops honestly
+    Given a fresh project directory with no real service credentials
+    And `jolly start` runs in an interactive terminal
+    When the user declines the confirmation before the first side-effecting stage
+    Then the overall envelope status should be "warning"
+    And the side-effecting stages (store, storefront, recipe, deployment) should be reported as pending or blocked-on-a-gate, never as passed
+    And Jolly must not print a fabricated URL or verification result
+
+  @logic @property
+  Scenario: The interactive layer never pollutes machine output
+    Given a fresh empty project directory
+    When `jolly start --dry-run --json` runs in an interactive terminal
+    Then stdout should contain a single JSON envelope and nothing else
+    And no prompt or spinner text should appear on stdout
+
+  @logic
+  Scenario: An unsupported command fails clearly and names the supported surface
+    When the agent runs `jolly frobnicate --json`
+    Then the envelope status should be "error" with a stable `code`
+    And the error should name the supported commands login, logout, auth status, init, start, doctor, upgrade, skills, create, and completion
+
+  @logic
+  Scenario: Shell completion emits a script naming the command surface
+    When the agent runs `jolly completion bash`
+    Then stdout should contain a shell completion script for the `jolly` command
+    And the script should reference the supported commands login, logout, init, start, doctor, upgrade, skills, and create
+
+  Rule: Typed arguments and shell completion
+    - Argument parsing is built on Bombshell (`@bomb.sh/args`): flags are typed and an
+      unsupported command or flag fails with a clear error naming the supported surface,
+      rather than being silently accepted.
+    - Shell completion is built on Bombshell (`@bomb.sh/tab`): `jolly completion <shell>`
+      prints a completion script the user sources, and at completion time the shell invokes
+      `jolly complete -- <words>` to receive candidate completions for the command surface.
+    - `completion` is the single command exempt from the feature 020 `--json` envelope: its
+      output is a shell script consumed by `source`, not a JSON envelope. It still supports
+      `--help`.
