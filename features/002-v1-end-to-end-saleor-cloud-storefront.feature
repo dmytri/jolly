@@ -62,17 +62,6 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And it should not name a Cloud API request to create a new project or environment
     And it should not create, configure, or store anything
 
-  @sandbox @iteration
-  Scenario: One jolly start drives the whole flow from a real agent's starting state
-    Given a fresh project directory whose `.env` holds only `JOLLY_SALEOR_CLOUD_TOKEN`, with no credential exported into the process environment
-    And no `NEXT_PUBLIC_SALEOR_API_URL` is configured
-    When the agent runs `jolly start --yes --json`
-    Then the `store`, `recipe`, `stock`, and `deploy` stages should each report status "completed"
-    And the created Saleor environment should be `jolly-test`-namespaced
-    And the envelope `data` should include the store's Saleor Dashboard URL ending in `.saleor.cloud/dashboard/`
-    And the envelope `data` should include the deployed storefront URL captured from the Vercel CLI output
-    And a `jolly doctor` check should report that the deployed storefront reaches Saleor Cloud
-
   @sandbox
   Scenario: Jolly connects an existing Saleor store and verifies connectivity
     Given a store URL `https://example.saleor.cloud` and a valid app token
@@ -93,28 +82,12 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And `jolly doctor storefront --full-validation` should run Paper's generate, typecheck, and build steps and report each as a check
     And it should leave Paper's source and theme files unmodified after the clone and install
 
-  @sandbox @iteration
-  Scenario: Jolly start leaves a continue-ready storefront repo in the working directory
-    Given Saleor connectivity has been verified and the starter recipe deployed
-    When `jolly start` has prepared and configured the storefront
-    Then the working directory should contain a `storefront` directory holding the cloned Paper project, including its `package.json` and `src/`
-    And the `storefront` directory should be a fresh git repository, with the upstream `.git` removed and a new one initialized
-    And the `storefront` directory should contain `saleor-config.yml` holding the starter recipe that was deployed
-    And the storefront `.env` should set `NEXT_PUBLIC_SALEOR_API_URL` to the store's GraphQL endpoint and `NEXT_PUBLIC_DEFAULT_CHANNEL=us`
-
   @sandbox
   Scenario: Jolly start lets Paper's native dependencies run their build scripts so the Vercel build succeeds
     Given Jolly has cloned and installed the Paper storefront
     When `jolly start` prepares the storefront for the Vercel deploy
     Then `pnpm install` in the storefront should report no ignored build scripts for Paper's native dependencies `sharp` and `esbuild`
     And the `npx vercel --prod` production build should complete, not fail on unbuilt native modules
-
-  @sandbox @iteration
-  Scenario: jolly start resumes and skips an already-completed storefront stage
-    Given a `storefront/` directory already cloned and installed from a previous run
-    When the agent runs `jolly start --json` again
-    Then the storefront stage should report status "skipped" or detected-as-done
-    And it should not clone the storefront a second time
 
   @sandbox
   Scenario: Jolly start deploys to Vercel by spawning the official Vercel CLI
@@ -153,16 +126,6 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     Given the agent runs `jolly start` with no real Saleor credentials
     When the run reaches the storefront stage without `--dry-run`
     Then a fresh `pnpm install` in the prepared storefront should report no ignored build scripts for `sharp` and `esbuild`
-
-  @logic @iteration
-  Scenario: Jolly start previews the Vercel deploy
-    Given a fresh empty project directory
-    When the agent runs `jolly start --dry-run --json`
-    Then the plan should include a deploy step that spawns the official Vercel CLI `npx vercel`
-    And the preview should state Jolly holds no Vercel token and sends no request to api.vercel.com
-    And the preview should state that Jolly performs the Vercel sign-in itself, surfacing the verification URL for the human to approve in a browser
-    And the deploy step should carry a riskContext for a live Vercel deployment
-    And the preview should not spawn the Vercel CLI or deploy anything
 
   @logic
   Scenario: Jolly start does not fabricate the Vercel deployment

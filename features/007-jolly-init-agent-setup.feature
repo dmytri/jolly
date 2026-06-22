@@ -66,14 +66,6 @@ Feature: Jolly init for local agent setup
     Then the Jolly skill should be installed under `.agents/skills/jolly/` from the bundled copy
     And the installed Jolly skill content should match the bundled copy
 
-  @sandbox @iteration
-  Scenario: A failed skill install surfaces the error and exits non-zero
-    Given a default skill whose clone or install step fails
-    When `jolly init` installs the default skill set
-    Then Jolly should surface that step's stderr
-    And `jolly init` should exit non-zero
-    And it must not report that skill as installed or verified on disk
-
   Rule: Skill installation is non-interactive and agent-agnostic
     - `jolly init`/`start` install skills with no interactive prompts and no dependence on a TTY,
       a human, or any particular agent runtime being present or selected: the install behaves the

@@ -11,25 +11,20 @@ const common = {
 
 // Default: the product worklist. Excludes @eval (the opt-in skill-behavior
 // affordance evaluation, feature 025, which drives a live baseline agent —
-// non-deterministic, credentialed, slow, and never a green/red gate) and
-// @iteration (scenarios deferred past the v1 launch bar — preserved as intent
-// but parked out of the v1 worklist; see CAPTAIN.md for the triage). @sandbox
+// non-deterministic, credentialed, slow, and never a green/red gate). @sandbox
 // scenarios self-skip when the runtime JOLLY_* credentials they need are absent
 // (see features/support/hooks.ts) — there is no test-only credential namespace;
 // @eval self-skips without its model key.
-export default { ...common, tags: "not @eval and not @iteration" };
+export default { ...common, tags: "not @eval" };
 
-// Targeted profiles: `cucumber-js -p logic` / `-p sandbox` / `-p eval` /
-// `-p iteration`. The logic and sandbox worklist tiers also exclude @iteration
-// (deferred scenarios); run `-p iteration` to work the deferred backlog.
+// Targeted profiles: `cucumber-js -p logic` / `-p sandbox` / `-p eval`.
 // The logic tier is pure local behavior with no shared external state, so it runs
 // in parallel for fast status/worklist feedback. The sandbox tier stays serial:
 // parallel workers would race on the single shared per-run Saleor environment the
 // harness provisions (see AGENTS.md, sandbox harness mechanics) — parallelize it
 // only once that setup is guarded for concurrent workers.
-export const logic = { ...common, tags: "@logic and not @iteration", parallel: 2 };
-export const sandbox = { ...common, tags: "@sandbox and not @iteration" };
-export const iteration = { ...common, tags: "@iteration" };
+export const logic = { ...common, tags: "@logic", parallel: 2 };
+export const sandbox = { ...common, tags: "@sandbox" };
 
 // The eval profile runs ONLY the opt-in @eval tier (feature 025). `eval` is a
 // reserved identifier, so it is exported under that name via an alias.

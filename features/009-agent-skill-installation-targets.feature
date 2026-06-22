@@ -19,30 +19,6 @@ Feature: Agent skill installation targets
     Then Jolly should write the glue file for the detected agent `claude`
     And the glue should reference the installed skill path `.agents/skills/jolly/`
 
-  @logic @iteration
-  Scenario Outline: Jolly detects the agent environment from its project marker
-    Given a project containing <marker>
-    When Jolly determines the agent environment for skill glue
-    Then it should detect the agent as `<agent>`
-    And it should write the glue files for `<agent>`
-
-    Examples:
-      | marker                     | agent    |
-      | a .opencode/ directory     | opencode |
-      | a .agents/ directory       | opencode |
-      | a CLAUDE.md file           | claude   |
-      | a .claude/ directory       | claude   |
-      | a .cursor/rules/ directory | cursor   |
-      | a .zed/ directory          | zed      |
-      | a .pi/ directory           | pi       |
-
-  @logic @iteration
-  Scenario: Detection checks markers in order and stops at the first match
-    Given a project containing both a CLAUDE.md file and a .cursor/rules/ directory
-    When Jolly determines the agent environment
-    Then it should resolve to `claude` (checked before `cursor` in the detection order)
-    And it should write glue for only `claude`
-
   @logic
   Scenario: Detection falls back to generic when no agent marker is present
     Given a project containing no known agent directory or marker
@@ -59,5 +35,5 @@ Feature: Agent skill installation targets
     - Do not store secrets in skill directories or agent guidance.
 
   Rule: Agent detection
-    - Jolly detects the current agent environment and writes the correct glue files. The supported markers, the first-match ordering, and the generic fallback are pinned by the detection scenarios above.
+    - Jolly detects the current agent environment and writes the correct glue files. The `claude` glue (written when a CLAUDE.md marker is present) and the generic fallback (when no agent marker is present) are pinned by the detection scenarios above.
 

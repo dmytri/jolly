@@ -57,7 +57,6 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   "The Jolly skill installs from the bundled copy with no network": [],
   // 001-agent-first-cli-and-onboarding
   "Jolly start completes successfully": FULL_END_TO_END,
-  "Jolly start orchestrates the setup by spawning the official CLIs": FULL_END_TO_END,
   // 002-v1-end-to-end-saleor-cloud-storefront
   "Jolly registers a new Saleor Cloud store via the Cloud API": ["saleorCloud"],
   "Jolly connects an existing Saleor store and verifies connectivity": [
@@ -76,13 +75,6 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   // endpoint (the scenario's premise is "no NEXT_PUBLIC_SALEOR_API_URL"), so
   // saleorEndpoint/saleorAppToken are deliberately absent here.
   "jolly start auto-provisions a new store when none is configured": ["saleorCloud"],
-  // Whole-flow run from only a `.env`: start auto-provisions the store, deploys
-  // the recipe/stock/storefront, and deploys to Vercel. The Cloud token (provision)
-  // is read from the `.env` the scenario writes; the store endpoint/app token are
-  // derived by start itself, so they are not required here.
-  "One jolly start drives the whole flow from a real agent's starting state": [
-    "saleorCloud",
-  ],
   // The live-storefront acceptance check requires an actual deployed storefront
   // URL, which only a full (human-gated) `jolly start` produces — the harness
   // cannot derive it. So it takes NO JOLLY credential group via the hook; the
@@ -209,10 +201,7 @@ export function requiredGroups(scenarioName: string): CredentialGroup[] {
  */
 export const VERCEL_CLI_SCENARIOS: ReadonlySet<string> = new Set([
   "Jolly start completes successfully",
-  "Jolly start orchestrates the setup by spawning the official CLIs",
   "Jolly start deploys to Vercel by spawning the official Vercel CLI",
-  // The whole-flow run deploys the storefront to Vercel as its final stage.
-  "One jolly start drives the whole flow from a real agent's starting state",
   "Agent verifies checkout readiness",
   "Doctor checks deployment and payment readiness",
   "Doctor confirms the Vercel CLI login state when a session exists",

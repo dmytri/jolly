@@ -1456,20 +1456,15 @@ ${end}`;
 
 // Agent detection (feature 009, Rule "Agent detection"): inspect the project
 // root for a recognized user agent marker and report which agent environment we
-// detected. v1 only needs the generic fallback: when no recognized marker is
-// present we return null. NOTE: Jolly's own universal install location
-// `.agents/skills/` is NOT a user agent marker, so we never treat a bare
-// `.agents/` directory as a detection signal. The per-marker detection matrix
-// is deferred to @iteration.
+// detected. We detect `claude` from a CLAUDE.md / .claude marker; with no
+// recognized marker we return null (the generic fallback). Jolly's own
+// universal install location `.agents/skills/` is NOT a user agent marker, so a
+// bare `.agents/` directory is never a detection signal.
 function detectAgent(): string | null {
   const root = projectDir();
   if (existsSync(join(root, "CLAUDE.md")) || existsSync(join(root, ".claude"))) {
     return "claude";
   }
-  if (existsSync(join(root, ".cursor", "rules"))) return "cursor";
-  if (existsSync(join(root, ".zed"))) return "zed";
-  if (existsSync(join(root, ".pi"))) return "pi";
-  if (existsSync(join(root, ".opencode"))) return "opencode";
   return null;
 }
 

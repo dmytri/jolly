@@ -11,10 +11,9 @@
 
 # Captain Notes
 
-Captain-only notes: product framing, current design, and the live worklist. **Non-binding.**
-Only Captain may read or edit this file. Binding behavior lives in `features/*.feature` and referenced
-`assets/**`, never here. History lives in git — these notes describe only the current design and the
-next iteration; superseded cycle logs are removed.
+Captain-only notes: product framing and current design. **Non-binding.** Only Captain may read or
+edit this file. Binding behavior lives in `features/*.feature` and referenced `assets/**`, never here.
+History lives in git — these notes describe only the current design.
 
 > **Captain authors every `.feature` scenario** — read and follow `SCENARIO_WRITING.md` for each one.
 
@@ -46,60 +45,19 @@ double" so a green suite carrying a fake fails there.
 - **Stripe = Saleor Stripe app + skill (005/007).** `jolly start` installs the Saleor Stripe app
   (`appInstall`, HANDLE_PAYMENTS) and the `stripe-best-practices` skill. Entering the keys + mapping the
   `us` channel stays the human Saleor-Dashboard gate. No Stripe CLI, no `JOLLY_STRIPE_*` keys held by Jolly.
-- **Vercel (current): CLI passthrough.** `jolly start` relies on the Vercel CLI's own `vercel login`
-  session (interactive gate). The Jolly-driven device-flow (Jolly surfaces the verification URL itself)
-  is a **next-iteration graduation**, not yet shipped.
+- **Vercel: CLI passthrough.** `jolly start` relies on the Vercel CLI's own `vercel login` session
+  (interactive gate); Jolly holds no Vercel token and sends no request to `api.vercel.com`.
 - **All CLIs via `npx`** — configurator/vercel; a missing global binary is not a failure ([[clis-via-npx]]).
 - **Docs describe only current behavior, positively** — no references to removed paths, no "don't do X"
   negatives ([[no-self-defeating-absence-assertions]]).
 
 ## Shipped
 
-Through **v0.8.0** (2026-06-22; `main`+tag on GitHub, `@dk/jolly` on npm, homepage redeployed to Vercel
-prod). v0.8.0 is the first published release with token-only Saleor auth (browser OAuth removed), Stripe
-= app + skill (Stripe CLI removed), `@dk/jolly` naming, and the `stripe-best-practices` skill in the
-default set. The launch bar is met mechanically: homepage paste → live deployed Paper storefront on
-Vercel → browsable/stocked store against Saleor Cloud → checkout reaches the Stripe test step (behind the
-human Stripe-Dashboard gate). Full history in git.
-
-## MVP-clean checkpoint (2026-06-22)
-
-Polish cycle closed at dk's direction ("clean MVP now, no more cycles"). `cycle.json` deleted; the
-unimplemented graduations are deferred to `@iteration` (preserved as intent, parked out of the v1
-worklist); the leftover OAuth/Stripe-CLI dead code was swept. Worklist profiles (default/logic/sandbox)
-carry **0 undefined** targets and the suite is green. Two graduations landed this checkpoint:
-`006:71` (output names the package `@dk/jolly`; the delegated CLIs are named only as the tools the
-agent runs) and `007:12` (`stripe-best-practices` added to the default skill set; `jolly init`
-nextSteps advise reloading the agent).
-
-## Next iteration: e2e graduations + hygiene/refactor
-
-Backlog — run `cucumber-js -p iteration` to work it:
-
-- `001:7` `jolly start` orchestrates setup by spawning the official CLIs (@sandbox).
-- `002:66` one `jolly start` drives the whole flow from a real agent's starting state (@sandbox).
-- `002:97` `jolly start` leaves a continue-ready storefront repo (@sandbox).
-- `002:158` `jolly start` previews the Vercel deploy — graduate to the **Jolly-driven device flow**
-  (Jolly runs the device flow and surfaces the verification URL in the envelope, never escalating
-  `vercel login` to the agent) (@logic).
-- `007:70` a failed skill install surfaces the step's stderr and exits non-zero (@sandbox).
-- `009` agent-environment detection from project marker + first-match order (@logic).
-- `017:35` `jolly upgrade` auto-applies a safe Jolly-managed skill update (@logic).
-
-Hygiene/refactor (Bosun/normal, not scenario-bound): helper extraction (error-fmt, cred-resolver,
-check/envelope builders). Consider enabling `noUnusedLocals` so dangling imports fail typecheck — a
-`tsconfig` change to flag to dk, not spec work.
-
-## Open architectural follow-ups (non-blocking)
-
-- **`NON_FIRST_PARTY_HOST` guard** sits only at the `graphqlFetch` seam (where customer `--url` flows).
-  Sibling seams (`cloudFetch`, `pollTaskStatus`, `timedGraphql`) take only internally-derived
-  first-party URLs and are unguarded — no scenario exercises them. If a future scenario lets a
-  customer host reach them, centralize the predicate at one request choke point.
-- **014 vercel-auth scenarios** — two live-session `@sandbox` scenarios (mechanism vs account-naming),
-  both green; consider consolidating at a Bosun sweep.
-- **Live `-p eval` run** — blockers fixed (auth-only seed, pre-run reclamation); remaining is an
-  operational run (pi's per-command bash timeout vs the ~8-min `jolly start` is the risk).
+Through **v0.8.0** (`main`+tag on GitHub, `@dk/jolly` on npm, homepage redeployed to Vercel prod):
+token-only Saleor auth (browser OAuth removed), Stripe = app + skill (Stripe CLI removed), `@dk/jolly`
+naming, and the `stripe-best-practices` skill in the default set. The launch bar is met mechanically:
+homepage paste → live deployed Paper storefront on Vercel → browsable/stocked store against Saleor
+Cloud → checkout reaches the Stripe test step (behind the human Stripe-Dashboard gate). Full history in git.
 
 ## Goals & MVP framing
 

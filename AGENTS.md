@@ -90,7 +90,6 @@ Test tiers:
 - `@logic` — fast assertions about behavior and output (envelope/output shape, redaction, host enumeration, pure helpers), run against the real `.env` test env — never dummy or forced-safe credentials. A `@logic` scenario that would create or mutate a real resource belongs in `@sandbox`.
 - `@sandbox` — real-account, side-effecting behavior against real services; runtime `JOLLY_*` credentials only; every created resource namespaced and torn down per harmless-by-design.
 - `@eval` — opt-in skill-affordance evaluation; excluded from default worklist; skips when its agent/model credential is absent; never a green/red gate.
-- `@iteration` — scenarios deferred past the v1 launch bar; combined with a tier tag (`@logic`/`@sandbox`). Excluded from the default worklist and the `@logic`/`@sandbox` profiles; run `cucumber-js -p iteration` to work the backlog. Preserved as intent, not a v1 gate.
 
 **Tests that create or mutate real resources must be harmless by design — production-safe — and this applies to every such test (`@sandbox` and the live `@eval`) on every feature.** When you write or run one:
 
