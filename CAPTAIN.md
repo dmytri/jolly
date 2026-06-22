@@ -29,10 +29,15 @@ History lives in git, not here. These notes describe only the current design and
 - **Env limits — cannon fodder (dk):** environments in this test org are disposable. The `jolly-test-` prefix (`features/support/sandbox.ts` `makeNamespace`) IS the protection boundary: only `jolly-test-*` envs are deletable; the configured store and any future non-test env are never deleted.
 - **Vercel:** live deploy needs a one-time interactive `vercel login`; absent it, deploy-touching tests skip-not-fail. **Stripe:** real `@stripe/cli` + test-mode keys; test cards only.
 
-## DESIGN DECISION (dk, 2026-06-16): browser OAuth is URL-first; all CLIs via npx
+## DESIGN DECISION (dk, 2026-06-22): Saleor token-only auth; Vercel device-flow driven by Jolly; Stripe = app + skill
 
-- **Browser OAuth is URL-first (feature 018).** `jolly login` / `--browser` generate the Keycloak authorization URL, print it for click/copy-paste, start the localhost callback server, and open a browser only when one is available (convenience). A missing browser is never an error; `--token` is the always-available non-interactive path. Jolly never sees/holds the user's credentials. There is no Playwright tier, no `@requires-browser`, no email/password knobs.
-- **All CLIs via npx (tooling).** configurator, vercel, and stripe are all used via `npx`; a missing global binary is NOT a failure. Recorded to memory ([[clis-via-npx]]) and in AGENTS.md (Runtime and Build).
+**SUPERSEDES the 2026-06-16 "browser OAuth is URL-first" decision.**
+
+- **Saleor auth is token-only (feature 018).** Browser OAuth (Keycloak authorization URL, PKCE, the localhost callback server) is REMOVED entirely. `jolly login` takes the Cloud token from `--token`/`--token-file`/`--token-stdin`/`$JOLLY_SALEOR_CLOUD_TOKEN`/interactive paste, verifies it, and stores it. With no token and no TTY it errors honestly pointing to `jolly login --token <value>` (no browser fallback). The first-party-host allowlist (feature 020) drops `auth.saleor.io` and `127.0.0.1`.
+- **Vercel sign-in is Jolly-driven, never escalated to the agent.** `jolly start` runs the Vercel device flow itself and surfaces the verification URL for the human to approve in a browser; the skill/setup never instruct the agent to run `npx vercel login`.
+- **Stripe = install the Saleor Stripe app (`appInstall`) + install the `stripe-best-practices` skill** (feature 005). The Stripe CLI, the read-only key import, `jolly create stripe`, and `JOLLY_STRIPE_*` are REMOVED. Entering the keys + mapping the `us` channel stays the human Dashboard gate, now driven by the agent with the Stripe skill.
+- **Docs describe only current behavior, positively** — no references to removed OAuth/CLI functionality, no "don't do X" negatives. ([[no-self-defeating-absence-assertions]])
+- **All CLIs via npx (tooling).** configurator and vercel are used via `npx`; a missing global binary is NOT a failure. ([[clis-via-npx]])
 
 ## Shipped to date (history in git)
 
@@ -40,10 +45,22 @@ Through **v0.7.2** (released 2026-06-18: push `main`+tag to `github.com/dmytri/j
 
 ## Current state (2026-06-22)
 
-**ACTIVE cycle — spec the interactive token-paste source (feature 018). Captain spec work in
-progress; fresh QM after.** dk's idea (2026-06-22): have `jolly login` interactively accept a
-*pasted* token so the secret reaches Jolly via the terminal and never passes through the LLM
-context/transcript.
+**SHIPPED — interactive token-paste source (feature 018).** `jolly login` interactively accepts a
+*pasted* token (TTY, echo off) so the secret reaches Jolly via the terminal, never the LLM context.
+Verified `@logic` green via a real PTY and pushed (commits `063012f`/`6385925`).
+
+**ACTIVE — polish cycle (dk, 2026-06-22). Captain spec/asset pass done; CODE cycle pending fresh QM.**
+Decisions captured above (token-only Saleor, Jolly-driven Vercel device flow, Stripe app+skill, no
+Stripe CLI). Captain pass landed across specs (018 rewrite; 005 rewrite; 008/006/002/020/025/026/
+014/001/004 consistency; 006/007/009/017 graduated off `@iteration`; 007 skill set + reload-agent
+nextStep) and assets (setup.md, SKILL.md). **Remaining = a directed QM/Crew/Bosun CODE cycle:**
+strip OAuth (~400 lines) + all Stripe-CLI code (`readStripeCliKeys`, `create stripe`,
+`stripe-cli-trace.ts`, `JOLLY_STRIPE_*` in creds-env/eval/sandbox/step-defs/src) + the
+`auth.saleor.io`/`127.0.0.1` host-allowlist entries; make `jolly start` run the Vercel device flow
+and surface the URL; add `stripe-best-practices` to the installed set; implement the graduated
+006/007/009/017; helper-refactor (error-fmt, cred-resolver, check/envelope builders). Still to
+author (Captain): 002/004 continue-ready-repo + unmodified-Paper + Vercel-surfaces-URL scenarios;
+recipe.yml collection description + image optimization.
 - **Design (agreed with dk before speccing).** It is an ADDITIVE fifth token source, not a
   replacement: when `jolly login` runs with an interactive TTY and no token source is given, it
   prompts the human to paste the token, reads it from the controlling TTY with echo OFF, then runs

@@ -1,69 +1,13 @@
 Feature: Stripe checkout setup for the Jolly starter storefront
   As a customer setting up a Saleor storefront through Jolly
-  I want Stripe test mode configured with minimal manual steps
-  So that the deployed storefront has a working checkout path immediately
+  I want Saleor's Stripe app installed and my agent equipped to configure it
+  So that the deployed storefront can reach a working test-mode checkout
 
   Background:
     Given Jolly uses Saleor Cloud as the commerce backend
     And Jolly uses Saleor Paper as the storefront baseline
     And Stripe is the v1 payment provider target
     And v1 uses Stripe test mode only
-
-  @logic
-  Scenario: jolly create stripe writes Dashboard-provided test keys to .env
-    Given the customer has copied their Stripe test-mode keys from the Dashboard
-    When the agent runs `jolly create stripe --publishable-key pk_test_x --secret-key sk_test_x --json`
-    Then .env should contain JOLLY_STRIPE_PUBLISHABLE_KEY and JOLLY_STRIPE_SECRET_KEY set to those keys
-    And Jolly should not print either key value
-    And no further Stripe configuration should be required at this point
-
-  @logic
-  Scenario: Jolly create stripe writes keys to .env
-    Given the agent has collected the publishable key "pk_test_jolly_demo" and secret key "sk_test_jolly_demo"
-    When the agent runs `jolly create stripe --publishable-key pk_test_jolly_demo --secret-key sk_test_jolly_demo`
-    Then Jolly should write both keys to .env
-    And .env should contain JOLLY_STRIPE_PUBLISHABLE_KEY=pk_test_jolly_demo
-    And .env should contain JOLLY_STRIPE_SECRET_KEY=sk_test_jolly_demo
-    And .gitignore should contain .env
-    And Jolly should load the updated .env values for the current command flow
-    And Jolly should not print the secret key value
-    And Jolly should not print the publishable key value
-
-  @logic
-  Scenario: Jolly create stripe --dry-run does not write to .env
-    Given Jolly does not have Stripe credentials in .env
-    When the agent runs `jolly create stripe --publishable-key pk_test_jolly --secret-key sk_test_jolly --dry-run --json`
-    Then the output should include a risk context with riskLevel "medium" and categories including "payment setup" and "credential handling"
-    And .env should not contain any Stripe key values
-    And the output should not be written to .env
-
-  @sandbox
-  Scenario: Jolly create stripe imports keys from the Stripe CLI session when none are passed
-    Given a real Stripe CLI session logged in with test-mode keys on the runner
-    And Jolly does not have Stripe credentials in .env
-    When the agent runs `jolly create stripe --json`
-    Then Jolly should import the test-mode keys by invoking the Stripe CLI read-only (`stripe config --list`)
-    And .env should contain JOLLY_STRIPE_PUBLISHABLE_KEY and JOLLY_STRIPE_SECRET_KEY matching the Stripe CLI session
-    And Jolly should not print either key value
-    And the output should report that the keys were imported from the Stripe CLI session
-
-  @sandbox
-  Scenario: jolly start runs stripe login interactively when the Stripe CLI is not authenticated
-    Given the Stripe CLI has no logged-in test-mode session on the runner
-    When `jolly start` reaches the Stripe stage with stdio available
-    Then it should run `stripe login` (via `npx`) with stdio passed through and continue on its exit
-    And after a successful login it should import the test-mode keys via the read-only Stripe CLI (`stripe config --list`)
-    And it should not report the Stripe stage configured without an authenticated session
-
-  @logic
-  Scenario: Jolly create stripe errors clearly when no keys are available
-    Given Jolly has no Stripe credentials in .env
-    And no explicit key flags are passed
-    And the Stripe CLI is not logged in with test-mode keys
-    When the agent runs `jolly create stripe --json`
-    Then the envelope status should be "error" with the stable code `MISSING_STRIPE_KEYS`
-    And the remediation should name both paths: logging in to the Stripe CLI, or passing `--publishable-key`/`--secret-key`
-    And nothing should be written to .env
 
   @logic
   Scenario: Jolly start previews the Stripe app-install stage
@@ -115,14 +59,6 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     And with no reachable store the checkout-readiness check should be "skipped", "unknown", or "fail", never "pass"
     And the summary must not claim checkout is ready when it was not verified
 
-  @logic
-  Scenario: Jolly doctor warns when a live-mode Stripe secret key is configured
-    Given .env contains JOLLY_STRIPE_SECRET_KEY set to a live-mode key beginning with "sk_live_"
-    When the agent runs `jolly doctor stripe --json`
-    Then the "stripe-keys" check should be "warning"
-    And the check message should state that v1 supports Stripe test mode only and that a live-mode key was detected
-    And the next step should name replacing it with a test-mode key beginning with "sk_test_"
-
   @sandbox
   Scenario: Jolly doctor verifies the Stripe payment gateway is reachable for checkout
     Given a deployed store whose Stripe app is configured and mapped to the `us` channel
@@ -133,17 +69,16 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     And the probe should use Stripe test mode only and capture no payment
 
   Rule: Stripe setup principles
-    - v1 uses Stripe test mode only; live mode requires an explicit customer choice and is out of v1 scope.
-    - The customer provides exactly 2 values: Stripe publishable key and secret key from the Stripe Dashboard.
-    - Jolly writes both to .env and ensures .env is ignored by Git.
-    - Jolly does not build payment processing; the agent configures Saleor's Stripe app, and
-      Jolly only writes the two test keys to `.env`.
-    - Stripe live mode is explicitly out of v1 scope.
-    - Because v1 is test mode only, `jolly doctor`'s `stripe-keys` check reads the configured
-      `JOLLY_STRIPE_SECRET_KEY` prefix and reports a `warning` when it is a live-mode key
-      (`sk_live_`), naming the test-mode replacement (`sk_test_`). A live-mode key is a real
-      financial-risk surface, so doctor surfaces it rather than treating any present key as ready.
-    - Payment credentials are secrets and must not be printed.
+    - v1 uses Stripe test mode only; live mode is a later, explicit customer choice.
+    - Jolly's payment role is to install Saleor's Stripe app in the store and to install the
+      `stripe-best-practices` skill for the customer's agent. Configuring the app — entering the
+      test-mode publishable and restricted keys and mapping the configuration to the recipe's `us`
+      channel — is a guided human Dashboard gate the agent drives with that skill.
+    - The keys live in the Saleor Stripe app's own configuration; the Stripe app talks to Stripe and
+      registers its own webhooks. Jolly installs the app via Saleor GraphQL and builds no payment
+      processing of its own.
+    - `jolly doctor` confirms readiness by probing whether a `us`-channel checkout is offered the
+      Stripe gateway (Rule "Checkout-readiness verify probe").
 
   Rule: Stripe app path and the automation split
     - The Saleor-supported path is the Stripe app, configured with a publishable key and a Stripe
@@ -183,14 +118,13 @@ Feature: Stripe checkout setup for the Jolly starter storefront
          it. Idempotent and resumable (feature 022): a re-run detects the already-installed Stripe
          app and reuses it rather than installing a duplicate.
       2. **Channel payment flow — configurator/recipe** already sets it on the `us` channel.
-      3. **Keys + channel-config mapping — Jolly runs a guided walk-through** (the announce-and-wait
-         human gate): after the install it pauses and emits, in the feature 020 envelope, the exact
-         deep link to the installed app's configuration page and step-by-step "paste the publishable
-         key here, the restricted key there, assign the configuration to the `us` channel"
-         instructions (keys referenced by name, never printed), then waits for the human to confirm.
-         These have no stable public API; if one for setting the app's keys/channel ever ships, this
-         step can be automated too — until then it stays the guided human gate (do not build on the
-         app's undocumented internal config endpoint).
+      3. **Keys + channel-config mapping — the agent runs a guided walk-through** with the
+         `stripe-best-practices` skill (the announce-and-wait human gate): after the install Jolly
+         pauses and emits, in the feature 020 envelope, the exact deep link to the installed app's
+         configuration page and step-by-step "paste the publishable key here, the restricted key
+         there, assign the configuration to the `us` channel" instructions (keys referenced by name,
+         never printed), then waits for the human to confirm. These have no stable public API; if one
+         for setting the app's keys/channel ever ships, this step can be automated too.
       4. **Verify — `jolly doctor` probes** a checkout to confirm the Stripe test payment step is
          reachable (Rule "Checkout-readiness verify probe").
     - Honest reporting (integrity rule): Jolly reports the install `completed` only when `appInstall`
@@ -199,37 +133,6 @@ Feature: Stripe checkout setup for the Jolly starter storefront
       confirmed by `jolly doctor`, not asserted by the install alone.
     - The Stripe app registers and removes its own Stripe webhooks when a configuration is
       created or deleted — Jolly does not automate Stripe webhook endpoint registration.
-
-  Rule: Stripe keys via the official CLI OAuth, imported by Jolly
-    - The primary way the agent gets the two test keys is the official Stripe CLI's browser OAuth
-      login (`npx @stripe/cli login`) — a one-time human consent. The Stripe CLI cannot create a
-      Stripe account, so signup stays a human step; live mode (Dashboard keys) is out of v1 scope.
-    - Jolly recognizes that login and imports the keys itself, so a completed `stripe login` is
-      never mistaken for "no Stripe keys". Run with no `--publishable-key`/`--secret-key`,
-      `jolly create stripe` invokes the Stripe CLI **read-only** (`stripe config --list`), reads
-      the default profile's `test_mode_pub_key`/`test_mode_api_key`, and writes them to `.env`.
-      The agent never reads or handles the secret value — it goes Stripe CLI → `.env`, never through
-      the agent or a process argument. Jolly uses the Stripe CLI's own interface; it does not parse
-      the Stripe CLI's config file directly. (The exact command/output format is re-checked against
-      the current Stripe CLI at implementation time.)
-    - This is a narrow, read-only exception to Jolly's normal hands-off stance on interactive CLI
-      auth: Jolly never runs the Stripe CLI's `login`/OAuth (the human/agent does), issues no
-      mutating Stripe CLI command, makes no network call by importing (`config --list` is local),
-      and owns no Stripe token beyond the user's own keys it places in `.env`. The Vercel CLI and
-      `@saleor/configurator` get no such config-import exception — `jolly start` spawns them, but
-      their interactive logins stay human/agent-driven.
-    - Explicit `--publishable-key`/`--secret-key` flags always override the import (durable Dashboard
-      keys). With neither flags nor a logged-in Stripe CLI holding test-mode keys (CLI missing, not
-      logged in, or keys expired), `jolly create stripe` errors honestly (`MISSING_STRIPE_KEYS`) with
-      remediation naming both paths: run `npx @stripe/cli login`, or paste Dashboard keys.
-    - `jolly doctor stripe`: when `.env` has no `JOLLY_STRIPE_*` but the Stripe CLI is logged in with
-      test-mode keys, the `stripe-keys` check is a `warning` (not `fail`) whose next step is
-      `jolly create stripe` to import them. Jolly must not report Stripe as simply missing when the
-      OAuth was already done.
-    - CLI-issued keys are test-mode and expire (~90 days; `test_mode_key_expires_at`). Jolly surfaces
-      that expiry from the Stripe CLI output; the skill warns the agent and trusts it to replace them
-      with durable Dashboard keys (re-run `jolly create stripe`, update the Saleor Stripe app) before
-      expiry. v1 accepts this "fast to start, agent owns the 90-day follow-up" tradeoff.
 
   Rule: Checkout-readiness verify probe
     - Installing the Stripe app (`jolly start`) and completing the keys + `us`-channel Dashboard gate
@@ -253,4 +156,4 @@ Feature: Stripe checkout setup for the Jolly starter storefront
       justified because gateway availability cannot be read without a checkout context.
     - This closes the Stripe stage's step-4 verify (Rule "Stripe app path and the automation split")
       and the feature 002 "checkout progresses to the Stripe test payment step" acceptance bar within
-      Jolly's own first-party-host code — no Vercel or Stripe-CLI dependency.
+      Jolly's own first-party-host code.

@@ -14,7 +14,7 @@ Feature: Live-by-design verification conformance
   Scenario: The eval seeds only authentication credentials, never a pre-provisioned store
     Given the eval harness's workspace `.env` seed
     When the credential variables it writes are enumerated
-    Then the seed should include only the credentials the agent needs to authenticate — the Saleor Cloud token, any Cloud API override, and the Stripe test-mode keys
+    Then the seed should include only the credentials the agent needs to authenticate — the Saleor Cloud token and any Cloud API override
     And it should omit the store endpoint `NEXT_PUBLIC_SALEOR_API_URL` and the `JOLLY_SALEOR_APP_TOKEN`, so a baseline agent's `jolly start` provisions a fresh `jolly-test` store on the real creation path instead of reusing a pre-seeded one
 
   @sandbox

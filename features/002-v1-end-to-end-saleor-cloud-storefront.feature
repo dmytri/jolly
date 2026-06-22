@@ -11,7 +11,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And the customer's agent supervises: it approves each high-risk stage's `riskContext`, provides credentials, and completes the human gates, and may run any stage as a composable command itself
     And Jolly's own plumbing covers auth, store/app-token via the Cloud API, secret writing, `.mcp.json`, skill install, and `jolly doctor` verification
     And the Saleor MCP server at mcp.saleor.app provides read-only access to live store data such as products, orders, and customers after setup is complete
-    And the setup path must minimize human intervention to new account creation, browser OAuth consent, and providing secret values
+    And the setup path must minimize human intervention to new account creation, the Vercel sign-in, and providing secret values
 
   @logic
   Scenario: Agent reaches the store choice once authenticated with no store configured
@@ -20,12 +20,12 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     Then `nextSteps` should name both the register-new and connect-existing paths
 
   @logic
-  Scenario: jolly start walks the user through OAuth when no Saleor Cloud token is configured
+  Scenario: jolly start guides the user to provide a Saleor Cloud token when none is configured
     Given a fresh project directory with no `JOLLY_SALEOR_CLOUD_TOKEN` configured
-    When the agent runs `jolly start --json` where no browser can be opened
-    Then the `auth` stage should present the Keycloak authorization URL for the user to complete browser login
-    And it should not report the missing token as a fatal error or a missing browser as an error
-    And `nextSteps` should offer completing browser login or `jolly login --token <value>`
+    When the agent runs `jolly start --json` in a non-interactive shell
+    Then the `auth` stage should report that a Saleor Cloud token is needed
+    And `nextSteps` should direct the user to create a token at https://cloud.saleor.io/tokens and run `jolly login --token <value>`
+    And it should not fabricate that authentication succeeded
 
   @sandbox
   Scenario: Jolly registers a new Saleor Cloud store via the Cloud API
@@ -205,8 +205,8 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
 
   Rule: Human-runnable `jolly start` is the backup path
     - The full mechanical chain makes `jolly start` runnable end-to-end by a HUMAN in a plain
-      shell — the natural way to clear the irreducibly-interactive gates (account creation, browser
-      OAuth, `vercel login`, `stripe login`) that a non-TTY agent cannot pass via stdio passthrough.
+      shell — the natural way to clear the irreducibly-interactive gates (account creation, the
+      Vercel sign-in `vercel login`) that a non-TTY agent cannot pass via stdio passthrough.
     - The headline entry point stays paste-to-agent (the homepage copy box is unchanged); human-run is
       a FALLBACK, not a co-equal entry point.
     - When the agent cannot or will not complete `jolly start` — it refuses, or a stage fails, or it
@@ -227,13 +227,13 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
       SPAWNING the official CLIs: `git` clone of Paper (strip `.git`, fresh `git init`), `pnpm
       install`, `@saleor/configurator diff`/`deploy` of the starter recipe, and `npx vercel`
       deploy + env-var setup — alongside its own plumbing (`login`, `create store`/`app-token`,
-      the read-only `create stripe` import, `init`, `doctor`).
+      the Saleor Stripe-app install, `init`, `doctor`).
     - It spawns official, current CLIs only — never reimplementing them against raw APIs. Each
-      spawned CLI uses its OWN auth (Vercel CLI session, the Saleor app token Jolly manages, the
-      Stripe keys); there is still no `JOLLY_VERCEL_TOKEN` and api.vercel.com is not in Jolly's own
+      spawned CLI uses its OWN auth (Vercel CLI session, the Saleor app token Jolly manages);
+      there is still no `JOLLY_VERCEL_TOKEN` and api.vercel.com is not in Jolly's own
       allowlist. The deprecated `saleor/cli` stays banned.
-    - Interactive CLI gates are stdio passthrough: when a spawned CLI needs the user (`vercel
-      login`, `stripe login`), Jolly runs it with the terminal passed straight through, the user
+    - Interactive CLI gates are stdio passthrough: when the spawned Vercel CLI needs the user
+      (`vercel login`), Jolly runs it with the terminal passed straight through, the user
       interacts with that CLI directly, and Jolly continues on the child's exit — exit 0 → next
       stage; non-zero → stop honestly (no fabricated success).
     - Non-CLI human gates are announce-and-wait: account creation, the Saleor Dashboard Stripe-app
@@ -293,10 +293,10 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
 
   Rule: Fast path principles
     - The end-to-end setup should require only the minimum human actions that cannot be automated.
-    - Unavoidable human steps: new account creation (Saleor Cloud, Vercel, Stripe if needed), browser OAuth consent, and providing secret values such as Stripe API keys.
+    - Unavoidable human steps: new account creation (Saleor Cloud, Vercel, Stripe if needed), the Vercel sign-in, and providing secret values such as the Saleor Cloud token and the Stripe keys in the Dashboard.
     - All other steps should be automated: cloning, env configuration, Configurator recipe application, Vercel project setup, and trusted-origin updates.
     - Jolly should use safe defaults and skip confirmation steps that do not protect against irreversible actions.
     - Jolly should never ask for information it can infer, detect, or safely default.
     - When a human step is required, Jolly should tell the agent exactly what to ask the customer for, then resume automatically once the value is provided.
     - For new Saleor Cloud accounts: direct the customer to cloud.saleor.io, wait for the resulting store URL, then automate everything from that point.
-    - For Stripe test mode: `jolly start` installs the Saleor Stripe app (`appInstall`), imports test keys via the read-only Stripe CLI where a `stripe login` session exists (`jolly create stripe`), and runs a guided gate for the Dashboard key entry and `us`-channel mapping that no public API can perform (feature 005); pasting Dashboard keys stays the always-supported alternative.
+    - For Stripe test mode: `jolly start` installs the Saleor Stripe app (`appInstall`) and installs the `stripe-best-practices` skill, then runs a guided gate for the Dashboard key entry and `us`-channel mapping that no public API can perform (feature 005).

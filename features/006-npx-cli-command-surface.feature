@@ -18,15 +18,15 @@ Feature: Npx-first Jolly CLI command surface
     And it should spawn the official CLIs (Vercel CLI, `@saleor/configurator`, `git`, `pnpm`) under their own auth while using Jolly's thin helpers for plumbing
     And the output should follow Jolly's hybrid human-readable plus machine-readable format
 
-  @logic @iteration
+  @logic
   Scenario: The CLI exposes exactly the supported command surface
     Given the published Jolly CLI
     When the agent inspects `jolly --help`
     Then it should list exactly the commands `login`, `logout`, `auth status`, `init`, `start`, `doctor`, `upgrade`, `skills`, and `create`
-    And `jolly create --help` should list only the subcommands `store`, `app-token`, and `stripe`
+    And `jolly create --help` should list only the subcommands `store` and `app-token`
     And no `deployment`, `deploy`, `recipe`, or `storefront` subcommand should appear anywhere in the surface
 
-  @logic @iteration
+  @logic
   Scenario Outline: Every command accepts the global output flags
     Given the published Jolly CLI
     When the agent runs `jolly <command> <flag>`
@@ -59,18 +59,15 @@ Feature: Npx-first Jolly CLI command surface
       | create app-token  | --json    |
       | create app-token  | --quiet   |
       | create app-token  | --yes     |
-      | create stripe     | --json    |
-      | create stripe     | --quiet   |
-      | create stripe     | --yes     |
 
-  @logic @iteration
+  @logic
   Scenario: The launcher fails clearly on an unsupported Node version
     Given a Node.js runtime older than the minimum the launcher requires
     When the published `jolly` launcher runs
     Then it should exit with an error naming the minimum Node version
     And it should not surface a raw syntax or module-resolution error
 
-  @logic @property @iteration
+  @logic @property
   Scenario Outline: Command output names only the @dk/jolly package
     Given the published Jolly CLI
     When the agent runs `<command>`
@@ -101,11 +98,10 @@ Feature: Npx-first Jolly CLI command surface
       | upgrade          |
       | create store     |
       | create app-token |
-      | create stripe    |
 
   Rule: Thin command surface
     - Jolly is a thin CLI: it provides deterministic plumbing, installs the Jolly skill, and uses `jolly start` to orchestrate official CLIs without reimplementing them against raw provider APIs.
-    - The full command surface is `login`, `logout`, `auth status`, `init`, `start`, `doctor`, `upgrade`, `skills`, and `create` with subcommands `store`, `app-token`, and `stripe` only.
+    - The full command surface is `login`, `logout`, `auth status`, `init`, `start`, `doctor`, `upgrade`, `skills`, and `create` with subcommands `store` and `app-token` only.
     - There are no separate `create deployment`, `deploy`, `create recipe`, or `create storefront` subcommands: the orchestration lives inside `jolly start`, and the official CLIs remain the delegated tools (see feature 008).
     - All skills (the Jolly skill and the Saleor agent-skills) are installed via `npx skills add <ref>`, falling back to a Git-based install only for a skill not available that way.
     - Every command and subcommand supports `--help`: it prints a usage summary naming the command and its flags and exits successfully, never aborting with "Command aborted". `--help` is how an agent learns a command's flags without guessing.

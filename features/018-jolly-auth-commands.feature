@@ -19,34 +19,6 @@ Feature: Jolly auth commands
     And subsequent `jolly auth status` should report the token is configured
     And Jolly should not print the token value
 
-  @logic
-  Scenario: Jolly login prepares browser OAuth authorization material
-    Given the agent has no existing Saleor Cloud authentication
-    When the agent runs `jolly login --browser --dry-run`
-    Then Jolly should generate a PKCE code challenge and verifier
-    And it should construct a Keycloak authorization URL at auth.saleor.io
-    And the authorization URL should include response_type=code, client_id="saleor-cli", code_challenge, code_challenge_method=S256, state, redirect_uri, and scope="email openid profile"
-    And the redirect_uri should point to 127.0.0.1:5375/callback
-
-  @logic
-  Scenario: Jolly login previews the OAuth code exchange requests
-    Given Jolly receives an authorization code on the localhost callback
-    When it previews the code exchange with `--dry-run`
-    Then the preview should show a POST of the code, code_verifier, client_id="saleor-cli", and redirect_uri to the auth.saleor.io token endpoint
-    And the preview should show a POST of the resulting OIDC id_token to the Cloud API /platform/api/tokens endpoint
-    And the preview must not claim any exchange, verification, or login succeeded
-    And no token should be written to .env
-
-  @sandbox
-  Scenario: A failed OAuth code exchange is reported honestly
-    Given the agent has no existing Saleor Cloud authentication
-    And Keycloak will reject the authorization code Jolly receives on the callback
-    When the agent runs `jolly login --browser` and the loopback callback delivers the rejectable code
-    Then Jolly should really POST the code to the auth.saleor.io token endpoint and the request should really fail
-    And Jolly should emit an error envelope naming the step that failed
-    And it should not write any value to .env
-    And the output should contain no success, verified, or authenticated language
-
   @sandbox
   Scenario: Jolly login verifies a headless token against the Cloud API
     Given the agent provides a valid token from https://cloud.saleor.io/tokens
@@ -67,41 +39,19 @@ Feature: Jolly auth commands
     And the error message should direct the customer to create a new token at https://cloud.saleor.io/tokens
 
   @logic
-  Scenario: Jolly login presents the authorization URL and offers to open a browser
-    Given the agent has no existing Saleor Cloud authentication
-    When the agent runs `jolly login --browser --dry-run`
-    Then the output should present the Keycloak authorization URL for the user to click or copy and paste
-    And the output should state that Jolly opens the URL in a browser when one is available and otherwise leaves the user to open it manually
-    And the output should not present a missing browser as an error
-    And no token value should appear in the output
-
-  @logic
-  Scenario: Jolly login --browser never treats a missing browser as an error
-    Given the agent has no existing Saleor Cloud authentication
-    When the agent runs `jolly login --browser` where no browser can be opened
-    Then the output should present the Keycloak authorization URL for the user to click or copy and paste
-    And the output should report the loopback OAuth callback endpoint http://127.0.0.1:5375/callback where Jolly listens for the consent redirect
-    And it should not present a missing browser as an error
-    And it should direct the user to open the URL in a browser or use `jolly login --token <value>`
-    And no token value should appear in the output
-    And it should not write any value to .env
-
-  @logic
-  Scenario: Jolly login with no flags defaults to the browser URL-first flow
-    Given the agent has no existing Saleor Cloud authentication
-    When the agent runs `jolly login` with no flags where no browser can be opened
-    Then the output should present the Keycloak authorization URL for the user to click or copy and paste
-    And it should not present a missing browser as an error
-    And it should direct the user to open the URL in a browser or use `jolly login --token <value>`
-    And no token value should appear in the output
-    And it should not write any value to .env
-
-  @logic
-  Scenario: Jolly login with an empty token fails honestly without blaming the browser
+  Scenario: Jolly login with an empty token fails honestly
     Given the agent has no existing Saleor Cloud authentication
     When the agent runs `jolly login --token "" --json`
     Then each entry in `errors` should include a stable `code`, a `message`, and optional `remediation`
-    And the login error should not claim that browser login is unavailable
+    And it should not write any value to .env
+
+  @logic
+  Scenario: Jolly login with no token source fails honestly and points to the token flag
+    Given the agent has no existing Saleor Cloud authentication
+    When the agent runs `jolly login --json` with no token source in a non-interactive shell
+    Then the envelope status should be "error" with a stable `code`
+    And it should direct the user to run `jolly login --token <value>`
+    And no token value should appear in the output
     And it should not write any value to .env
 
   @logic
@@ -163,10 +113,9 @@ Feature: Jolly auth commands
   Scenario: Jolly login reads the token from $JOLLY_SALEOR_CLOUD_TOKEN when no token flag is given
     Given the Saleor Cloud API is unreachable
     And the environment variable JOLLY_SALEOR_CLOUD_TOKEN is set to "jolly-token-from-env-003"
-    When the agent runs `jolly login` with no token flag where no browser can be opened
+    When the agent runs `jolly login` with no token flag in a non-interactive shell
     Then Jolly should write the token to .env as JOLLY_SALEOR_CLOUD_TOKEN
     And .env should contain JOLLY_SALEOR_CLOUD_TOKEN=jolly-token-from-env-003
-    And it should not present the browser URL-first flow
     And Jolly should not print the token value
 
   @logic @exceptional-double
@@ -198,7 +147,6 @@ Feature: Jolly auth commands
     When the agent runs `jolly login --token-file ./empty-token.txt --json`
     Then the envelope status should be "error" with a stable `code`
     And the error should name the empty token file as the cause
-    And the login error should not claim that browser login is unavailable
     And it should not write any value to .env
 
   @sandbox
@@ -209,15 +157,6 @@ Feature: Jolly auth commands
     And it should store the token in .env as JOLLY_SALEOR_CLOUD_TOKEN
     And it should report the authenticated organization context using values from the real response
     And Jolly should not print the token value
-
-  @logic
-  Scenario: Jolly login warns that the OAuth callback listener is on the machine running Jolly
-    Given the agent has no existing Saleor Cloud authentication
-    When the agent runs `jolly login` with no flags where no browser can be opened
-    Then the output should state that the OAuth callback http://127.0.0.1:5375/callback is served on the machine where Jolly runs
-    And it should state that a browser on a different machine cannot complete that callback
-    And it should direct the user to run `jolly login --token <value>` when the browser is on another machine
-    And no token value should appear in the output
 
   @logic @property @exceptional-double
   Scenario: The .env Jolly writes is private to its owner
@@ -258,11 +197,9 @@ Feature: Jolly auth commands
   Rule: Auth command principles
     - V1 should include `jolly login`, `jolly logout`, and `jolly auth status`.
     - Auth commands are helpers that empower the customer's agent; they do not make Jolly a separate control plane.
-    - `jolly login` should support browser OAuth and headless token flows.
-    - `jolly login` (and `jolly login --browser`) generate the Keycloak authorization URL, print it for the user to click or copy and paste, and start the localhost OAuth callback server (PKCE, callback server, callback, exchange). When a native browser is available, Jolly also opens the URL in it as a convenience; when it is not, the user opens the printed URL in any browser. Either way the user completes consent and Jolly receives the callback, exchanges the code, and stores the token.
-    - A missing browser is never an error: the printed authorization URL is the always-available path, the same affordance the Vercel and Stripe CLIs provide for their own logins. `jolly login --token <value>` remains the fully non-interactive path that always works regardless of browser availability.
-    - Native browser detection attempts the platform-appropriate open command (`open`/`xdg-open`/`start`); a successful (zero-exit) launch means a browser is available. It only decides whether Jolly auto-opens the URL — it is never required for login to proceed.
-    - The registered Keycloak client is `saleor-cli` (realm `saleor-cloud` on auth.saleor.io). Jolly may use this client or register its own in future versions.
+    - `jolly login` authenticates with a Saleor Cloud token. The customer creates a token at
+      https://cloud.saleor.io/tokens and hands it to Jolly through one of the token sources (Rule
+      "Token input is flexible so the secret need never be a process argument").
     - Jolly should not depend on the deprecated Saleor CLI for authentication.
     - Auth output must not expose secret values.
     - Jolly auth secrets should be written to `.env` as environment variables in v1.
@@ -287,29 +224,8 @@ Feature: Jolly auth commands
     - `JOLLY_SALEOR_CLOUD_API_URL` optionally overrides the Cloud API base URL (default
       `https://cloud.saleor.io/platform/api`) for proxy or self-routing setups; all Cloud
       API requests honor it. Pointing it elsewhere is the customer's explicit choice.
-    - The hosts `id.saleor.online` and `api.saleor.cloud` are retired and must not appear
-      in Jolly code, output, or specs; the real first-party hosts are auth.saleor.io
-      (Keycloak, realm saleor-cloud) and cloud.saleor.io (Cloud API and token page).
-    - The OAuth code exchange makes real requests (Keycloak token endpoint, then Cloud
-      API /platform/api/tokens) and reports their real outcomes. No placeholder tokens,
-      simulated responses, or fabricated "verified" checks — if a step is unimplemented,
-      Jolly errors naming the unimplemented step.
-
-  Rule: Login credentials are one-time inputs, never persisted
-    - Saleor Cloud email and password are one-time login inputs the user enters directly
-      into their own browser during the OAuth consent. Jolly never sees, prompts for, holds,
-      or persists them — not in memory, not to `.env`, not to any file, not in command output.
-    - There are no Jolly environment variables for email or password; the durable
-      artifact of every login flow is the Saleor Cloud token, stored in `.env` as
-      JOLLY_SALEOR_CLOUD_TOKEN.
-    - There is no headless browser automation and no harness email/password input; CI and
-      headless environments authenticate with `jolly login --token <value>`.
-
-  Rule: Browser OAuth is URL-first, like other CLIs
-    - `jolly login` always prints the Keycloak authorization URL so the user can click it or copy and paste it into any browser — the same affordance the Vercel and Stripe CLIs provide for their own logins.
-    - When a native browser is available (the `open`/`xdg-open`/`start` command exits zero), Jolly also opens the URL in it as a convenience; when it is not, Jolly prints the URL and leaves the user to open it. A missing browser is never an error.
-    - Completing the consent in the browser is a human step; Jolly never automates it and never handles the user's credentials. Automated verification covers the authorization URL Jolly presents and the requests it makes (the `--dry-run` and exchange scenarios); the human consent round-trip is exercised manually, not in CI.
-    - There is no headless browser automation and no harness email/password knobs; CI and headless environments authenticate with `jolly login --token <value>`.
+    - All Cloud API requests target the first-party host cloud.saleor.io, which serves both the
+      Cloud API and the token page at https://cloud.saleor.io/tokens.
 
   Rule: Token input is flexible so the secret need never be a process argument
     - `jolly login` accepts the Cloud token from four explicit sources, in precedence order:
@@ -329,26 +245,15 @@ Feature: Jolly auth commands
       output, or context.
     - The interactive prompt is gated on an interactive terminal. When stdin is NOT a TTY —
       the agent-driven subprocess case — Jolly never prompts and never blocks waiting for
-      input; with no token from any source it routes to the browser URL-first flow
-      (Rule "Browser OAuth is URL-first, like other CLIs") exactly as before.
+      input; with no token from any source it fails honestly with a stable error code that
+      directs the user to `jolly login --token <value>`.
     - Every source is trimmed and checked non-empty BEFORE the verification request. An
       empty file, empty stdin, or an explicit empty `--token ""` fails with a stable error
-      code naming the empty input — never the misleading "browser login unavailable".
+      code naming the empty input.
     - A token from any source is verified and stored exactly as a `--token <value>` login
       is (Rule "Token verification is a real request or it is not verification"):
       verified-and-stored on a real 2xx, error-and-nothing-written on a real 401/403,
       stored-not-verified when the Cloud API is unreachable.
-    - With no token from any source, `jolly login` routes to the browser URL-first flow
-      (Rule "Browser OAuth is URL-first, like other CLIs"). A present-but-empty source is
-      an honest error, not a fall-through to the browser.
-
-  Rule: The OAuth callback listener is local to the machine running Jolly
-    - `jolly login`'s loopback callback server listens on `http://127.0.0.1:5375/callback`
-      on the machine where Jolly runs. When an agent runs Jolly on a remote or headless
-      machine while the human's browser is on a different machine, the browser's redirect
-      to `127.0.0.1:5375` reaches the human's machine, where nothing is listening — the
-      browser OAuth flow cannot complete.
-    - When no browser can be opened, the login output names this constraint and directs the
-      user to `jolly login --token <value>` (or `--token-file <path>`) as the always-working
-      headless path. A missing or unreachable browser is never an error (Rule "Browser OAuth
-      is URL-first, like other CLIs").
+    - With no token from any source and no interactive terminal, `jolly login` fails honestly
+      with a stable error code directing the user to `jolly login --token <value>`. A
+      present-but-empty source is an honest error, not a fall-through.

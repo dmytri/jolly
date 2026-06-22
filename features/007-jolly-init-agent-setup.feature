@@ -13,13 +13,14 @@ Feature: Jolly init for local agent setup
     Given the agent can run Jolly via `npx`
     When the agent invokes `jolly init`
     Then Jolly should install or check the full default skill set via `npx skills add`
-    And the default skill set should include the Jolly skill plus `saleor-storefront`, `saleor-configurator`, `storefront-builder`, `saleor-core`, and `saleor-app`
+    And the default skill set should include the Jolly skill plus `saleor-storefront`, `saleor-configurator`, `storefront-builder`, `saleor-core`, `saleor-app`, and `stripe-best-practices`
     And the Jolly skill should be the end-to-end playbook for supervising `jolly start` as it spawns the official CLIs
     And it should include Paper's embedded `saleor-paper-storefront` skill (Git-installed with the cloned storefront) when a storefront exists
     And Jolly should report each skill as actually verified on disk, not unconditionally claim success
     And Jolly should write agent-specific glue files or instructions for supported environments
     And the glue files should actually exist on disk under standard project-local skill locations
     And the envelope `data` should list the installed skill ids
+    And the nextSteps should advise reloading the agent so the installed skills are loaded
     And Jolly should not create remote Saleor Cloud or Vercel resources
     And Jolly should not store secrets
 
@@ -65,7 +66,7 @@ Feature: Jolly init for local agent setup
     Then the Jolly skill should be installed under `.agents/skills/jolly/` from the bundled copy
     And the installed Jolly skill content should match the bundled copy
 
-  @sandbox @iteration
+  @sandbox
   Scenario: A failed skill install surfaces the error and exits non-zero
     Given a default skill whose clone or install step fails
     When `jolly init` installs the default skill set

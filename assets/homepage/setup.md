@@ -29,11 +29,13 @@ Voice: calm, dry, a little silly. Eight arms, one store.
 Four moments. Stop and ask — one at a time:
 
 - 🧑 **New account** — Saleor Cloud / Vercel / Stripe (creation needs a human)
-- 🧑 **Browser login consent** — Saleor OAuth, `vercel login`, `stripe login`
-- 🧑 **Saleor's Stripe app** — Dashboard → Extensions → Stripe, mapped to the `us` channel (no CLI
-  can do this)
-- 🧑 **A secret to paste** — only when no CLI can hand it over, and only if you want to: you can
-  drop any key into the gitignored `.env` yourself instead of pasting it to me
+- 🧑 **Browser approval** — I sign Vercel and Stripe in myself; I print a URL, the human approves it
+  in a browser, and I continue
+- 🧑 **Configure Saleor's Stripe app** — I install the app and the Stripe skill; the human adds the
+  test-mode keys and maps it to the `us` channel in the Dashboard (Extensions → Stripe)
+- 🧑 **A secret to paste** — chiefly the **Saleor Cloud token** (mint one at
+  https://cloud.saleor.io/tokens and hand it to `jolly login`). Any key can go straight into the
+  gitignored `.env` yourself instead of pasting it to me
 
 Everything else, I do.
 
@@ -45,17 +47,20 @@ Everything else, I do.
 npx @dk/jolly start --dry-run
 ```
 
-Prints the whole plan: every CLI I'll run, files written, hosts touched, where I'll pause. Skim,
-then go.
+Prints the whole plan: every CLI I'll run, files written, hosts touched, where I'll pause.
+`--dry-run` only previews — it sets nothing up. Skim it, then run the real command below.
 
-**Run it:**
+**Run it for real:**
 
 ```
 npx @dk/jolly start
 ```
 
-End-to-end setup, pausing for your approval before each create/deploy and waiting at the human
-gates. Resumable — re-run and I skip finished stages.
+This creates real resources on Saleor Cloud, Vercel, and Stripe — run it with your human's
+approval. End-to-end setup, pausing for your approval before each create/deploy and waiting at the
+human gates. Plan for roughly 10–20 minutes around the human gates. Resumable — re-run and I skip
+finished stages, and I leave the cloned storefront + its config in a folder in your working
+directory, ready for you to keep building.
 
 **Running autonomously (no human watching each step)?**
 
@@ -77,7 +82,6 @@ npx @dk/jolly init                 # skills + .mcp.json + scaffold (run by start
 npx @dk/jolly start                # end-to-end setup
 npx @dk/jolly create store [--create-environment]
 npx @dk/jolly create app-token
-npx @dk/jolly create stripe --publishable-key <pk_test_…> --secret-key <sk_test_…>
 npx @dk/jolly doctor               # checks env, store, deploy, MCP health
 npx @dk/jolly upgrade              # update skills and config
 ```
@@ -104,8 +108,8 @@ carries the full stage-by-stage playbook.
 
 ### Hosts I contact
 
-`auth.saleor.io` (OAuth) · `cloud.saleor.io` (Cloud API) · `*.saleor.cloud` (your store) ·
-`github.com` (skills) · `127.0.0.1` (OAuth callback) · `api.stripe.com` (Stripe test config). The
+`cloud.saleor.io` (Cloud API + token page) · `*.saleor.cloud` (your store) ·
+`github.com` (skills). The
 CLIs I spawn reach their own services under their own auth: Vercel → `api.vercel.com`;
 `@saleor/configurator` → your `*.saleor.cloud`; `git` → `github.com`; `npx` → npm. Locked-down
 environment? Allowlist the union.
@@ -130,27 +134,40 @@ Two token shapes, easy to confuse: a **Cloud staff token** (~81 chars, `uuid.bas
 Don't hand-roll a probe — `jolly login --token <value>` and `jolly doctor` run the right check
 and report the real result. A `401` from a wrong-scheme `curl` is not evidence the token is dead.
 
-### Headless or remote VM
+### Saleor auth
 
-Browser OAuth (`jolly login`, no flags) listens at `http://127.0.0.1:5375/callback` **on the
-machine running me.** If you're on a remote VM while the human's browser is on their own laptop,
-the redirect reaches the laptop's `127.0.0.1` — where nothing is listening — and the flow can't
-complete. Use a token instead:
+Saleor auth is a Cloud token, so it works the same on a laptop, a CI runner, or a remote VM:
 
 1. The human mints a Cloud staff token at `https://cloud.saleor.io/tokens`.
 2. Hand it over without putting the literal in a command argument: `jolly login --token-file <path>`
    (a mode-600 file), `jolly login --token-stdin` (stdin), or
-   `JOLLY_SALEOR_CLOUD_TOKEN=<value> jolly login`. I verify it before writing it to `.env`.
+   `JOLLY_SALEOR_CLOUD_TOKEN=<value> jolly login`. At an interactive terminal, plain `jolly login`
+   prompts you to paste it with echo off. I verify it before writing it to `.env`.
 
-`jolly start --yes` then runs the create/deploy stages; the Dashboard Stripe app stays a human
-gate.
+`jolly start --yes` then runs the create/deploy stages; the Dashboard Stripe app stays a human gate.
+
+### Vercel sign-in
+
+I drive Vercel sign-in for you during `start`: I run Vercel's device flow and print a verification
+URL; the human approves it in a browser, and I continue and deploy.
+
+### Stripe
+
+I install Saleor's Stripe app in the store and install the `stripe-best-practices` skill for your
+agent. The human then adds the account's test-mode keys (Stripe Dashboard → Developers → API keys)
+to the app and maps it to the `us` channel (Saleor Dashboard → Extensions → Stripe); the app
+registers its own webhooks.
 
 ### Skills I install
 
 `jolly` (this playbook) · `saleor-storefront` · `saleor-configurator` · `storefront-builder` ·
-`saleor-core` · `saleor-app` · `saleor-paper-storefront` (ships with the cloned Paper storefront).
+`saleor-core` · `saleor-app` · `stripe-best-practices` · `saleor-paper-storefront` (ships with the
+cloned Paper storefront).
 
 ### After setup
+
+Reload or restart your agent so the skills I installed (the Jolly + Saleor skills and
+`stripe-best-practices`) load into its context for ongoing work.
 
 `.mcp.json` wires a local mcp-graphql server to your store's GraphQL endpoint — live store access.
 Saleor also runs a read-only MCP server at `mcp.saleor.app` (products, orders, customers) you may

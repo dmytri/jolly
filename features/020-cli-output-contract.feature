@@ -58,13 +58,12 @@ Feature: Jolly CLI output contract
     Examples:
       | command                                      |
       | jolly login --token <value>                  |
-      | jolly create stripe --secret-key <value>     |
 
   @logic @property
   Scenario: Jolly's request code contacts only first-party hosts
     Given Jolly's own network-request-sending code
     When the hosts it can contact are enumerated
-    Then they should be exactly auth.saleor.io, cloud.saleor.io, the customer's `*.saleor.cloud` domains, github.com, and 127.0.0.1, plus any `JOLLY_SALEOR_CLOUD_API_URL` override
+    Then they should be exactly cloud.saleor.io, the customer's `*.saleor.cloud` domains, and github.com, plus any `JOLLY_SALEOR_CLOUD_API_URL` override
     And neither api.vercel.com nor api.stripe.com should appear in Jolly's own request code — Vercel is reached only by the spawned Vercel CLI, and Stripe only by the spawned Stripe CLI
     And the retired hosts id.saleor.online and api.saleor.cloud should not appear anywhere in Jolly's code or output
 
@@ -109,22 +108,18 @@ Feature: Jolly CLI output contract
       path, real resolved identifiers — and never claim the previewed work happened.
 
   Rule: First-party hosts only
-    - Jolly's code sends network requests only to these hosts: auth.saleor.io (Keycloak
-      OAuth, realm saleor-cloud), cloud.saleor.io (Saleor Cloud API and token page), the
-      customer's own *.saleor.cloud environment domains, github.com (cloning
-      saleor/storefront and skills), and 127.0.0.1 (local OAuth callback). "Hosts Jolly
-      contacts" stays exactly equal to the hosts appearing in Jolly's request-sending code.
+    - Jolly's code sends network requests only to these hosts: cloud.saleor.io (Saleor Cloud
+      API and token page), the customer's own *.saleor.cloud environment domains, and
+      github.com (cloning saleor/storefront and skills). "Hosts Jolly contacts" stays exactly
+      equal to the hosts appearing in Jolly's request-sending code.
     - Neither api.vercel.com nor api.stripe.com is in this allowlist: each is reached only
-      by its own official CLI that Jolly delegates to — Vercel by the Vercel CLI (`npx vercel`),
-      Stripe by the Stripe CLI (`npx @stripe/cli`) — never by Jolly's own request-sending code
-      (see feature 008 Rule "Surface — composable plumbing commands; `start` orchestrates the
-      official CLIs", and feature 005 Rule "Stripe keys via the official CLI OAuth, imported by Jolly").
-    - Secrets travel only to their own service: Saleor tokens only to auth.saleor.io,
-      cloud.saleor.io, or the customer's *.saleor.cloud domains. No secret is ever sent to
-      github.com or any host not on this list. Jolly's own request code sends no Stripe key
-      and holds no Vercel token at all: Stripe auth lives in the Stripe CLI's own session
-      (Jolly only imports, read-only via `stripe config --list`, the keys it writes to `.env`),
-      and Vercel auth lives in the Vercel CLI's own `vercel login` session.
+      by its own official CLI that Jolly delegates to — Vercel by the Vercel CLI (`npx vercel`) —
+      never by Jolly's own request-sending code (see feature 008 Rule "Surface — composable
+      plumbing commands; `start` orchestrates the official CLIs").
+    - Secrets travel only to their own service: the Saleor Cloud token only to cloud.saleor.io
+      or the customer's *.saleor.cloud domains. No secret is ever sent to github.com or any host
+      not on this list. Jolly's own request code holds no Vercel token at all: Vercel auth lives
+      in the Vercel CLI's own session.
     - Delegated official CLIs (the Vercel CLI, `@saleor/configurator`) are a distinct
       category from Jolly's own request code: Jolly invokes them and they contact their
       own services under their own auth. This delegation to current, official tooling is

@@ -12,7 +12,7 @@ Feature: Jolly create subcommands
   Scenario: Agent discovers create subcommands
     Given the agent needs to create a specific resource
     When it inspects `jolly create --help`
-    Then it should see only the plumbing subcommands `store`, `app-token`, and `stripe`
+    Then it should see only the plumbing subcommands `store` and `app-token`
     And each subcommand should have a clear resource boundary
     And it should not list `deployment`, `deploy`, `recipe`, or `storefront` — that orchestration lives inside `jolly start`, which spawns the official CLIs
 
@@ -28,7 +28,6 @@ Feature: Jolly create subcommands
       | subcommand |
       | store      |
       | app-token  |
-      | stripe     |
 
   @logic
   Scenario Outline: An unverified value is reported as exactly "stored, not verified"
@@ -41,7 +40,6 @@ Feature: Jolly create subcommands
       | subcommand |
       | store      |
       | app-token  |
-      | stripe     |
 
   @logic
   Scenario Outline: create --dry-run shows the real request without performing it
@@ -55,7 +53,6 @@ Feature: Jolly create subcommands
       | subcommand |
       | store      |
       | app-token  |
-      | stripe     |
 
   Rule: Credentials are read from .env, the way a real agent leaves them
     - `jolly login` and `jolly create store` write `JOLLY_*` credentials to the project `.env`; the agent does not export them into its shell. So every command reads its credentials from the `.env` FILE (the project config), never depending on a value being present in the process environment.
@@ -99,14 +96,14 @@ Feature: Jolly create subcommands
     - `--dry-run` previews show the real intended request (host, path, resolved identifiers) and never claim the work was done.
 
   Rule: Surface — composable plumbing commands; `start` orchestrates the official CLIs
-    - `jolly create` exposes only the deterministic-plumbing resources Jolly owns: `store` (Saleor Cloud store/project/environment via the Cloud API), `app-token` (Saleor app token via GraphQL), and `stripe` (writes Stripe test keys to `.env`). There are no tool-wrapping subcommands for storefront creation, recipe apply, or deployment.
+    - `jolly create` exposes only the deterministic-plumbing resources Jolly owns: `store` (Saleor Cloud store/project/environment via the Cloud API) and `app-token` (Saleor app token via GraphQL). There are no tool-wrapping subcommands for storefront creation, recipe apply, or deployment.
     - That orchestration lives inside `jolly start`, which SPAWNS the official CLIs itself — `git` clone of `saleor/storefront`, `pnpm install`, `@saleor/configurator diff`/`deploy`, and `npx vercel` deploy + env-var setup.
     - Jolly spawns official, current CLIs only — never reimplementing them against raw provider APIs. Each spawned CLI uses its own auth, so Jolly holds no Vercel token and makes no `api.vercel.com` request from its OWN code (the spawned Vercel CLI does; see feature 020's "First-party hosts only", which governs Jolly's own request code).
     - Interactive CLI steps run with stdio passed through (the user interacts with the CLI directly); `start` continues on the CLI's exit (0 → next; non-zero → stop honestly). Human-only gates (account creation, the Dashboard Stripe app, secret paste) are announced-and-waited-on.
     - The deprecated `saleor/cli` is never invoked.
 
   Rule: Create command boundaries
-    - `jolly create` is a grouped command with the three plumbing subcommands above.
+    - `jolly create` is a grouped command with the two plumbing subcommands above.
     - Create subcommands are safe, explicit, and scriptable.
     - Remote resource creation approval is decided by the customer's agent based on risk, context, and customer/environment policies.
     - Each create subcommand exposes structured risk context per feature 021 so the agent can make that decision.

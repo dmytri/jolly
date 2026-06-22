@@ -46,7 +46,7 @@ Feature: Agent skill affordance evaluation
   Rule: Live by design — real integrated test env, namespaced and disposable
     - The agent runs in a unique per-run temporary workspace seeded with only the
       REAL test-env credentials it needs to AUTHENTICATE — the runtime
-      `JOLLY_SALEOR_CLOUD_TOKEN` and the `JOLLY_STRIPE_*` test-mode keys — but NOT
+      `JOLLY_SALEOR_CLOUD_TOKEN` — but NOT
       the store endpoint (`NEXT_PUBLIC_SALEOR_API_URL`) or app token: those are
       left unset so `jolly start` provisions a fresh `jolly-test`-namespaced
       Saleor environment and derives them, exercising the real store-creation path
@@ -68,9 +68,7 @@ Feature: Agent skill affordance evaluation
       provision path performs) so a leftover never starves the run at its store
       stage — and an environment-limit rejection encountered mid-run is likewise
       reclaimed by deleting `jolly-test`-namespaced environments, never by
-      faking. Only `jolly-test`-namespaced resources are ever deleted. Stripe
-      runs in test mode with test cards (worst case: a declined transaction,
-      never a real charge).
+      faking. Only `jolly-test`-namespaced resources are ever deleted.
     - Best-effort teardown of created cloud resources is the DEFAULT (harmless).
       An opt-in `HARNESS_EVAL_KEEP_STORE` knob (set → retain) skips that teardown
       so the run's created store — the `jolly-test`-namespaced Saleor environment
@@ -105,8 +103,7 @@ Feature: Agent skill affordance evaluation
       recipe, seed stock), so the eval may observe real namespaced resources, not
       just local files. It asserts the live result WHERE the capability is present
       and honest gating where it is not — it never asserts an outcome the agent
-      did not actually achieve. The Stripe-import affordance (Jolly importing real
-      test-mode keys via the read-only Stripe CLI) is covered by feature 005.
+      did not actually achieve.
     - For each live stage the run completes, the eval surfaces the real endpoint
       Jolly reported in its output envelope: the Saleor dashboard URL for the
       `jolly-test`-namespaced environment it created, and the deployed storefront
@@ -121,7 +118,6 @@ Feature: Agent skill affordance evaluation
   Scenario: A baseline agent follows the published /setup entry point to set up a project
     Given a fresh per-run temporary workspace with the Jolly skill and CLI available
     And the baseline agent runs under a throwaway `$HOME` so its own config and credentials stay isolated
-    And a real Stripe CLI test-mode session is available
     And the agent is run with the real integrated test-env credentials, every resource it creates `jolly-test`-namespaced and removed in teardown
     And Jolly's CLI invocations in the workspace are traced
     When a baseline agent is given the task:

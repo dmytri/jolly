@@ -31,7 +31,7 @@ Feature: Jolly upgrade
     And it should generate an upgrade plan from Paper's migration guidance
     And it should not apply Paper migrations automatically in v1
 
-  @logic @iteration
+  @logic
   Scenario: Upgrade auto-applies a safe Jolly-managed skill update
     Given a Jolly-managed skill has a newer version available
     And applying it does not overwrite user-authored content

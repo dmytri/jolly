@@ -190,7 +190,7 @@ Feature: Jolly Configurator starter recipe
       guard the binary does not implement), so Jolly relies on `--failOnDelete` alone.
       `@saleor/configurator` auto-activates non-interactive mode in a non-TTY subprocess, so Jolly
       spawns it as a non-interactive batch command and reads its EXIT CODE — no stdio passthrough
-      (unlike the interactive `vercel login`/`stripe login` gates).
+      (unlike the interactive `vercel login` gate).
     - On the bootstrap path — a store whose only deletable entities are Saleor's stock defaults,
       whether `jolly start` auto-provisioned it this run or a prior `jolly create store
       --create-environment` provisioned it and recorded it in `.env` — the deploy omits

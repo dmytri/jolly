@@ -19,7 +19,7 @@ Feature: Agent skill installation targets
     Then Jolly should write the glue file for the detected agent `claude`
     And the glue should reference the installed skill path `.agents/skills/jolly/`
 
-  @logic @iteration
+  @logic
   Scenario Outline: Jolly detects the agent environment from its project marker
     Given a project containing <marker>
     When Jolly determines the agent environment for skill glue
@@ -36,7 +36,7 @@ Feature: Agent skill installation targets
       | a .zed/ directory          | zed      |
       | a .pi/ directory           | pi       |
 
-  @logic @iteration
+  @logic
   Scenario: Detection checks markers in order and stops at the first match
     Given a project containing both a CLAUDE.md file and a .cursor/rules/ directory
     When Jolly determines the agent environment
