@@ -170,6 +170,20 @@ Feature: Jolly auth commands
     And Jolly should not print the token value
 
   @logic @exceptional-double
+  Scenario: Jolly login prompts the interactive user to paste a token when no source is given
+    # @exceptional-double: the local interactive terminal read is the contract here,
+    # not the network verify. A reachable Cloud API would require a real valid token
+    # (a @sandbox concern), so the pasted token is exercised via the
+    # stored-not-verified path against an unreachable Cloud API — the only double,
+    # never the normal verify path (the @sandbox login scenarios cover that).
+    Given the Saleor Cloud API is unreachable
+    And `jolly login` runs in an interactive terminal with no token flag and no token in the environment
+    When the user pastes the token value "jolly-pasted-token-004" at the prompt
+    Then Jolly should prompt the user to paste their Saleor Cloud token
+    And .env should contain JOLLY_SALEOR_CLOUD_TOKEN=jolly-pasted-token-004
+    And the terminal output should not contain the pasted token value
+
+  @logic @exceptional-double
   Scenario: --token-file takes precedence over the $JOLLY_SALEOR_CLOUD_TOKEN environment variable
     Given the Saleor Cloud API is unreachable
     And the environment variable JOLLY_SALEOR_CLOUD_TOKEN is set to "jolly-token-env-loser"
@@ -298,13 +312,25 @@ Feature: Jolly auth commands
     - There is no headless browser automation and no harness email/password knobs; CI and headless environments authenticate with `jolly login --token <value>`.
 
   Rule: Token input is flexible so the secret need never be a process argument
-    - `jolly login` accepts the Cloud token from four sources, in precedence order:
+    - `jolly login` accepts the Cloud token from four explicit sources, in precedence order:
       `--token-file <path>` (read the file, trim surrounding whitespace and the trailing
       newline) > `--token-stdin` (read standard input) > `--token <value>` > the
       `JOLLY_SALEOR_CLOUD_TOKEN` environment variable. The file, stdin, and environment
       paths exist so an agent can supply the token without placing the literal in `argv`,
       where it is visible in process listings and shell history; the agent therefore never
       has to hand-write the secret into `.env` itself and skip Jolly's verify-before-write.
+    - When none of those four sources supplies a token AND `jolly login` runs in an
+      interactive terminal (stdin is a TTY), Jolly prompts the user to paste the Cloud
+      token and reads it from the controlling terminal with echo disabled, then verifies
+      and stores it exactly as a `--token <value>` login. This interactive paste is the
+      lowest-precedence source — any explicit source above skips it. It lets a human at the
+      terminal hand Jolly the secret directly, so when an agent is driving Jolly the token
+      reaches Jolly through the terminal and never through the agent's process arguments,
+      output, or context.
+    - The interactive prompt is gated on an interactive terminal. When stdin is NOT a TTY —
+      the agent-driven subprocess case — Jolly never prompts and never blocks waiting for
+      input; with no token from any source it routes to the browser URL-first flow
+      (Rule "Browser OAuth is URL-first, like other CLIs") exactly as before.
     - Every source is trimmed and checked non-empty BEFORE the verification request. An
       empty file, empty stdin, or an explicit empty `--token ""` fails with a stable error
       code naming the empty input — never the misleading "browser login unavailable".
