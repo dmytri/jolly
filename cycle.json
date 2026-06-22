@@ -1,0 +1,31 @@
+{
+  "pass1": {
+    "scenarios": [
+      "018-jolly-auth-commands.feature:Jolly login with no token source fails honestly and points to the token flag",
+      "018-jolly-auth-commands.feature:Jolly login with an empty token fails honestly",
+      "018-jolly-auth-commands.feature:Jolly login reads the token from $JOLLY_SALEOR_CLOUD_TOKEN when no token flag is given",
+      "002-v1-end-to-end-saleor-cloud-storefront.feature:jolly start guides the user to provide a Saleor Cloud token when none is configured",
+      "020-cli-output-contract.feature:Jolly's request code contacts only first-party hosts",
+      "020-cli-output-contract.feature:Output never exposes secrets",
+      "005-stripe-checkout-setup.feature:Jolly start previews the Stripe app-install stage",
+      "005-stripe-checkout-setup.feature:Jolly start does not fabricate Stripe stage completion",
+      "008-jolly-create-subcommands.feature:Agent discovers create subcommands",
+      "026-live-by-design-verification.feature:The eval seeds only authentication credentials, never a pre-provisioned store"
+    ]
+  },
+  "pass2": {
+    "scenarios": [
+      "006-npx-cli-command-surface.feature:The CLI exposes exactly the supported command surface",
+      "006-npx-cli-command-surface.feature:Every command accepts the global output flags",
+      "006-npx-cli-command-surface.feature:The launcher fails clearly on an unsupported Node version",
+      "006-npx-cli-command-surface.feature:Command output names only the @dk/jolly package",
+      "007-jolly-init-agent-setup.feature:Agent initializes Jolly guidance locally",
+      "007-jolly-init-agent-setup.feature:A failed skill install surfaces the error and exits non-zero",
+      "009-agent-skill-installation-targets.feature:Jolly detects the agent environment from its project marker",
+      "009-agent-skill-installation-targets.feature:Detection checks markers in order and stops at the first match",
+      "017-jolly-upgrade.feature:Upgrade auto-applies a safe Jolly-managed skill update",
+      "002-v1-end-to-end-saleor-cloud-storefront.feature:Jolly start leaves a continue-ready storefront repo in the working directory",
+      "002-v1-end-to-end-saleor-cloud-storefront.feature:Jolly start previews the Vercel deploy"
+    ]
+  }
+}

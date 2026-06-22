@@ -63,6 +63,54 @@ authoring COMPLETE: 002 continue-ready-repo scenario added (unmodified-Paper alr
 Vercel-surfaces-URL clause added to the deploy preview); recipe.yml collection description added;
 recipe product images optimized (20M → 8.1M, resized to 1024px). The CODE cycle is the only
 remaining work.
+
+### Stale-removal manifest for the CODE cycle (Bosun audit, 2026-06-22)
+
+Dropping Saleor OAuth and the Stripe CLI left extensive stale artifacts. This is Captain's
+post-cycle checklist. Removal and rewrite are ATOMIC — delete each old path and wire its specced
+replacement in the SAME change (you cannot delete `loginBrowserLive` while `commandLogin` still
+calls it; deleting first breaks the build, and a clean atomic swap also removes the risk of Crew
+preserving stale paths it sees beside the new ones). `cycle.json` directs this: **pass1 is the
+isolated removal+rewire** — token-only auth + drop the Stripe CLI; its scenarios pass ONLY by
+deleting the OAuth/Stripe-CLI code, so the slate is clean before anything else. **pass2** is the
+graduations + continue-repo + Vercel preview on the cleaned slate. The helper refactor
+(error-fmt/cred-resolver/check-builder) is Bosun/normal hygiene, not scenario-bound.
+
+**`src/index.ts` — OAuth (dead once `commandLogin` is token-only):** browser route ~409–416;
+`loginBrowserDryRun` ~576; `loginBrowserLive` ~664; `tryOpenBrowser` ~938; `awaitLoopbackCallback`
+~953; `KEYCLOAK_*`/`LOOPBACK_*` consts ~648–654; `jolly start` auth-gate OAuth presentation
+~3693–3717/3816/3845–3851; envelope `authorizationUrl` ~2884; `networkHostsContacted` `auth.saleor.io`
+~2677; fallback OAuth/stripe-login text ~3874–3880. **New behavior:** no-token + non-TTY → honest
+error to `jolly login --token`.
+
+**`src/index.ts` — Stripe CLI (dead once `create stripe` is dropped):** `readStripeCliKeys` ~1740;
+`commandCreateStripe` ~1791; `create stripe` dispatch ~1928; `JOLLY_STRIPE_*` writes ~1723/1836–1837;
+doctor `sk_live_` check + `readStripeCliKeys()` import ~2382–2412; `@stripe/cli` remediation ~1813.
+Keep `installStripeApp` (the `appInstall`). **New behavior:** `start` installs the Stripe app +
+the `stripe-best-practices` skill; keys+channel stay the human Dashboard gate.
+
+**`src/lib/hosts.ts`:** drop `auth.saleor.io` and `127.0.0.1` from the allowlist (feature 020).
+**`src/index.ts` — Vercel:** `start` runs the device flow itself and surfaces the verification URL
+(not terminal-passthrough-only), so an agent-driven non-TTY run gets the URL in the envelope.
+
+**Verification layer:** delete `features/support/stripe-cli-trace.ts` whole; drop `JOLLY_STRIPE_*`
+from `creds-env.ts` (`CREDENTIAL_VARS`), `eval.ts` (`SEEDED_CREDENTIAL_VARS`), and `sandbox.ts`
+(stripe requirement + the two stripe-cli `SANDBOX_REQUIREMENTS` entries); remove the orphaned OAuth +
+Stripe-CLI step blocks in step defs `018/002/005/006/008/020/025/026` (KEEP 018's token-paste); fix
+`tests/honesty.test.ts` + `tests/env-file.test.ts` Stripe refs. Verify `021/012/shared.steps`
+"browser/127.0.0.1" hits per-file (likely incidental — leave if so).
+
+**Backstop gap (why this needs a manual sweep):** `noUnusedLocals` is OFF and cucumber does not flag
+orphaned step definitions, so dead code/steps fail no check automatically. Feature 026 catches only
+forbidden doubles. *Recommendation: turn on `noUnusedLocals` so dangling imports fail typecheck —
+flag to dk (a tooling/`tsconfig` change, not spec work).* Do NOT add a "no stale terms" grep test —
+that would be a self-defeating absence assertion ([[no-self-defeating-absence-assertions]]).
+
+**Done-criterion (Captain verifies after the cycle):** the Bosun audit greps return EMPTY across
+`src/` + verification (no `oauth|keycloak|pkce|loginBrowser|loopback|5375|@stripe/cli|readStripeCli|
+commandCreateStripe|JOLLY_STRIPE`, and `auth.saleor.io`/`127.0.0.1` gone from `hosts.ts`), keeping
+only the legitimate token-paste (`promptForToken`) and Stripe-app (`installStripeApp`) code; AND
+`cucumber-js --dry-run` shows 0 undefined; AND `-p logic` green; AND feature 026 green.
 - **Design (agreed with dk before speccing).** It is an ADDITIVE fifth token source, not a
   replacement: when `jolly login` runs with an interactive TTY and no token source is given, it
   prompts the human to paste the token, reads it from the controlling TTY with echo OFF, then runs
