@@ -92,6 +92,7 @@ interface RiskContext {
 }
 
 interface Envelope {
+  tool: string;
   command: string;
   status: EnvelopeStatus;
   summary: string;
@@ -169,6 +170,9 @@ function envelope(
   partial: Partial<Envelope> & { command: string; status: EnvelopeStatus; summary: string },
 ): Envelope {
   return {
+    // The Jolly package name, on every command's output: @dk/jolly is the only
+    // name for the Jolly tool (feature 006 Rule "Thin command surface").
+    tool: "@dk/jolly",
     command: partial.command,
     status: partial.status,
     summary: partial.summary,

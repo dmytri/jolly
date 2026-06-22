@@ -515,3 +515,49 @@ Then(
     );
   },
 );
+
+// --- Scenario Outline: Command output names only the @dk/jolly package ------
+// @property invariant: a command's output names the Jolly package as `@dk/jolly`
+// and never presents another package as the Jolly tool or an official product.
+// The official CLIs Jolly delegates to (`@saleor/configurator`, `vercel`, `git`,
+// `pnpm`) MAY appear, but only as the delegated tools the agent runs — so the
+// only SCOPED npm package the output may name is `@dk/jolly` or the delegated
+// `@saleor/configurator`; any other `@scope/name` is a substitute presented as
+// Jolly/official, the violation this guards. The `jolly start --json` example
+// reuses the When at the top of this file; `jolly --help` runs here. Credentials
+// unset so no path reaches a real account.
+
+When("the agent runs `jolly --help`", function (this: JollyWorld) {
+  this.runCli(["--help"], { env: absentCredentialsEnv() });
+});
+
+Then(
+  "the output should name the Jolly package as `@dk\\/jolly`",
+  function (this: JollyWorld) {
+    const out = this.lastRun!.stdout + this.lastRun!.stderr;
+    assert.ok(
+      out.includes("@dk/jolly"),
+      `output must name the Jolly package as @dk/jolly; got:\n${out}`,
+    );
+  },
+);
+
+Then(
+  "the only package it presents as the Jolly tool or an official product is `@dk\\/jolly`, with the official CLIs Jolly spawns \\(`@saleor\\/configurator`, `vercel`, `git`, `pnpm`) named only as the delegated tools the agent runs",
+  function (this: JollyWorld) {
+    const out = this.lastRun!.stdout + this.lastRun!.stderr;
+    const allowed = new Set(["@dk/jolly", "@saleor/configurator"]);
+    const scoped = out.match(/@[a-z0-9-]+\/[a-z0-9-]+/g) ?? [];
+    const offenders = [...new Set(scoped)].filter((p) => !allowed.has(p));
+    assert.deepEqual(
+      offenders,
+      [],
+      `output may present only @dk/jolly (and the delegated @saleor/configurator); ` +
+        `found substitute package(s): ${offenders.join(", ")}\noutput:\n${out}`,
+    );
+    assert.ok(
+      out.includes("@dk/jolly"),
+      `@dk/jolly must be the package presented as the Jolly tool; got:\n${out}`,
+    );
+  },
+);
