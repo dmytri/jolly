@@ -71,18 +71,45 @@ Feature: Human-facing interactive CLI experience
     And the error should name the supported commands login, logout, auth status, init, start, doctor, upgrade, skills, create, and completion
 
   @logic
+  Scenario: An unsupported flag fails clearly on the agent path, never silently ignored
+    When the agent runs `jolly start --frobnicate --json`
+    Then the envelope status should be "error" with a stable `code`
+    And the error should name the unsupported flag `--frobnicate`
+
+  @logic
   Scenario: Shell completion emits a script naming the command surface
     When the agent runs `jolly completion bash`
     Then stdout should contain a shell completion script for the `jolly` command
     And the script should reference the supported commands login, logout, init, start, doctor, upgrade, skills, and create
 
   Rule: Typed arguments and shell completion
-    - Argument parsing is built on Bombshell (`@bomb.sh/args`): flags are typed and an
-      unsupported command or flag fails with a clear error naming the supported surface,
-      rather than being silently accepted.
+    - Argument parsing for every `jolly` invocation — agent and human alike — runs through a
+      single Bombshell (`@bomb.sh/args`) typed parser; Jolly keeps no second, hand-rolled
+      parse path. Flags are typed, and an unsupported command or flag fails with a clear error
+      naming the supported surface rather than being silently accepted. On the agent path
+      (default, `--json`, `--yes`, non-TTY) the Bombshell parser yields the identical feature
+      020 envelope and accepts the identical flag surface the agent uses today — so "the agent
+      path is unchanged" means its observable behaviour is unchanged, reached through Bombshell,
+      not that the agent keeps a different parser.
     - Shell completion is built on Bombshell (`@bomb.sh/tab`): `jolly completion <shell>`
       prints a completion script the user sources, and at completion time the shell invokes
       `jolly complete -- <words>` to receive candidate completions for the command surface.
     - `completion` is the single command exempt from the feature 020 `--json` envelope: its
       output is a shell script consumed by `source`, not a JSON envelope. It still supports
       `--help`.
+
+  Rule: Bombshell is the single CLI plumbing — no redundant hand-rolled implementation
+    - Bombshell is the single mechanism for every CLI concern it can serve: argument parsing
+      (`@bomb.sh/args`), interactive prompts, confirmations, and masked secret entry
+      (`@clack/prompts`), any progress spinner shown (`@clack/prompts`), and shell completion
+      (`@bomb.sh/tab`). Jolly carries no redundant hand-rolled implementation of a capability one
+      of these Bombshell packages provides: there is exactly one implementation per concern, and
+      it is the Bombshell one. This is a cross-cutting conformance invariant, in the family of
+      feature 026's "no forbidden double".
+
+  @logic @property
+  Scenario: Every Bombshell-capable CLI concern is served by Bombshell, with no redundant implementation
+    Given Jolly's production source for the published CLI
+    Then argument parsing is served by `@bomb.sh/args` as the only argument parser
+    And every interactive prompt, confirmation, and masked secret entry is served by `@clack/prompts` as the only terminal-prompt mechanism
+    And shell completion is served by `@bomb.sh/tab` as the only completion-script generator

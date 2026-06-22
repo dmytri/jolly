@@ -57,8 +57,14 @@ double" so a green suite carrying a fake fails there.
   be inferred/defaulted (001/012). The layer is **purely additive**: `--json`, `--yes`, and non-TTY are
   byte-for-byte the agent path (020 firewall holds). Side-effecting stages get a default-proceed confirm
   (human analogue of 021's riskContext); declining stops honestly, no fabrication. Also adopted:
-  `@bomb.sh/args` (typed parse; unsupported command/flag errors clearly) and `@bomb.sh/tab` (`jolly
-  completion <shell>` script — the one command exempt from the 020 envelope). All bundled into
+  `@bomb.sh/args` as the single typed argument parser for EVERY invocation — agent and human alike
+  (unsupported command/flag errors clearly rather than silently accepted; "agent path unchanged" means
+  observable behaviour, reached through Bombshell, not a second parser) — and `@bomb.sh/tab` (`jolly
+  completion <shell>` script — the one command exempt from the 020 envelope). **Design law: everything
+  Bombshell can serve, Bombshell serves — args (`@bomb.sh/args`), prompts/confirms/masked-entry/spinners
+  (`@clack/prompts`), completion (`@bomb.sh/tab`) — with no redundant hand-rolled plumbing, one
+  implementation per concern, enforced by a `@property` conformance scenario in the family of 026's
+  no-forbidden-double.** All bundled into
   `dist/index.js` so `npx @dk/jolly` stays self-contained. `jolly login`'s interactive token paste
   (018) moves onto the **same** `@clack/prompts` masked password prompt, so every human prompt shares one
   Bombshell stack — full Bombshell human UX, no duplicate prompt mechanism, agent path (token via
