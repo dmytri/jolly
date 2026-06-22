@@ -331,6 +331,7 @@ products:
 # A featured collection for Paper's storefront merchandising.
 collections:
   - name: "Crew Favorites"
+    description: "What every well-equipped pirate carries aboard."
     # Paper's homepage renders the collection with slug `featured-products`
     # (src/lib/catalog/get-featured-products.ts). Keep this slug so the storefront
     # home page shows products out of the box.

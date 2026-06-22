@@ -58,9 +58,11 @@ strip OAuth (~400 lines) + all Stripe-CLI code (`readStripeCliKeys`, `create str
 `stripe-cli-trace.ts`, `JOLLY_STRIPE_*` in creds-env/eval/sandbox/step-defs/src) + the
 `auth.saleor.io`/`127.0.0.1` host-allowlist entries; make `jolly start` run the Vercel device flow
 and surface the URL; add `stripe-best-practices` to the installed set; implement the graduated
-006/007/009/017; helper-refactor (error-fmt, cred-resolver, check/envelope builders). Still to
-author (Captain): 002/004 continue-ready-repo + unmodified-Paper + Vercel-surfaces-URL scenarios;
-recipe.yml collection description + image optimization.
+006/007/009/017; helper-refactor (error-fmt, cred-resolver, check/envelope builders). Captain
+authoring COMPLETE: 002 continue-ready-repo scenario added (unmodified-Paper already at 002:94;
+Vercel-surfaces-URL clause added to the deploy preview); recipe.yml collection description added;
+recipe product images optimized (20M → 8.1M, resized to 1024px). The CODE cycle is the only
+remaining work.
 - **Design (agreed with dk before speccing).** It is an ADDITIVE fifth token source, not a
   replacement: when `jolly login` runs with an interactive TTY and no token source is given, it
   prompts the human to paste the token, reads it from the controlling TTY with echo OFF, then runs

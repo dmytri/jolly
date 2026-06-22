@@ -94,6 +94,15 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And it should leave Paper's source and theme files unmodified after the clone and install
 
   @sandbox
+  Scenario: Jolly start leaves a continue-ready storefront repo in the working directory
+    Given Saleor connectivity has been verified and the starter recipe deployed
+    When `jolly start` has prepared and configured the storefront
+    Then the working directory should contain a `storefront` directory holding the cloned Paper project, including its `package.json` and `src/`
+    And the `storefront` directory should be a fresh git repository, with the upstream `.git` removed and a new one initialized
+    And the `storefront` directory should contain `saleor-config.yml` holding the starter recipe that was deployed
+    And the storefront `.env` should set `NEXT_PUBLIC_SALEOR_API_URL` to the store's GraphQL endpoint and `NEXT_PUBLIC_DEFAULT_CHANNEL=us`
+
+  @sandbox
   Scenario: Jolly start lets Paper's native dependencies run their build scripts so the Vercel build succeeds
     Given Jolly has cloned and installed the Paper storefront
     When `jolly start` prepares the storefront for the Vercel deploy
@@ -151,6 +160,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     When the agent runs `jolly start --dry-run --json`
     Then the plan should include a deploy step that spawns the official Vercel CLI `npx vercel`
     And the preview should state Jolly holds no Vercel token and sends no request to api.vercel.com
+    And the preview should state that Jolly performs the Vercel sign-in itself, surfacing the verification URL for the human to approve in a browser
     And the deploy step should carry a riskContext for a live Vercel deployment
     And the preview should not spawn the Vercel CLI or deploy anything
 
