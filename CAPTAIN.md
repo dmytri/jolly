@@ -163,14 +163,17 @@ stand. Homepage **not** redeployed (CLI-internals release; homepage unchanged si
   actually performed and confirmed; unimplemented paths error honestly (features 014/018/020).
 - **Empower, don't replace, the agent:** Jolly does deterministic plumbing and orchestrates the official
   CLIs; the customer's agent approves risk, completes human gates, and owns the store after setup.
-- **Audience:** AI agents/skills are the primary consumers — they drive Jolly via the `--json`
-  machine envelope. The no-flag default presentation is human-friendly (020), but the agent path is
-  the structured envelope it opts into, not the default human text.
+- **Audience:** terminal users and AI agents are both first-class. Agents drive Jolly via the `--json`
+  machine envelope (their explicit opt-in); a human runs the same commands and gets the human-friendly
+  default presentation (020). Neither is "the" audience — the homepage offers both paths equally, agent
+  no longer assumed.
 
 ## Product identity
 
-- Name: Jolly. Tagline: "Ahoy, agent. Go build a store." A tool by Dmytri Kleiner to help an agent set
-  up a Saleor + Vercel + Stripe store fast — not an official product of Saleor, Vercel, or Stripe.
+- Name: Jolly. Tagline: "Ahoy. Go build a store." A CLI by Dmytri Kleiner to set up a Saleor + Vercel +
+  Stripe store fast — run it yourself from the terminal, or hand it to your AI agent — not an official
+  product of Saleor, Vercel, or Stripe. The pirate voice (Jolly / Ahoy / 🏴‍☠️) is brand charm, kept;
+  the homepage no longer *requires* an agent (agent-first hype dialled back to terminal-or-agent, equal).
 - Shape: homepage + thin CLI + Jolly skill + Saleor agent-skills.
 - **Launch bar:** homepage prompt → real deployed storefront → browsing/cart against Saleor Cloud →
   checkout reaches the Stripe test payment step, every claim verified, nothing fabricated.
