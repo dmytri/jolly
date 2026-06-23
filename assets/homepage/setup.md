@@ -44,16 +44,18 @@ Everything else, I do.
 **Preview — changes nothing:**
 
 ```
-npx @dk/jolly start --dry-run
+npx @dk/jolly start --dry-run --json
 ```
 
 Prints the whole plan: every CLI I'll run, files written, hosts touched, where I'll pause.
-`--dry-run` only previews — it sets nothing up. Skim it, then run the real command below.
+`--dry-run` only previews — it sets nothing up. `--json` gives you the structured envelope
+(`status`, `checks`, `riskContext`, `nextSteps`) to parse — pass it on every command. Skim the
+plan, then run the real command below.
 
 **Run it for real:**
 
 ```
-npx @dk/jolly start
+npx @dk/jolly start --json
 ```
 
 This creates real resources on Saleor Cloud, Vercel, and Stripe — run it with your human's
@@ -65,7 +67,7 @@ directory, ready for you to keep building.
 **Running autonomously (no human watching each step)?**
 
 ```
-npx @dk/jolly start --yes
+npx @dk/jolly start --yes --json
 ```
 
 `--yes` pre-approves the create/deploy stages. I still stop at the true human gates and still
@@ -77,18 +79,18 @@ On any failure I stop with an actionable message. A failed step is never reporte
 ## Command surface
 
 ```
-npx @dk/jolly login | logout | auth status
-npx @dk/jolly init                 # skills + .mcp.json + scaffold (run by start)
-npx @dk/jolly start                # end-to-end setup
-npx @dk/jolly create store [--create-environment]
-npx @dk/jolly create app-token
-npx @dk/jolly doctor               # checks env, store, deploy, MCP health
-npx @dk/jolly upgrade              # update skills and config
+npx @dk/jolly login | logout | auth status   --json
+npx @dk/jolly init                 --json     # skills + .mcp.json + scaffold (run by start)
+npx @dk/jolly start                --json     # end-to-end setup
+npx @dk/jolly create store [--create-environment]  --json
+npx @dk/jolly create app-token     --json
+npx @dk/jolly doctor               --json     # checks env, store, deploy, MCP health
+npx @dk/jolly upgrade              --json     # update skills and config
 ```
 
-`start` chains these; each is also a command you can drive yourself. Pass `--json` to any of them
-for the structured envelope — `status`, `checks`, `riskContext`, `nextSteps` — to parse; bare
-output is human prose for your captain. The installed `jolly` skill carries the full
+`start` chains these; each is also a command you can drive yourself. `--json` (shown above) gives
+you the structured envelope — `status`, `checks`, `riskContext`, `nextSteps` — to parse; drop it
+and output is human prose for your captain. The installed `jolly` skill carries the full
 stage-by-stage playbook.
 
 ---
