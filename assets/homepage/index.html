@@ -69,7 +69,9 @@
     .saleor-lockup svg path { fill: currentColor; }
     .saleor-lockup:hover { color: var(--cyan); }
     .saleor-lockup:hover svg { color: var(--cyan); }
-    .actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .75rem; align-items: stretch; margin-top: 1.45rem; max-width: 760px; }
+    .command-label { margin: 1.35rem 0 .45rem; color: var(--green); font-size: .72rem; text-transform: uppercase; letter-spacing: .12em; }
+    .command-label[hidden] { display: none; }
+    .actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .75rem; align-items: stretch; max-width: 760px; }
     .command { min-width: 0; border: 1px solid rgba(82,255,143,.38); background: rgba(82,255,143,.055); color: var(--text); padding: .85rem 1rem; overflow: auto; white-space: nowrap; box-shadow: 5px 5px 0 rgba(0,0,0,.35); }
     .command::before { content: '$ '; color: var(--pink); }
     .copy { cursor: pointer; border: 1px solid var(--yellow); background: var(--yellow); color: var(--bg); padding: 0 1.1rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; box-shadow: 5px 5px 0 var(--pink); }
@@ -121,6 +123,8 @@
         </svg>
       </a>
 
+      <div class="command-label" id="agentLabel">Paste this to your agent</div>
+      <div class="command-label" id="terminalLabel" hidden>Run this in your terminal</div>
       <div class="actions">
         <span class="command terminal-command" id="terminalCommand" hidden>npx @dk/jolly start</span>
         <span class="command agent-command" id="agentCommand">Read https://jolly.cool/setup and follow the instructions to set up a Saleor store</span>
@@ -160,9 +164,13 @@
     function setMode(mode, updateHash = true) {
       const terminal = document.getElementById('terminalCommand');
       const agent = document.getElementById('agentCommand');
+      const terminalLabel = document.getElementById('terminalLabel');
+      const agentLabel = document.getElementById('agentLabel');
       const isTerminal = mode === 'terminal';
       agent.hidden = isTerminal;
       terminal.hidden = !isTerminal;
+      agentLabel.hidden = isTerminal;
+      terminalLabel.hidden = !isTerminal;
       document.getElementById('modeText').textContent = isTerminal ? 'Terminal mode.' : 'Agent mode.';
       document.getElementById('modeToggle').textContent = isTerminal ? 'Use with an agent instead.' : 'Use terminal command instead.';
       if (updateHash) history.replaceState(null, '', isTerminal ? '#terminal' : '#agent');
