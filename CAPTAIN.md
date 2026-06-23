@@ -96,6 +96,31 @@ double" so a green suite carrying a fake fails there.
   default** — a secret cannot be inferred — so Enter does not auto-advance it; this is the intended
   secret-entry exception to the "every prompt defaults" rule (056), shared with `jolly login` (018).
 
+- **Homepage offers Agent + Terminal modes (current iteration — asset updated, specs reconciled,
+  not yet redeployed).** The jolly.cool hero install area is now a two-tab copybox switcher (default
+  **Agent**): the Agent tab keeps the existing paste-to-agent copybox with the agent badges below it;
+  the **Terminal** tab shows `npx @dk/jolly start` (same copybox style + copy-button), agent badges
+  hidden. Hero microcopy: "Use Jolly with your coding agent, or run the setup directly from your
+  terminal." Only one copybox shows at a time. Agent-first stays the headline/default; terminal-run
+  is now an **offered** entry mode, not merely a failure fallback (002 rule "Human-runnable
+  `jolly start` is an offered entry mode" reconciled; the stale "homepage copy box is unchanged"
+  narration removed). Homepage stays a human-authored asset (001) — not specced/tested. **Considered
+  and dropped:** making `jolly init` an alias for `jolly start` — it reverses 007's bootstrap-only
+  contract and makes `start` call itself, so `init` stays bootstrap-only (007 unchanged) and the
+  terminal entry command is `jolly start`.
+- **Resumable-stage output continuity (current iteration — specced, not yet built).** Fixes a real
+  agent confusion: an agent ran standalone `jolly create store` (CLI printed "Store created
+  successfully ✅"), then ran `jolly start`, which re-presented the already-done store as a *pending
+  approval gate* with no "already configured" acknowledgement. The contradiction between the CLI's own
+  success output and its later gate pushed the agent to reach for `--yes` — bypassing the supervision
+  gates. The CLI's `summary`/`nextSteps` ARE the agent's instructions, so the fix is in the copy/
+  contract: (008) a completed `create` subcommand's `nextSteps` point back to `jolly start` and state
+  it recognizes the work rather than redoing it; (022) a resumable stage presents a 021 approval
+  riskContext only for work it would actually perform this run, and announces an already-satisfied
+  stage as satisfied — never re-gates it. New @logic scenarios (008, 022) likely RED until Crew makes
+  the store stage suppress the gate + announce the skip. The composed standalone→`start` path is the
+  unverified `@sandbox` surface (open watch #1) this defect rode in on.
+
 ## Shipped
 
 Through **v0.9.2** (`main`+tag on GitHub, `@dk/jolly` on npm; homepage last redeployed at v0.8.0, unchanged since):

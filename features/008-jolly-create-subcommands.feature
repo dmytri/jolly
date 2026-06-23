@@ -88,6 +88,13 @@ Feature: Jolly create subcommands
     And nextSteps should name freeing a sandbox environment and upgrading the plan as recovery options
     And it should not report a created or stored environment
 
+  @logic
+  Scenario: A completed create subcommand points back to jolly start to continue
+    When the agent runs `jolly create store --url https://example.saleor.cloud --json`
+    Then the envelope status should be "success"
+    And nextSteps should include a step whose command is `jolly start`
+    And that step should state that `jolly start` continues the end-to-end setup and recognizes the stored store rather than redoing it (feature 022)
+
   Rule: No fabricated create results
     - This Rule applies feature 020's "No fabricated success" contract to every `jolly create` subcommand.
     - A create subcommand reports success and `pass` checks only for resources it actually created, or work it actually performed and confirmed, during the run.

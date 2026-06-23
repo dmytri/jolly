@@ -229,13 +229,63 @@
       border-color: var(--neon-green);
     }
 
+    /* ── Install area (mode switcher) ── */
+    .install-area {
+      margin-bottom: 3.5rem;
+    }
+
+    .install-intro {
+      text-align: center;
+      font-size: 0.95rem;
+      color: var(--text-dim);
+      max-width: 600px;
+      margin: 0 auto 1.25rem;
+    }
+
+    .install-tabs {
+      display: flex;
+      justify-content: center;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .install-tab {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      border-radius: 6px;
+      padding: 0.4rem 1.1rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .install-tab:hover {
+      border-color: var(--accent-gold);
+      color: var(--text);
+    }
+
+    .install-tab.active {
+      background: var(--accent-gold);
+      color: var(--bg);
+      border-color: var(--accent-gold);
+    }
+
+    .install-panel[hidden] {
+      display: none;
+    }
+
     /* ── Agent badges ── */
     .agent-badges {
       display: flex;
       flex-wrap: wrap;
       justify-content: center;
       gap: 0.5rem;
-      margin-bottom: 3.5rem;
+      margin-top: 1rem;
+      margin-bottom: 0;
     }
 
     .agent-badge {
@@ -341,27 +391,45 @@
       </p>
     </section>
 
-    <!-- Copy box -->
-    <div class="copy-box-wrapper">
-      <div class="copy-box-label">📋 copy this to your agent to get started</div>
-      <div class="copy-box" id="copyBox">
-        <span class="copy-box-text" id="copyText">
-          Read https://jolly.cool/setup and follow the instructions to set up a Saleor store
-        </span>
-        <button class="copy-button" id="copyButton" onclick="copyPrompt()">
-          📋 Copy
-        </button>
-      </div>
-    </div>
+    <!-- Install area -->
+    <div class="install-area">
+      <p class="install-intro">Use Jolly with your coding agent, or run the setup directly from your terminal.</p>
 
-    <!-- Supported agents -->
-    <div class="agent-badges">
-      <span class="agent-badge">generic agents</span>
-      <span class="agent-badge">Zed</span>
-      <span class="agent-badge">Claude Code</span>
-      <span class="agent-badge">Cursor</span>
-      <span class="agent-badge">OpenCode</span>
-      <span class="agent-badge">Pi.dev</span>
+      <div class="install-tabs" role="tablist">
+        <button class="install-tab active" id="tabAgent" role="tab" aria-selected="true" onclick="selectMode('agent')">Agent</button>
+        <button class="install-tab" id="tabTerminal" role="tab" aria-selected="false" onclick="selectMode('terminal')">Terminal</button>
+      </div>
+
+      <!-- Agent mode -->
+      <div class="install-panel" id="panelAgent">
+        <div class="copy-box-wrapper">
+          <div class="copy-box-label">📋 copy this to your agent to get started</div>
+          <div class="copy-box">
+            <span class="copy-box-text">Read https://jolly.cool/setup and follow the instructions to set up a Saleor store</span>
+            <button class="copy-button" onclick="copyFrom(this)">📋 Copy</button>
+          </div>
+        </div>
+        <!-- Supported agents -->
+        <div class="agent-badges">
+          <span class="agent-badge">generic agents</span>
+          <span class="agent-badge">Zed</span>
+          <span class="agent-badge">Claude Code</span>
+          <span class="agent-badge">Cursor</span>
+          <span class="agent-badge">OpenCode</span>
+          <span class="agent-badge">Pi.dev</span>
+        </div>
+      </div>
+
+      <!-- Terminal mode -->
+      <div class="install-panel" id="panelTerminal" hidden>
+        <div class="copy-box-wrapper">
+          <div class="copy-box-label">📋 run this in your terminal</div>
+          <div class="copy-box">
+            <span class="copy-box-text">npx @dk/jolly start</span>
+            <button class="copy-button" onclick="copyFrom(this)">📋 Copy</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Flow section -->
@@ -403,18 +471,31 @@
   </div>
 
   <script>
-    function copyPrompt() {
-      const text = document.getElementById('copyText').textContent.trim();
-      const button = document.getElementById('copyButton');
+    function selectMode(mode) {
+      const isAgent = mode === 'agent';
+      document.getElementById('panelAgent').hidden = !isAgent;
+      document.getElementById('panelTerminal').hidden = isAgent;
+      const tabAgent = document.getElementById('tabAgent');
+      const tabTerminal = document.getElementById('tabTerminal');
+      tabAgent.classList.toggle('active', isAgent);
+      tabTerminal.classList.toggle('active', !isAgent);
+      tabAgent.setAttribute('aria-selected', String(isAgent));
+      tabTerminal.setAttribute('aria-selected', String(!isAgent));
+    }
 
-      navigator.clipboard.writeText(text).then(() => {
-        button.textContent = '✓ Copied!';
-        button.classList.add('copied');
-        setTimeout(() => {
-          button.textContent = '📋 Copy';
-          button.classList.remove('copied');
-        }, 2000);
-      }).catch(() => {
+    function markCopied(button) {
+      button.textContent = '✓ Copied!';
+      button.classList.add('copied');
+      setTimeout(() => {
+        button.textContent = '📋 Copy';
+        button.classList.remove('copied');
+      }, 2000);
+    }
+
+    function copyFrom(button) {
+      const text = button.closest('.copy-box').querySelector('.copy-box-text').textContent.trim();
+
+      navigator.clipboard.writeText(text).then(() => markCopied(button)).catch(() => {
         // Fallback
         const textarea = document.createElement('textarea');
         textarea.value = text;
@@ -422,12 +503,7 @@
         textarea.select();
         document.execCommand('copy');
         document.body.removeChild(textarea);
-        button.textContent = '✓ Copied!';
-        button.classList.add('copied');
-        setTimeout(() => {
-          button.textContent = '📋 Copy';
-          button.classList.remove('copied');
-        }, 2000);
+        markCopied(button);
       });
     }
   </script>

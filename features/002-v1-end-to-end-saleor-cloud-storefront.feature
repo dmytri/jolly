@@ -176,12 +176,12 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
       command(s), target directory/template, and the Vercel invariants, performing no work and
       spawning nothing; the dry-run riskContext is deep-equal to the real-run stage's (021).
 
-  Rule: Human-runnable `jolly start` is the backup path
+  Rule: Human-runnable `jolly start` is an offered entry mode
     - The full mechanical chain makes `jolly start` runnable end-to-end by a HUMAN in a plain
       shell — the natural way to clear the irreducibly-interactive gates (account creation, the
       Vercel sign-in `vercel login`) that a non-TTY agent cannot pass via stdio passthrough.
-    - The headline entry point stays paste-to-agent (the homepage copy box is unchanged); human-run is
-      a FALLBACK, not a co-equal entry point.
+    - Agent-first stays primary; running `jolly start` directly in a terminal is a supported,
+      offered entry mode, not merely a failure fallback. Its interactive experience is feature 027.
     - When the agent cannot or will not complete `jolly start` — it refuses, or a stage fails, or it
       reaches an interactive CLI gate it cannot complete in a non-TTY context — Jolly's feature 020
       output and the Jolly skill direct the agent to ask the human to run `jolly start` in a shell,

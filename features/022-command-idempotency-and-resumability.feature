@@ -42,6 +42,14 @@ Feature: Command idempotency and resumability
     When the agent later runs `jolly start`
     Then `jolly start` should treat the work done by those subcommands as already satisfied
     And it should not redo or duplicate that work
+    And it should report those stages as already satisfied rather than presenting them as pending approval
+
+  @logic
+  Scenario: jolly start does not re-gate a stage whose work is already done
+    Given `NEXT_PUBLIC_SALEOR_API_URL` is already configured in the project `.env` from an earlier `jolly create store`
+    When the agent runs `jolly start --dry-run --json`
+    Then the `store` stage should present no approval riskContext, because no store would be created this run
+    And the summary should name the store stage as already satisfied, not pending approval
 
   @logic
   Scenario: Collisions pause instead of overwriting
@@ -55,6 +63,8 @@ Feature: Command idempotency and resumability
     - Re-running any `jolly create` subcommand or `jolly start` should be safe and should not create duplicates.
     - Commands should detect already-completed work and report detected state rather than erroring on "already exists".
     - `jolly start` should be resumable, skipping satisfied stages and continuing from the first incomplete one.
+    - A resumable stage presents a feature 021 approval riskContext only for work it would actually perform this run; an already-satisfied stage is announced as satisfied in the envelope, never re-presented as a pending approval gate. Re-gating completed work misreads as "redo this" and is what drives an agent to over-approve.
+    - A completed stage or subcommand should point the agent back to `jolly start` to continue, stating that `start` recognizes the work and resumes rather than redoing it — so running a stage standalone and then `jolly start` composes without contradiction.
     - Work done by individual subcommands and by `jolly start` should be mutually recognized as the same state.
     - Completed work includes observable state from official CLIs (a cloned storefront directory, a configured store, a Vercel deployment); `jolly doctor` and `jolly start` detect it from artifacts so setup resumes without redoing it. Detection stays simple for v1 — observe the obvious artifacts; deeper detection iterates later.
     - This generalizes feature 007's "init is safe to rerun" and feature 002's storefront directory collision handling to all create and start stages.
