@@ -813,6 +813,20 @@ Then(
 );
 
 Then(
+  "the token prompt should render with Bombshell's interactive prompt UI",
+  function (this: JollyWorld) {
+    // The masked-secret entry is served by Bombshell (@clack/prompts), which
+    // renders with box-drawing/symbol glyphs the plain readline prompt never
+    // emitted. Their presence in the terminal output is the falsifiable signal
+    // that the Bombshell prompt UI rendered.
+    assert.ok(
+      /[│┌└◆◇●○▪]/u.test(this.lastRun!.stdout),
+      `the token prompt must render with Bombshell's prompt UI; got: ${this.lastRun!.stdout}`,
+    );
+  },
+);
+
+Then(
   "the terminal output should not contain the pasted token value",
   function (this: JollyWorld) {
     const token = String(this.notes.loginToken);

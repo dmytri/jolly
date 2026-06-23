@@ -52,6 +52,19 @@ import {
 } from "./lib/cloud-api.ts";
 import { loadEnvValues, writeEnvValues } from "./lib/env-file.ts";
 import { normalizeSaleorUrl } from "./lib/saleor-url.ts";
+import { parse as parseBombArgs } from "@bomb.sh/args";
+import { runCompletion } from "./lib/completion.ts";
+import {
+  intro as clackIntro,
+  outro as clackOutro,
+  text as clackText,
+  password as clackPassword,
+  confirm as clackConfirm,
+  select as clackSelect,
+  note as clackNote,
+  log as clackLog,
+  isCancel as clackIsCancel,
+} from "@clack/prompts";
 
 // ─── Envelope types (mirror features/support/envelope.ts) ─────────────────
 
@@ -113,10 +126,19 @@ interface ParsedArgs {
   help: boolean;
   options: Record<string, string>;
   flags: Set<string>;
+  /** Flags outside the supported surface — rejected, never silently ignored. */
+  unknownFlags: string[];
 }
 
-// Flags that take a value (so `--name foo` consumes `foo`).
-const VALUE_FLAGS = new Set([
+// The flag surface every `jolly` invocation may carry. Argument parsing for
+// every invocation — agent and human alike — runs through the single Bombshell
+// (@bomb.sh/args) typed parser (feature 027); Jolly keeps no second hand-rolled
+// parse path. Global boolean flags map to the top-level fields; the extra
+// boolean flags and the value flags feed `flags`/`options`. Any flag outside
+// this surface is unsupported and is rejected, never silently ignored.
+const GLOBAL_BOOLEAN_FLAGS = ["json", "quiet", "yes", "dry-run", "help"] as const;
+const EXTRA_BOOLEAN_FLAGS = ["create-environment", "token-stdin", "full-validation"] as const;
+const VALUE_FLAGS = [
   "token",
   "token-file",
   "url",
@@ -127,41 +149,65 @@ const VALUE_FLAGS = new Set([
   "mock-organizations",
   "publishable-key",
   "secret-key",
+] as const;
+// Short aliases resolve to their long flag name before classification.
+const FLAG_ALIASES: Record<string, string> = { y: "yes", h: "help" };
+const KNOWN_FLAGS = new Set<string>([
+  ...GLOBAL_BOOLEAN_FLAGS,
+  ...EXTRA_BOOLEAN_FLAGS,
+  ...VALUE_FLAGS,
 ]);
 
 function parseArgs(argv: string[]): ParsedArgs {
-  const positionals: string[] = [];
+  const parsed = parseBombArgs(argv, {
+    boolean: [...GLOBAL_BOOLEAN_FLAGS, ...EXTRA_BOOLEAN_FLAGS],
+    string: [...VALUE_FLAGS],
+    alias: { yes: "y", help: "h" },
+  });
+
+  const positionals = parsed._.map((p) => String(p));
   const options: Record<string, string> = {};
   const flags = new Set<string>();
+  const unknownFlags: string[] = [];
   let json = false;
   let quiet = false;
   let yes = false;
   let dryRun = false;
   let help = false;
 
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === "--json") json = true;
-    else if (arg === "--quiet") quiet = true;
-    else if (arg === "--yes" || arg === "-y") yes = true;
-    else if (arg === "--dry-run") dryRun = true;
-    else if (arg === "--help" || arg === "-h") help = true;
-    else if (arg.startsWith("--")) {
-      const body = arg.slice(2);
-      const eq = body.indexOf("=");
-      if (eq >= 0) {
-        options[body.slice(0, eq)] = body.slice(eq + 1);
-      } else if (VALUE_FLAGS.has(body) && i + 1 < argv.length && !argv[i + 1].startsWith("-")) {
-        options[body] = argv[++i];
-      } else {
-        flags.add(body);
-      }
-    } else {
-      positionals.push(arg);
+  for (const [rawKey, value] of Object.entries(parsed)) {
+    if (rawKey === "_") continue;
+    const key = FLAG_ALIASES[rawKey] ?? rawKey;
+    if (!KNOWN_FLAGS.has(key)) {
+      unknownFlags.push(`--${rawKey}`);
+      continue;
+    }
+    switch (key) {
+      case "json":
+        json = true;
+        break;
+      case "quiet":
+        quiet = true;
+        break;
+      case "yes":
+        yes = true;
+        break;
+      case "dry-run":
+        dryRun = true;
+        break;
+      case "help":
+        help = true;
+        break;
+      default:
+        if ((VALUE_FLAGS as readonly string[]).includes(key)) {
+          options[key] = String(value);
+        } else {
+          flags.add(key);
+        }
     }
   }
 
-  return { positionals, json, quiet, yes, dryRun, help, options, flags };
+  return { positionals, json, quiet, yes, dryRun, help, options, flags, unknownFlags };
 }
 
 // ─── Envelope construction helpers ────────────────────────────────────────
@@ -318,35 +364,17 @@ function loginRiskContext(dryRunAvailable = true): RiskContext {
   };
 }
 
-// Prompt the interactive user to paste their Cloud token and read it from the
-// controlling terminal with echo disabled, so the secret never appears on the
-// terminal. The lowest-precedence token source, used only when no explicit
-// source supplied one and stdin is a TTY.
-function promptForToken(): Promise<string> {
-  return new Promise((resolve) => {
-    const stdin = process.stdin;
-    process.stderr.write("Paste your Saleor Cloud token: ");
-    const wasRaw = stdin.isRaw;
-    let buf = "";
-    stdin.setEncoding("utf8");
-    if (stdin.setRawMode) stdin.setRawMode(true);
-    stdin.resume();
-    const onData = (chunk: string): void => {
-      for (const ch of chunk) {
-        if (ch === "\n" || ch === "\r" || ch === "\u0004") {
-          stdin.removeListener("data", onData);
-          if (stdin.setRawMode) stdin.setRawMode(wasRaw ?? false);
-          stdin.pause();
-          process.stderr.write("\n");
-          resolve(buf.trim());
-          return;
-        }
-        if (ch === "\u0003") process.exit(130); // Ctrl-C
-        buf += ch;
-      }
-    };
-    stdin.on("data", onData);
+// Prompt the interactive user to paste their Cloud token, served by Bombshell's
+// masked-secret entry (@clack/prompts password) — the single terminal-prompt
+// mechanism (feature 027). The mask keeps the secret off the terminal. The
+// lowest-precedence token source, used only when no explicit source supplied one
+// and stdin is a TTY.
+async function promptForToken(): Promise<string> {
+  const value = await clackPassword({
+    message: "Paste your Saleor Cloud token",
   });
+  if (clackIsCancel(value)) process.exit(130); // Ctrl-C
+  return String(value).trim();
 }
 
 async function commandLogin(args: ParsedArgs): Promise<Envelope> {
@@ -3025,9 +3053,149 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
   return { status: "blocked" };
 }
 
-async function commandStart(args: ParsedArgs): Promise<Envelope> {
-  if (args.dryRun) return commandStartDryRun();
+// Sane defaults for the interactive prompts, so pressing Enter always advances
+// (feature 027). The storefront directory matches the storefront stage's clone
+// target; the environment name is a stable jolly-namespaced default.
+const DEFAULT_STOREFRONT_DIR = "storefront";
+const DEFAULT_ENV_NAME = "jolly-store";
 
+// Interactive discovery is TTY-gated and additive (feature 027): it runs only
+// when stdin AND stdout are an interactive terminal and neither --json nor
+// --yes/-y is set. With --json, --yes, or no TTY (the agent-driven subprocess),
+// `jolly start` behaves exactly as the agent-first command does — no prompt, no
+// blocking — so the agent path is unchanged.
+function shouldRunInteractive(args: ParsedArgs): boolean {
+  return Boolean(
+    process.stdin.isTTY && process.stdout.isTTY && !args.json && !args.yes,
+  );
+}
+
+// The organizations the configured token can reach, for the interactive org
+// choice. --mock-organizations injects a deterministic list for the @logic
+// scenarios (no network); otherwise the real Cloud API is queried, best-effort.
+async function resolveInteractiveOrgs(
+  args: ParsedArgs,
+): Promise<CloudOrganization[]> {
+  const mock = args.options["mock-organizations"];
+  if (mock !== undefined) {
+    const slugs = mock.length > 0 ? mock.split(",") : ["org-one", "org-two"];
+    return slugs.map((slug) => ({ slug: slug.trim() }));
+  }
+  const token =
+    args.options["token"] ??
+    loadEnvValues(projectDir())["JOLLY_SALEOR_CLOUD_TOKEN"] ??
+    process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
+  if (!token) return [];
+  try {
+    return await listOrganizations(token);
+  } catch {
+    return [];
+  }
+}
+
+// The human-facing interactive `jolly start` (feature 027). Walks the human
+// through only the decisions that cannot be safely inferred — each pre-filled
+// with a default so Enter advances — previews the plan, announces the
+// irreducible human gates, and confirms before any side-effecting stage. Built
+// on Bombshell (@clack/prompts). Declining stops honestly: it runs the core with
+// approval withheld, so downstream stages are pending/blocked, never fabricated.
+async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
+  clackIntro("jolly start — guided setup");
+
+  // Organization: prompt only when the token resolves more than one (feature
+  // 012). With exactly one, use it without asking.
+  const orgs = await resolveInteractiveOrgs(args);
+  const availableOrganizations = orgs.map((o) => o.slug);
+  let organization = args.options["organization"];
+  let organizationPrompted = false;
+  if (organization === undefined) {
+    if (orgs.length > 1) {
+      organizationPrompted = true;
+      const choice = await clackSelect({
+        message: "Choose the Saleor organization to use",
+        options: orgs.map((o) => ({ value: o.slug, label: o.slug })),
+        initialValue: orgs[0]!.slug,
+      });
+      if (clackIsCancel(choice)) return runStartCore({ ...args, yes: false });
+      organization = String(choice);
+    } else if (orgs.length === 1) {
+      organization = orgs[0]!.slug;
+      clackLog.info(`Using your only organization "${organization}".`);
+    }
+  }
+
+  // Environment name and storefront project directory, each pre-filled.
+  const envName = await clackText({
+    message: "Environment name",
+    placeholder: DEFAULT_ENV_NAME,
+    defaultValue: DEFAULT_ENV_NAME,
+  });
+  if (clackIsCancel(envName)) return runStartCore({ ...args, yes: false });
+  const projectDirectory = await clackText({
+    message: "Storefront project directory",
+    placeholder: DEFAULT_STOREFRONT_DIR,
+    defaultValue: DEFAULT_STOREFRONT_DIR,
+  });
+  if (clackIsCancel(projectDirectory)) return runStartCore({ ...args, yes: false });
+
+  // Preview the plan and announce the irreducible human gates Jolly cannot pass
+  // for the user (feature 027 Rule).
+  const plan = startPlan();
+  clackNote(
+    plan.map((s) => `${s.stage}: ${s.riskContext?.action ?? s.stage}`).join("\n"),
+    "Planned stages",
+  );
+  clackLog.info("Gate: you will sign in to Vercel yourself (`vercel login`).");
+  clackLog.info(
+    "Gate: you will finish the Stripe app setup in the Saleor Dashboard.",
+  );
+
+  const resolved = {
+    organization,
+    availableOrganizations,
+    organizationPrompted,
+    environmentName: String(envName),
+    projectDir: String(projectDirectory),
+  };
+
+  if (args.dryRun) {
+    clackOutro("Previewed the plan. No files were written and no changes were made.");
+    const preview = commandStartDryRun();
+    return { ...preview, data: { ...preview.data, resolved } };
+  }
+
+  // Each side-effecting stage is confirmed before it runs; the default is to
+  // proceed, so Enter advances. Declining stops honestly.
+  const proceed = await clackConfirm({
+    message:
+      "Proceed with the side-effecting setup stages (store, storefront, recipe, deploy)?",
+    initialValue: true,
+  });
+  if (clackIsCancel(proceed) || proceed === false) {
+    clackOutro("Stopped before any side-effecting stage. Nothing was changed.");
+    return runStartCore({ ...args, yes: false });
+  }
+
+  clackOutro("Proceeding with setup.");
+  return runStartCore({
+    ...args,
+    yes: true,
+    options: {
+      ...args.options,
+      ...(organization ? { organization } : {}),
+      name: resolved.environmentName,
+      "domain-label": resolved.environmentName,
+    },
+  });
+}
+
+async function commandStart(args: ParsedArgs): Promise<Envelope> {
+  if (shouldRunInteractive(args)) return runInteractiveStart(args);
+  if (args.dryRun) return commandStartDryRun();
+  return runStartCore(args);
+}
+
+async function runStartCore(args: ParsedArgs): Promise<Envelope> {
   const command = "start";
 
   // Bootstrap: run init (real, on-disk) + run doctor (read-only). Never
@@ -3299,6 +3467,7 @@ function commandHelp(): Envelope {
         "skills",
         "create store",
         "create app-token",
+        "completion",
       ],
       globalFlags: ["--json", "--quiet", "--yes/-y", "--dry-run"],
     },
@@ -3373,14 +3542,43 @@ async function dispatch(args: ParsedArgs): Promise<Envelope> {
         {
           code: "UNKNOWN_COMMAND",
           message: `"${cmd}" is not a Jolly command.`,
-          remediation: "Run `jolly help` to list available commands.",
+          remediation:
+            "Supported commands: login, logout, auth status, init, start, " +
+            "doctor, upgrade, skills, create, completion. Run `jolly help` for details.",
         },
       ]);
   }
 }
 
 async function main(): Promise<void> {
+  const argv = process.argv.slice(2);
+
+  // `completion`/`complete` are exempt from the feature 020 envelope and from
+  // flag typing: their stdout is a shell script / candidate list (feature 027).
+  if (argv[0] === "completion" || argv[0] === "complete") {
+    process.exit(runCompletion(argv));
+  }
+
   const args = parseArgs(process.argv.slice(2));
+
+  // An unsupported flag fails clearly on every path, never silently ignored
+  // (feature 027). Named explicitly so the agent can correct it.
+  if (args.unknownFlags.length > 0) {
+    const bad = args.unknownFlags[0];
+    const env = errorEnvelope(
+      args.positionals[0] ?? "jolly",
+      `Unsupported flag ${bad}.`,
+      [
+        {
+          code: "UNSUPPORTED_FLAG",
+          message: `${bad} is not a recognized Jolly flag.`,
+          remediation: "Run `jolly <command> --help` to list the supported flags.",
+        },
+      ],
+    );
+    process.exit(emit(env, args));
+  }
+
   let env: Envelope;
   try {
     env = await dispatch(args);

@@ -343,7 +343,7 @@ When("the agent inspects `jolly --help`", function (this: JollyWorld) {
 });
 
 Then(
-  "it should list exactly the commands `login`, `logout`, `auth status`, `init`, `start`, `doctor`, `upgrade`, `skills`, and `create`",
+  "it should list exactly the commands `login`, `logout`, `auth status`, `init`, `start`, `doctor`, `upgrade`, `skills`, `create`, and `completion`",
   function (this: JollyWorld) {
     const expected = [
       "login",
@@ -355,6 +355,7 @@ Then(
       "upgrade",
       "skills",
       "create",
+      "completion",
     ];
     const data = this.envelope.data as { commands?: unknown };
     const listed = Array.isArray(data.commands) ? (data.commands as string[]) : [];

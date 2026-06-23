@@ -21,21 +21,38 @@
 # would see on the terminal is captured from the master and written verbatim to
 # this process's stdout. The driver itself prints nothing else. Exit code is the
 # child's.
+import fcntl
 import json
 import os
 import pty
 import select
+import struct
 import subprocess
 import sys
+import termios
 import time
 
 cfg = json.load(open(sys.argv[1]))
 argv = [cfg["runtime"], *cfg["argv"]]
-paste = (cfg["input"] + "\n").encode()
+# Two input modes. `input` (single string) pastes one line, newline appended —
+# the token-paste login path. `inputs` (list of strings) sends a scripted
+# sequence verbatim, one chunk per prompt with a delay between each — the
+# interactive `jolly start` walk-through (e.g. ["\r","\r","\r"] presses Enter at
+# every prompt; "n" declines a confirm). Each chunk is written exactly as given.
+if "inputs" in cfg:
+    sends = [chunk.encode() for chunk in cfg["inputs"]]
+else:
+    # Append a carriage return — the byte a real terminal sends for Enter, and
+    # the one raw-mode prompt readers (Bombshell/@clack/prompts) treat as submit.
+    sends = [(cfg["input"] + "\r").encode()]
 input_delay = cfg.get("inputDelayMs", 300) / 1000.0
 timeout = cfg.get("timeoutMs", 30000) / 1000.0
 
 master, slave = pty.openpty()
+# Give the PTY a real window size. Without it the terminal reports 0 columns and
+# full-screen prompt renderers (Bombshell/@clack/prompts) wrap after every
+# character, shattering the prompt text in the captured stream.
+fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
 child = subprocess.Popen(
     argv,
     stdin=slave,
@@ -47,12 +64,19 @@ child = subprocess.Popen(
 )
 os.close(slave)
 
-# Let the prompt appear, then paste the token as a human would.
-time.sleep(input_delay)
-try:
-    os.write(master, paste)
-except OSError:
-    pass
+# Drive the prompts as a human would: wait for each prompt to render, then send
+# the next scripted chunk. Reads draining between sends happen in the main loop;
+# here we only pace the writes. A write past child exit fails harmlessly.
+def feed_inputs():
+    for chunk in sends:
+        time.sleep(input_delay)
+        try:
+            os.write(master, chunk)
+        except OSError:
+            return
+
+import threading
+threading.Thread(target=feed_inputs, daemon=True).start()
 
 out = bytearray()
 deadline = time.time() + timeout

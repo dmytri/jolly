@@ -26,7 +26,14 @@ export interface PtyRunOptions {
   /** Full, resolved child environment (no undefined values). */
   env: Record<string, string>;
   /** The token "pasted" at the prompt; a trailing newline is added. */
-  input: string;
+  input?: string;
+  /**
+   * A scripted input sequence sent verbatim, one chunk per prompt with a delay
+   * between each (the interactive `jolly start` walk-through). Each chunk is
+   * written exactly as given — e.g. `"\r"` presses Enter, `"n"` declines a
+   * confirm. Mutually exclusive with `input`.
+   */
+  inputs?: string[];
   inputDelayMs?: number;
   timeoutMs?: number;
 }
