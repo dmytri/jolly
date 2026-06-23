@@ -108,7 +108,7 @@ double" so a green suite carrying a fake fails there.
   and dropped:** making `jolly init` an alias for `jolly start` — it reverses 007's bootstrap-only
   contract and makes `start` call itself, so `init` stays bootstrap-only (007 unchanged) and the
   terminal entry command is `jolly start`.
-- **Resumable-stage output continuity (current iteration — specced, not yet built).** Fixes a real
+- **Resumable-stage output continuity (current iteration — 008 half built, 022 half pending).** Fixes a real
   agent confusion: an agent ran standalone `jolly create store` (CLI printed "Store created
   successfully ✅"), then ran `jolly start`, which re-presented the already-done store as a *pending
   approval gate* with no "already configured" acknowledgement. The contradiction between the CLI's own
@@ -117,8 +117,11 @@ double" so a green suite carrying a fake fails there.
   contract: (008) a completed `create` subcommand's `nextSteps` point back to `jolly start` and state
   it recognizes the work rather than redoing it; (022) a resumable stage presents a 021 approval
   riskContext only for work it would actually perform this run, and announces an already-satisfied
-  stage as satisfied — never re-gates it. New @logic scenarios (008, 022) likely RED until Crew makes
-  the store stage suppress the gate + announce the skip. The composed standalone→`start` path is the
+  stage as satisfied — never re-gates it. **008:92 built + @logic-green (`968a28a`, on `main`):** the
+  `create store --url` success envelope now carries a `jolly start` nextStep stating start recognizes the
+  stored store rather than redoing it. **Still RED/undefined — the 022 half:** `022:48` (@logic, store
+  stage suppresses the gate + announces the already-satisfied skip on `jolly start --dry-run --json`) and
+  `022:40` (@sandbox, composed standalone→`start` agree-on-state). Next QM cycle takes them. The composed standalone→`start` path is the
   unverified `@sandbox` surface (open watch #1) this defect rode in on.
 
 ## Shipped
@@ -148,6 +151,12 @@ stand. Homepage **not** redeployed (CLI-internals release; homepage unchanged si
   known-good ref (002/003).
 - **Sandbox capacity flakiness:** a busy run can exhaust the test org's environment limit mid-run (env-create
   returns `error`); confirmed transient — creation and the harness's own direct-API create work between runs.
+- **Feature 027 interactive-PTY `@logic` flakiness (watch):** the PTY-driven `jolly start` interactive
+  scenarios fail non-deterministically under the parallel `-p logic` profile — same tree across three runs:
+  parallel run failed 2 scenarios, a re-run was fully green, a serial run failed a *different* scenario.
+  The failing target moves between runs = harness/PTY timing, not a product defect (no `src/` path changed
+  by `968a28a` is exercised by 027). Risk: an unreliable `@logic` gate masks real regressions. If it
+  persists, harden the PTY driver / serialize the 027 scenarios. ([[logic-parallel-loopback-flakiness]])
 - **Bun report (resolved on our side):** published `@dk/jolly` is bun-free (bin shebang `node`, no bun
   shebang/scripts/engines anywhere) and `npx -y @dk/jolly` runs clean on real `node:23-alpine`. A user's
   `env: 'bun'` on an Alpine distrobox is environmental (likely a bun-backed `npx`/shim), not the package;
