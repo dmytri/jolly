@@ -68,7 +68,8 @@ double" so a green suite carrying a fake fails there.
   `dist/index.js` so `npx @dk/jolly` stays self-contained. `jolly login`'s interactive token paste
   (018) moves onto the **same** `@clack/prompts` masked password prompt, so every human prompt shares one
   Bombshell stack — full Bombshell human UX, no duplicate prompt mechanism, agent path (token via
-  flag/file/stdin/env, non-TTY honest error) byte-for-byte unchanged. Not yet shipped — specs written, awaiting QM/Crew.
+  flag/file/stdin/env, non-TTY honest error) byte-for-byte unchanged. Implemented and on `main`
+  (commit `889d0f4`); pending a tagged release / npm publish / homepage redeploy.
 
 ## Shipped
 
