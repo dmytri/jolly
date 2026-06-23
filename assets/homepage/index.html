@@ -138,14 +138,14 @@
         0 0 80px rgba(57, 255, 140, 0.05);
       line-height: 1.1;
       margin-bottom: 0.75rem;
-      animation: glitch 4s infinite;
+      animation: glitch 7s infinite;
     }
 
     @keyframes glitch {
-      0%, 90%, 100% { transform: translate(0); }
-      92% { transform: translate(-2px, 1px); }
-      94% { transform: translate(2px, -1px); }
-      96% { transform: translate(-1px, 2px); }
+      0%, 94%, 100% { transform: translate(0); }
+      95% { transform: translate(-1px, 1px); }
+      97% { transform: translate(1px, -1px); }
+      99% { transform: translate(-1px, 0); }
     }
 
     .tagline-sub {
@@ -179,11 +179,6 @@
       display: flex;
       align-items: center;
       gap: 0.75rem;
-      transition: border-color 0.2s;
-    }
-
-    .copy-box:hover {
-      border-color: var(--accent-gold);
     }
 
     .copy-box-text {
@@ -318,7 +313,7 @@
     .flow-grid {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
-      gap: 1rem;
+      gap: 1.25rem;
     }
 
     @media (max-width: 600px) {
@@ -332,11 +327,6 @@
       border: 1px solid var(--border);
       border-radius: 8px;
       padding: 1.25rem;
-      transition: border-color 0.2s;
-    }
-
-    .flow-item:hover {
-      border-color: var(--accent-gold);
     }
 
     .flow-item-icon {
