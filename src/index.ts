@@ -3402,9 +3402,19 @@ async function runStartCore(args: ParsedArgs): Promise<Envelope> {
   );
   const needsToken = !hasCloudToken;
 
+  // A store endpoint already configured (a prior `jolly create store` or earlier
+  // run) means the store stage is already satisfied: no store would be created
+  // this run, so it is announced as satisfied and never re-presented as a pending
+  // approval gate (feature 022 Rule).
+  const storeEndpoint =
+    startEnvValues["NEXT_PUBLIC_SALEOR_API_URL"] ?? process.env["NEXT_PUBLIC_SALEOR_API_URL"];
+
   for (const planStage of plan) {
     const isBootstrap = planStage.stage === "init" || planStage.stage === "auth";
     const isHighRisk = (HIGH_RISK_STAGES as readonly string[]).includes(planStage.stage);
+    // The riskContext surfaced for this stage; rewritten below for an
+    // already-satisfied store so it carries no high-risk approval categories.
+    let stageRiskContext = planStage.riskContext;
 
     let status: StageStatus;
     if (bootstrapFailed) {
@@ -3421,6 +3431,24 @@ async function runStartCore(args: ParsedArgs): Promise<Envelope> {
       status = "blocked";
     } else if (isBootstrap) {
       status = "completed";
+    } else if (planStage.stage === "store" && storeEndpoint) {
+      // Already satisfied: a store endpoint is configured, so no store would be
+      // created this run. Announced as satisfied (feature 022 Rule), never a
+      // pending approval gate — the riskContext drops to the no-category skip
+      // preview the dry-run shows (src/index.ts commandStartDryRun), and no gate
+      // is set. Mirrors runStoreStage's own configured-endpoint short-circuit.
+      status = "completed";
+      stageRiskContext = {
+        action: "skip store provisioning",
+        target: `already-configured store ${storeEndpoint}`,
+        riskLevel: "low",
+        categories: [],
+        reversible: true,
+        sideEffects: [
+          `A store endpoint is already configured (NEXT_PUBLIC_SALEOR_API_URL=${storeEndpoint}); the store stage is already satisfied and provisioning is skipped`,
+        ],
+        dryRunAvailable: true,
+      };
     } else if (isHighRisk && !gate) {
       // First high-risk stage reached: without --yes we PAUSE for the agent's
       // approval (emitting the riskContext, never self-approving). With --yes
@@ -3496,7 +3524,7 @@ async function runStartCore(args: ParsedArgs): Promise<Envelope> {
     stages.push({
       stage: planStage.stage,
       status,
-      ...(planStage.riskContext ? { riskContext: planStage.riskContext } : {}),
+      ...(stageRiskContext ? { riskContext: stageRiskContext } : {}),
     });
   }
 

@@ -275,6 +275,35 @@ Then(
   },
 );
 
+Then(
+  "it should report those stages as already satisfied rather than presenting them as pending approval",
+  function (this: JollyWorld) {
+    // The store stage, whose work the `jolly create store` subcommand already
+    // did, is announced as satisfied in the run's stage list — never re-presented
+    // as a pending approval gate (feature 022 Rule). An approval gate is the
+    // `awaiting-approval` status carrying the original high-risk create-store
+    // riskContext categories; a satisfied stage carries neither.
+    const stages = this.envelope.data.stages as Array<{
+      stage: string;
+      status: string;
+      riskContext?: { categories?: unknown };
+    }>;
+    assert.ok(Array.isArray(stages) && stages.length > 0, "start must report a non-empty stage list");
+    const store = stages.find((s) => s.stage === "store");
+    assert.ok(store, "start must report the store stage");
+    assert.notEqual(
+      store!.status,
+      "awaiting-approval",
+      "an already-satisfied store stage must not be presented as a pending approval gate",
+    );
+    assert.deepEqual(
+      store!.riskContext?.categories ?? [],
+      [],
+      "an already-satisfied store stage must carry no high-risk approval categories",
+    );
+  },
+);
+
 // ─── @logic: jolly start does not re-gate a stage whose work is already done ──
 // With the store endpoint already configured in the project `.env` (written by
 // an earlier `jolly create store --url`), `jolly start --dry-run` reads it and
