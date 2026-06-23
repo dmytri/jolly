@@ -954,6 +954,12 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
           description: "Run jolly create app-token to acquire a Saleor app token.",
           command: "jolly create app-token",
         },
+        {
+          description:
+            "Run jolly start to continue the end-to-end setup; it recognizes the " +
+            "stored store and resumes rather than redoing it.",
+          command: "jolly start",
+        },
       ],
     });
   }

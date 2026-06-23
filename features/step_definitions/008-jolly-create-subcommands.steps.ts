@@ -561,6 +561,64 @@ Then(
   },
 );
 
+// ─── Scenario: A completed create subcommand points back to jolly start ──────
+// Feature 022 composition: a completed `jolly create store` succeeds and its
+// nextSteps point the agent back to `jolly start`, stating that start continues
+// the end-to-end setup and RECOGNIZES the stored store rather than redoing it —
+// so running a stage standalone and then `jolly start` composes without
+// contradiction. Mode-1 `--url` is a pure `.env` write; credentials are
+// genuinely unset (harmless), and the temp project starts with no endpoint so
+// there is no collision.
+
+When(
+  "the agent runs `jolly create store --url https:\\/\\/example.saleor.cloud --json`",
+  function (this: JollyWorld) {
+    this.runCli(
+      ["create", "store", "--url", "https://example.saleor.cloud", "--json"],
+      { env: absentCredentialsEnv() },
+    );
+  },
+);
+
+Then(
+  "nextSteps should include a step whose command is `jolly start`",
+  function (this: JollyWorld) {
+    const step = this.envelope.nextSteps.find(
+      (s) => String(s.command).trim() === "jolly start",
+    );
+    assert.ok(
+      step,
+      `nextSteps must include a step whose command is exactly "jolly start"; ` +
+        `got ${JSON.stringify(this.envelope.nextSteps)}`,
+    );
+    this.notes.startStep = step;
+  },
+);
+
+Then(
+  "that step should state that `jolly start` continues the end-to-end setup and recognizes the stored store rather than redoing it \\(feature {int})",
+  function (this: JollyWorld, _feature: number) {
+    const step = this.notes.startStep as Record<string, unknown> | undefined;
+    assert.ok(step, "the `jolly start` nextStep must be present");
+    const text = String(
+      (step as { description?: unknown }).description ?? "",
+    ).toLowerCase();
+    // Continues the end-to-end setup.
+    assert.match(
+      text,
+      /continue|resume/,
+      `the step must state that jolly start continues the end-to-end setup; got "${text}"`,
+    );
+    // Recognizes the stored store rather than redoing it.
+    assert.match(
+      text,
+      /recogniz|already|rather than redo|without redo|not redo/,
+      `the step must state that jolly start recognizes the stored store rather ` +
+        `than redoing it; got "${text}"`,
+    );
+  },
+);
+
 Then(
   "the preview should report that the Cloud token it would authenticate with was read from the project `.env`",
   function (this: JollyWorld) {
