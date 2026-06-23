@@ -128,7 +128,7 @@ double" so a green suite carrying a fake fails there.
 
 ## Shipped
 
-Through **v0.9.2** (`main`+tag on GitHub, `@dk/jolly` on npm; homepage last redeployed at v0.8.0, unchanged since):
+Through **v0.9.3** (`main`+tag on GitHub, `@dk/jolly` on npm; homepage redeployed at v0.9.3):
 token-only Saleor auth (browser OAuth removed), Stripe = app + skill (Stripe CLI removed), `@dk/jolly`
 naming, the `stripe-best-practices` skill in the default set, **Bombshell CLI plumbing (027)** —
 `@bomb.sh/args` typed parser, `@bomb.sh/tab` completion, `@clack/prompts` interactive `jolly start` +
@@ -139,10 +139,12 @@ Vercel / "final step" Stripe gate copy. The launch bar is met mechanically: home
 Paper storefront on Vercel → browsable/stocked store against Saleor Cloud → checkout reaches the Stripe test
 step (behind the human Stripe-Dashboard gate). Full history in git.
 
-**v0.9.2 shipped `@logic`-verified only** (`c37a66b`/tag `v0.9.2`, npm `latest`), overriding the
-release-hold at the user's explicit request. Its real-services (`@sandbox`) end-to-end behaviour is **not
-verified against this release** — the Paper `main` build break + sandbox-capacity flakiness (below) still
-stand. Homepage **not** redeployed (CLI-internals release; homepage unchanged since v0.8.0).
+**v0.9.3 shipped** (`b497f49`/tag `v0.9.3`, npm `latest`): `jolly start` now announces an
+already-satisfied store stage as satisfied instead of re-presenting it as a pending approval gate
+(022:40 — `@sandbox`-verified green + full `@logic` green). Homepage redeployed (`assets/homepage`,
+Vercel project `homepage`) so jolly.cool/setup carries the `--json` agent guidance. The earlier
+real-services (`@sandbox`) end-to-end caveats — the Paper `main` build break + sandbox-capacity
+flakiness (below) — still stand for the broader suite.
 
 ## Open / watch
 
