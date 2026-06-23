@@ -108,7 +108,7 @@ double" so a green suite carrying a fake fails there.
   and dropped:** making `jolly init` an alias for `jolly start` — it reverses 007's bootstrap-only
   contract and makes `start` call itself, so `init` stays bootstrap-only (007 unchanged) and the
   terminal entry command is `jolly start`.
-- **Resumable-stage output continuity (current iteration — 008 half built, 022 half pending).** Fixes a real
+- **Resumable-stage output continuity (current iteration — 008 + `022:48` built; `022:40` @sandbox pending).** Fixes a real
   agent confusion: an agent ran standalone `jolly create store` (CLI printed "Store created
   successfully ✅"), then ran `jolly start`, which re-presented the already-done store as a *pending
   approval gate* with no "already configured" acknowledgement. The contradiction between the CLI's own
@@ -119,9 +119,11 @@ double" so a green suite carrying a fake fails there.
   riskContext only for work it would actually perform this run, and announces an already-satisfied
   stage as satisfied — never re-gates it. **008:92 built + @logic-green (`968a28a`, on `main`):** the
   `create store --url` success envelope now carries a `jolly start` nextStep stating start recognizes the
-  stored store rather than redoing it. **Still RED/undefined — the 022 half:** `022:48` (@logic, store
-  stage suppresses the gate + announces the already-satisfied skip on `jolly start --dry-run --json`) and
-  `022:40` (@sandbox, composed standalone→`start` agree-on-state). Next QM cycle takes them. The composed standalone→`start` path is the
+  stored store rather than redoing it. **`022:48` built + @logic-green (`df3f99d`, on `main`):**
+  with a store endpoint configured in `.env`, `jolly start --dry-run --json` presents no create-store approval
+  gate on the store stage and names it as already satisfied in the `summary` — never re-gates the done work.
+  **Still RED/undefined — the last 022 half:** `022:40` (@sandbox, composed standalone→`start`
+  agree-on-state). Next credentialed QM cycle takes it. The composed standalone→`start` path is the
   unverified `@sandbox` surface (open watch #1) this defect rode in on.
 
 ## Shipped
