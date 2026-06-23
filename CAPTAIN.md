@@ -68,14 +68,16 @@ double" so a green suite carrying a fake fails there.
   `dist/index.js` so `npx @dk/jolly` stays self-contained. `jolly login`'s interactive token paste
   (018) moves onto the **same** `@clack/prompts` masked password prompt, so every human prompt shares one
   Bombshell stack — full Bombshell human UX, no duplicate prompt mechanism, agent path (token via
-  flag/file/stdin/env, non-TTY honest error) byte-for-byte unchanged. Implemented and on `main`
-  (commit `889d0f4`); pending a tagged release / npm publish / homepage redeploy.
+  flag/file/stdin/env, non-TTY honest error) byte-for-byte unchanged. Shipped in **v0.9.0**
+  (`main` + tag on GitHub, `@dk/jolly` on npm). Homepage unchanged by this CLI-internals release, so not redeployed.
 
 ## Shipped
 
-Through **v0.8.0** (`main`+tag on GitHub, `@dk/jolly` on npm, homepage redeployed to Vercel prod):
+Through **v0.9.0** (`main`+tag on GitHub, `@dk/jolly` on npm; homepage last redeployed at v0.8.0, unchanged since):
 token-only Saleor auth (browser OAuth removed), Stripe = app + skill (Stripe CLI removed), `@dk/jolly`
-naming, and the `stripe-best-practices` skill in the default set. The launch bar is met mechanically:
+naming, the `stripe-best-practices` skill in the default set, and (v0.9.0) **Bombshell CLI plumbing
+(027)** — `@bomb.sh/args` typed parser, `@bomb.sh/tab` completion, `@clack/prompts` interactive
+`jolly start` + masked login, agent path unchanged. The launch bar is met mechanically:
 homepage paste → live deployed Paper storefront on Vercel → browsable/stocked store against Saleor
 Cloud → checkout reaches the Stripe test step (behind the human Stripe-Dashboard gate). Full history in git.
 
