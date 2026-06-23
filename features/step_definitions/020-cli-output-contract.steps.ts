@@ -374,6 +374,131 @@ Then(
   },
 );
 
+// --- Scenario: Progress is shown in place on stderr, never on the result stream ---
+//
+// The output contract (Rule "Output envelope principles"): the result goes to
+// stdout (the human summary), while progress and status chatter go to stderr and
+// update IN PLACE, so piping stdout stays clean. To observe the split, `jolly
+// start` runs under THREE real PTYs (support/pty.ts separateStreams) — each of
+// stdin/stdout/stderr a genuine terminal — so stdout and stderr are captured
+// distinctly. The run uses absentCredentialsEnv (real credential absence), so no
+// real account is reached; the high-risk stages attempt and fail fast under the
+// missing credentials while their progress still renders. Enter advances each
+// pre-filled prompt and confirms the proceed gate, so the run reaches the stages.
+//
+// In-place progress redraws the same region: a carriage return, cursor-up, or
+// erase-line control. A line-per-update implementation carries none of these.
+const IN_PLACE_PROGRESS = /\r|\x1b\[[0-9]*[AK]/;
+// Braille frames are the spinner glyphs a Bombshell/ora-style spinner cycles.
+const SPINNER_GLYPH = /[⠀-⣿]/u;
+
+// Run `jolly start` interactively with stdout and stderr on separate PTYs, so the
+// progress contract's stream split is observable. Records the captured streams as
+// the world's last run. Returns false when no PTY is available (caller skips).
+function runStartSeparated(world: JollyWorld): boolean {
+  if (!ptyAvailable()) return false;
+  const argv = (world.notes.startArgv as string[]) ?? ["start"];
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries({ ...process.env, ...absentCredentialsEnv() })) {
+    if (v !== undefined) env[k] = v;
+  }
+  if (!env.TERM) env.TERM = "xterm-256color";
+  const run = runUnderPty({
+    runtime: process.env.HARNESS_CLI_RUNTIME ?? "node",
+    argv: [CLI_ENTRY, ...argv],
+    cwd: world.projectDir,
+    env,
+    // Enter advances each pre-filled prompt (environment name, project dir) and
+    // confirms the proceed gate, so the side-effecting stages are reached.
+    inputs: ["\r", "\r", "\r", "\r", "\r"],
+    inputDelayMs: 600,
+    timeoutMs: 150_000,
+    separateStreams: true,
+  });
+  world.previousRun = world.lastRun;
+  world.lastRun = {
+    args: argv,
+    cwd: world.projectDir,
+    exitCode: run.exitCode,
+    stdout: run.stdout ?? "",
+    stderr: run.stderr ?? "",
+    envelope: findEnvelope(run.stdout ?? run.output),
+  };
+  return true;
+}
+
+Then(
+  "progress for the long stages should be shown on stderr",
+  { timeout: 160_000 },
+  function (this: JollyWorld) {
+    // The shared When ("`jolly start` runs in an interactive terminal") only
+    // records the argv; perform the separated-stream run here.
+    if (!runStartSeparated(this)) return "skipped";
+    const stderr = this.lastRun!.stderr;
+    assert.ok(
+      stderr.trim().length > 0,
+      `interactive start must write progress to stderr; it was empty. stdout was:\n${this.lastRun!.stdout}`,
+    );
+    assert.match(
+      stderr,
+      IN_PLACE_PROGRESS,
+      `start progress must render live on stderr (carriage-return / cursor control); got:\n${JSON.stringify(stderr)}`,
+    );
+    return undefined;
+  },
+);
+
+Then(
+  "the progress should update in place rather than appending one line per update",
+  function (this: JollyWorld) {
+    assert.match(
+      this.lastRun!.stderr,
+      IN_PLACE_PROGRESS,
+      "progress must redraw in place (carriage-return / cursor control), not append one line per update",
+    );
+  },
+);
+
+Then(
+  "stdout should carry no progress or spinner text",
+  function (this: JollyWorld) {
+    const stdout = this.lastRun!.stdout;
+    assert.doesNotMatch(
+      stdout,
+      IN_PLACE_PROGRESS,
+      `the result stream (stdout) must stay clean — no in-place progress redraws; got:\n${JSON.stringify(stdout)}`,
+    );
+    assert.doesNotMatch(
+      stdout,
+      SPINNER_GLYPH,
+      `stdout must carry no spinner glyphs; got:\n${JSON.stringify(stdout)}`,
+    );
+  },
+);
+
+Then(
+  "`jolly start --json` should show no progress on stdout",
+  { timeout: 60_000 },
+  function (this: JollyWorld) {
+    this.runCli(["start", "--json"], { env: absentCredentialsEnv() });
+    const stdout = this.lastRun!.stdout;
+    assert.ok(
+      this.lastRun!.envelope,
+      `jolly start --json must emit the envelope on stdout; got:\n${stdout}`,
+    );
+    assert.doesNotMatch(
+      stdout,
+      IN_PLACE_PROGRESS,
+      `--json stdout must carry no progress; got:\n${JSON.stringify(stdout)}`,
+    );
+    assert.doesNotMatch(
+      stdout,
+      SPINNER_GLYPH,
+      `--json stdout must carry no spinner glyphs; got:\n${JSON.stringify(stdout)}`,
+    );
+  },
+);
+
 // --- Scenario: Commands that run checks reuse the doctor vocabulary --------
 //
 // The `Given the agent runs `jolly doctor --json`` precondition reuses the

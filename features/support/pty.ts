@@ -16,6 +16,13 @@ export interface PtyRunResult {
   exitCode: number;
   /** Everything written to the terminal (prompt + output), verbatim. */
   output: string;
+  /**
+   * Only in `separateStreams` mode: the child's stdout and stderr captured on
+   * distinct PTYs, so the feature 020 progress contract (progress on stderr, a
+   * clean stdout) is observable. `output` is their concatenation.
+   */
+  stdout?: string;
+  stderr?: string;
 }
 
 export interface PtyRunOptions {
@@ -36,6 +43,13 @@ export interface PtyRunOptions {
   inputs?: string[];
   inputDelayMs?: number;
   timeoutMs?: number;
+  /**
+   * Allocate distinct PTYs for stdin, stdout, and stderr so stdout and stderr
+   * are captured SEPARATELY (each still a genuine terminal, `isTTY` true). The
+   * default merged mode cannot tell the two streams apart; the feature 020
+   * progress contract needs them distinguished.
+   */
+  separateStreams?: boolean;
 }
 
 /** True when python3 with the `pty` module is available to allocate a PTY. */
@@ -58,6 +72,19 @@ export function runUnderPty(options: PtyRunOptions): PtyRunResult {
     });
     if (result.error) {
       throw new Error(`PTY driver failed: ${result.error.message}`);
+    }
+    if (options.separateStreams) {
+      let parsed: { out?: string; err?: string; code?: number };
+      try {
+        parsed = JSON.parse(result.stdout ?? "");
+      } catch {
+        throw new Error(
+          `PTY driver returned no JSON in separate-streams mode:\n${result.stdout}\n${result.stderr}`,
+        );
+      }
+      const stdout = Buffer.from(parsed.out ?? "", "base64").toString("utf8");
+      const stderr = Buffer.from(parsed.err ?? "", "base64").toString("utf8");
+      return { exitCode: parsed.code ?? -1, output: stdout + stderr, stdout, stderr };
     }
     return {
       exitCode: result.status ?? -1,

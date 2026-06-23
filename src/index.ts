@@ -63,8 +63,15 @@ import {
   select as clackSelect,
   note as clackNote,
   log as clackLog,
+  spinner as clackSpinner,
   isCancel as clackIsCancel,
 } from "@clack/prompts";
+
+// The interactive CLI keeps stdout for the RESULT (the human summary emit()
+// prints) and routes all Bombshell/@clack chatter — intro, prompts, notes, log,
+// outro, and the long-stage progress spinner — to stderr, updating in place, so
+// piping stdout stays clean (feature 020 Rule "Output envelope principles").
+const CLACK_STDERR = { output: process.stderr } as const;
 
 // ─── Envelope types (mirror features/support/envelope.ts) ─────────────────
 
@@ -3198,7 +3205,7 @@ async function resolveInteractiveOrgs(
 // on Bombshell (@clack/prompts). Declining stops honestly: it runs the core with
 // approval withheld, so downstream stages are pending/blocked, never fabricated.
 async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
-  clackIntro("jolly start — guided setup");
+  clackIntro("jolly start — guided setup", CLACK_STDERR);
 
   // Organization: prompt only when the token resolves more than one (feature
   // 012). With exactly one, use it without asking.
@@ -3213,13 +3220,14 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
         message: "Choose the Saleor organization to use",
         options: orgs.map((o) => ({ value: o.slug, label: o.slug })),
         initialValue: orgs[0]!.slug,
+        ...CLACK_STDERR,
       });
       if (clackIsCancel(choice)) return runStartCore({ ...args, yes: false });
       organization = String(choice);
-      clackLog.info(`Using organization "${organization}".`);
+      clackLog.info(`Using organization "${organization}".`, CLACK_STDERR);
     } else if (orgs.length === 1) {
       organization = orgs[0]!.slug;
-      clackLog.info(`Using your only organization "${organization}".`);
+      clackLog.info(`Using your only organization "${organization}".`, CLACK_STDERR);
     }
   }
 
@@ -3228,12 +3236,14 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
     message: "Environment name",
     placeholder: DEFAULT_ENV_NAME,
     defaultValue: DEFAULT_ENV_NAME,
+    ...CLACK_STDERR,
   });
   if (clackIsCancel(envName)) return runStartCore({ ...args, yes: false });
   const projectDirectory = await clackText({
     message: "Storefront project directory",
     placeholder: DEFAULT_STOREFRONT_DIR,
     defaultValue: DEFAULT_STOREFRONT_DIR,
+    ...CLACK_STDERR,
   });
   if (clackIsCancel(projectDirectory)) return runStartCore({ ...args, yes: false });
 
@@ -3243,10 +3253,12 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
   clackNote(
     plan.map((s) => `${s.stage}: ${s.riskContext?.action ?? s.stage}`).join("\n"),
     "Planned stages",
+    CLACK_STDERR,
   );
-  clackLog.info("Gate: you will sign in to Vercel yourself (`vercel login`).");
+  clackLog.info("Gate: you will sign in to Vercel yourself (`vercel login`).", CLACK_STDERR);
   clackLog.info(
     "Gate: you will finish the Stripe app setup in the Saleor Dashboard.",
+    CLACK_STDERR,
   );
 
   const resolved = {
@@ -3258,7 +3270,7 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
   };
 
   if (args.dryRun) {
-    clackOutro("Previewed the plan. No files were written and no changes were made.");
+    clackOutro("Previewed the plan. No files were written and no changes were made.", CLACK_STDERR);
     const preview = commandStartDryRun();
     return { ...preview, data: { ...preview.data, resolved } };
   }
@@ -3269,23 +3281,32 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
     message:
       "Proceed with the side-effecting setup stages (store, storefront, recipe, deploy)?",
     initialValue: true,
+    ...CLACK_STDERR,
   });
   if (clackIsCancel(proceed) || proceed === false) {
-    clackOutro("Stopped before any side-effecting stage. Nothing was changed.");
+    clackOutro("Stopped before any side-effecting stage. Nothing was changed.", CLACK_STDERR);
     return runStartCore({ ...args, yes: false });
   }
 
-  clackOutro("Proceeding with setup.");
-  return runStartCore({
-    ...args,
-    yes: true,
-    options: {
-      ...args.options,
-      ...(organization ? { organization } : {}),
-      name: resolved.environmentName,
-      "domain-label": resolved.environmentName,
-    },
-  });
+  // Run the long setup stages behind an in-place spinner on stderr, so the human
+  // sees live progress while stdout stays reserved for the final result summary
+  // emit() prints (feature 020 Rule).
+  const spin = clackSpinner(CLACK_STDERR);
+  spin.start("Running setup stages");
+  try {
+    return await runStartCore({
+      ...args,
+      yes: true,
+      options: {
+        ...args.options,
+        ...(organization ? { organization } : {}),
+        name: resolved.environmentName,
+        "domain-label": resolved.environmentName,
+      },
+    });
+  } finally {
+    spin.stop("Setup stages finished");
+  }
 }
 
 async function commandStart(args: ParsedArgs): Promise<Envelope> {
