@@ -90,6 +90,29 @@ naming, the `stripe-best-practices` skill in the default set, and (v0.9.0) **Bom
 homepage paste → live deployed Paper storefront on Vercel → browsable/stocked store against Saleor
 Cloud → checkout reaches the Stripe test step (behind the human Stripe-Dashboard gate). Full history in git.
 
+On `main` ahead of the last release: **human-friendly output by default (020/027)** — interactive `jolly start`
+surfaces its resolved decisions in the terminal (names the target org, lists the setup stages, on a decline
+reports it stopped before any side-effecting stage), machine plan/config only on `--json`. Pushed, not yet
+released/published/deployed (held pending a green sandbox + Paper recovery, below).
+
+## Open / watch
+
+- **020:64 progress-on-stderr** is the one remaining undefined target. Decision: BUILD the human spinner (do
+  not simplify) — `@clack/prompts` spinner on `process.stderr` for the human TTY path only (agent/`--json`
+  path stays clean), plus a dual-stream PTY harness (stdout-tty + stderr-tty captured separately) so "on
+  stderr, not stdout" is falsifiable. `@clack/prompts` `spinner({ output })` supports stderr.
+- **Paper `main` build break (watch):** `next build` of cloned Paper `main` fails with
+  `EmptyGenerateStaticParamsError` on `/[locale]/[channel]/cart` (Next "Cache Components" needs a non-empty
+  `generateStaticParams`). A real `jolly start` hits the same Vercel build failure today. Treated as transient
+  upstream — re-verify the sandbox tier once Paper fixes `main`; if it persists, pin Jolly's Paper clone to a
+  known-good ref (002/003).
+- **Sandbox capacity flakiness:** a busy run can exhaust the test org's environment limit mid-run (env-create
+  returns `error`); confirmed transient — creation and the harness's own direct-API create work between runs.
+- **Bun report (resolved on our side):** published `@dk/jolly` is bun-free (bin shebang `node`, no bun
+  shebang/scripts/engines anywhere) and `npx -y @dk/jolly` runs clean on real `node:23-alpine`. A user's
+  `env: 'bun'` on an Alpine distrobox is environmental (likely a bun-backed `npx`/shim), not the package;
+  awaiting their box diagnostic to harden whatever it points to. Feature 006 already guards Bun-independence.
+
 ## Goals & MVP framing
 
 - **North star:** an agent takes a customer from a homepage prompt to a real, live, honest storefront —
