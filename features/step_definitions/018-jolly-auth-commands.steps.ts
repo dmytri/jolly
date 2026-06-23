@@ -402,9 +402,10 @@ Then(
     });
     this.runCli(["auth", "status", "--json"], { cwd: dir, env: safe });
     assert.ok(this.lastRun!.envelope, "--json must carry the envelope");
-    const jsonLen = this.lastRun!.stdout.length;
+    // --quiet never emits the machine envelope (feature 020): silent on success,
+    // warnings/errors to stderr only.
     this.runCli(["auth", "status", "--quiet"], { cwd: dir, env: safe });
-    assert.ok(this.lastRun!.envelope, "--quiet must keep the envelope");
+    assert.ok(!this.lastRun!.envelope, "--quiet must not emit the machine envelope");
   },
 );
 
@@ -511,7 +512,10 @@ Given(
 When(
   "the agent runs `jolly login --token-file .\\/cloud-token.txt`",
   function (this: JollyWorld) {
-    this.runCli(["login", "--token-file", "./cloud-token.txt"], {
+    // The scenario asserts the envelope status ("warning", stored-not-verified);
+    // an agent reads that via --json (feature 020 — default login output is
+    // human-only and carries no envelope).
+    this.runCli(["login", "--token-file", "./cloud-token.txt", "--json"], {
       env: headlessLoginEnv(this),
     });
   },

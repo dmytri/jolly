@@ -14,8 +14,33 @@ import { Given, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { findRiskContexts } from "../support/envelope.ts";
+import { findEnvelope, findRiskContexts } from "../support/envelope.ts";
 import type { JollyWorld } from "../support/world.ts";
+
+// ─── output-stream cleanliness (020 --quiet/default, 014 --quiet) ──────────
+// These assert the feature 020 stream contract shared by more than one feature:
+// --quiet emits nothing on a clean stdout and never the machine envelope.
+
+Then("stdout should be empty", function (this: JollyWorld) {
+  assert.equal(
+    this.lastRun!.stdout.trim(),
+    "",
+    `stdout must be empty; got:\n${this.lastRun!.stdout}`,
+  );
+});
+
+Then("no JSON envelope should be printed", function (this: JollyWorld) {
+  assert.equal(
+    findEnvelope(this.lastRun!.stdout),
+    undefined,
+    `no machine envelope must be printed on stdout; got:\n${this.lastRun!.stdout}`,
+  );
+  assert.equal(
+    findEnvelope(this.lastRun!.stderr),
+    undefined,
+    `no machine envelope must be printed on stderr; got:\n${this.lastRun!.stderr}`,
+  );
+});
 
 // ─── .env / .gitignore assertions (018, 012) ──────────────────────────────
 

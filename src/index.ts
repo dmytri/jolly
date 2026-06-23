@@ -267,34 +267,132 @@ function checkGlyph(status: CheckStatus): string {
   }
 }
 
+// ANSI SGR colours for the human terminal path. Applied only when stdout is an
+// interactive terminal and NO_COLOR is unset; never under --json or --quiet, and
+// never when stdout is piped.
+const SGR = {
+  reset: "\x1b[0m",
+  green: "\x1b[32m",
+  yellow: "\x1b[33m",
+  red: "\x1b[31m",
+  cyan: "\x1b[36m",
+  dim: "\x1b[2m",
+} as const;
+
+function statusEmoji(status: EnvelopeStatus): string {
+  if (status === "success") return "✅";
+  if (status === "warning") return "⚠️";
+  return "❌";
+}
+
+function checkEmoji(status: CheckStatus): string {
+  switch (status) {
+    case "pass":
+      return "✅";
+    case "warning":
+      return "⚠️";
+    case "fail":
+      return "❌";
+    case "skipped":
+      return "⏭️";
+    default:
+      return "❔";
+  }
+}
+
+function statusColour(status: EnvelopeStatus): string {
+  if (status === "success") return SGR.green;
+  if (status === "warning") return SGR.yellow;
+  return SGR.red;
+}
+
+function checkColour(status: CheckStatus): string {
+  switch (status) {
+    case "pass":
+      return SGR.green;
+    case "warning":
+      return SGR.yellow;
+    case "fail":
+      return SGR.red;
+    case "skipped":
+      return SGR.dim;
+    default:
+      return SGR.cyan;
+  }
+}
+
 /**
- * Render and emit one envelope, honoring --json / --quiet / default mode.
- * Returns the process exit code (non-zero only for error status).
+ * Render the human-friendly text for an envelope. When `colour` is true the
+ * status/check glyphs are wrapped in ANSI SGR codes and restrained emoji are
+ * included; when false the same text is plain — no colour, no emoji.
+ */
+function renderHuman(env: Envelope, colour: boolean): string {
+  const lines: string[] = [];
+  const wrap = (code: string, text: string): string =>
+    colour ? `${code}${text}${SGR.reset}` : text;
+  const glyph = (emoji: string, label: string): string =>
+    colour ? `${emoji} [${label}]` : `[${label}]`;
+
+  lines.push(
+    `jolly ${env.command}: ${wrap(
+      statusColour(env.status),
+      glyph(statusEmoji(env.status), statusGlyph(env.status)),
+    )} ${env.summary}`,
+  );
+  for (const check of env.checks) {
+    lines.push(
+      `  - ${wrap(
+        checkColour(check.status),
+        glyph(checkEmoji(check.status), checkGlyph(check.status)),
+      )} ${check.id}${check.description ? `: ${check.description}` : ""}`,
+    );
+  }
+  for (const step of env.nextSteps) {
+    lines.push(`  next: ${step.description}${step.command ? ` (\`${step.command}\`)` : ""}`);
+  }
+  for (const err of env.errors) {
+    lines.push(
+      `  ${wrap(SGR.red, `error[${err.code}]`)}: ${err.message}${err.remediation ? ` — ${err.remediation}` : ""}`,
+    );
+  }
+  return lines.join("\n") + "\n";
+}
+
+/**
+ * Render and emit one envelope, honoring --json / --quiet / default mode
+ * (feature 020 Rule "Output envelope principles"). Returns the process exit code
+ * (non-zero only for error status).
+ *
+ * - `--json`: stdout is exactly the JSON envelope and nothing else.
+ * - default: human-friendly text only on stdout; the envelope is NOT printed.
+ *   Colourful (ANSI + restrained emoji) when stdout is an interactive terminal
+ *   and NO_COLOR is unset; plain otherwise.
+ * - `--quiet`: silent on a successful run (no stdout, no stderr). On a non-success
+ *   run, print ONLY the warnings/errors — each naming its stable `code` and
+ *   message — to stderr. Never the envelope, never stdout.
  */
 function emit(env: Envelope, args: ParsedArgs): number {
   if (args.json) {
     process.stdout.write(JSON.stringify(env) + "\n");
-  } else {
-    const lines: string[] = [];
-    lines.push(`jolly ${env.command}: [${statusGlyph(env.status)}] ${env.summary}`);
-    if (!args.quiet) {
-      for (const check of env.checks) {
-        lines.push(
-          `  - [${checkGlyph(check.status)}] ${check.id}${check.description ? `: ${check.description}` : ""}`,
-        );
-      }
-      for (const step of env.nextSteps) {
-        lines.push(`  next: ${step.description}${step.command ? ` (\`${step.command}\`)` : ""}`);
-      }
+  } else if (args.quiet) {
+    if (env.status !== "success") {
+      const lines: string[] = [];
       for (const err of env.errors) {
         lines.push(
-          `  error[${err.code}]: ${err.message}${err.remediation ? ` — ${err.remediation}` : ""}`,
+          `[${err.code}] ${err.message}${err.remediation ? ` — ${err.remediation}` : ""}`,
         );
       }
+      for (const check of env.checks) {
+        if (check.status === "warning" || check.status === "fail") {
+          lines.push(`[${check.id}] ${check.description ?? checkGlyph(check.status)}`);
+        }
+      }
+      if (lines.length === 0) lines.push(`[${env.status}] ${env.summary}`);
+      process.stderr.write(lines.join("\n") + "\n");
     }
-    // Human text first, then the machine-readable envelope on its own line.
-    process.stdout.write(lines.join("\n") + "\n");
-    process.stdout.write(JSON.stringify(env) + "\n");
+  } else {
+    const colour = Boolean(process.stdout.isTTY) && !process.env["NO_COLOR"];
+    process.stdout.write(renderHuman(env, colour));
   }
   return env.status === "error" ? 1 : 0;
 }
@@ -3118,6 +3216,7 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
       });
       if (clackIsCancel(choice)) return runStartCore({ ...args, yes: false });
       organization = String(choice);
+      clackLog.info(`Using organization "${organization}".`);
     } else if (orgs.length === 1) {
       organization = orgs[0]!.slug;
       clackLog.info(`Using your only organization "${organization}".`);

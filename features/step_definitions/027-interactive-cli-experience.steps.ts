@@ -32,6 +32,33 @@ const CLI_ENTRY = join(REPO_ROOT, "src", "index.ts");
 // path, which prints none).
 const CLACK_GLYPH = /[│┌└◆◇◻◼●○◐◓◑◒▪]/u;
 
+// Strip ANSI escape sequences (SGR colour, cursor moves, erase, mode toggles)
+// so the human terminal text can be asserted as plain content. clack's
+// incremental re-renders use cursor control; the single-write lines
+// (clackLog/clackNote/clackOutro) survive as readable text once the escapes are
+// removed — they are the falsifiable human observables the interactive layer
+// surfaces (feature 027: resolved decisions in the terminal, not an envelope).
+function stripAnsi(text: string): string {
+  return text.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
+}
+
+// The interactive output names the resolved organization on a single
+// surviving line (e.g. `Using your only organization "org-solo".`), distinct
+// from the multi-line clack choice render. Match the org named together with a
+// resolution verb on one line, so a bare unchosen option never satisfies it.
+function namesTargetOrganization(out: string, org: string): boolean {
+  return new RegExp(
+    `\\b(using|target(?:ing)?|selected|will use)\\b[^\\n]*\\b${org}\\b`,
+    "i",
+  ).test(out);
+}
+
+// The side-effecting stages declining must never report as completed
+// (feature 027). A completed stage renders as a passed check whose id starts
+// with the stage name (e.g. `store-provisioned`); bootstrap `init-`/`doctor-`
+// checks are readiness, not the stage itself, and are excluded by prefix.
+const SIDE_EFFECTING_STAGES = ["store", "storefront", "recipe", "deploy"];
+
 function interactiveChildEnv(
   overrides: Record<string, string | undefined> = {},
 ): Record<string, string> {
@@ -416,39 +443,12 @@ When(
   },
 );
 
-function resolvedConfig(world: JollyWorld): {
-  organization?: string;
-  availableOrganizations: string[];
-  organizationPrompted: boolean;
-} {
-  const data = world.envelope.data as { resolved?: Record<string, unknown> };
-  assert.ok(data.resolved, "interactive start must report the resolved configuration in data.resolved");
-  return data.resolved as never;
-}
-
 Then("Jolly should present interactive setup prompts", function (this: JollyWorld) {
   assert.ok(
     CLACK_GLYPH.test(this.lastRun!.stdout),
     `interactive start must render Bombshell prompts; got: ${this.lastRun!.stdout}`,
   );
 });
-
-Then(
-  "the previewed plan should equal the plan from `jolly start --dry-run --yes --json`",
-  function (this: JollyWorld) {
-    const previewed = (this.envelope.data as { plan?: unknown }).plan;
-    assert.ok(previewed, "the interactive preview must carry a plan");
-    // The non-interactive --yes --json plan, under the same credential-absent env
-    // and project directory, so only the run mode differs.
-    this.runCli(["start", "--dry-run", "--yes", "--json"], { env: absentCredentialsEnv() });
-    const expected = (this.envelope.data as { plan?: unknown }).plan;
-    assert.deepEqual(
-      previewed,
-      expected,
-      "the interactively-previewed plan must equal the non-interactive --yes --json plan",
-    );
-  },
-);
 
 Then(
   "no file should be created or modified in the project directory",
@@ -459,53 +459,6 @@ Then(
       [],
       `the dry-run preview must not create or modify any file; found: ${entries.join(", ")}`,
     );
-  },
-);
-
-Then(
-  "Jolly should prompt the human to choose between organizations {string} and {string}",
-  function (this: JollyWorld, a: string, b: string) {
-    const resolved = resolvedConfig(this);
-    assert.equal(
-      resolved.organizationPrompted,
-      true,
-      "Jolly must prompt for the organization when the token resolves more than one",
-    );
-    for (const org of [a, b]) {
-      assert.ok(
-        resolved.availableOrganizations.includes(org),
-        `the organization choice must offer "${org}"; got ${resolved.availableOrganizations.join(", ")}`,
-      );
-    }
-  },
-);
-
-Then(
-  "the previewed plan should target the organization the human accepted by default",
-  function (this: JollyWorld) {
-    const resolved = resolvedConfig(this);
-    assert.equal(
-      resolved.organization,
-      resolved.availableOrganizations[0],
-      "accepting the default must target the first (default) organization",
-    );
-  },
-);
-
-Then("Jolly should not prompt for an organization", function (this: JollyWorld) {
-  const resolved = resolvedConfig(this);
-  assert.equal(
-    resolved.organizationPrompted,
-    false,
-    "Jolly must not prompt for an organization when the token resolves exactly one",
-  );
-});
-
-Then(
-  "the previewed plan should target organization {string}",
-  function (this: JollyWorld, org: string) {
-    const resolved = resolvedConfig(this);
-    assert.equal(resolved.organization, org, `the plan must target organization "${org}"`);
   },
 );
 
@@ -526,12 +479,18 @@ Then("Jolly should announce the Dashboard Stripe app gate", function (this: Joll
 });
 
 Then("Jolly should complete without blocking for any prompt", function (this: JollyWorld) {
+  // --yes (no --json) runs the human default path: it must complete (exit 0) and
+  // produce output rather than hang on a prompt. Feature 020: default mode is
+  // human-only and carries no envelope, so completion is proven by exit + output.
   assert.equal(
     this.lastRun!.exitCode,
     0,
     `--yes must complete without blocking; exit ${this.lastRun!.exitCode}`,
   );
-  assert.ok(this.envelope, "the run must emit an envelope");
+  assert.ok(
+    this.lastRun!.stdout.trim().length > 0,
+    "the --yes run must produce human output, proving it ran without blocking",
+  );
 });
 
 Then("no interactive prompt should be shown", function (this: JollyWorld) {
@@ -548,36 +507,135 @@ Then("no prompt or spinner text should appear on stdout", function (this: JollyW
   );
 });
 
-Then(
-  "the overall envelope status should be {string}",
-  function (this: JollyWorld, status: string) {
-    assert.equal(this.envelope.status, status);
-  },
-);
+// ─── Human-output observables (feature 027: resolved decisions in the ──────
+// terminal, not the machine envelope). In the interactive default path there
+// is no JSON envelope (feature 020), so these read the surviving human text.
 
-// RegExp: in a Cucumber expression `(...)` marks an optional group, which would
-// drop the stage list from the matched text.
 Then(
-  /^the side-effecting stages \(store, storefront, recipe, deployment\) should be reported as pending or blocked-on-a-gate, never as passed$/,
+  "the interactive output should list the mechanical setup stages, including the store, storefront, and deployment stages",
   function (this: JollyWorld) {
-    const stages = (this.envelope.data as { stages?: Array<{ stage: string; status: string }> }).stages ?? [];
-    // "deployment" in the scenario is the "deploy" stage id.
-    const sideEffecting = ["store", "storefront", "recipe", "deploy"];
-    const blockedOrPending = new Set(["pending", "blocked", "awaiting-approval"]);
-    for (const name of sideEffecting) {
-      const stage = stages.find((s) => s.stage === name);
-      assert.ok(stage, `the plan must report the "${name}" stage`);
-      assert.ok(
-        blockedOrPending.has(stage!.status),
-        `the "${name}" stage must be pending or blocked-on-a-gate after declining, never passed; got "${stage!.status}"`,
+    const out = stripAnsi(this.lastRun!.stdout);
+    for (const stage of ["store", "storefront", "deploy"]) {
+      assert.match(
+        out,
+        new RegExp(`${stage}:`, "i"),
+        `the interactive output must list the "${stage}" setup stage; got:\n${out}`,
       );
-      assert.notEqual(stage!.status, "completed", `the "${name}" stage must not be reported as passed`);
     }
   },
 );
 
-Then("Jolly must not print a fabricated URL or verification result", function (this: JollyWorld) {
-  const data = this.envelope.data as { store?: unknown; deploy?: unknown };
-  assert.ok(!data.store, "declining must not surface a fabricated provisioned-store result");
-  assert.ok(!data.deploy, "declining must not surface a fabricated deployment result");
-});
+Then(
+  "the interactive output should present an organization choice naming {string} and {string}",
+  function (this: JollyWorld, a: string, b: string) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.match(
+      out,
+      /choose[^\n]*organization/i,
+      `the interactive output must present an organization choice; got:\n${out}`,
+    );
+    for (const org of [a, b]) {
+      assert.ok(
+        out.includes(org),
+        `the organization choice must name "${org}"; got:\n${out}`,
+      );
+    }
+  },
+);
+
+Then(
+  "accepting the default should name {string} as the target organization in the output",
+  function (this: JollyWorld, org: string) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.ok(
+      namesTargetOrganization(out, org),
+      `accepting the default must name "${org}" as the target organization; got:\n${out}`,
+    );
+  },
+);
+
+Then(
+  "the interactive output should name {string} as the target organization",
+  function (this: JollyWorld, org: string) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.ok(
+      namesTargetOrganization(out, org),
+      `the interactive output must name "${org}" as the target organization; got:\n${out}`,
+    );
+  },
+);
+
+Then(
+  "no organization choice should be shown, because the token resolves exactly one organization",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.doesNotMatch(
+      out,
+      /choose[^\n]*organization/i,
+      `no organization choice may be shown when the token resolves exactly one; got:\n${out}`,
+    );
+  },
+);
+
+Then(
+  "the interactive output should state that setup stopped before the first side-effecting stage ran",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.match(
+      out,
+      /stopped before[^\n]*side-effecting stage/i,
+      `the interactive output must state setup stopped before the first side-effecting stage; got:\n${out}`,
+    );
+  },
+);
+
+Then(
+  "the interactive output should not report the store, storefront, recipe, or deployment stages as completed",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    const passIds = [...out.matchAll(/\[pass\]\s+([a-z0-9-]+)/gi)].map((m) =>
+      m[1]!.toLowerCase(),
+    );
+    for (const id of passIds) {
+      for (const stage of SIDE_EFFECTING_STAGES) {
+        assert.ok(
+          !id.startsWith(stage),
+          `declining must not report the "${stage}" stage as completed; found passed check "${id}"`,
+        );
+      }
+    }
+    // Nor any result artifact a completed stage would emit.
+    assert.doesNotMatch(
+      out,
+      /[a-z0-9-]+\.saleor\.cloud/i,
+      `declining must not surface a provisioned store domain; got:\n${out}`,
+    );
+    assert.doesNotMatch(
+      out,
+      /\.vercel\.app/i,
+      `declining must not surface a deployment URL; got:\n${out}`,
+    );
+    assert.doesNotMatch(
+      out,
+      /\bdeployed\b/i,
+      `declining must not claim a deployment happened; got:\n${out}`,
+    );
+  },
+);
+
+Then(
+  "Jolly must not print a fabricated store URL or verification result",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.doesNotMatch(
+      out,
+      /[a-z0-9-]+\.saleor\.cloud/i,
+      `declining must not print a fabricated store URL; got:\n${out}`,
+    );
+    assert.doesNotMatch(
+      out,
+      /\b(verified|verification (?:passed|succeeded)|store is ready|environment[^\n]*ready)\b/i,
+      `declining must not print a fabricated verification result; got:\n${out}`,
+    );
+  },
+);

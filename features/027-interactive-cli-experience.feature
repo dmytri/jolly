@@ -22,6 +22,11 @@ Feature: Human-facing interactive CLI experience
       organization to use when the token resolves more than one (with exactly one, Jolly uses
       it without asking, per feature 012), the environment name when none is configured, and
       the storefront project directory — each pre-filled with a sane default.
+    - Because the interactive layer serves a human, it surfaces its resolved decisions in the
+      terminal output, not in a machine envelope: it names the organization it will target, lists
+      the mechanical setup stages it will run, and on a decline reports that setup stopped with no
+      side-effecting stage run. The machine-readable plan and resolved configuration remain
+      available only on the `--json` path (feature 020).
     - Each side-effecting create or deploy stage is confirmed before it runs — the human
       analogue of feature 021's per-stage riskContext approval. The default is to proceed, so
       Enter advances; declining stops honestly and never fabricates later-stage success.
@@ -39,7 +44,7 @@ Feature: Human-facing interactive CLI experience
     And `jolly start --dry-run` runs in an interactive terminal with no flag beyond `--dry-run`
     When the user presses Enter at every prompt
     Then Jolly should present interactive setup prompts
-    And the previewed plan should equal the plan from `jolly start --dry-run --yes --json`
+    And the interactive output should list the mechanical setup stages, including the store, storefront, and deployment stages
     And no file should be created or modified in the project directory
 
   @logic
@@ -48,8 +53,8 @@ Feature: Human-facing interactive CLI experience
     And the Cloud token can access organizations "org-one" and "org-two"
     And `jolly start --dry-run` runs in an interactive terminal
     When the user presses Enter at every prompt
-    Then Jolly should prompt the human to choose between organizations "org-one" and "org-two"
-    And the previewed plan should target the organization the human accepted by default
+    Then the interactive output should present an organization choice naming "org-one" and "org-two"
+    And accepting the default should name "org-one" as the target organization in the output
 
   @logic
   Scenario: Interactive start uses the only organization without asking when the token has exactly one
@@ -57,8 +62,8 @@ Feature: Human-facing interactive CLI experience
     And the Cloud token can access organization "org-solo" only
     And `jolly start --dry-run` runs in an interactive terminal
     When the user presses Enter at every prompt
-    Then Jolly should not prompt for an organization
-    And the previewed plan should target organization "org-solo"
+    Then the interactive output should name "org-solo" as the target organization
+    And no organization choice should be shown, because the token resolves exactly one organization
 
   @logic
   Scenario: Interactive start announces the irreducible human gates it will require
@@ -80,9 +85,9 @@ Feature: Human-facing interactive CLI experience
     Given a fresh project directory with no real service credentials
     And `jolly start` runs in an interactive terminal
     When the user declines the confirmation before the first side-effecting stage
-    Then the overall envelope status should be "warning"
-    And the side-effecting stages (store, storefront, recipe, deployment) should be reported as pending or blocked-on-a-gate, never as passed
-    And Jolly must not print a fabricated URL or verification result
+    Then the interactive output should state that setup stopped before the first side-effecting stage ran
+    And the interactive output should not report the store, storefront, recipe, or deployment stages as completed
+    And Jolly must not print a fabricated store URL or verification result
 
   @logic @property
   Scenario: The interactive layer never pollutes machine output

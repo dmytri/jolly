@@ -255,17 +255,14 @@ Then(
 );
 
 Then(
-  "the output should follow Jolly's hybrid human-readable plus machine-readable format",
+  "with `--json` the output should be the machine-readable envelope on stdout \\(feature 020)",
   function (this: JollyWorld) {
-    // Default (non --json) mode carries both human text AND the envelope.
-    this.runCli(["start"], { env: absentCredentialsEnv() });
+    // The When ran `jolly start --json`: with --json the output is the machine
+    // envelope on stdout (feature 020's agent opt-in to machine output).
     const run = this.lastRun!;
-    assert.ok(run.envelope, "default-mode start must carry the machine-readable envelope");
-    const envelopeJson = JSON.stringify(run.envelope);
-    const human = run.stdout.replace(envelopeJson, "").trim();
     assert.ok(
-      human.length > 0,
-      "default-mode start must include human-readable text alongside the envelope",
+      run.envelope,
+      "`jolly start --json` must carry the machine-readable envelope on stdout",
     );
   },
 );
@@ -339,7 +336,9 @@ Then(
 // Run with credentials genuinely unset so no help path can reach a real account.
 
 When("the agent inspects `jolly --help`", function (this: JollyWorld) {
-  this.runCli(["--help"], { env: absentCredentialsEnv() });
+  // The command surface is the machine-readable `data.commands`; an agent reads
+  // it via --json (feature 020 — default --help is human usage with no envelope).
+  this.runCli(["--help", "--json"], { env: absentCredentialsEnv() });
 });
 
 Then(
@@ -373,7 +372,9 @@ Then(
 Then(
   "`jolly create --help` should list only the subcommands `store` and `app-token`",
   function (this: JollyWorld) {
-    this.runCli(["create", "--help"], { env: absentCredentialsEnv() });
+    // Subcommand surface is the machine-readable `data.subcommands`; read it via
+    // --json (feature 020 — default --help is human usage with no envelope).
+    this.runCli(["create", "--help", "--json"], { env: absentCredentialsEnv() });
     const data = this.envelope.data as { subcommands?: Array<{ name?: string }> };
     const names = (Array.isArray(data.subcommands) ? data.subcommands : [])
       .map((s) => s.name)
@@ -390,12 +391,14 @@ Then(
   "no `deployment`, `deploy`, `recipe`, or `storefront` subcommand should appear anywhere in the surface",
   function (this: JollyWorld) {
     const forbidden = ["deployment", "deploy", "recipe", "storefront"];
-    this.runCli(["--help"], { env: absentCredentialsEnv() });
+    // Command/subcommand surfaces are the machine-readable envelope (feature 020):
+    // an agent enumerates them via --json; default --help is human usage only.
+    this.runCli(["--help", "--json"], { env: absentCredentialsEnv() });
     const rootData = this.envelope.data as { commands?: unknown };
     const rootCommands = Array.isArray(rootData.commands)
       ? (rootData.commands as string[])
       : [];
-    this.runCli(["create", "--help"], { env: absentCredentialsEnv() });
+    this.runCli(["create", "--help", "--json"], { env: absentCredentialsEnv() });
     const createData = this.envelope.data as { subcommands?: Array<{ name?: string }> };
     const createSubs = (Array.isArray(createData.subcommands) ? createData.subcommands : [])
       .map((s) => s.name)
@@ -433,11 +436,16 @@ Then("the flag should be accepted, not rejected as unknown", function (this: Jol
     !/unknown option|unknown argument|unrecognized option|unknown command/.test(text),
     `global flag must be accepted, not rejected as unknown; got exit ${run.exitCode}:\n${run.stdout}\n${run.stderr}`,
   );
-  // A parsed flag lets the command run to its envelope; a rejected flag aborts before output.
-  assert.ok(
-    run.envelope,
-    `command must run and emit its envelope, proving the flag parsed; got exit ${run.exitCode}`,
-  );
+  // A rejected flag aborts with an "unknown option" error (ruled out above).
+  // Under the feature 020 contract only --json emits the machine envelope
+  // (--quiet is silent/stderr, --yes is human), so envelope presence proves the
+  // flag parsed for --json; the next scenario step re-checks --json emission.
+  if (run.args.includes("--json")) {
+    assert.ok(
+      run.envelope,
+      `--json must run the command to its envelope, proving the flag parsed; got exit ${run.exitCode}`,
+    );
+  }
 });
 
 Then(
@@ -529,7 +537,9 @@ Then(
 // unset so no path reaches a real account.
 
 When("the agent runs `jolly --help`", function (this: JollyWorld) {
-  this.runCli(["--help"], { env: absentCredentialsEnv() });
+  // Read the package naming from the machine envelope (feature 020): default
+  // --help is human usage and carries no envelope; --json carries `tool`.
+  this.runCli(["--help", "--json"], { env: absentCredentialsEnv() });
 });
 
 Then(

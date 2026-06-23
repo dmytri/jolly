@@ -18,11 +18,53 @@ import {
   ENVELOPE_STATUSES,
 } from "../support/envelope.ts";
 import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
+import { ptyAvailable, runUnderPty } from "../support/pty.ts";
+import { findEnvelope } from "../support/envelope.ts";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
+
+const CLI_ENTRY = join(REPO_ROOT, "src", "index.ts");
 
 // Real-format secret value used purely as a redaction probe: passed as command
 // input and asserted never to be echoed. Not a credential for any real service.
 const REDACTION_PROBE_CLOUD_TOKEN = "saleor-cloud-token-redaction-probe";
+
+// SGR colour escape (e.g. \x1b[31m) and emoji ranges. Human terminal output may
+// carry colour and restrained emoji; machine (--json), --quiet, and non-TTY
+// output must not.
+const ANSI_COLOUR = /\x1b\[[0-9;]*m/;
+const EMOJI =
+  /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F1E6}-\u{1F1FF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE0F}]/u;
+
+// Run `jolly <argv>` under a real kernel PTY so stdout is a genuine terminal
+// (process.stdout.isTTY === true). doctor renders no prompt, so no input is fed.
+// Records the terminal output as the world's last run. Returns false when no PTY
+// is available (the caller then skips).
+function runOnTerminal(world: JollyWorld, argv: string[]): boolean {
+  if (!ptyAvailable()) return false;
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries({ ...process.env, ...absentCredentialsEnv() })) {
+    if (v !== undefined) env[k] = v;
+  }
+  if (!env.TERM) env.TERM = "xterm-256color";
+  const run = runUnderPty({
+    runtime: process.env.HARNESS_CLI_RUNTIME ?? "node",
+    argv: [CLI_ENTRY, ...argv],
+    cwd: world.projectDir,
+    env,
+    inputs: [],
+    timeoutMs: 60_000,
+  });
+  world.previousRun = world.lastRun;
+  world.lastRun = {
+    args: argv,
+    cwd: world.projectDir,
+    exitCode: run.exitCode,
+    stdout: run.output,
+    stderr: "",
+    envelope: findEnvelope(run.output),
+  };
+  return true;
+}
 
 // --- Background ------------------------------------------------------------
 
@@ -155,51 +197,179 @@ Then(
   },
 );
 
-// --- Scenario: Default output combines human text and the envelope ---------
+// --- Scenario: Default output is human-friendly and omits the envelope -----
+//
+// Default mode (no --json) is human-friendly and does NOT carry the machine
+// envelope; the envelope appears on stdout only with --json (the agent's
+// explicit opt-in to machine output).
 
-Given(
-  "the agent runs `jolly doctor`",
-  function (this: JollyWorld) {
-    this.runCli(["doctor"], { env: absentCredentialsEnv() });
-    this.notes.defaultStdout = this.lastRun!.stdout;
-  },
-);
+When("the agent runs `jolly doctor`", function (this: JollyWorld) {
+  this.runCli(["doctor"], { env: absentCredentialsEnv() });
+});
 
 Then(
-  "stdout should contain human-readable text in addition to the envelope",
+  "stdout should contain human-readable check results",
   function (this: JollyWorld) {
-    const run = this.lastRun!;
-    assert.ok(run.envelope, "default mode must still carry the envelope");
-    // There must be human text beyond the raw envelope JSON.
-    const envelopeJson = JSON.stringify(run.envelope);
-    const nonEnvelope = run.stdout
-      .replace(envelopeJson, "")
-      .replace(/\s+/g, " ")
-      .trim();
+    const stdout = this.lastRun!.stdout;
+    // Human-readable: doctor names checks with their status, not as raw JSON.
     assert.ok(
-      nonEnvelope.length > 0 || /\n/.test(run.stdout),
-      "default mode should include human-readable text alongside the envelope",
+      /\bdoctor\b/.test(stdout),
+      `default doctor output must read as human text; got:\n${stdout}`,
+    );
+    assert.match(
+      stdout,
+      /\[(pass|fail|warning|skip|ok|error)\]/i,
+      `default doctor output must show human-readable check results; got:\n${stdout}`,
     );
   },
 );
 
 Then(
-  "stdout should still include the machine-readable envelope",
+  "stdout should not contain a JSON envelope",
   function (this: JollyWorld) {
-    assert.ok(this.lastRun!.envelope, "envelope must be present in default mode");
+    assert.equal(
+      findEnvelope(this.lastRun!.stdout),
+      undefined,
+      `default mode must omit the machine envelope from stdout; got:\n${this.lastRun!.stdout}`,
+    );
   },
 );
 
 Then(
-  "running `jolly doctor --quiet` should trim only the human text and still include the envelope",
+  "the JSON envelope should appear on stdout only when `--json` is passed",
   function (this: JollyWorld) {
-    const defaultStdout = String(this.notes.defaultStdout ?? "");
-    this.runCli(["doctor", "--quiet"], { env: absentCredentialsEnv() });
-    const quiet = this.lastRun!;
-    assert.ok(quiet.envelope, "--quiet must keep the envelope");
+    // The default run already proved the envelope is absent; the same command
+    // with --json must carry exactly the envelope.
+    const defaultRun = this.lastRun!;
+    assert.equal(
+      findEnvelope(defaultRun.stdout),
+      undefined,
+      "default mode must omit the envelope",
+    );
+    this.runCli(["doctor", "--json"], { env: absentCredentialsEnv() });
     assert.ok(
-      quiet.stdout.length <= defaultStdout.length,
-      "--quiet output should not be longer than default output",
+      this.lastRun!.envelope,
+      "the envelope must appear on stdout when --json is passed",
+    );
+  },
+);
+
+// --- Scenario: --quiet stays silent on a successful run --------------------
+// `jolly start --dry-run` previews the plan (status success, no side effects);
+// under --quiet a successful run prints nothing on either stream.
+
+When(
+  "the agent runs `jolly start --dry-run --quiet`",
+  function (this: JollyWorld) {
+    this.runCli(["start", "--dry-run", "--quiet"], { env: absentCredentialsEnv() });
+  },
+);
+
+Then("stderr should be empty", function (this: JollyWorld) {
+  assert.equal(
+    this.lastRun!.stderr.trim(),
+    "",
+    `stderr must be empty on a successful --quiet run; got:\n${this.lastRun!.stderr}`,
+  );
+});
+
+// --- Scenario: --quiet reports only the problem on a failed run ------------
+// A refused non-first-party `--url` fails pre-flight; under --quiet the failure
+// and its stable code go to stderr only, with no stdout and no envelope.
+
+When(
+  /^the agent runs `jolly create app-token --url https:\/\/evil\.example\.com\/graphql\/ --quiet`$/,
+  function (this: JollyWorld) {
+    const env = (this.notes.appTokenEnv as Record<string, string | undefined>)
+      ?? absentCredentialsEnv();
+    this.runCli(
+      ["create", "app-token", "--url", "https://evil.example.com/graphql/", "--quiet"],
+      { env },
+    );
+  },
+);
+
+Then(
+  "stderr should name the failure and the stable code `NON_FIRST_PARTY_HOST`",
+  function (this: JollyWorld) {
+    const stderr = this.lastRun!.stderr;
+    assert.ok(
+      stderr.includes("NON_FIRST_PARTY_HOST"),
+      `--quiet must print the stable code NON_FIRST_PARTY_HOST to stderr; got:\n${stderr}`,
+    );
+    assert.ok(
+      stderr.includes("evil.example.com"),
+      `--quiet must name the refused host on stderr; got:\n${stderr}`,
+    );
+  },
+);
+
+// --- Scenario: Human output is colourful in a terminal and plain when not --
+// Colour appears only in human terminal output: present when stdout is a real
+// terminal, absent when stdout is a pipe and under --json.
+
+When("`jolly doctor` runs in an interactive terminal", function (this: JollyWorld) {
+  if (!runOnTerminal(this, ["doctor"])) return "skipped";
+  return undefined;
+});
+
+Then("stdout should contain ANSI colour codes", function (this: JollyWorld) {
+  assert.match(
+    this.lastRun!.stdout,
+    ANSI_COLOUR,
+    `human terminal output must carry ANSI colour; got:\n${this.lastRun!.stdout}`,
+  );
+});
+
+When(
+  "the agent runs `jolly doctor` with stdout not a terminal",
+  function (this: JollyWorld) {
+    this.runCli(["doctor"], { env: absentCredentialsEnv() });
+  },
+);
+
+Then("stdout should contain no ANSI colour codes", function (this: JollyWorld) {
+  assert.doesNotMatch(
+    this.lastRun!.stdout,
+    ANSI_COLOUR,
+    `non-terminal stdout must carry no ANSI colour; got:\n${this.lastRun!.stdout}`,
+  );
+});
+
+Then(
+  "`jolly doctor --json` stdout should contain no ANSI colour codes",
+  function (this: JollyWorld) {
+    this.runCli(["doctor", "--json"], { env: absentCredentialsEnv() });
+    assert.doesNotMatch(
+      this.lastRun!.stdout,
+      ANSI_COLOUR,
+      `--json stdout must carry no ANSI colour; got:\n${this.lastRun!.stdout}`,
+    );
+  },
+);
+
+// --- Scenario: Machine output carries no colour or emoji -------------------
+
+Then(
+  "the stdout envelope should contain no ANSI colour codes",
+  function (this: JollyWorld) {
+    assert.ok(this.lastRun!.envelope, "expected a --json envelope on stdout");
+    assert.doesNotMatch(
+      this.lastRun!.stdout,
+      ANSI_COLOUR,
+      `--json stdout must carry no ANSI colour; got:\n${this.lastRun!.stdout}`,
+    );
+  },
+);
+
+Then(
+  "the stdout envelope should contain no emoji",
+  function (this: JollyWorld) {
+    assert.ok(this.lastRun!.envelope, "expected a --json envelope on stdout");
+    assert.doesNotMatch(
+      this.lastRun!.stdout,
+      EMOJI,
+      `--json stdout must carry no emoji; got:\n${this.lastRun!.stdout}`,
     );
   },
 );
@@ -342,7 +512,7 @@ When(
 );
 
 Then(
-  "no field in the envelope or human text should contain the secret value",
+  "no human text, nor any field of the envelope when one is emitted, should contain the secret value",
   function (this: JollyWorld) {
     const run = this.lastRun!;
     this.assertNoSecretsIn(run.stdout, "stdout");

@@ -545,27 +545,37 @@ Then("only the stripe checks should run", function (this: JollyWorld) {
   assertOnlyGroupRan(this, "stripe");
 });
 
-// ─── Scenario: jolly doctor --quiet keeps the envelope and checks (@logic) ──
-
-When("the agent runs `jolly doctor --quiet --json`", function (this: JollyWorld) {
-  this.runCli(["doctor", "--quiet", "--json"], { env: absentCredentialsEnv() });
-});
+// ─── Scenario: jolly doctor --quiet reports only checks needing attention ───
+// Under --quiet doctor prints only the checks that did not pass, to stderr,
+// with empty stdout and no envelope (feature 020); --json still emits the full
+// envelope with its checks array. The `When the agent runs `jolly doctor
+// --quiet`` is served by the shared global-flag run step (feature 006).
 
 Then(
-  "the envelope and its checks array should still be present",
+  "stderr should list only the checks that did not pass",
   function (this: JollyWorld) {
-    assert.ok(this.lastRun!.envelope, "--quiet must still emit a machine-readable envelope");
-    assert.ok(Array.isArray(this.envelope.checks), "--quiet must still carry a checks array");
-    assert.ok(this.envelope.checks.length > 0, "--quiet must still run checks");
+    const stderr = this.lastRun!.stderr;
+    // A fresh project dir with credentials unset has a known failing check
+    // (agents-md: no AGENTS.md marker) and a known passing check (cli-available).
+    // --quiet must surface the failing one and omit the passing one.
+    assert.ok(
+      stderr.includes("agents-md"),
+      `--quiet must list the failing check on stderr; got:\n${stderr}`,
+    );
+    assert.ok(
+      !stderr.includes("cli-available"),
+      `--quiet must omit passing checks from stderr; got:\n${stderr}`,
+    );
   },
 );
 
 Then(
-  "only nonessential human-readable text should be reduced",
+  "`jolly doctor --json` should still emit the full envelope with its checks array",
   function (this: JollyWorld) {
-    // The machine-readable envelope is unchanged; --quiet trims human chatter
-    // only, so the structured checks survive (asserted above).
-    assert.ok(this.envelope.summary !== undefined, "summary channel must persist under --quiet");
+    this.runCli(["doctor", "--json"], { env: absentCredentialsEnv() });
+    assert.ok(this.lastRun!.envelope, "--json must emit a machine-readable envelope");
+    assert.ok(Array.isArray(this.envelope.checks), "--json must carry a checks array");
+    assert.ok(this.envelope.checks.length > 0, "--json must run checks");
   },
 );
 
