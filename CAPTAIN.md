@@ -98,20 +98,21 @@ double" so a green suite carrying a fake fails there.
 
 ## Shipped
 
-Through **v0.9.1** (`main`+tag on GitHub, `@dk/jolly` on npm; homepage last redeployed at v0.8.0, unchanged since):
+Through **v0.9.2** (`main`+tag on GitHub, `@dk/jolly` on npm; homepage last redeployed at v0.8.0, unchanged since):
 token-only Saleor auth (browser OAuth removed), Stripe = app + skill (Stripe CLI removed), `@dk/jolly`
 naming, the `stripe-best-practices` skill in the default set, **Bombshell CLI plumbing (027)** —
 `@bomb.sh/args` typed parser, `@bomb.sh/tab` completion, `@clack/prompts` interactive `jolly start` +
-masked login, agent path unchanged — and (v0.9.1) **human-friendly output by default (020/027)**: human-first
-default output, machine envelope only under `--json`. The launch bar is met mechanically: homepage paste →
-live deployed Paper storefront on Vercel → browsable/stocked store against Saleor Cloud → checkout reaches
-the Stripe test step (behind the human Stripe-Dashboard gate). Full history in git.
+masked login, agent path unchanged; (v0.9.1) **human-friendly output by default (020/027)** — human-first
+default output, machine envelope only under `--json`; and (v0.9.2) **in-place progress on stderr (020:64)**
+plus **end-to-end inline human start (027)** — the inline masked Cloud-token paste + the "with you inline"
+Vercel / "final step" Stripe gate copy. The launch bar is met mechanically: homepage paste → live deployed
+Paper storefront on Vercel → browsable/stocked store against Saleor Cloud → checkout reaches the Stripe test
+step (behind the human Stripe-Dashboard gate). Full history in git.
 
-Pushed to `origin/main`, ahead of the v0.9.1 release (unreleased): **in-place progress on stderr (020:64)**
-(`aa80def`). Local, not yet pushed (3 commits): the **027 end-to-end-in-one-session spec** (`a7ca6d0`) and
-its **build** (`8d6703b`) — the inline masked Cloud-token paste + the "with you inline" Vercel / "final step"
-Stripe gate copy, all `@logic`-green — plus this note (`fc86fff`). Held from release/publish/deploy pending a
-green sandbox + Paper recovery (below).
+**v0.9.2 shipped `@logic`-verified only** (`c37a66b`/tag `v0.9.2`, npm `latest`), overriding the
+release-hold at the user's explicit request. Its real-services (`@sandbox`) end-to-end behaviour is **not
+verified against this release** — the Paper `main` build break + sandbox-capacity flakiness (below) still
+stand. Homepage **not** redeployed (CLI-internals release; homepage unchanged since v0.8.0).
 
 ## Open / watch
 
