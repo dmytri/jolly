@@ -26,12 +26,48 @@ Feature: Jolly CLI output contract
       | jolly create store --dry-run --json    |
 
   @logic
-  Scenario: Default output combines human text and the envelope
-    Given the agent runs `jolly doctor`
-    When the command completes
-    Then stdout should contain human-readable text in addition to the envelope
-    And stdout should still include the machine-readable envelope
-    And running `jolly doctor --quiet` should trim only the human text and still include the envelope
+  Scenario: Default output is human-friendly and omits the machine envelope
+    When the agent runs `jolly doctor`
+    Then stdout should contain human-readable check results
+    And stdout should not contain a JSON envelope
+    And the JSON envelope should appear on stdout only when `--json` is passed
+
+  @logic
+  Scenario: --quiet stays silent on a successful run
+    When the agent runs `jolly start --dry-run --quiet`
+    Then stdout should be empty
+    And stderr should be empty
+
+  @logic
+  Scenario: --quiet reports only the problem on a failed run
+    Given a Saleor Cloud token is configured
+    When the agent runs `jolly create app-token --url https://evil.example.com/graphql/ --quiet`
+    Then stderr should name the failure and the stable code `NON_FIRST_PARTY_HOST`
+    And stdout should be empty
+    And no JSON envelope should be printed
+
+  @logic
+  Scenario: Human output is colourful in a terminal and plain when it is not
+    When `jolly doctor` runs in an interactive terminal
+    Then stdout should contain ANSI colour codes
+    When the agent runs `jolly doctor` with stdout not a terminal
+    Then stdout should contain no ANSI colour codes
+    And `jolly doctor --json` stdout should contain no ANSI colour codes
+
+  @logic
+  Scenario: Machine output carries no colour or emoji
+    When the agent runs `jolly doctor --json`
+    Then the stdout envelope should contain no ANSI colour codes
+    And the stdout envelope should contain no emoji
+
+  @logic
+  Scenario: Progress is shown in place on stderr, never on the result stream
+    Given a fresh empty project directory
+    When `jolly start` runs in an interactive terminal
+    Then progress for the long stages should be shown on stderr
+    And the progress should update in place rather than appending one line per update
+    And stdout should carry no progress or spinner text
+    And `jolly start --json` should show no progress on stdout
 
   @logic
   Scenario: Commands that run checks reuse the doctor vocabulary
@@ -52,7 +88,7 @@ Feature: Jolly CLI output contract
   @logic @property
   Scenario Outline: Output never exposes secrets
     When the agent runs `<command>` in default, `--json`, and `--quiet` modes
-    Then no field in the envelope or human text should contain the secret value
+    Then no human text, nor any field of the envelope when one is emitted, should contain the secret value
     And the secret should be referenced by name only
 
     Examples:
@@ -84,8 +120,19 @@ Feature: Jolly CLI output contract
     - `checks[].status` reuses the doctor vocabulary: pass, warning, fail, skipped, unknown.
     - `nextSteps[]` should mirror doctor's guidance shape with a human description and an optional concrete command.
     - `errors[]` should each carry a stable `code`, a `message`, and optional `remediation`.
-    - With `--json`, stdout should contain only the envelope so it is machine-parseable.
-    - Default mode should combine concise human text with the same envelope; `--quiet` trims nonessential human text only.
+    - `--json` is the only mode that emits the machine-readable envelope: its stdout is exactly
+      one envelope and nothing else — no human text, colour, emoji, or progress. It is the
+      agent's explicit opt-in to machine output.
+    - Default mode (no `--json`) is human-friendly and does NOT emit the envelope: concise,
+      colourful output with restrained emoji, and in-place progress for the long stages when
+      stdout is a terminal. When stdout is not a terminal the same human text is plain — no
+      colour, emoji, or progress — and the envelope still appears only with `--json`.
+    - `--quiet` is silent on success (no stdout, no stderr) and prints only warnings and errors,
+      each with its stable `code`, to stderr; it never emits the envelope.
+    - The result goes to stdout (the human summary in default mode, the envelope with `--json`);
+      progress and status chatter go to stderr and update in place, so piping stdout stays clean.
+    - Colour and emoji appear only in human terminal output; they are absent when stdout is not a
+      terminal, under `--json`, under `--quiet`, and when `NO_COLOR` is set. Emoji stay restrained.
     - Output must never print secret values; reference secrets by name only.
     - Structured side-effect context (see feature 021) should be carried inside `data` and/or `checks`, not in a separate ad hoc format.
     - Field names use camelCase (for example `nextSteps`, `errors[].code`); this applies to the envelope and to the feature 021 risk context.

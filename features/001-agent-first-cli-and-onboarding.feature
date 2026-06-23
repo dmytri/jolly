@@ -38,9 +38,9 @@ Feature: Agent-first Jolly onboarding and CLI
     - Jolly empowers the customer's chosen agent and workflow — it does not replace them. The agent remains the orchestrator; Jolly provides the skill, plumbing, and diagnostics.
     - Jolly should never ask for information it can infer, detect, or safely default. Confirmation steps are only warranted for irreversible or destructive actions.
     - CLI output should favor deterministic, structured, actionable responses.
-    - Default CLI output should combine concise human-readable text with machine-readable JSON blocks or artifacts.
-    - All CLI commands should support `--json` for machine-readable output.
-    - All CLI commands should support `--quiet` for reduced output.
+    - Default CLI output (no `--json`) is human-friendly — concise, colourful, with restrained emoji and in-place progress in a terminal — and carries no machine envelope. The machine-readable envelope is emitted only under `--json` (feature 020).
+    - All CLI commands should support `--json` for machine-readable output — the agent's explicit opt-in to the envelope.
+    - All CLI commands should support `--quiet`: silent on success, printing only warnings and errors (feature 020).
     - All CLI commands should support `--yes` / `-y` to skip Jolly prompts where the agent environment allows.
     - `jolly start --dry-run` is the setup guide's Step 0 ("preview the plan"): it prints
       exactly what `start` would do — directories created, files written, API hosts
@@ -49,8 +49,8 @@ Feature: Agent-first Jolly onboarding and CLI
       programmatically distinguishable from real execution progress.
     - `jolly start` bootstraps setup (install skills, write `.mcp.json`, scaffold, acquire auth) AND runs the setup end-to-end by spawning the official CLIs itself (`git`, `pnpm`, `@saleor/configurator`, `npx vercel`) — pausing for the agent's approval (feature 021 `riskContext`) before each create/deploy and announcing-and-waiting at the human gates (account creation, the Vercel sign-in `vercel login` via stdio passthrough, the Dashboard Stripe app). Feature 002's orchestration scenarios and rule ("jolly start orchestrates the setup by spawning the official CLIs") assert this spawned behavior, and the "Jolly start does not fabricate stage completion or success" scenario above asserts the no-fabrication invariant (report only stages actually performed; never claim a deployed store), which applies to the orchestrated stages too.
     - `jolly start` should run `jolly doctor` automatically for verification of the bootstrap and, when re-run, of the agent's progress.
-    - Final `jolly start` success output should include a concise summary, structured stdout data/report, key URLs/statuses, final doctor verification results, next-step agent guidance, and no secret values.
-    - `jolly start` should be hybrid: agent-friendly by default, with a human-friendly interactive mode available. Feature 027 specifies that interactive discovery: TTY-gated, additive, sane defaults where Enter always advances, and the agent path left byte-for-byte unchanged.
+    - Final `jolly start` output should include a concise summary, key URLs/statuses, final doctor verification results, next-step agent guidance, and no secret values — as human text by default and as the structured envelope under `--json`.
+    - `jolly start` should be human-friendly by default (feature 020 output), with the TTY-gated interactive discovery of feature 027 — additive, with sane defaults where Enter always advances — and the machine-readable envelope only under `--json`. `--json`, `--yes`, and a non-interactive terminal still suppress every prompt, and the `--json` envelope stays byte-for-byte unchanged, so an agent run never blocks or changes shape.
     - Jolly should make full use of subcommands, including `init`, `create`, and `start` concepts.
     - Agent instructions and skills are part of the product experience, not afterthought documentation.
     - Skill management is fully automated by the Jolly CLI — `jolly start` installs ALL skills automatically. There is no separate optional skill-install step for the agent.

@@ -16,7 +16,7 @@ Feature: Npx-first Jolly CLI command surface
     When the agent runs `jolly start --json`
     Then `jolly start` should bootstrap setup (install the Jolly skill and Saleor skills, scaffold, run doctor) and run the ordered mechanical setup stages
     And it should spawn the official CLIs (Vercel CLI, `@saleor/configurator`, `git`, `pnpm`) under their own auth while using Jolly's thin helpers for plumbing
-    And the output should follow Jolly's hybrid human-readable plus machine-readable format
+    And with `--json` the output should be the machine-readable envelope on stdout (feature 020)
 
   @logic
   Scenario: The CLI exposes exactly the supported command surface

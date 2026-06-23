@@ -88,11 +88,13 @@ Feature: Jolly doctor diagnostics
       | stripe     |
 
   @logic
-  Scenario: jolly doctor --quiet keeps the envelope and checks
+  Scenario: jolly doctor --quiet reports only the checks that need attention
     Given a project directory with the Jolly CLI installed
-    When the agent runs `jolly doctor --quiet --json`
-    Then the envelope and its checks array should still be present
-    And only nonessential human-readable text should be reduced
+    When the agent runs `jolly doctor --quiet`
+    Then stderr should list only the checks that did not pass
+    And stdout should be empty
+    And no JSON envelope should be printed
+    And `jolly doctor --json` should still emit the full envelope with its checks array
 
   @logic
   Scenario: Doctor with no group runs all check groups
@@ -151,8 +153,8 @@ Feature: Jolly doctor diagnostics
     - `jolly doctor` should run all checks by default.
     - `jolly doctor` should support named check groups for targeted diagnostics.
     - V1 should not add a separate `jolly status` command; status-style summaries should be handled by `jolly doctor`.
-    - `jolly doctor --json` should produce machine-readable output.
-    - `jolly doctor --quiet` should reduce nonessential output.
+    - `jolly doctor --json` should produce machine-readable output (the envelope).
+    - `jolly doctor --quiet` should print only the checks that did not pass, to stderr, with no envelope (feature 020).
     - Doctor should distinguish between pass, warning, fail, skipped, and unknown checks.
     - Doctor should suggest concrete next commands or manual steps.
     - Doctor is the agent's recovery oracle during skill-driven setup: when a step fails or is incomplete, the relevant check should tell the agent what is wrong and the concrete next action (a command to run, a CLI to authenticate, a value to provide), so the agent can self-correct and resume via the Jolly skill.

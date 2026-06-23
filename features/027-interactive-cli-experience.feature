@@ -25,9 +25,10 @@ Feature: Human-facing interactive CLI experience
     - Each side-effecting create or deploy stage is confirmed before it runs — the human
       analogue of feature 021's per-stage riskContext approval. The default is to proceed, so
       Enter advances; declining stops honestly and never fabricates later-stage success.
-    - The interactive layer shows progress for the long mechanical stages and announces the
-      irreducible human gates (the Vercel sign-in, the Dashboard Stripe app); it MAY use
-      Bombshell spinners.
+    - The interactive layer shows in-place progress for the long mechanical stages — Bombshell
+      spinners on stderr that update in place rather than spewing a line per tick (feature 020) —
+      and announces the irreducible human gates (the Vercel sign-in, the Dashboard Stripe app).
+      The machine path (`--json`, or no terminal) shows no progress at all.
     - The interactive layer and its Bombshell dependencies are bundled into the published
       `dist/index.js`, so `npx @dk/jolly` runs self-contained (feature 006's published-launcher
       scenario guards this).

@@ -70,6 +70,15 @@ double" so a green suite carrying a fake fails there.
   Bombshell stack — full Bombshell human UX, no duplicate prompt mechanism, agent path (token via
   flag/file/stdin/env, non-TTY honest error) byte-for-byte unchanged. Shipped in **v0.9.0**
   (`main` + tag on GitHub, `@dk/jolly` on npm). Homepage unchanged by this CLI-internals release, so not redeployed.
+- **Human-friendly output by default (020, current iteration).** Default (no `--json`) output is
+  human-first: concise, colourful, restrained emoji, in-place progress (Bombshell `@clack/prompts`
+  spinners on stderr) for the long stages in a terminal; plain text when stdout is not a terminal.
+  The machine-readable envelope is emitted **only under `--json`** — the agent's explicit opt-in —
+  never in default mode. `--quiet` is silent on success, printing only warnings/errors (each with its
+  stable `code`) to stderr. The result goes to stdout, progress/chatter to stderr, so piping stdout
+  stays clean; colour/emoji are off under `--json`/`--quiet`/non-TTY/`NO_COLOR`. **This retires the old
+  "hybrid default (human + envelope)" — agents stay the primary consumer but now opt into the envelope
+  with `--json`.** Specs updated (020 primary; 001/006/014/027 reconciled); not yet built — awaiting QM/Crew.
 
 ## Shipped
 
@@ -91,7 +100,9 @@ Cloud → checkout reaches the Stripe test step (behind the human Stripe-Dashboa
   actually performed and confirmed; unimplemented paths error honestly (features 014/018/020).
 - **Empower, don't replace, the agent:** Jolly does deterministic plumbing and orchestrates the official
   CLIs; the customer's agent approves risk, completes human gates, and owns the store after setup.
-- **Audience:** AI agents/skills are the primary consumers; human DX stays decent but secondary.
+- **Audience:** AI agents/skills are the primary consumers — they drive Jolly via the `--json`
+  machine envelope. The no-flag default presentation is human-friendly (020), but the agent path is
+  the structured envelope it opts into, not the default human text.
 
 ## Product identity
 

@@ -40,7 +40,9 @@ jolly start --dry-run   # preview the whole plan (stages, effects, riskContexts)
 jolly start --yes       # pre-approve the high-risk stages and run straight through
 ```
 
-Preview first with `--dry-run --json`: the `data.plan` lists every stage, its effects, and the
+Output is human-friendly by default; add `--json` to any command for the machine-readable envelope
+(the only mode that emits it) when you want to branch on `status`, `data`, `checks`, or stable error
+`code`s. Preview first with `--dry-run --json`: the `data.plan` lists every stage, its effects, and the
 `riskContext` for each side-effecting one. Then run `jolly start`. It will:
 
 - **Bootstrap first** — install this skill + the Saleor agent-skills via `npx skills add`, write
