@@ -78,7 +78,11 @@ double" so a green suite carrying a fake fails there.
   stable `code`) to stderr. The result goes to stdout, progress/chatter to stderr, so piping stdout
   stays clean; colour/emoji are off under `--json`/`--quiet`/non-TTY/`NO_COLOR`. **This retires the old
   "hybrid default (human + envelope)" — agents stay the primary consumer but now opt into the envelope
-  with `--json`.** Specs updated (020 primary; 001/006/014/027 reconciled); not yet built — awaiting QM/Crew.
+  with `--json`.** Specs updated (020 primary; 001/006/014/027 reconciled) and **built**: interactive
+  `jolly start` routes all Bombshell chatter plus an in-place `@clack/prompts` stage spinner to
+  `process.stderr`, the result stays on stdout via `emit()`, so piping stdout stays clean. The agent/
+  `--json` path is untouched. Verified by a three-PTY harness mode that captures stdout and stderr
+  separately (ONLCR disabled, so a bare CR is a real redraw) — making "on stderr, not stdout" falsifiable.
 
 ## Shipped
 
@@ -92,15 +96,12 @@ Cloud → checkout reaches the Stripe test step (behind the human Stripe-Dashboa
 
 On `main` ahead of the last release: **human-friendly output by default (020/027)** — interactive `jolly start`
 surfaces its resolved decisions in the terminal (names the target org, lists the setup stages, on a decline
-reports it stopped before any side-effecting stage), machine plan/config only on `--json`. Pushed, not yet
-released/published/deployed (held pending a green sandbox + Paper recovery, below).
+reports it stopped before any side-effecting stage), machine plan/config only on `--json`. Plus (local commit
+`aa80def`, not yet pushed): **in-place progress on stderr (020:64)** — the last undefined 020 target, now
+built and `@logic`-green. Held from release/publish/deploy pending a green sandbox + Paper recovery (below).
 
 ## Open / watch
 
-- **020:64 progress-on-stderr** is the one remaining undefined target. Decision: BUILD the human spinner (do
-  not simplify) — `@clack/prompts` spinner on `process.stderr` for the human TTY path only (agent/`--json`
-  path stays clean), plus a dual-stream PTY harness (stdout-tty + stderr-tty captured separately) so "on
-  stderr, not stdout" is falsifiable. `@clack/prompts` `spinner({ output })` supports stderr.
 - **Paper `main` build break (watch):** `next build` of cloned Paper `main` fails with
   `EmptyGenerateStaticParamsError` on `/[locale]/[channel]/cart` (Next "Cache Components" needs a non-empty
   `generateStaticParams`). A real `jolly start` hits the same Vercel build failure today. Treated as transient
