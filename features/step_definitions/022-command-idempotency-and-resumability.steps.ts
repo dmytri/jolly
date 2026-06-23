@@ -275,6 +275,76 @@ Then(
   },
 );
 
+// ─── @logic: jolly start does not re-gate a stage whose work is already done ──
+// With the store endpoint already configured in the project `.env` (written by
+// an earlier `jolly create store --url`), `jolly start --dry-run` reads it and
+// treats the store stage as already satisfied: it presents no create-store
+// approval gate (no store would be created this run) and names the store stage
+// as satisfied in the summary rather than re-presenting it as pending approval.
+// Real by design: the precondition is produced by running the real
+// `jolly create store --url` (mode 1 writes the pasted endpoint to `.env`; no
+// credentials, no network), and the runtime credentials are genuinely unset
+// (absentCredentialsEnv), so the only source of the endpoint is the `.env` file.
+
+Given(
+  "`NEXT_PUBLIC_SALEOR_API_URL` is already configured in the project `.env` from an earlier `jolly create store`",
+  function (this: JollyWorld) {
+    const url = "https://jolly-test-resumable.saleor.cloud/graphql/";
+    this.runCli(["create", "store", "--url", url, "--json"], { env: absentCredentialsEnv() });
+    assert.equal(this.envelope.status, "success", "create store --url must store the endpoint");
+    assert.ok(
+      readFileSync(join(this.projectDir, ".env"), "utf8").includes(url),
+      "NEXT_PUBLIC_SALEOR_API_URL must be configured in the project .env",
+    );
+  },
+);
+
+Then(
+  "the `store` stage should present no approval riskContext, because no store would be created this run",
+  function (this: JollyWorld) {
+    const plan = this.envelope.data.plan as Array<Record<string, unknown>>;
+    assert.ok(Array.isArray(plan) && plan.length > 0, "the dry-run plan must be a non-empty array");
+    const store = plan.find((s) => s.stage === "store");
+    assert.ok(store, "the dry-run plan must include the store stage");
+    const rc = store!.riskContext as Record<string, unknown> | undefined;
+    // An already-satisfied stage is never re-presented as a pending approval
+    // gate (feature 022 Rule). An approval gate is a riskContext carrying a
+    // high-risk category and the create-store action; with the store satisfied
+    // the stage carries no such gate (it may carry an informational, no-category
+    // announcement instead).
+    if (rc) {
+      assert.deepEqual(
+        rc.categories,
+        [],
+        "an already-satisfied store stage must carry no high-risk approval categories",
+      );
+      assert.notEqual(
+        rc.action,
+        "create store",
+        "the store stage must not re-present the create-store approval gate",
+      );
+    }
+  },
+);
+
+Then(
+  "the summary should name the store stage as already satisfied, not pending approval",
+  function (this: JollyWorld) {
+    const summary = this.envelope.summary;
+    assert.match(summary, /store/i, "the summary must name the store stage");
+    assert.match(
+      summary,
+      /already satisfied|satisfied/i,
+      "the summary must name the store stage as already satisfied",
+    );
+    assert.doesNotMatch(
+      summary,
+      /store[^.;]*\b(pending|awaiting)\b[^.;]*approval/i,
+      "the summary must not present the store stage as pending approval",
+    );
+  },
+);
+
 // ─── @logic: Collisions pause instead of overwriting ─────────────────────────
 // A step that would overwrite local/remote state Jolly did not create must
 // pause and ask how to resolve, never silently overwrite, and expose a feature

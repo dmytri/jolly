@@ -2371,10 +2371,13 @@ function commandStartDryRun(): Envelope {
       };
     }
   }
+  const summary = storeEndpoint
+    ? "Previewed the jolly start plan. The store stage is already satisfied (a store endpoint is configured), so no store would be created this run. No files were written and no network requests were made."
+    : "Previewed the jolly start plan. No files were written and no network requests were made.";
   return envelope({
     command,
     status: "success",
-    summary: "Previewed the jolly start plan. No files were written and no network requests were made.",
+    summary,
     data: {
       dryRun: true,
       plan,
