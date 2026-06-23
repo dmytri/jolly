@@ -28,12 +28,12 @@ Voice: calm, dry, a little silly. Eight arms, one store.
 
 Four moments. Stop and ask — one at a time:
 
-- 🧑 **New account** — Saleor Cloud / Vercel / Stripe (creation needs a human)
-- 🧑 **Browser approval** — I sign Vercel and Stripe in myself; I print a URL, the human approves it
+- 👩🏾 **New account** — Saleor Cloud / Vercel / Stripe (creation needs a human)
+- 👨🏻 **Browser approval** — I sign Vercel and Stripe in myself; I print a URL, the human approves it
   in a browser, and I continue
-- 🧑 **Configure Saleor's Stripe app** — I install the app and the Stripe skill; the human adds the
+- 🧑🏿 **Configure Saleor's Stripe app** — I install the app and the Stripe skill; the human adds the
   test-mode keys and maps it to the `us` channel in the Dashboard (Extensions → Stripe)
-- 🧑 **A secret to paste** — chiefly the **Saleor Cloud token** (mint one at
+- 👩🏼 **A secret to paste** — chiefly the **Saleor Cloud token** (mint one at
   https://cloud.saleor.io/tokens and hand it to `jolly login`). Any key can go straight into the
   gitignored `.env` yourself instead of pasting it to me
 
@@ -106,7 +106,7 @@ stage-by-stage playbook.
 
 - Node ≥ 23 (`node -v`) — the CLI uses Node's native TypeScript.
 - pnpm (`pnpm -v`) — Paper uses it.
-- A Saleor Cloud account — 🧑 sign up at https://cloud.saleor.io if there isn't one.
+- A Saleor Cloud account — 👨🏽 sign up at https://cloud.saleor.io if there isn't one.
 
 ### Hosts I contact
 
