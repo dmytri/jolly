@@ -83,6 +83,19 @@ double" so a green suite carrying a fake fails there.
   `process.stderr`, the result stays on stdout via `emit()`, so piping stdout stays clean. The agent/
   `--json` path is untouched. Verified by a three-PTY harness mode that captures stdout and stderr
   separately (ONLCR disabled, so a bare CR is a real redraw) — making "on stderr, not stdout" falsifiable.
+- **Human interactive start runs end-to-end in one session (027, current iteration — specced, not yet
+  built).** The human-path complaint: with no Cloud token, interactive `jolly start` runs bootstrap
+  (init+doctor) then closes with the agent's stop-and-report next-steps ("run jolly login", "re-run jolly
+  start") — the agent model leaking into the human session. Decision: the **human/TTY** path gathers
+  required input **inline** and never hands the human a next command for an input gate. Concretely: when no
+  Cloud token is configured, prompt to **paste it inline** (the same `@clack/prompts` masked entry as
+  `jolly login`) and continue; the Vercel sign-in already runs inline via the deploy stage's `vercel login`
+  stdio passthrough (002:98), reframed in 027 as "run with you"; the run **ends at the one irreducible step
+  Jolly cannot do** — pasting the Stripe keys + mapping the `us` channel in the Saleor Dashboard, store
+  already live — so the closing output names that Dashboard step, never a re-run. A genuine stage *failure*
+  (not a gate) still stops honestly; the **agent path (`--json`/`--yes`/non-TTY) is unchanged** (still
+  stop-and-report — correct for agents, 020 firewall). The only new production behaviour is the inline
+  token prompt + the human-path closing copy; Vercel-inline already exists. Awaiting QM/Crew.
 
 ## Shipped
 

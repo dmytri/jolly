@@ -18,10 +18,12 @@ Feature: Human-facing interactive CLI experience
     - Every interactive prompt carries a sane default, and pressing Enter accepts it. Accepting
       every default reaches the same resolved configuration as the non-interactive `--yes` run.
       Jolly never asks for a value it can infer, detect, or safely default (feature 001).
-    - Discovery prompts the human only for what is genuinely a human decision: the Saleor
-      organization to use when the token resolves more than one (with exactly one, Jolly uses
-      it without asking, per feature 012), the environment name when none is configured, and
-      the storefront project directory — each pre-filled with a sane default.
+    - Discovery prompts the human only for what is genuinely a human decision or secret: the
+      Saleor Cloud token when none is configured (pasted with Bombshell masked entry, exactly as
+      `jolly login`, never echoed), the Saleor organization to use when the token resolves more
+      than one (with exactly one, Jolly uses it without asking, per feature 012), the environment
+      name when none is configured, and the storefront project directory — each decision pre-filled
+      with a sane default.
     - Because the interactive layer serves a human, it surfaces its resolved decisions in the
       terminal output, not in a machine envelope: it names the organization it will target, lists
       the mechanical setup stages it will run, and on a decline reports that setup stopped with no
@@ -32,8 +34,10 @@ Feature: Human-facing interactive CLI experience
       Enter advances; declining stops honestly and never fabricates later-stage success.
     - The interactive layer shows in-place progress for the long mechanical stages — Bombshell
       spinners on stderr that update in place rather than spewing a line per tick (feature 020) —
-      and announces the irreducible human gates (the Vercel sign-in, the Dashboard Stripe app).
-      The machine path (`--json`, or no terminal) shows no progress at all.
+      and tells the human about the human steps the run involves: it runs the Vercel sign-in with
+      them inline when the deploy stage needs it, and the final Stripe key entry in the Saleor
+      Dashboard is theirs to complete at the end. The machine path (`--json`, or no terminal) shows
+      no progress at all.
     - The interactive layer and its Bombshell dependencies are bundled into the published
       `dist/index.js`, so `npx @dk/jolly` runs self-contained (feature 006's published-launcher
       scenario guards this).
@@ -66,12 +70,12 @@ Feature: Human-facing interactive CLI experience
     And no organization choice should be shown, because the token resolves exactly one organization
 
   @logic
-  Scenario: Interactive start announces the irreducible human gates it will require
+  Scenario: Interactive start tells the human about the human steps the run involves
     Given a fresh empty project directory
     And `jolly start --dry-run` runs in an interactive terminal
     When the user presses Enter at every prompt
-    Then Jolly should announce the Vercel sign-in gate
-    And Jolly should announce the Dashboard Stripe app gate
+    Then the interactive output should say Jolly will run the Vercel sign-in with the human inline
+    And the interactive output should name the Saleor Dashboard Stripe key entry as the final human step
 
   @logic
   Scenario: --yes runs jolly start with no prompt even on an interactive terminal
@@ -150,3 +154,31 @@ Feature: Human-facing interactive CLI experience
     Then argument parsing is served by `@bomb.sh/args` as the only argument parser
     And every interactive prompt, confirmation, and masked secret entry is served by `@clack/prompts` as the only terminal-prompt mechanism
     And shell completion is served by `@bomb.sh/tab` as the only completion-script generator
+
+  Rule: Interactive start runs end-to-end in one session, gathering human input inline
+    - On an interactive terminal, once the human proceeds, `jolly start` runs the whole setup
+      pipeline in that one session. It never stops to hand the human an agent-style next command —
+      for example "run jolly login" or "re-run jolly start" — to clear an input gate; each gate
+      that needs a human is satisfied inline, and then the run continues. This is the human
+      (interactive) path only; it does not change the agent path below.
+    - When no Saleor Cloud token is configured, Jolly prompts the human to paste it inline, using
+      the same Bombshell masked entry as `jolly login`, and continues with the pasted token —
+      rather than reporting a blocked authentication stage and exiting.
+    - When the deploy stage needs a Vercel session, Jolly runs `vercel login` inline in the same
+      terminal so the human completes the sign-in there, then continues the deploy.
+    - The run ends at the one step Jolly cannot perform for the human: pasting the Stripe keys and
+      mapping the `us` channel in the Saleor Dashboard. By then the storefront is deployed and live,
+      so the closing output names that Dashboard step as the remaining task, never a re-run of
+      `jolly start`.
+    - A genuine stage failure — not a human gate — still stops honestly and reports the error;
+      Jolly never fabricates success to keep going. The agent path (`--json`, `--yes`/`-y`, or no
+      interactive terminal) is unchanged: it completes each stage it can and reports the rest as
+      honest checks and next steps for the agent to act on (feature 020).
+
+  @logic
+  Scenario: Interactive start prompts to paste a missing Cloud token, in the same session
+    Given a fresh project directory with no real service credentials
+    And `jolly start` runs in an interactive terminal
+    When the user works through the prompts with no Cloud token configured
+    Then Jolly should present a masked Cloud-token entry prompt in the same session
+    And after the token is entered the run should continue into the setup stages rather than ending at the authentication step
