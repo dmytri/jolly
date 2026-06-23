@@ -86,8 +86,10 @@ npx @dk/jolly doctor               # checks env, store, deploy, MCP health
 npx @dk/jolly upgrade              # update skills and config
 ```
 
-`start` chains these; each is also a command you can drive yourself. The installed `jolly` skill
-carries the full stage-by-stage playbook.
+`start` chains these; each is also a command you can drive yourself. Pass `--json` to any of them
+for the structured envelope — `status`, `checks`, `riskContext`, `nextSteps` — to parse; bare
+output is human prose for your captain. The installed `jolly` skill carries the full
+stage-by-stage playbook.
 
 ---
 
