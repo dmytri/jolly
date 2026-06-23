@@ -408,9 +408,11 @@ function runStartSeparated(world: JollyWorld): boolean {
     argv: [CLI_ENTRY, ...argv],
     cwd: world.projectDir,
     env,
-    // Enter advances each pre-filled prompt (environment name, project dir) and
+    // No Cloud token configured, so interactive start prompts for it inline
+    // first (feature 027): paste a real-format stand-in token, then Enter
+    // advances each pre-filled prompt (environment name, project dir) and
     // confirms the proceed gate, so the side-effecting stages are reached.
-    inputs: ["\r", "\r", "\r", "\r", "\r"],
+    inputs: [`${STAND_IN_TOKEN}\r`, "\r", "\r", "\r", "\r"],
     inputDelayMs: 600,
     timeoutMs: 150_000,
     separateStreams: true,

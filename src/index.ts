@@ -474,9 +474,12 @@ function loginRiskContext(dryRunAvailable = true): RiskContext {
 // mechanism (feature 027). The mask keeps the secret off the terminal. The
 // lowest-precedence token source, used only when no explicit source supplied one
 // and stdin is a TTY.
-async function promptForToken(): Promise<string> {
+async function promptForToken(
+  clackOpts: { output?: NodeJS.WriteStream } = {},
+): Promise<string> {
   const value = await clackPassword({
     message: "Paste your Saleor Cloud token",
+    ...clackOpts,
   });
   if (clackIsCancel(value)) process.exit(130); // Ctrl-C
   return String(value).trim();
@@ -3207,6 +3210,25 @@ async function resolveInteractiveOrgs(
 async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
   clackIntro("jolly start — guided setup", CLACK_STDERR);
 
+  // No Cloud token configured (feature 027 Rule "runs end-to-end in one
+  // session"): prompt the human to paste it inline with the same Bombshell
+  // masked entry as `jolly login`, persist it, and continue with it — never
+  // report a blocked authentication stage and exit. Skipped under --dry-run
+  // (preview only; nothing is gathered or written).
+  if (!args.dryRun) {
+    const existingToken =
+      args.options["token"] ??
+      loadEnvValues(projectDir())["JOLLY_SALEOR_CLOUD_TOKEN"] ??
+      process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
+    if (!existingToken) {
+      // On stderr, consistent with every other interactive prompt, so the
+      // result stream (stdout) stays clean (feature 020 progress/output contract).
+      const pasted = await promptForToken(CLACK_STDERR);
+      writeEnvValues(projectDir(), { JOLLY_SALEOR_CLOUD_TOKEN: pasted });
+      process.env["JOLLY_SALEOR_CLOUD_TOKEN"] = pasted;
+    }
+  }
+
   // Organization: prompt only when the token resolves more than one (feature
   // 012). With exactly one, use it without asking.
   const orgs = await resolveInteractiveOrgs(args);
@@ -3255,9 +3277,9 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
     "Planned stages",
     CLACK_STDERR,
   );
-  clackLog.info("Gate: you will sign in to Vercel yourself (`vercel login`).", CLACK_STDERR);
+  clackLog.info("Gate: Jolly runs the Vercel sign-in (`vercel login`) with you inline.", CLACK_STDERR);
   clackLog.info(
-    "Gate: you will finish the Stripe app setup in the Saleor Dashboard.",
+    "Gate: final step is yours — paste the Stripe keys in the Saleor Dashboard.",
     CLACK_STDERR,
   );
 

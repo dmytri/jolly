@@ -18,7 +18,7 @@ import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { absentCredentialsEnv } from "../support/creds-env.ts";
+import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 import { ptyAvailable, runUnderPty } from "../support/pty.ts";
 import { findEnvelope } from "../support/envelope.ts";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
@@ -418,10 +418,18 @@ When(
   "the user declines the confirmation before the first side-effecting stage",
   { timeout: 160_000 },
   function (this: JollyWorld) {
-    // Accept the config prompts (environment name, project directory) with Enter,
-    // then decline the side-effecting confirmation with `n` (clack confirm
-    // submits immediately on `n`).
-    if (!runInteractive(this, startArgvWithMock(this), ["\r", "\r", "n"])) {
+    // No Cloud token configured, so interactive start prompts for it inline
+    // first (feature 027): paste a stand-in token, accept the config prompts
+    // (environment name, project directory) with Enter, then decline the
+    // side-effecting confirmation with `n` (clack confirm submits on `n`).
+    if (
+      !runInteractive(this, startArgvWithMock(this), [
+        `${STAND_IN_TOKEN}\r`,
+        "\r",
+        "\r",
+        "n",
+      ])
+    ) {
       return "skipped";
     }
   },
@@ -477,6 +485,47 @@ Then("Jolly should announce the Dashboard Stripe app gate", function (this: Joll
     `interactive start must announce the Dashboard Stripe app gate; got: ${this.lastRun!.stdout}`,
   );
 });
+
+// Feature 027 Rule "Interactive start runs end-to-end in one session": the
+// preview tells the human about the human steps the run involves — the Vercel
+// sign-in is run with them inline (not handed off as a separate command), and
+// the Stripe key entry in the Saleor Dashboard is the one closing step left to
+// them. These assert the surviving human text names each, with the inline /
+// final-step framing the spec mandates.
+
+Then(
+  "the interactive output should say Jolly will run the Vercel sign-in with the human inline",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.match(
+      out,
+      /vercel[^\n]*\b(sign[ -]?in|log[ -]?in|login)\b/i,
+      `the interactive output must name the Vercel sign-in step; got:\n${out}`,
+    );
+    assert.match(
+      out,
+      /\b(inline|with you|together|in this (?:terminal|session)|same (?:terminal|session)|here)\b/i,
+      `the interactive output must say the Vercel sign-in is run with the human inline; got:\n${out}`,
+    );
+  },
+);
+
+Then(
+  "the interactive output should name the Saleor Dashboard Stripe key entry as the final human step",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.match(
+      out,
+      /stripe[^\n]*\b(key|keys)\b[^\n]*dashboard|dashboard[^\n]*stripe[^\n]*\b(key|keys)\b/i,
+      `the interactive output must name the Saleor Dashboard Stripe key entry; got:\n${out}`,
+    );
+    assert.match(
+      out,
+      /\b(final|last|remaining|closing|end)\b/i,
+      `the interactive output must frame the Stripe key entry as the final human step; got:\n${out}`,
+    );
+  },
+);
 
 Then("Jolly should complete without blocking for any prompt", function (this: JollyWorld) {
   // --yes (no --json) runs the human default path: it must complete (exit 0) and
@@ -636,6 +685,71 @@ Then(
       out,
       /\b(verified|verification (?:passed|succeeded)|store is ready|environment[^\n]*ready)\b/i,
       `declining must not print a fabricated verification result; got:\n${out}`,
+    );
+  },
+);
+
+// ─── Inline Cloud-token paste, same session (feature 027 Rule "Interactive ──
+// start runs end-to-end in one session"). No token configured: instead of
+// reporting a blocked authentication stage and exiting, Jolly prompts the human
+// to paste the token inline with the same Bombshell masked entry as
+// `jolly login`, then continues with it. Driven against the real PTY with
+// credentials genuinely absent. A real-format stand-in token is pasted at the
+// masked prompt — the side-effecting confirmation is then DECLINED so the run
+// stays harmless (no real provision / clone), while still proving the run got
+// past auth into the setup-stage flow.
+
+When(
+  "the user works through the prompts with no Cloud token configured",
+  { timeout: 160_000 },
+  function (this: JollyWorld) {
+    // Paste the token at the masked prompt, accept the env-name and
+    // project-directory defaults, then decline the side-effecting confirmation.
+    if (
+      !runInteractive(this, ["start"], [`${STAND_IN_TOKEN}\r`, "\r", "\r", "n"])
+    ) {
+      return "skipped";
+    }
+  },
+);
+
+Then(
+  "Jolly should present a masked Cloud-token entry prompt in the same session",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.match(
+      out,
+      /paste[^\n]*token/i,
+      `interactive start must present a Cloud-token entry prompt when none is configured; got:\n${out}`,
+    );
+    // The entry is Bombshell's masked password prompt (same as `jolly login`):
+    // its prompt UI renders the clack glyphs, distinguishing it from plain text.
+    assert.ok(
+      CLACK_GLYPH.test(this.lastRun!.stdout),
+      `the Cloud-token entry must be the Bombshell masked prompt; got:\n${out}`,
+    );
+  },
+);
+
+Then(
+  "after the token is entered the run should continue into the setup stages rather than ending at the authentication step",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    // Continued PAST auth into the side-effecting setup-stage flow: the run
+    // reached the per-stage confirmation that governs those stages (here
+    // declined), which only happens once authentication is satisfied inline.
+    assert.match(
+      out,
+      /side-effecting (?:setup )?stages?/i,
+      `after the token is entered, the run must continue into the setup-stage flow; got:\n${out}`,
+    );
+    // It did NOT end at the authentication step: no report that the Cloud token
+    // is still missing, and no agent-style handoff to run `jolly login` to clear
+    // the gate (feature 027 Rule: gates are satisfied inline, not handed off).
+    assert.doesNotMatch(
+      out,
+      /cloud token is (?:not configured|required|missing)|configure[^\n]*cloud token|\brun `?jolly login`?/i,
+      `the run must not end at the authentication step handing off a login command; got:\n${out}`,
     );
   },
 );
