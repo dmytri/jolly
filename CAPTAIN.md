@@ -45,8 +45,22 @@ double" so a green suite carrying a fake fails there.
 - **Stripe = Saleor Stripe app + skill (005/007).** `jolly start` installs the Saleor Stripe app
   (`appInstall`, HANDLE_PAYMENTS) and the `stripe-best-practices` skill. Entering the keys + mapping the
   `us` channel stays the human Saleor-Dashboard gate. No Stripe CLI, no `JOLLY_STRIPE_*` keys held by Jolly.
-- **Vercel: CLI passthrough.** `jolly start` relies on the Vercel CLI's own `vercel login` session
-  (interactive gate); Jolly holds no Vercel token and sends no request to `api.vercel.com`.
+- **Vercel: CLI passthrough, Jolly-driven sign-in (current iteration — spec'd, not yet built).**
+  `jolly start` deploys only via the Vercel CLI under the CLI's own session; Jolly holds no Vercel
+  token and sends no request to `api.vercel.com`. When `vercel whoami` shows no session, **Jolly owns
+  the sign-in** in BOTH the human and agent paths: it spawns `npx vercel login` itself, routes the
+  device-authorization URL to stderr (for the human at the terminal, or for the agent to relay to its
+  human), holds it until the sign-in completes, then continues the deploy in the same run. The agent is
+  never handed a "run `vercel login`" next step, and a missing session is a **human sign-in gate, not a
+  deploy failure** — uniform with the Stripe Dashboard gate. **Why:** an agent running `jolly start`
+  hit `❌ Did not deploy to Vercel: the Vercel CLI exited 127` + remediation "Run `npx vercel login`,
+  then re-run", so it ran the device flow itself (works, but messy and confusing — "it wasn't clear
+  Jolly would do it, not them"). Root cause: the code never ran `vercel login` at all (only `vercel
+  deploy`), and rendered the missing session as a `fail` check while the structurally-identical Stripe
+  gate rendered as a pending gate — the agent mirrored the inconsistency. 022-family fix. Spec'd in 002
+  (Vercel `@sandbox` scenario + Rule + new `@logic` guard "owns the Vercel sign-in rather than telling
+  the agent to run it") and reconciled in 027's agent-path Rule. Next QM cycle drives it.
+  [[mvp-then-iterate]]
 - **All CLIs via `npx`** — configurator/vercel; a missing global binary is not a failure ([[clis-via-npx]]).
 - **Docs describe only current behavior, positively** — no references to removed paths, no "don't do X"
   negatives ([[no-self-defeating-absence-assertions]]).
@@ -108,23 +122,16 @@ double" so a green suite carrying a fake fails there.
   and dropped:** making `jolly init` an alias for `jolly start` — it reverses 007's bootstrap-only
   contract and makes `start` call itself, so `init` stays bootstrap-only (007 unchanged) and the
   terminal entry command is `jolly start`.
-- **Resumable-stage output continuity (current iteration — 008 + `022:48` built; `022:40` @sandbox pending).** Fixes a real
-  agent confusion: an agent ran standalone `jolly create store` (CLI printed "Store created
-  successfully ✅"), then ran `jolly start`, which re-presented the already-done store as a *pending
-  approval gate* with no "already configured" acknowledgement. The contradiction between the CLI's own
-  success output and its later gate pushed the agent to reach for `--yes` — bypassing the supervision
-  gates. The CLI's `summary`/`nextSteps` ARE the agent's instructions, so the fix is in the copy/
-  contract: (008) a completed `create` subcommand's `nextSteps` point back to `jolly start` and state
-  it recognizes the work rather than redoing it; (022) a resumable stage presents a 021 approval
-  riskContext only for work it would actually perform this run, and announces an already-satisfied
-  stage as satisfied — never re-gates it. **008:92 built + @logic-green (`968a28a`, on `main`):** the
-  `create store --url` success envelope now carries a `jolly start` nextStep stating start recognizes the
-  stored store rather than redoing it. **`022:48` built + @logic-green (`df3f99d`, on `main`):**
-  with a store endpoint configured in `.env`, `jolly start --dry-run --json` presents no create-store approval
-  gate on the store stage and names it as already satisfied in the `summary` — never re-gates the done work.
-  **Still RED/undefined — the last 022 half:** `022:40` (@sandbox, composed standalone→`start`
-  agree-on-state). Next credentialed QM cycle takes it. The composed standalone→`start` path is the
-  unverified `@sandbox` surface (open watch #1) this defect rode in on.
+- **Resumable-stage output continuity (shipped v0.9.3).** A completed `create` subcommand's
+  `nextSteps` point back to `jolly start` and state it recognizes the stored work rather than redoing
+  it (008); a resumable stage presents a 021 approval riskContext only for work it would actually
+  perform this run, and announces an already-satisfied stage as satisfied — never re-gating it (022,
+  including the `022:40` `@sandbox` composed standalone→`start` agree-on-state, verified green in
+  v0.9.3). **Why it mattered:** an agent ran standalone `jolly create store` (CLI printed "Store
+  created successfully ✅"), then ran `jolly start`, which re-presented the done store as a *pending
+  approval gate*; the contradiction pushed the agent to reach for `--yes` and bypass the supervision
+  gates. The CLI's `summary`/`nextSteps` ARE the agent's instructions, so the fix lived in the
+  copy/contract.
 
 ## Shipped
 

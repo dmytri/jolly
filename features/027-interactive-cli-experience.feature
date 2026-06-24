@@ -172,7 +172,9 @@ Feature: Human-facing interactive CLI experience
       `jolly start`.
     - A genuine stage failure — not a human gate — still stops honestly and reports the error;
       Jolly never fabricates success to keep going. The agent path (`--json`, `--yes`/`-y`, or no
-      interactive terminal) is unchanged: it completes each stage it can and reports the rest as
+      interactive terminal) shows no interactive prompts and never blocks on `@clack/prompts`
+      discovery; Jolly still owns the Vercel sign-in there rather than handing the agent a
+      `vercel login` next step (feature 002), and reports every other stage it cannot complete as
       honest checks and next steps for the agent to act on (feature 020).
 
   @logic
