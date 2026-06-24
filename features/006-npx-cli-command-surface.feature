@@ -121,7 +121,11 @@ Feature: Npx-first Jolly CLI command surface
       runs, which is correct and expected, not a Jolly substitute. Docs describe
       only what exists and can be run.
     - The published Jolly CLI is a Node.js program: the launcher (`bin/jolly`) runs
-      under Node.js >= 23. The project's dev and CI runtime is also Node.js >= 23 + npm.
+      under Node.js >= 20.12.0 — the floor its dependencies require (`@clack/prompts`;
+      the `@bomb.sh/*` packages declare none), no stricter. The published package runs
+      compiled JavaScript (below), so it needs no newer runtime than its dependencies.
+      The project's dev and CI runtime is separately Node.js >= 23 + npm, because dev
+      runs `src/` as raw TypeScript via native type stripping.
     - The published package ships **pre-built JavaScript** compiled from `src/`,
       and the launcher loads that build — not raw TypeScript. Node's native type
       stripping is disabled for files under

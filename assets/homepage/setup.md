@@ -106,7 +106,7 @@ stage-by-stage playbook.
 
 ### Prerequisites
 
-- Node ≥ 23 (`node -v`) — the CLI uses Node's native TypeScript.
+- Node ≥ 20.12.0 (`node -v`) — Node 20 LTS or newer.
 - pnpm (`pnpm -v`) — Paper uses it.
 - A Saleor Cloud account — 👨🏽 sign up at https://cloud.saleor.io if there isn't one.
 

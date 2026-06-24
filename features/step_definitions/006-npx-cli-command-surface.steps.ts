@@ -27,7 +27,7 @@ import { REPO_ROOT } from "../support/world.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 /**
- * Scan PATH for a genuine Node.js >= 23 binary, skipping Bun (and Bun shims
+ * Scan PATH for a genuine Node.js >= 20 binary, skipping Bun (and Bun shims
  * named `node`, which `bun --bun` injects at the front of PATH). Returns the
  * absolute path of the first match, or null if only Bun is resolvable.
  */
@@ -51,7 +51,7 @@ function findGenuineNode(): string | null {
     } catch {
       continue;
     }
-    if (versions.bun === null && Number(String(versions.node).split(".")[0]) >= 23) {
+    if (versions.bun === null && Number(String(versions.node).split(".")[0]) >= 20) {
       return candidate;
     }
   }
@@ -75,7 +75,7 @@ Given(
     const realNode = findGenuineNode();
     assert.ok(
       realNode,
-      "this scenario requires a genuine Node.js >= 23 binary on PATH (only Bun was found)",
+      "this scenario requires a genuine Node.js >= 20 binary on PATH (only Bun was found)",
     );
 
     const binDir = this.newTempDir("node-only-bin");
@@ -506,8 +506,8 @@ Then(
     );
     const text = String(this.notes.launcherStdout) + String(this.notes.launcherStderr);
     assert.ok(
-      /\b23\b/.test(text),
-      `the error must name the minimum Node version (>= 23); got:\n${text}`,
+      /20\.12\.0/.test(text),
+      `the error must name the minimum Node version (>= 20.12.0); got:\n${text}`,
     );
   },
 );
