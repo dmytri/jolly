@@ -45,7 +45,7 @@ double" so a green suite carrying a fake fails there.
 - **Stripe = Saleor Stripe app + skill (005/007).** `jolly start` installs the Saleor Stripe app
   (`appInstall`, HANDLE_PAYMENTS) and the `stripe-best-practices` skill. Entering the keys + mapping the
   `us` channel stays the human Saleor-Dashboard gate. No Stripe CLI, no `JOLLY_STRIPE_*` keys held by Jolly.
-- **Vercel: CLI passthrough, Jolly-driven sign-in (built — on `main` ahead of release, `5dd59ec`).**
+- **Vercel: CLI passthrough, Jolly-driven sign-in (shipped v0.9.5, `5dd59ec`).**
   `jolly start` deploys only via the Vercel CLI under the CLI's own session (Jolly holds no Vercel
   token, contacts no `api.vercel.com`). With no session, **Jolly owns the sign-in** at the deploy
   stage in BOTH human and agent paths: it spawns `npx vercel login` itself, captures the device-
@@ -139,14 +139,18 @@ double" so a green suite carrying a fake fails there.
 
 ## Shipped
 
-Through **v0.9.4** (`main`+tag on GitHub, `@dk/jolly` on npm `latest`; homepage redeployed): token-only
+Through **v0.9.5** (`main`+tag on GitHub, `@dk/jolly` on npm `latest`; homepage redeployed): token-only
 Saleor auth (browser OAuth removed), Stripe = app + skill (Stripe CLI removed), `@dk/jolly` naming, the
 `stripe-best-practices` skill in the default set; **Bombshell CLI plumbing (027)** — `@bomb.sh/args` typed
 parser, `@bomb.sh/tab` completion, `@clack/prompts` interactive `jolly start` + masked login, agent path
 unchanged; **human-friendly output by default (020/027)** — human-first default, machine envelope only
 under `--json`, in-place progress on stderr; **end-to-end inline human start (027)** — inline masked
 Cloud-token paste, "with you inline" Vercel / "final step" Stripe gate copy; **resumable-stage continuity
-(022:40, `@sandbox`-green)**; and **published Node floor >=20.12.0 (006)**. Launch bar met mechanically:
+(022:40, `@sandbox`-green)**; **published Node floor >=20.12.0 (006)**; and **Jolly-owned Vercel
+sign-in (002/014)** — at the deploy stage with no Vercel session, Jolly spawns `npx vercel login`
+itself, surfaces the device URL on stderr, bounds the spawn, reports a `pending` sign-in gate naming
+Jolly + the human, and never hands the agent `vercel login` (doctor `vercel-auth` next step is `jolly
+start`); `@sandbox`-verified. Launch bar met mechanically:
 homepage paste → live deployed Paper storefront on Vercel → browsable/stocked store against Saleor Cloud →
 checkout reaches the Stripe test step (behind the human Stripe-Dashboard gate). Full history in git.
 
