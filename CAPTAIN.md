@@ -111,7 +111,7 @@ double" so a green suite carrying a fake fails there.
   secret-entry exception to the "every prompt defaults" rule (056), shared with `jolly login` (018).
 
 - **Homepage offers Agent + Terminal modes (current iteration — asset updated, specs reconciled,
-  not yet redeployed).** The jolly.cool hero install area is now a two-tab copybox switcher (default
+  redeployed to jolly.cool 2026-06-24).** The jolly.cool hero install area is now a two-tab copybox switcher (default
   **Agent**): the Agent tab keeps the existing paste-to-agent copybox with the agent badges below it;
   the **Terminal** tab shows `npx @dk/jolly start` (same copybox style + copy-button), agent badges
   hidden. Hero microcopy: "Use Jolly with your coding agent, or run the setup directly from your
