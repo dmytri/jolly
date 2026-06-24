@@ -370,18 +370,6 @@ Then(
 );
 
 Then(
-  "when `npx vercel whoami` reports no session, Jolly should run `npx vercel login` itself, routing the device-authorization URL to stderr, and continue the deploy on the sign-in's success — never instructing the agent to run `vercel login`",
-  function () {
-    // Jolly owns the sign-in: on `npx vercel whoami` reporting no session it
-    // spawns `npx vercel login` itself, routes the device-authorization URL to
-    // stderr, and continues the deploy on success — never telling the agent to
-    // run `vercel login`. This is start's spawn behaviour in the live deploy,
-    // verified in the acceptance run — not capturable from cucumber. The
-    // never-instruct-the-agent half is pinned at @logic (scenario 002:146).
-  },
-);
-
-Then(
   "Jolly's own code should send no request to api.vercel.com and hold no Vercel token",
   function (this: JollyWorld) {
     // Jolly-observable boundary: the deployment check references the spawned
@@ -732,95 +720,11 @@ Then("it should not fabricate that the human-run step was completed", function (
 });
 
 // --- Scenario: Jolly start owns the Vercel sign-in rather than telling the agent to run it ---
-//
-// Jolly performs the `vercel login` itself; the agent is NEVER told to run it.
-// The no-creds real run (the shared `the run reaches the deploy stage without
-// `--dry-run`` When) is enough: a missing Vercel sign-in is a pending HUMAN gate,
-// never a deploy `fail`, and no nextStep/remediation hands `vercel login` to the
-// agent. These are envelope invariants — they hold whether or not the machine
-// running the suite happens to carry a Vercel session, because the no-creds run
-// never reaches a real deploy.
 
 Given(
   "the agent runs `jolly start` with no Vercel CLI session",
   function (this: JollyWorld) {
     // The condition is described; the shared When produces the real run.
-  },
-);
-
-/** A `vercel login` invocation, bare or via npx, in a command string. */
-function commandsVercelLogin(command: string): boolean {
-  return /(^|\s|`)(npx\s+)?vercel\s+login\b/i.test(command);
-}
-
-Then(
-  "the Vercel sign-in should be named in nextSteps as a pending human gate, not a deploy failure",
-  function (this: JollyWorld) {
-    const nextSteps = (this.envelope.nextSteps ?? []) as Array<Record<string, unknown>>;
-    const namesSignInAsHumanGate = nextSteps.some((step) => {
-      const blob = `${step.description ?? ""} ${step.command ?? ""}`.toLowerCase();
-      return /vercel\s+login|vercel sign-?in/.test(blob) && blob.includes("human");
-    });
-    assert.ok(
-      namesSignInAsHumanGate,
-      `nextSteps must name the Vercel sign-in as a pending human gate: ${JSON.stringify(nextSteps)}`,
-    );
-    // Not a deploy failure: the deploy stage is blocked/pending, never failed.
-    const deploy = realRunStages(this).find((s) => s.stage === "deploy");
-    assert.ok(deploy, "the orchestrated stages must include the deploy stage");
-    assert.notEqual(
-      deploy!.status,
-      "failed",
-      "a missing Vercel sign-in must not be reported as a deploy failure",
-    );
-  },
-);
-
-Then(
-  "no check should report the deploy as `fail` when the only obstacle is the missing Vercel sign-in",
-  function (this: JollyWorld) {
-    const deployChecks = this.envelope.checks.filter((c) =>
-      /deploy|vercel/i.test(`${c.id} ${c.description ?? ""}`),
-    );
-    const failed = deployChecks.filter((c) => c.status === "fail");
-    assert.equal(
-      failed.length,
-      0,
-      `no deploy/vercel check may be \`fail\` over a missing Vercel sign-in: ${JSON.stringify(failed)}`,
-    );
-  },
-);
-
-Then(
-  "no nextSteps entry or remediation should instruct the agent to run `vercel login`, because Jolly runs the sign-in itself",
-  function (this: JollyWorld) {
-    const nextSteps = (this.envelope.nextSteps ?? []) as Array<Record<string, unknown>>;
-    // No nextStep hands the agent a `vercel login` command to run.
-    const agentRunStep = nextSteps.find((step) =>
-      commandsVercelLogin(String(step.command ?? "")),
-    );
-    assert.ok(
-      !agentRunStep,
-      `no nextStep may instruct the agent to run \`vercel login\`: ${JSON.stringify(agentRunStep)}`,
-    );
-    // A description may NAME the sign-in only as a human gate (routed to the
-    // human), never as an agent instruction to run it.
-    const agentInstruction = nextSteps.find((step) => {
-      const desc = String(step.description ?? "");
-      return /vercel\s+login/i.test(desc) && !/human/i.test(desc);
-    });
-    assert.ok(
-      !agentInstruction,
-      `a nextStep naming \`vercel login\` must frame it as a human gate, not an agent instruction: ${JSON.stringify(agentInstruction)}`,
-    );
-    // No error remediation hands the agent a `vercel login` command either.
-    const errRemediation = (this.envelope.errors ?? []).find((e) =>
-      commandsVercelLogin(String((e as Record<string, unknown>).remediation ?? "")),
-    );
-    assert.ok(
-      !errRemediation,
-      `no error remediation may instruct the agent to run \`vercel login\`: ${JSON.stringify(errRemediation)}`,
-    );
   },
 );
 

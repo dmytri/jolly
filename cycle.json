@@ -1,0 +1,12 @@
+{
+  "pass1": {
+    "scenarios": [
+      "002-v1-end-to-end-saleor-cloud-storefront.feature:Jolly start owns the Vercel sign-in rather than telling the agent to run it"
+    ]
+  },
+  "pass2": {
+    "scenarios": [
+      "002-v1-end-to-end-saleor-cloud-storefront.feature:Jolly start spawns the Vercel sign-in itself when there is no Vercel session"
+    ]
+  }
+}

@@ -45,33 +45,35 @@ double" so a green suite carrying a fake fails there.
 - **Stripe = Saleor Stripe app + skill (005/007).** `jolly start` installs the Saleor Stripe app
   (`appInstall`, HANDLE_PAYMENTS) and the `stripe-best-practices` skill. Entering the keys + mapping the
   `us` channel stays the human Saleor-Dashboard gate. No Stripe CLI, no `JOLLY_STRIPE_*` keys held by Jolly.
-- **Vercel: CLI passthrough, Jolly-driven sign-in (current iteration — spec'd, not yet built).**
-  `jolly start` deploys only via the Vercel CLI under the CLI's own session; Jolly holds no Vercel
-  token and sends no request to `api.vercel.com`. When `vercel whoami` shows no session, **Jolly owns
-  the sign-in** in BOTH the human and agent paths: it spawns `npx vercel login` itself, routes the
-  device-authorization URL to stderr (for the human at the terminal, or for the agent to relay to its
-  human), holds it until the sign-in completes, then continues the deploy in the same run. The agent is
-  never handed a "run `vercel login`" next step, and a missing session is a **human sign-in gate, not a
-  deploy failure** — uniform with the Stripe Dashboard gate. **Why:** an agent running `jolly start`
-  hit `❌ Did not deploy to Vercel: the Vercel CLI exited 127` + remediation "Run `npx vercel login`,
-  then re-run", so it ran the device flow itself (works, but messy and confusing — "it wasn't clear
-  Jolly would do it, not them"). Root cause: the code never ran `vercel login` at all (only `vercel
-  deploy`), and rendered the missing session as a `fail` check while the structurally-identical Stripe
-  gate rendered as a pending gate — the agent mirrored the inconsistency. 022-family fix. Spec'd in 002
-  (Vercel `@sandbox` scenario + Rule + new `@logic` guard "owns the Vercel sign-in rather than telling
-  the agent to run it") and reconciled in 027's agent-path Rule. Next QM cycle drives it.
-  [[mvp-then-iterate]]
+- **Vercel: CLI passthrough, Jolly-driven sign-in (NOT built — directed cycle written).**
+  Design: `jolly start` deploys only via the Vercel CLI under the CLI's own session (Jolly holds no
+  Vercel token, contacts no `api.vercel.com`); when `vercel whoami` shows no session, **Jolly owns the
+  sign-in** in BOTH human and agent paths — it spawns `npx vercel login` itself, routes the
+  device-authorization URL to stderr (human at the terminal, or agent relays to its human), and the
+  agent is never handed a "run `vercel login`" next step. A missing session is a human sign-in gate,
+  not a deploy `fail` — uniform with the Stripe Dashboard gate.
+  **Reality (2026-06-24): not implemented.** `src/index.ts` spawns only `vercel whoami` (1921) and
+  `vercel deploy --prod` (3065); there is **no `vercel login` spawn anywhere**. The agent path still
+  emits "Run `npx vercel login` … then re-run" (3094/3168); the human path merely **prints** "Jolly
+  runs the Vercel sign-in with you inline" (3289) and proceeds without spawning anything. It read green
+  because the guards checked **copy/announcement only**: `002:146` (`@logic`) asserted nextSteps wording,
+  and `027:73` is a `--dry-run` preview asserting the printed line — neither runs `vercel login`; the
+  one real-spawn assertion lived in a skipping `@sandbox` clause. Classic green-on-copy.
+  **Verification bar (decided by dk):** `@sandbox` asserts Jolly **invokes `vercel login` and surfaces
+  the device-authorization URL before deploy** — completed sign-in stays the human's step (the device
+  flow cannot auto-complete), so "done" never requires real auth. **Directed via `cycle.json`:** pass1
+  = `002:146` (`@logic` envelope contract, strengthened to forbid any "agent runs `vercel login` / re-run"
+  wording and to require the gate name Jolly as the actor); pass2 = `002:108` (`@sandbox` real spawn at
+  the bar above, extracted from the old contradictory `002:93` clause). pass2 only proves anything when
+  `@sandbox` actually runs with a Vercel session present — otherwise it skips and the feature stays
+  unverified ([[skip-mask-sandbox-unverified]]). [[mvp-then-iterate]]
 - **All CLIs via `npx`** — configurator/vercel; a missing global binary is not a failure ([[clis-via-npx]]).
 - **Docs describe only current behavior, positively** — no references to removed paths, no "don't do X"
   negatives ([[no-self-defeating-absence-assertions]]).
-- **Published Node floor lowered to >=20.12.0 (006, v0.9.4).** The >=23 `engines` floor was dev-runtime
-  leakage: dev runs `src/` as raw TypeScript via native type stripping (newer Node), but the PUBLISHED
-  package ships compiled JS and needs only what its deps need — strictest is `@clack/prompts` (>=20.12.0);
-  `@bomb.sh/*` declare none. >=23 wrongly refused Node 20/22 LTS while demanding an EOL release; a user on
-  Node 22 hit the guard. Fix: `engines >=20.12.0`, `bin/jolly` guard major>=20 naming ">= 20.12.0", esbuild
-  `--target=node20.12`, spec 006 states the published-vs-dev (>=23, raw-TS) split, homepage `setup.md` prereq
-  corrected (was ">=23, uses native TypeScript" — false for the compiled CLI). Shipped **v0.9.4** (`main` + tag,
-  `@dk/jolly` on npm; homepage redeployed). Dev/CI floor stays >=23 (AGENTS.md, unchanged).
+- **Published Node floor is >=20.12.0 (006).** The published package ships compiled JS, so its `engines`
+  floor tracks its deps (strictest `@clack/prompts` >=20.12.0); `bin/jolly` guards major>=20, esbuild
+  targets `node20.12`. Dev/CI floor stays >=23 (dev runs `src/` as raw TypeScript via native type
+  stripping; AGENTS.md). Spec 006 states the published-vs-dev split.
 - **Human CLI DX via Bombshell (027, current iteration).** `jolly start` gains a TTY-gated interactive
   discovery built on `@clack/prompts`: it prompts only for genuine human decisions (org pick when >1,
   env name, project dir), every prompt has a sane default, and Enter always advances to the same config
@@ -130,36 +132,25 @@ double" so a green suite carrying a fake fails there.
   and dropped:** making `jolly init` an alias for `jolly start` — it reverses 007's bootstrap-only
   contract and makes `start` call itself, so `init` stays bootstrap-only (007 unchanged) and the
   terminal entry command is `jolly start`.
-- **Resumable-stage output continuity (shipped v0.9.3).** A completed `create` subcommand's
-  `nextSteps` point back to `jolly start` and state it recognizes the stored work rather than redoing
-  it (008); a resumable stage presents a 021 approval riskContext only for work it would actually
-  perform this run, and announces an already-satisfied stage as satisfied — never re-gating it (022,
-  including the `022:40` `@sandbox` composed standalone→`start` agree-on-state, verified green in
-  v0.9.3). **Why it mattered:** an agent ran standalone `jolly create store` (CLI printed "Store
-  created successfully ✅"), then ran `jolly start`, which re-presented the done store as a *pending
-  approval gate*; the contradiction pushed the agent to reach for `--yes` and bypass the supervision
-  gates. The CLI's `summary`/`nextSteps` ARE the agent's instructions, so the fix lived in the
-  copy/contract.
+- **Resumable-stage output continuity (008/022).** A completed `create` subcommand's `nextSteps` point
+  back to `jolly start` and state it recognizes the stored work rather than redoing it (008); a
+  resumable stage presents a 021 approval riskContext only for work it would actually perform this run,
+  and announces an already-satisfied stage as satisfied — never re-gating it (022, incl. the `022:40`
+  `@sandbox` standalone→`start` agree-on-state). The CLI's `summary`/`nextSteps` ARE the agent's
+  instructions, so this contract lives in the copy.
 
 ## Shipped
 
-Through **v0.9.3** (`main`+tag on GitHub, `@dk/jolly` on npm; homepage redeployed at v0.9.3):
-token-only Saleor auth (browser OAuth removed), Stripe = app + skill (Stripe CLI removed), `@dk/jolly`
-naming, the `stripe-best-practices` skill in the default set, **Bombshell CLI plumbing (027)** —
-`@bomb.sh/args` typed parser, `@bomb.sh/tab` completion, `@clack/prompts` interactive `jolly start` +
-masked login, agent path unchanged; (v0.9.1) **human-friendly output by default (020/027)** — human-first
-default output, machine envelope only under `--json`; and (v0.9.2) **in-place progress on stderr (020:64)**
-plus **end-to-end inline human start (027)** — the inline masked Cloud-token paste + the "with you inline"
-Vercel / "final step" Stripe gate copy. The launch bar is met mechanically: homepage paste → live deployed
-Paper storefront on Vercel → browsable/stocked store against Saleor Cloud → checkout reaches the Stripe test
-step (behind the human Stripe-Dashboard gate). Full history in git.
-
-**v0.9.3 shipped** (`b497f49`/tag `v0.9.3`, npm `latest`): `jolly start` now announces an
-already-satisfied store stage as satisfied instead of re-presenting it as a pending approval gate
-(022:40 — `@sandbox`-verified green + full `@logic` green). Homepage redeployed (`assets/homepage`,
-Vercel project `homepage`) so jolly.cool/setup carries the `--json` agent guidance. The earlier
-real-services (`@sandbox`) end-to-end caveats — the Paper `main` build break + sandbox-capacity
-flakiness (below) — still stand for the broader suite.
+Through **v0.9.4** (`main`+tag on GitHub, `@dk/jolly` on npm `latest`; homepage redeployed): token-only
+Saleor auth (browser OAuth removed), Stripe = app + skill (Stripe CLI removed), `@dk/jolly` naming, the
+`stripe-best-practices` skill in the default set; **Bombshell CLI plumbing (027)** — `@bomb.sh/args` typed
+parser, `@bomb.sh/tab` completion, `@clack/prompts` interactive `jolly start` + masked login, agent path
+unchanged; **human-friendly output by default (020/027)** — human-first default, machine envelope only
+under `--json`, in-place progress on stderr; **end-to-end inline human start (027)** — inline masked
+Cloud-token paste, "with you inline" Vercel / "final step" Stripe gate copy; **resumable-stage continuity
+(022:40, `@sandbox`-green)**; and **published Node floor >=20.12.0 (006)**. Launch bar met mechanically:
+homepage paste → live deployed Paper storefront on Vercel → browsable/stocked store against Saleor Cloud →
+checkout reaches the Stripe test step (behind the human Stripe-Dashboard gate). Full history in git.
 
 ## Open / watch
 
