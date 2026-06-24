@@ -752,7 +752,7 @@ Then(
 );
 
 Then(
-  /^neither api\.vercel\.com nor api\.stripe\.com should appear in Jolly's own request code — Vercel is reached only by the spawned Vercel CLI, and Stripe only by the spawned Stripe CLI$/,
+  /^neither api\.vercel\.com nor api\.stripe\.com should appear in Jolly's own request code — Vercel is reached only by the spawned Vercel CLI, and api\.stripe\.com only by the Saleor Stripe app that Jolly installs via Saleor GraphQL `appInstall`$/,
   function (this: JollyWorld) {
     const src = String(this.notes.srcText);
     assert.ok(
@@ -761,7 +761,7 @@ Then(
     );
     assert.ok(
       !src.includes("api.stripe.com"),
-      "api.stripe.com must not appear in Jolly's own code — Stripe is reached only by the spawned Stripe CLI",
+      "api.stripe.com must not appear in Jolly's own code — api.stripe.com is reached only by the Saleor Stripe app installed via Saleor GraphQL appInstall",
     );
   },
 );
