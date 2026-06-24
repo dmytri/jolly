@@ -64,6 +64,14 @@ double" so a green suite carrying a fake fails there.
 - **All CLIs via `npx`** — configurator/vercel; a missing global binary is not a failure ([[clis-via-npx]]).
 - **Docs describe only current behavior, positively** — no references to removed paths, no "don't do X"
   negatives ([[no-self-defeating-absence-assertions]]).
+- **Published Node floor lowered to >=20.12.0 (006, v0.9.4).** The >=23 `engines` floor was dev-runtime
+  leakage: dev runs `src/` as raw TypeScript via native type stripping (newer Node), but the PUBLISHED
+  package ships compiled JS and needs only what its deps need — strictest is `@clack/prompts` (>=20.12.0);
+  `@bomb.sh/*` declare none. >=23 wrongly refused Node 20/22 LTS while demanding an EOL release; a user on
+  Node 22 hit the guard. Fix: `engines >=20.12.0`, `bin/jolly` guard major>=20 naming ">= 20.12.0", esbuild
+  `--target=node20.12`, spec 006 states the published-vs-dev (>=23, raw-TS) split, homepage `setup.md` prereq
+  corrected (was ">=23, uses native TypeScript" — false for the compiled CLI). Shipped **v0.9.4** (`main` + tag,
+  `@dk/jolly` on npm; homepage redeployed). Dev/CI floor stays >=23 (AGENTS.md, unchanged).
 - **Human CLI DX via Bombshell (027, current iteration).** `jolly start` gains a TTY-gated interactive
   discovery built on `@clack/prompts`: it prompts only for genuine human decisions (org pick when >1,
   env name, project dir), every prompt has a sane default, and Enter always advances to the same config
