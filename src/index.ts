@@ -21,7 +21,7 @@
 import { existsSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 
 import {
   cloudApiBase,
@@ -1911,42 +1911,21 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
 
     // Single readiness oracle (feature 014): read the Vercel login state by
     // delegating to the Vercel CLI's own `vercel whoami` — never reimplement
-    // Vercel auth. Exit 0 means a real session (pass). A clean non-zero answer
-    // means no session (fail). If the CLI cannot be spawned at all, the honest
-    // status is unknown. Never `pass` without a confirmed session (feature 020
-    // "No fabricated success").
-    let vercelStatus: CheckStatus;
-    let vercelResult;
-    try {
-      vercelResult = spawnSync("npx", ["vercel", "whoami"], {
-        encoding: "utf8",
-        timeout: 60_000,
-      });
-    } catch {
-      vercelResult = undefined;
-    }
-    if (!vercelResult || vercelResult.error) {
-      vercelStatus = "unknown";
-    } else if (vercelResult.status === 0) {
-      vercelStatus = "pass";
-    } else {
-      vercelStatus = "fail";
-    }
-    const vercelAccount = (vercelResult?.stdout ?? "")
-      .split("\n")
-      .map((line: string) => line.trim())
-      .filter((line: string) => line.length > 0)
-      .at(-1) ?? "";
+    // Vercel auth. A real session means `pass`; with no session the Vercel CLI
+    // drops into its device-login flow, which the probe detects (and stops, so
+    // nothing is left polling) and reports as `fail`. Never `pass` without a
+    // confirmed session (feature 020 "No fabricated success"). The next step is
+    // `jolly start`, which runs the Vercel sign-in itself — never `vercel login`,
+    // because Jolly owns the sign-in (feature 002).
+    const probe = await probeVercelSession();
+    const vercelStatus: CheckStatus = probe.signedIn ? "pass" : "fail";
     checks.push({
       id: "vercel-auth",
       status: vercelStatus,
-      description:
-        vercelStatus === "pass"
-          ? `Vercel CLI session confirmed by running \`vercel whoami\`: logged in as ${vercelAccount}.`
-          : vercelStatus === "fail"
-            ? "No Vercel CLI session: `vercel whoami` reported you are not logged in."
-            : "Could not read the Vercel CLI login state by running `vercel whoami` (CLI unavailable).",
-      command: vercelStatus === "pass" ? undefined : "vercel login",
+      description: probe.signedIn
+        ? `Vercel CLI session confirmed by running \`vercel whoami\`: logged in as ${probe.account}.`
+        : "No Vercel CLI session: `vercel whoami` reported you are not logged in.",
+      command: probe.signedIn ? undefined : "jolly start",
     });
   }
 
@@ -3014,6 +2993,89 @@ async function runStorefrontStage(checks: Check[]): Promise<StageStatus> {
  * only on a real exit-0 deploy; `blocked`/`fail` (with the real error) otherwise
  * — never a fabricated deployment. Non-interactive for the deploy itself.
  */
+/** The Vercel device-authorization URL the CLI prints when it signs in, or undefined. */
+function extractDeviceUrl(text: string): string | undefined {
+  const m = text.match(/https:\/\/vercel\.com\/oauth\/device\?[^\s]+/i);
+  return m ? m[0] : undefined;
+}
+
+/**
+ * Probe the Vercel CLI session WITHOUT hanging, by delegating to the CLI's own
+ * `vercel whoami` (feature 014 single readiness oracle). With a session the CLI
+ * prints the account on stdout and exits 0; with NO session the Vercel CLI drops
+ * into its device-login flow (printing "No existing credentials" / a device URL
+ * on stderr) and waits — so we stream the output and resolve "no session" the
+ * moment that marker appears, killing the probe so nothing is left polling.
+ * Jolly reads no Vercel token; it only asks the CLI under its own auth.
+ */
+async function probeVercelSession(): Promise<{ signedIn: boolean; account: string }> {
+  return new Promise((resolve) => {
+    const child = spawn("npx", ["vercel", "whoami"], { stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    let settled = false;
+    const done = (signedIn: boolean) => {
+      if (settled) return;
+      settled = true;
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* best-effort */
+      }
+      clearTimeout(timer);
+      const account =
+        out.split("\n").map((line) => line.trim()).filter((line) => line.length > 0).at(-1) ?? "";
+      resolve({ signedIn, account });
+    };
+    const timer = setTimeout(() => done(false), 45_000);
+    child.stdout?.on("data", (chunk: Buffer) => {
+      out += String(chunk);
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      if (/no existing credentials|starting login flow|\/oauth\/device/i.test(String(chunk))) {
+        done(false);
+      }
+    });
+    child.on("error", () => done(false));
+    child.on("close", (code) => done(code === 0 && out.trim().length > 0));
+  });
+}
+
+/**
+ * Spawn the Vercel sign-in (`npx vercel login`) and capture its
+ * device-authorization URL, WITHOUT waiting for the human to complete it. The
+ * Vercel CLI prints the device URL on stderr then blocks polling for
+ * authorization; we read until the URL appears, then stop the child — no hang,
+ * no leaked waiting process. Returns the captured device URL, or undefined.
+ * Jolly holds no Vercel token; the CLI signs in under its own auth.
+ */
+async function spawnVercelSignIn(): Promise<{ deviceUrl?: string }> {
+  return new Promise((resolve) => {
+    const child = spawn("npx", ["vercel", "login"], { stdio: ["ignore", "pipe", "pipe"] });
+    let buf = "";
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* best-effort */
+      }
+      clearTimeout(timer);
+      resolve({ deviceUrl: extractDeviceUrl(buf) });
+    };
+    const timer = setTimeout(finish, 60_000);
+    const scan = (chunk: Buffer) => {
+      buf += String(chunk);
+      if (extractDeviceUrl(buf)) finish();
+    };
+    child.stdout?.on("data", scan);
+    child.stderr?.on("data", scan);
+    child.on("error", finish);
+    child.on("close", finish);
+  });
+}
+
 /** Extract the deployed `*.vercel.app` URL the Vercel CLI prints, or undefined. */
 function extractVercelUrl(stdout: string | undefined): string | undefined {
   const m = (stdout ?? "").match(/https:\/\/[a-z0-9-]+\.vercel\.app/i);
@@ -3058,6 +3120,29 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
   // the storefront/ directory, so a real customer gets a sensibly named project.
   const vercelProject =
     values["JOLLY_VERCEL_PROJECT"] ?? process.env["JOLLY_VERCEL_PROJECT"];
+
+  // Vercel sign-in is Jolly's to run (feature 002): with no Vercel CLI session,
+  // Jolly itself spawns the sign-in and surfaces its device-authorization URL on
+  // stderr, then reports a PENDING sign-in gate — never a deploy `fail`/`blocked`
+  // for the missing sign-in, and never telling the agent to run `vercel login`.
+  const session = await probeVercelSession();
+  if (!session.signedIn) {
+    const { deviceUrl } = await spawnVercelSignIn();
+    if (deviceUrl) {
+      process.stderr.write(
+        `Vercel sign-in needed — Jolly runs the Vercel sign-in together with you. ` +
+          `Visit ${deviceUrl} to authorize.\n`,
+      );
+    }
+    checks.push({
+      id: "vercel-sign-in",
+      status: "warning",
+      description: deviceUrl
+        ? `Vercel sign-in pending: Jolly runs the Vercel sign-in together with you. Visit ${deviceUrl} to authorize; Jolly spawned the official Vercel CLI sign-in under its own session and holds no Vercel token.`
+        : "Vercel sign-in pending: Jolly runs the Vercel sign-in together with you via the official Vercel CLI under its own session, and holds no Vercel token.",
+    });
+    return { status: "pending" };
+  }
 
   // Deploy to production via the official Vercel CLI under its own session,
   // configuring the required build env vars through the CLI (feature 002 Rule).
@@ -3579,14 +3664,14 @@ async function runStartCore(args: ParsedArgs): Promise<Envelope> {
   // backup path"): whenever this run could not run to completion (status
   // `warning` — paused at a gate, or with blocked/failed downstream stages),
   // offer to ask the human to run `jolly start` in a plain shell, the natural
-  // way to clear the irreducibly-interactive gates (account creation,
-  // `vercel login`) a non-TTY agent cannot pass. Then
+  // way to clear the irreducibly-interactive gate (new account creation) a
+  // non-TTY agent cannot pass — the Vercel sign-in is Jolly's own to run. Then
   // they start their agent in that project to iterate — the skills jolly init
   // installed are already on disk. Offered, never fabricated as performed.
   if (!bootstrapFailed) {
     nextSteps.push({
       description:
-        "If the agent cannot clear an interactive gate (account creation, `vercel login`), ask the human to run `jolly start` in a plain shell, then start their agent in that project to iterate (the skills jolly init installed are already on disk). This is a fallback — Jolly has not run it.",
+        "If the agent cannot clear an interactive gate (such as new account creation), ask the human to run `jolly start` in a plain shell, then start their agent in that project to iterate (the skills jolly init installed are already on disk). This is a fallback — Jolly has not run it.",
       command: "jolly start",
     });
   }

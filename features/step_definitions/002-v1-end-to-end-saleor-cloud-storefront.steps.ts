@@ -719,7 +719,227 @@ Then("it should not fabricate that the human-run step was completed", function (
   );
 });
 
-// --- Scenario: Jolly start owns the Vercel sign-in rather than telling the agent to run it ---
+// ─── Scenarios: Jolly start owns the Vercel sign-in (@sandbox) ───────────────
+//
+// Two @sandbox scenarios share this Given + When: with the storefront ready and
+// the Vercel CLI pointed at an isolated config holding NO session, a real
+// `jolly start --yes` reaches the deploy stage. Jolly itself spawns the Vercel
+// sign-in (`npx vercel login`) and surfaces its device-authorization URL on
+// stderr, reporting a pending sign-in gate — never a deploy `failed`, and never
+// telling the agent to run `vercel login` or to re-run `jolly start` after a
+// manual sign-in. Gated on the Cloud token (["saleorCloud"]): the run
+// auto-provisions a jolly-test store and reaches deploy itself; it deliberately
+// needs NO authenticated Vercel session (the isolated-config Given supplies the
+// no-session condition), so it is NOT in VERCEL_CLI_SCENARIOS.
+
+/** Snapshot the org's Saleor environments and register teardown of only the
+ * NEW jolly-test-namespaced ones this run creates (never a pre-existing or
+ * non-test resource). Saleor-only: these scenarios run WITHOUT a Vercel session,
+ * so nothing is created on Vercel and no Vercel teardown is registered. */
+async function registerSaleorEnvTeardown(world: JollyWorld): Promise<void> {
+  const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
+  if (!cloudToken) return; // gate guarantees it under CI; nothing to clean otherwise.
+  const before = new Set((await listAllEnvironments(cloudToken)).map((e) => e.key));
+  const runNamespace = makeNamespace(world.runId);
+  world.cleanup.register(
+    "auto-provisioned Saleor Cloud environment (diff vs pre-run snapshot)",
+    async () => {
+      for (const env of await listAllEnvironments(cloudToken)) {
+        if (!before.has(env.key) && env.name.startsWith(runNamespace)) {
+          await deleteEnvironment(cloudToken, env.org, env.key);
+        }
+      }
+    },
+  );
+}
+
+Given(
+  "the Vercel CLI is pointed at an isolated config with no signed-in session",
+  function (this: JollyWorld) {
+    // Real, producible no-session condition (real-by-default, not a double):
+    // point the Vercel CLI at fresh, empty XDG config/data dirs that hold no
+    // auth.json, so `vercel whoami`/`vercel login` find no credentials. The dirs
+    // live under the scenario temp root (removed in teardown). The fragment
+    // propagates through `jolly` to the `vercel` CLI it spawns (runCli merges it
+    // into the child env; Jolly spawns vercel with its own process env). Shared
+    // with feature 014's no-session vercel-auth scenario via notes.vercelXdg.
+    const dir = this.newTempDir("vercel-config");
+    this.notes.vercelXdg = {
+      XDG_CONFIG_HOME: join(dir, "config"),
+      XDG_DATA_HOME: join(dir, "data"),
+    };
+  },
+);
+
+When(
+  "`jolly start` reaches the deploy stage without `--dry-run`",
+  { timeout: 900_000 },
+  async function (this: JollyWorld) {
+    await registerSaleorEnvTeardown(this);
+    const xdg = (this.notes.vercelXdg as Record<string, string>) ?? {};
+    // A real end-to-end run: the Cloud token drives store auto-provisioning, the
+    // storefront stage clones+installs Paper, and the run reaches the deploy
+    // stage. The namespaced store/project names make every created resource
+    // jolly-test cannon fodder. The isolated XDG dirs ensure the deploy stage
+    // finds no Vercel session.
+    this.runCli(["start", "--yes", "--json"], {
+      env: absentCredentialsEnv({
+        JOLLY_SALEOR_CLOUD_TOKEN: process.env["JOLLY_SALEOR_CLOUD_TOKEN"],
+        JOLLY_STORE_NAME: makeNamespace(this.runId),
+        JOLLY_VERCEL_PROJECT: makeNamespace(this.runId),
+        ...xdg,
+      }),
+      timeoutMs: 840_000,
+    });
+  },
+);
+
+// --- Scenario: Jolly start spawns the Vercel sign-in itself (@sandbox) -------
+
+Then(
+  "Jolly should itself spawn `npx vercel login` and surface its device-authorization URL on stderr before attempting any deploy",
+  function (this: JollyWorld) {
+    const stderr = this.lastRun!.stderr;
+    assert.match(
+      stderr,
+      /https:\/\/vercel\.com\/oauth\/device/i,
+      `Jolly must itself spawn the Vercel sign-in and surface its device-authorization URL on stderr:\n${stderr}`,
+    );
+    // The envelope (stdout JSON) must stay clean: the device URL is surfaced on
+    // stderr, never polluting the machine-readable envelope.
+    assert.ok(this.envelope.command.startsWith("start"), "the run must be a `jolly start` run");
+  },
+);
+
+Then(
+  "the deploy stage should report a pending Vercel sign-in gate that states Jolly runs the Vercel sign-in together with the human, not a deploy `failed`",
+  function (this: JollyWorld) {
+    const deploy = realRunStages(this).find((s) => s.stage === "deploy");
+    assert.ok(deploy, "the orchestrated stages must include the deploy stage");
+    assert.equal(
+      deploy!.status,
+      "pending",
+      `the deploy stage must report a pending Vercel sign-in gate, not "${deploy!.status}"`,
+    );
+    // A check states the gate: Jolly runs the Vercel sign-in together with the
+    // human (not a deploy failure).
+    const gate = this.envelope.checks.find((c) => {
+      const blob = `${c.id} ${c.description ?? ""}`.toLowerCase();
+      return /vercel/.test(blob) && /sign[- ]?in|log[- ]?in|login/.test(blob);
+    });
+    assert.ok(
+      gate,
+      `the deploy stage must report a Vercel sign-in gate check: ${JSON.stringify(this.envelope.checks)}`,
+    );
+    assert.notEqual(gate!.status, "fail", "the Vercel sign-in gate must not be a deploy failure");
+    const desc = String(gate!.description ?? "").toLowerCase();
+    assert.ok(
+      desc.includes("jolly") &&
+        /together|with you|with the human|jointly|runs the (vercel )?sign[- ]?in|runs the sign[- ]?in/.test(desc),
+      `the sign-in gate must state Jolly runs the Vercel sign-in together with the human: ${JSON.stringify(gate)}`,
+    );
+  },
+);
+
+Then(
+  "no deploy or vercel check should report `fail` when the only obstacle is the missing Vercel sign-in",
+  function (this: JollyWorld) {
+    // Scope to the deploy STAGE's own deploy/vercel checks — not the folded
+    // `doctor-*` readiness diagnostics. Doctor's own `vercel-auth` correctly
+    // reports `fail` for a no-session run (feature 014's contract, verified by
+    // 014:46); the deploy stage itself must not fail when only the sign-in is
+    // missing.
+    const offenders = this.envelope.checks.filter(
+      (c) =>
+        !String(c.id).startsWith("doctor-") &&
+        /deploy|vercel/i.test(String(c.id)) &&
+        c.status === "fail",
+    );
+    assert.equal(
+      offenders.length,
+      0,
+      `no deploy/vercel check may be \`fail\` when only the Vercel sign-in is missing: ${JSON.stringify(offenders)}`,
+    );
+  },
+);
+
+Then(
+  "Jolly's own code should send no request to api.vercel.com and hold no Vercel token while doing so",
+  function (this: JollyWorld) {
+    const blob = `${this.lastRun!.stdout}\n${this.lastRun!.stderr}`.toLowerCase();
+    assert.ok(!blob.includes("api.vercel.com"), "Jolly's own code must not contact api.vercel.com");
+    assert.equal(
+      process.env["JOLLY_VERCEL_TOKEN"],
+      undefined,
+      "there is no JOLLY_VERCEL_TOKEN; Jolly holds no Vercel token",
+    );
+  },
+);
+
+// --- Scenario: Jolly start owns the Vercel sign-in rather than telling the
+//     agent to run it (@sandbox) ----------------------------------------------
+
+Then(
+  "no nextSteps entry, error remediation, or check `command` should tell the agent to run `vercel login`, because Jolly runs the sign-in itself",
+  function (this: JollyWorld) {
+    const hits: string[] = [];
+    for (const step of this.envelope.nextSteps) {
+      if (/vercel login/i.test(`${step.description ?? ""} ${step.command ?? ""}`)) {
+        hits.push(`nextStep: ${JSON.stringify(step)}`);
+      }
+    }
+    for (const check of this.envelope.checks) {
+      if (/vercel login/i.test(`${check.command ?? ""} ${check.remediation ?? ""}`)) {
+        hits.push(`check ${check.id}: ${JSON.stringify(check)}`);
+      }
+    }
+    for (const err of this.envelope.errors) {
+      if (/vercel login/i.test(String(err.remediation ?? ""))) {
+        hits.push(`error: ${JSON.stringify(err)}`);
+      }
+    }
+    assert.equal(
+      hits.length,
+      0,
+      `nothing may tell the agent to run \`vercel login\`; Jolly runs the sign-in itself: ${hits.join("; ")}`,
+    );
+  },
+);
+
+Then(
+  "no nextSteps entry or error remediation should tell the agent to re-run `jolly start` after a manual Vercel sign-in",
+  function (this: JollyWorld) {
+    // Jolly owns the sign-in, so it must not instruct the agent to sign in to
+    // Vercel manually and then re-run `jolly start`. (A nextStep naming `jolly
+    // start` for other reasons is fine — the forbidden thing is the "sign in,
+    // then re-run" instruction.)
+    const hits: string[] = [];
+    const scan = (text: string, where: string) => {
+      const low = text.toLowerCase();
+      if (
+        low.includes("jolly start") &&
+        /vercel|sign[- ]?in|log[- ]?in|login/.test(low) &&
+        /after|then re-?run|once you|once signed|manual/.test(low)
+      ) {
+        hits.push(`${where}: ${text}`);
+      }
+    };
+    for (const step of this.envelope.nextSteps) {
+      scan(`${step.description ?? ""} ${step.command ?? ""}`, "nextStep");
+    }
+    for (const check of this.envelope.checks) {
+      scan(String(check.remediation ?? ""), `check ${check.id}`);
+    }
+    for (const err of this.envelope.errors) {
+      scan(String(err.remediation ?? ""), "error");
+    }
+    assert.equal(
+      hits.length,
+      0,
+      `must not tell the agent to re-run \`jolly start\` after a manual Vercel sign-in: ${hits.join("; ")}`,
+    );
+  },
+);
 
 // --- Scenario: The deployed storefront serves the Saleor catalog and a working cart (@sandbox) ---
 //

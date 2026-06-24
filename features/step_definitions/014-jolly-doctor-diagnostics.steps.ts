@@ -244,16 +244,17 @@ Then(
 // login state by DELEGATING to the upstream tool's own CLI — here the Vercel
 // CLI's `vercel whoami` — never by Jolly reimplementing Vercel auth. The
 // deployment group's `vercel-auth` check spawns `vercel whoami` and reports the
-// real result: no session → fail/unknown (never a fabricated pass) with
-// `vercel login` as the next step; a live session → pass. The When
-// (`jolly doctor deployment --json`) is the one already defined above; the
-// Vercel session lives in the Vercel CLI's own config, independent of the
-// JOLLY_* env (unset for the @logic case), so the same When serves both cases.
+// real result: no session → fail/unknown (never a fabricated pass), with
+// `jolly start` as the next step (Jolly runs the Vercel sign-in itself, never
+// `vercel login`); a live session → pass. The When (`jolly doctor deployment
+// --json`) is the one already defined above; the Vercel session lives in the
+// Vercel CLI's own config, independent of the JOLLY_* env, so the same When
+// serves both cases.
 //
-// @logic ("not logged in"): the precondition is a real runner state, so the
-// Given verifies it live by running `vercel whoami` and SKIPS — never fakes or
-// mutates auth — when a session happens to exist on this runner. @sandbox
-// ("logged in"): gated by the hook on an authenticated Vercel CLI session
+// No-session case (@sandbox): the shared "isolated config with no signed-in
+// session" Given points the Vercel CLI at fresh, empty XDG dirs holding no
+// credentials — a real, producible no-session condition. Logged-in case
+// (@sandbox): gated by the hook on an authenticated Vercel CLI session
 // (VERCEL_CLI_SCENARIOS), so it skips unless a real session is present.
 
 Given(
@@ -329,14 +330,18 @@ Then(
 );
 
 Then(
-  "its next step should be to run `vercel login`",
+  "its next step should be to run `jolly start`, which runs the Vercel sign-in itself, never to run `vercel login`",
   function (this: JollyWorld) {
     const check = this.findCheck("vercel-auth");
     assert.ok(check, "doctor deployment must report a `vercel-auth` check");
     assert.equal(
       check!.command,
-      "vercel login",
-      "the vercel-auth check's next step must be to run `vercel login`",
+      "jolly start",
+      `the vercel-auth next step must be \`jolly start\` (Jolly runs the sign-in itself), got "${String(check!.command)}"`,
+    );
+    assert.ok(
+      !/vercel login/i.test(JSON.stringify(check)),
+      `the vercel-auth check must never tell the agent to run \`vercel login\`: ${JSON.stringify(check)}`,
     );
   },
 );
@@ -488,7 +493,14 @@ When("the agent runs `jolly doctor saleor --json`", function (this: JollyWorld) 
 });
 
 When("the agent runs `jolly doctor deployment --json`", function (this: JollyWorld) {
-  this.runCli(["doctor", "deployment", "--json"], { env: absentCredentialsEnv() });
+  // Default: runtime credentials genuinely unset. The no-session vercel-auth
+  // scenario stashes isolated Vercel XDG dirs in notes.vercelXdg (set by the
+  // shared "isolated config with no signed-in session" Given), so doctor's
+  // `vercel whoami` finds no real session — a real, producible no-session
+  // condition, not a fake. The fragment propagates through `jolly` to the
+  // `vercel` CLI it spawns.
+  const xdg = (this.notes.vercelXdg as Record<string, string> | undefined) ?? {};
+  this.runCli(["doctor", "deployment", "--json"], { env: absentCredentialsEnv(xdg) });
 });
 
 When("the agent runs `jolly doctor stripe --json`", function (this: JollyWorld) {

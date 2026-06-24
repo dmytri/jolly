@@ -65,6 +65,17 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   ],
   "Jolly start creates a deployable storefront from Saleor Paper": ["saleorEndpoint"],
   "Jolly start deploys to Vercel by spawning the official Vercel CLI": ["saleorEndpoint"],
+  // The deploy-stage Vercel sign-in scenarios reach the deploy stage via a full
+  // `jolly start --yes` auto-provision run: the Cloud token alone is needed (the
+  // store/endpoint/app token are provisioned and derived inside the run). They
+  // deliberately need NO authenticated Vercel session — the isolated-config Given
+  // supplies the no-session condition — so they are NOT in VERCEL_CLI_SCENARIOS.
+  "Jolly start spawns the Vercel sign-in itself when there is no Vercel session": [
+    "saleorCloud",
+  ],
+  "Jolly start owns the Vercel sign-in rather than telling the agent to run it": [
+    "saleorCloud",
+  ],
   // The storefront's native deps (sharp, esbuild) must build so the production
   // build completes. Clone+install is credential-independent; the production
   // build's codegen needs a reachable Saleor schema (saleorEndpoint).
@@ -144,6 +155,11 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   "Doctor checks Saleor connectivity": ["saleorEndpoint"],
   "Doctor checks storefront readiness": ["saleorEndpoint"],
   "Doctor checks deployment and payment readiness": ["saleorEndpoint", "saleorAppToken"],
+  // The no-session vercel-auth scenario drives only `jolly doctor deployment`
+  // (deployment-status + vercel-auth); no Saleor credential is needed, and the
+  // isolated-config Given supplies the no-session condition, so it needs no
+  // authenticated Vercel session either (NOT in VERCEL_CLI_SCENARIOS).
+  "Doctor reads the Vercel CLI login state from the Vercel CLI itself": [],
   // The vercel-auth "logged in" case needs only a real authenticated Vercel CLI
   // session (a capability gated via VERCEL_CLI_SCENARIOS) — no JOLLY_* credential.
   "Doctor confirms the Vercel CLI login state when a session exists": [],
