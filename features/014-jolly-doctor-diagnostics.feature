@@ -42,13 +42,13 @@ Feature: Jolly doctor diagnostics
     And the deployment check should report whether the deployed URL is in Saleor trusted origins
     And the checks should include a "stripe" check with a concrete status
 
-  @logic
+  @sandbox
   Scenario: Doctor reads the Vercel CLI login state from the Vercel CLI itself
-    Given the Vercel CLI is not logged in on this runner
+    Given the Vercel CLI is pointed at an isolated config with no signed-in session
     When the agent runs `jolly doctor deployment --json`
     Then a "vercel-auth" check should read the login state by running `vercel whoami`
     And with no Vercel CLI session the "vercel-auth" check should be "fail" or "unknown", never "pass"
-    And its next step should be to run `vercel login`
+    And its next step should be to run `jolly start`, which runs the Vercel sign-in itself, never to run `vercel login`
 
   @sandbox
   Scenario: Doctor confirms the Vercel CLI login state when a session exists

@@ -19,7 +19,7 @@ import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CHECK_STATUSES } from "../support/envelope.ts";
 import { absentCredentialsEnv } from "../support/creds-env.ts";
-import { vercelCliAuthenticated, vercelWhoamiAccount } from "../support/sandbox.ts";
+import { vercelWhoamiAccount } from "../support/sandbox.ts";
 import { listOrganizations } from "../../src/lib/cloud-api.ts";
 import type { JollyWorld } from "../support/world.ts";
 
@@ -255,24 +255,6 @@ Then(
 // mutates auth — when a session happens to exist on this runner. @sandbox
 // ("logged in"): gated by the hook on an authenticated Vercel CLI session
 // (VERCEL_CLI_SCENARIOS), so it skips unless a real session is present.
-
-Given(
-  "the Vercel CLI is not logged in on this runner",
-  function (this: JollyWorld) {
-    // Live precondition: read the real Vercel CLI session state. If a session
-    // exists we cannot produce "not logged in" without mutating real auth, so
-    // skip (live-by-design: read real state, never force a fake one).
-    if (vercelCliAuthenticated()) {
-      this.attach(
-        "Skipped: the Vercel CLI is logged in on this runner; the 'not logged " +
-          "in' precondition cannot be produced without mutating real auth state",
-        "text/plain",
-      );
-      return "skipped";
-    }
-    return undefined;
-  },
-);
 
 Given(
   "the Vercel CLI is logged in on this runner",

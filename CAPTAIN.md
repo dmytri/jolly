@@ -47,26 +47,40 @@ double" so a green suite carrying a fake fails there.
   `us` channel stays the human Saleor-Dashboard gate. No Stripe CLI, no `JOLLY_STRIPE_*` keys held by Jolly.
 - **Vercel: CLI passthrough, Jolly-driven sign-in (NOT built — directed cycle written).**
   Design: `jolly start` deploys only via the Vercel CLI under the CLI's own session (Jolly holds no
-  Vercel token, contacts no `api.vercel.com`); when `vercel whoami` shows no session, **Jolly owns the
-  sign-in** in BOTH human and agent paths — it spawns `npx vercel login` itself, routes the
-  device-authorization URL to stderr (human at the terminal, or agent relays to its human), and the
-  agent is never handed a "run `vercel login`" next step. A missing session is a human sign-in gate,
-  not a deploy `fail` — uniform with the Stripe Dashboard gate.
-  **Reality (2026-06-24): not implemented.** `src/index.ts` spawns only `vercel whoami` (1921) and
-  `vercel deploy --prod` (3065); there is **no `vercel login` spawn anywhere**. The agent path still
-  emits "Run `npx vercel login` … then re-run" (3094/3168); the human path merely **prints** "Jolly
-  runs the Vercel sign-in with you inline" (3289) and proceeds without spawning anything. It read green
-  because the guards checked **copy/announcement only**: `002:146` (`@logic`) asserted nextSteps wording,
-  and `027:73` is a `--dry-run` preview asserting the printed line — neither runs `vercel login`; the
-  one real-spawn assertion lived in a skipping `@sandbox` clause. Classic green-on-copy.
-  **Verification bar (decided by dk):** `@sandbox` asserts Jolly **invokes `vercel login` and surfaces
-  the device-authorization URL before deploy** — completed sign-in stays the human's step (the device
-  flow cannot auto-complete), so "done" never requires real auth. **Directed via `cycle.json`:** pass1
-  = `002:146` (`@logic` envelope contract, strengthened to forbid any "agent runs `vercel login` / re-run"
-  wording and to require the gate name Jolly as the actor); pass2 = `002:108` (`@sandbox` real spawn at
-  the bar above, extracted from the old contradictory `002:93` clause). pass2 only proves anything when
-  `@sandbox` actually runs with a Vercel session present — otherwise it skips and the feature stays
-  unverified ([[skip-mask-sandbox-unverified]]). [[mvp-then-iterate]]
+  Vercel token, contacts no `api.vercel.com`); with no session, **Jolly owns the sign-in** at the
+  deploy stage in BOTH human and agent paths — it spawns `npx vercel login` itself, captures the
+  device-authorization URL and routes it to stderr (human at the terminal, or agent relays to its
+  human), and reports the deploy stage as a `pending` sign-in gate stating **Jolly runs the sign-in
+  together with the human** — bounded, never blocking on auth completion. A missing session is a
+  pending sign-in gate, never a deploy `fail`, and **no envelope surface — nextSteps, error
+  remediations, or check `command`/`remediation` fields — ever hands the agent `vercel login` or tells
+  it to re-run `jolly start` after a manual sign-in** (uniform with the Stripe Dashboard gate).
+  **Environmental reality (2026-06-24, Crew probe):** the installed Vercel CLI (54.16.0) does NOT
+  passively "report no session" — `vercel whoami` with no session **auto-starts the device-login flow**
+  (prints `…/oauth/device?user_code=…`, then blocks on "Waiting for authentication…"; reproduced exit
+  124 even with `CI=1`+closed stdin). So **detection and sign-in are one action**: the spawn IS the
+  probe, the device URL it emits IS the affordance, and the prior "check `whoami`, then spawn `login`"
+  split does not exist. The Rule (002 "Deploy stage") is reworded to match; production must bound the
+  spawn (capture the URL, kill before auth, report `pending`).
+  **Reality: not implemented.** `src/index.ts` spawns only `vercel whoami` (1921) and `vercel deploy
+  --prod` (3065); **no `vercel login` spawn**. The agent path still emits "Run `npx vercel login` …
+  then re-run" (3094/3168) and the embedded doctor `vercel-auth` check carries `command: "vercel
+  login"` (1949); the human path merely **prints** "Jolly runs the Vercel sign-in with you inline"
+  (3289). Green-on-copy: the old `@logic` guard checked nextSteps wording only, and the one real-spawn
+  clause skipped.
+  **Decisions (dk, 2026-06-24):** (1) the no-session gate/spawn behaviours are **observable only by a
+  real Vercel-CLI spawn → `@sandbox`**, not `@logic` (the old `@logic` gate moved). (2) **Close the
+  agent-`vercel login` leak this cycle**, reconciling 002↔014: NO `jolly start` surface — including
+  check `command` fields — hands the agent `vercel login`; the doctor `vercel-auth` no-session next
+  step becomes `jolly start` (which runs the sign-in), never `vercel login`.
+  **Directed via `cycle.json` (all `@sandbox`, no-session forced by an isolated empty Vercel config so
+  they need only the CLI, not a real session — they run in CI, not a [[skip-mask-sandbox-unverified]]):**
+  pass1 = 002 "spawns the Vercel sign-in itself" (spawn `npx vercel login` + device URL on stderr +
+  deploy `pending` gate naming Jolly + the human + no deploy/vercel `fail` + no api.vercel.com/token);
+  pass2 = 002 "owns the Vercel sign-in rather than telling the agent" (no nextSteps/remediation/check
+  `command` hands the agent `vercel login`; no "re-run after manual sign-in"); pass3 = 014 "Doctor reads
+  the Vercel login state" (now `@sandbox`, forced no-session, bounded `whoami`, next step `jolly start`
+  not `vercel login`). [[mvp-then-iterate]]
 - **All CLIs via `npx`** — configurator/vercel; a missing global binary is not a failure ([[clis-via-npx]]).
 - **Docs describe only current behavior, positively** — no references to removed paths, no "don't do X"
   negatives ([[no-self-defeating-absence-assertions]]).

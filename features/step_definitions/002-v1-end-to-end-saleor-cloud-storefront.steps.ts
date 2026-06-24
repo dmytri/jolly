@@ -721,13 +721,6 @@ Then("it should not fabricate that the human-run step was completed", function (
 
 // --- Scenario: Jolly start owns the Vercel sign-in rather than telling the agent to run it ---
 
-Given(
-  "the agent runs `jolly start` with no Vercel CLI session",
-  function (this: JollyWorld) {
-    // The condition is described; the shared When produces the real run.
-  },
-);
-
 // --- Scenario: The deployed storefront serves the Saleor catalog and a working cart (@sandbox) ---
 //
 // Live operational-readiness acceptance for the DEPLOYED storefront. The deployed
