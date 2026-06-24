@@ -100,7 +100,7 @@ Feature: Jolly CLI output contract
     Given Jolly's own network-request-sending code
     When the hosts it can contact are enumerated
     Then they should be exactly cloud.saleor.io, the customer's `*.saleor.cloud` domains, and github.com, plus any `JOLLY_SALEOR_CLOUD_API_URL` override
-    And neither api.vercel.com nor api.stripe.com should appear in Jolly's own request code — Vercel is reached only by the spawned Vercel CLI, and Stripe only by the spawned Stripe CLI
+    And neither api.vercel.com nor api.stripe.com should appear in Jolly's own request code — Vercel is reached only by the spawned Vercel CLI, and api.stripe.com only by the Saleor Stripe app that Jolly installs via Saleor GraphQL `appInstall`
     And the retired hosts id.saleor.online and api.saleor.cloud should not appear anywhere in Jolly's code or output
 
   @logic
@@ -161,10 +161,11 @@ Feature: Jolly CLI output contract
       API and token page), the customer's own *.saleor.cloud environment domains, and
       github.com (cloning saleor/storefront and skills). "Hosts Jolly contacts" stays exactly
       equal to the hosts appearing in Jolly's request-sending code.
-    - Neither api.vercel.com nor api.stripe.com is in this allowlist: each is reached only
-      by its own official CLI that Jolly delegates to — Vercel by the Vercel CLI (`npx vercel`) —
-      never by Jolly's own request-sending code (see feature 008 Rule "Surface — composable
-      plumbing commands; `start` orchestrates the official CLIs").
+    - Neither api.vercel.com nor api.stripe.com is in this allowlist, and Jolly's own
+      request-sending code reaches neither: Vercel is reached only by the Vercel CLI (`npx vercel`)
+      Jolly delegates to, and api.stripe.com only by the Saleor Stripe app that Jolly installs via
+      Saleor GraphQL `appInstall` (feature 005) and which runs server-side in Saleor (see feature 008
+      Rule "Surface — composable plumbing commands; `start` orchestrates the official CLIs").
     - Secrets travel only to their own service: the Saleor Cloud token only to cloud.saleor.io
       or the customer's *.saleor.cloud domains. No secret is ever sent to github.com or any host
       not on this list. Jolly's own request code holds no Vercel token at all: Vercel auth lives
