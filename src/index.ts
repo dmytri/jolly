@@ -520,8 +520,34 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
       token = fileToken;
     } else if (args.flags.has("token-stdin")) {
       token = readFileSync(0, "utf8").trim();
-    } else if (process.env["JOLLY_SALEOR_CLOUD_TOKEN"]) {
-      token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"].trim();
+    } else if (process.env["JOLLY_SALEOR_CLOUD_TOKEN"] !== undefined) {
+      const envToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"].trim();
+      if (envToken === "") {
+        // Present-but-empty JOLLY_SALEOR_CLOUD_TOKEN: reject honestly naming the
+        // empty variable rather than falling through to the no-source path.
+        return errorEnvelope(
+          command,
+          "JOLLY_SALEOR_CLOUD_TOKEN is set but empty. Nothing was written.",
+          [
+            {
+              code: "EMPTY_TOKEN",
+              message:
+                "JOLLY_SALEOR_CLOUD_TOKEN is set to an empty value; no token was read.",
+              remediation: `Set JOLLY_SALEOR_CLOUD_TOKEN to a staff token from ${TOKEN_PAGE}, or run \`jolly login\` interactively to sign in.`,
+            },
+          ],
+          {
+            data: { riskContext: loginRiskContext() },
+            nextSteps: [
+              {
+                description: `Set JOLLY_SALEOR_CLOUD_TOKEN to a staff token from ${TOKEN_PAGE}.`,
+                command: "export JOLLY_SALEOR_CLOUD_TOKEN=<staff-token>",
+              },
+            ],
+          },
+        );
+      }
+      token = envToken;
     }
   }
   // Lowest-precedence source: when no explicit source supplied a token and Jolly
@@ -539,20 +565,28 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
     // token flag — token-only auth has no browser fallback.
     return errorEnvelope(
       command,
-      "No Saleor Cloud token was provided. Nothing was written.",
+      "No Saleor Cloud authentication available. Nothing was written.",
       [
         {
           code: "NO_TOKEN_SOURCE",
           message:
-            "`jolly login` found no token from any source. Provide one with `jolly login --token <value>`.",
-          remediation: `Create a token at ${TOKEN_PAGE} and run \`jolly login --token <value>\`.`,
+            "`jolly login` found no Saleor Cloud authentication. The interactive device authorization grant runs only in a terminal; this shell is not interactive.",
+          remediation:
+            "Set JOLLY_SALEOR_CLOUD_TOKEN (a staff token from " +
+            `${TOKEN_PAGE}) for non-interactive use, or run \`jolly login\` interactively to sign in through the device authorization grant.`,
         },
       ],
       {
         nextSteps: [
           {
-            description: `Create a Saleor Cloud token at ${TOKEN_PAGE}, then run jolly login --token <value>.`,
-            command: "jolly login --token <value>",
+            description:
+              "Set JOLLY_SALEOR_CLOUD_TOKEN in .env or the environment for non-interactive sign-in.",
+            command: "export JOLLY_SALEOR_CLOUD_TOKEN=<staff-token>",
+          },
+          {
+            description:
+              "Run `jolly login` interactively to sign in through the Saleor device authorization grant.",
+            command: "jolly login",
           },
         ],
         data: { riskContext: loginRiskContext() },
@@ -716,6 +750,7 @@ function resolveOrgName(orgs: CloudOrganization[]): string | undefined {
 
 const MANAGED_AUTH_VARS = [
   "JOLLY_SALEOR_CLOUD_TOKEN",
+  "JOLLY_SALEOR_REFRESH_TOKEN",
   "JOLLY_SALEOR_APP_TOKEN",
   "JOLLY_SALEOR_ORGANIZATION",
 ];

@@ -687,6 +687,7 @@ function allSrcText(): string {
 
 const EXPECTED_FIRST_PARTY_HOSTS = [
   "cloud.saleor.io",
+  "auth.saleor.io",
   "github.com",
 ].sort();
 
@@ -706,7 +707,7 @@ When("the hosts it can contact are enumerated", async function (this: JollyWorld
 });
 
 Then(
-  /^they should be exactly cloud\.saleor\.io, the customer's `\*\.saleor\.cloud` domains, and github\.com, plus any `JOLLY_SALEOR_CLOUD_API_URL` override$/,
+  /^they should be exactly cloud\.saleor\.io, auth\.saleor\.io, the customer's `\*\.saleor\.cloud` domains, and github\.com, plus any `JOLLY_SALEOR_CLOUD_API_URL` override$/,
   function (this: JollyWorld) {
     const mod = this.notes.hostsModule as
       | { FIRST_PARTY_HOSTS?: unknown; isFirstPartyHost?: (h: string) => boolean }

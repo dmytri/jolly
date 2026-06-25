@@ -154,6 +154,139 @@ Then(
   },
 );
 
+// ─── Scenario: logout removes every Jolly-managed auth value from .env ──────
+// The managed set now includes the device-grant refresh token. Logout removes
+// JOLLY_SALEOR_CLOUD_TOKEN, JOLLY_SALEOR_REFRESH_TOKEN, JOLLY_SALEOR_APP_TOKEN,
+// and JOLLY_SALEOR_ORGANIZATION while preserving any non-Jolly variable.
+
+Given(
+  ".env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token and JOLLY_SALEOR_REFRESH_TOKEN=some-refresh and JOLLY_SALEOR_APP_TOKEN=some-app-token and JOLLY_SALEOR_ORGANIZATION=some-org and THIRD_PARTY_KEY=keep-me",
+  function (this: JollyWorld) {
+    writeFileSync(
+      join(this.projectDir, ".env"),
+      "JOLLY_SALEOR_CLOUD_TOKEN=some-token\n" +
+        "JOLLY_SALEOR_REFRESH_TOKEN=some-refresh\n" +
+        "JOLLY_SALEOR_APP_TOKEN=some-app-token\n" +
+        "JOLLY_SALEOR_ORGANIZATION=some-org\n" +
+        "THIRD_PARTY_KEY=keep-me\n",
+    );
+  },
+);
+
+Then(
+  "Jolly should remove JOLLY_SALEOR_CLOUD_TOKEN, JOLLY_SALEOR_REFRESH_TOKEN, JOLLY_SALEOR_APP_TOKEN, and JOLLY_SALEOR_ORGANIZATION from .env",
+  function (this: JollyWorld) {
+    const values = loadEnvValues(this.lastRun!.cwd);
+    assert.ok(!("JOLLY_SALEOR_CLOUD_TOKEN" in values));
+    assert.ok(!("JOLLY_SALEOR_REFRESH_TOKEN" in values));
+    assert.ok(!("JOLLY_SALEOR_APP_TOKEN" in values));
+    assert.ok(!("JOLLY_SALEOR_ORGANIZATION" in values));
+  },
+);
+
+// ─── Scenario: Non-interactive jolly login never starts the device grant ────
+// A non-TTY `jolly login --json` (runCli pipes stdin, so stdin is not a TTY)
+// with no JOLLY_SALEOR_CLOUD_TOKEN must NOT start the device authorization grant
+// — that is interactive-only. It fails honestly with a stable code, directs the
+// user to set the env var or run `jolly login` interactively, requests no device
+// code, never blocks on input, and writes nothing to .env.
+
+Given(
+  "a non-interactive shell with no JOLLY_SALEOR_CLOUD_TOKEN set",
+  function (this: JollyWorld) {
+    // Framing for the When: runCli runs a child whose stdin is a pipe (non-TTY),
+    // and absentCredentialsEnv unsets JOLLY_SALEOR_CLOUD_TOKEN for the child.
+  },
+);
+
+// `When the agent runs `jolly login --json`` is the generic global-flag run step
+// (feature 006), which runs `jolly login --json` with credentials absent.
+
+Then(
+  "it should direct the user to set JOLLY_SALEOR_CLOUD_TOKEN or run `jolly login` interactively to sign in",
+  function (this: JollyWorld) {
+    const text =
+      JSON.stringify(this.envelope.errors) +
+      " " +
+      JSON.stringify(this.envelope.nextSteps) +
+      " " +
+      this.envelope.summary;
+    assert.ok(
+      text.includes("JOLLY_SALEOR_CLOUD_TOKEN"),
+      `guidance must name the JOLLY_SALEOR_CLOUD_TOKEN env var; got: ${text}`,
+    );
+    assert.ok(
+      /jolly login\b(?![^"]*--token)/.test(text) && /interactiv/i.test(text),
+      `guidance must point to running \`jolly login\` interactively; got: ${text}`,
+    );
+  },
+);
+
+Then(
+  "it should not request a device code and should not block waiting for input",
+  function (this: JollyWorld) {
+    // It returned (runCli would have timed out had it blocked) with an error
+    // envelope, so it short-circuited before any device flow.
+    assert.equal(this.envelope.status, "error");
+    const text = (this.lastRun!.stdout + " " + this.lastRun!.stderr).toLowerCase();
+    // No device-grant artifacts: no device-authorization endpoint, no verification
+    // URL, no "user code" prompt — the grant was never started.
+    assert.ok(
+      !text.includes("auth.saleor.io/realms/saleor-cloud/device"),
+      "a non-interactive login must not show the device verification URL",
+    );
+    assert.ok(
+      !/user code|device code/.test(text),
+      "a non-interactive login must not request or display a device code",
+    );
+  },
+);
+
+// ─── Scenario: jolly login with an empty env/.env token fails honestly ──────
+// JOLLY_SALEOR_CLOUD_TOKEN present but empty is a present-but-empty token. Login
+// in a non-interactive shell must reject it honestly with a stable code naming
+// the empty token, writing nothing to .env.
+
+Given(
+  "JOLLY_SALEOR_CLOUD_TOKEN is set to the empty value",
+  function (this: JollyWorld) {
+    this.notes.envToken = "";
+  },
+);
+
+When(
+  "the agent runs `jolly login --json` in a non-interactive shell",
+  function (this: JollyWorld) {
+    this.runCli(["login", "--json"], {
+      env: absentCredentialsEnv({
+        JOLLY_SALEOR_CLOUD_TOKEN: String(this.notes.envToken ?? ""),
+      }),
+    });
+  },
+);
+
+Then(
+  "the envelope status should be \"error\" with a stable `code` naming the empty token",
+  function (this: JollyWorld) {
+    assert.equal(this.envelope.status, "error");
+    assert.ok(this.envelope.errors.length > 0, "expected an error entry");
+    assert.match(this.envelope.errors[0].code as string, /^[A-Z][A-Z0-9_]*$/);
+    const reported = (
+      JSON.stringify(this.envelope.errors) +
+      " " +
+      this.envelope.summary
+    ).toLowerCase();
+    assert.ok(
+      reported.includes("empty"),
+      `error must name the empty token as the cause; got: ${reported}`,
+    );
+    assert.ok(
+      reported.includes("jolly_saleor_cloud_token"),
+      `error must name the JOLLY_SALEOR_CLOUD_TOKEN variable; got: ${reported}`,
+    );
+  },
+);
+
 // ─── Shared: no existing authentication / no token value in output ──────────
 
 Given(
