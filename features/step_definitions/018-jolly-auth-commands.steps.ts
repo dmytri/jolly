@@ -242,6 +242,135 @@ Then(
   },
 );
 
+// ─── Scenario: interactive jolly login starts the device authorization grant ─
+// An interactive `jolly login` (stdin a real PTY) with no JOLLY_SALEOR_CLOUD_
+// TOKEN must start the OAuth 2.0 device authorization grant against the real
+// saleor-cloud Keycloak realm: request a device code (public client `jolly`, no
+// secret), display the returned user code + verification URL through Bombshell's
+// prompt UI, then poll the token endpoint while the (never-arriving) human
+// authorizes. Run for REAL against auth.saleor.io — the device-code request is
+// unauthenticated, so no credential is needed and no resource outlives the run
+// (an unauthorized device code expires harmlessly). The human never authorizes,
+// so the PTY deadline stops the still-polling process; the captured output holds
+// the displayed code + URL.
+
+const AUTH_DEVICE_URL =
+  "https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/auth/device";
+const AUTH_VERIFICATION_URL = "https://auth.saleor.io/realms/saleor-cloud/device";
+// Keycloak's default device user-code format: two groups of A–Z/0–9 (e.g. WDJB-MJHT).
+const USER_CODE_RE = /\b[A-Z0-9]{4,}-[A-Z0-9]{4,}\b/;
+
+Given(
+  "an interactive terminal with no JOLLY_SALEOR_CLOUD_TOKEN set",
+  function (this: JollyWorld) {
+    // Framing for the When: an interactive (real PTY) `jolly login` with the
+    // runtime Cloud token genuinely unset, so the device grant is the only path.
+    this.notes.interactiveDeviceGrant = true;
+  },
+);
+
+When(
+  "the user runs `jolly login`",
+  { timeout: 30_000 },
+  function (this: JollyWorld) {
+    if (!ptyAvailable()) return "skipped";
+    // No env token (absentCredentialsEnv unsets the runtime credentials); the
+    // human never authorizes, so the device grant displays the code + URL and
+    // keeps polling until the PTY deadline kills it.
+    const env = resolvedChildEnv(absentCredentialsEnv());
+    const runtime = process.env.HARNESS_CLI_RUNTIME ?? "node";
+    const run = runUnderPty({
+      runtime,
+      argv: [CLI_ENTRY, "login"],
+      cwd: this.projectDir,
+      env,
+      // No scripted input: the human never authorizes, so nothing is typed.
+      inputs: [],
+      timeoutMs: 15_000,
+    });
+    this.previousRun = this.lastRun;
+    this.lastRun = {
+      args: ["login"],
+      cwd: this.projectDir,
+      exitCode: run.exitCode,
+      stdout: run.output,
+      stderr: "",
+    };
+  },
+);
+
+Then(
+  "Jolly should request a device code from `https:\\/\\/auth.saleor.io\\/realms\\/saleor-cloud\\/protocol\\/openid-connect\\/auth\\/device` with `client_id=jolly`",
+  function (this: JollyWorld) {
+    const text = this.lastRun!.stdout;
+    // The realm answers a device-code request only when the public client
+    // `jolly` is recognized; a wrong client_id yields invalid_client and no
+    // device authorization. A user code rendered in the terminal is therefore
+    // the falsifiable proof the request to the device endpoint succeeded with
+    // client_id=jolly.
+    assert.ok(
+      USER_CODE_RE.test(text),
+      `Jolly must request a device code from ${AUTH_DEVICE_URL} with client_id=jolly ` +
+        `(a returned user code proves it); got: ${text}`,
+    );
+    assert.ok(
+      !/invalid_client|unauthorized_client/i.test(text),
+      `the device-code request must use client_id=jolly (no invalid_client error); got: ${text}`,
+    );
+  },
+);
+
+Then(
+  "it should display the returned user code and the verification URL `https:\\/\\/auth.saleor.io\\/realms\\/saleor-cloud\\/device` through Bombshell's interactive prompt UI",
+  function (this: JollyWorld) {
+    const text = this.lastRun!.stdout;
+    assert.match(text, USER_CODE_RE, "the returned user code must be displayed");
+    assert.ok(
+      text.includes(AUTH_VERIFICATION_URL),
+      `the verification URL ${AUTH_VERIFICATION_URL} must be displayed; got: ${text}`,
+    );
+    // Bombshell (@clack/prompts) renders box-drawing/symbol glyphs the plain
+    // console never emits; their presence is the falsifiable signal the prompt
+    // UI rendered.
+    assert.ok(
+      /[│┌└◆◇●○▪]/u.test(text),
+      `the code + URL must render through Bombshell's prompt UI; got: ${text}`,
+    );
+  },
+);
+
+Then(
+  "it should poll `https:\\/\\/auth.saleor.io\\/realms\\/saleor-cloud\\/protocol\\/openid-connect\\/token` while waiting for the user to authorize",
+  function (this: JollyWorld) {
+    // The human never authorizes, so a polling login keeps running until the PTY
+    // deadline kills it (non-zero exit). A login that printed the code and
+    // returned on its own would exit 0 — and never poll the token endpoint.
+    assert.notEqual(
+      this.lastRun!.exitCode,
+      0,
+      "interactive login must keep polling the token endpoint while waiting for " +
+        "authorization, not exit after displaying the code",
+    );
+    assert.ok(
+      USER_CODE_RE.test(this.lastRun!.stdout),
+      "polling must begin only after the device code was displayed",
+    );
+  },
+);
+
+Then("it should not print any token value", function (this: JollyWorld) {
+  const text = this.lastRun!.stdout;
+  // No JWT and no token assignment may appear in the terminal output.
+  assert.ok(
+    !/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/.test(text),
+    "no access/refresh JWT may appear in the terminal output",
+  );
+  assert.ok(
+    !/JOLLY_SALEOR_(CLOUD|APP|REFRESH)_TOKEN=\S/.test(text),
+    "no token value may be printed to the terminal",
+  );
+});
+
 // ─── Scenario: jolly login with an empty env/.env token fails honestly ──────
 // JOLLY_SALEOR_CLOUD_TOKEN present but empty is a present-but-empty token. Login
 // in a non-interactive shell must reject it honestly with a stable code naming

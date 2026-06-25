@@ -52,6 +52,7 @@ import {
 } from "./lib/cloud-api.ts";
 import { loadEnvValues, writeEnvValues } from "./lib/env-file.ts";
 import { normalizeSaleorUrl } from "./lib/saleor-url.ts";
+import { requestDeviceCode, pollForDeviceTokens } from "./lib/device-grant.ts";
 import { parse as parseBombArgs } from "@bomb.sh/args";
 import { runCompletion } from "./lib/completion.ts";
 import {
@@ -550,12 +551,12 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
       token = envToken;
     }
   }
-  // Lowest-precedence source: when no explicit source supplied a token and Jolly
-  // runs in an interactive terminal (stdin is a TTY), prompt the user to paste
-  // the Cloud token and read it from the terminal with echo disabled, then treat
-  // it as a `--token <value>` login.
+  // When no explicit source supplied a token and Jolly runs in an interactive
+  // terminal (stdin is a TTY), sign in through the Saleor device authorization
+  // grant (feature 018): request a device code, show the user code + verification
+  // URL, and poll the token endpoint while the human authorizes in a browser.
   if (token === undefined && !args.dryRun && process.stdin.isTTY) {
-    token = await promptForToken();
+    return await deviceGrantLogin(command);
   }
 
   if (token === undefined) {
@@ -736,6 +737,28 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
         command: "jolly create store --create-environment",
       },
     ],
+  });
+}
+
+// Interactive sign-in through the Saleor device authorization grant. Request a
+// device code, display the user code + verification URL through Bombshell's
+// prompt UI, then poll the token endpoint while the human authorizes.
+async function deviceGrantLogin(command: string): Promise<Envelope> {
+  const auth = await requestDeviceCode();
+  clackNote(
+    `Open ${auth.verificationUri}\nand enter the code: ${auth.userCode}`,
+    "Sign in to Saleor Cloud",
+    CLACK_STDERR,
+  );
+  const tokens = await pollForDeviceTokens(auth);
+  writeEnvValues(projectDir(), {
+    JOLLY_SALEOR_REFRESH_TOKEN: tokens.refreshToken,
+  });
+  return envelope({
+    command,
+    status: "success",
+    summary: "Signed in through the Saleor device authorization grant.",
+    data: { cloudTokenStored: true, riskContext: loginRiskContext() },
   });
 }
 
