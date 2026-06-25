@@ -83,7 +83,7 @@ Feature: Jolly CLI output contract
 
   @logic
   Scenario: Agent branches on stable codes
-    Given the agent runs `jolly login --json` in a non-interactive shell with no token configured
+    Given the agent runs `jolly login --json` with an invalid JOLLY_SALEOR_CLOUD_TOKEN
     When the agent inspects the envelope
     Then each entry in `errors` should include a stable `code`, a `message`, and optional `remediation`
     And the documented `code` and check id strings should remain stable so the agent can branch on them programmatically

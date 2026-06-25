@@ -5,11 +5,14 @@ Feature: Jolly auth commands
 
   Rule: Interactive authentication is the Saleor device authorization grant
 
-    The only interactive Saleor sign-in is the OAuth 2.0 device authorization grant against the
-    `saleor-cloud` Keycloak realm (public client `jolly`, no client secret). It serves humans and
-    agents alike: a human authorizes at the terminal-shown URL; an agent relays the same user code
-    and URL to its human. A raw token is supplied ONLY non-interactively through the
-    `JOLLY_SALEOR_CLOUD_TOKEN` environment variable (`.env` or CI). There is no `--token`,
+    The Saleor sign-in is the OAuth 2.0 device authorization grant against the `saleor-cloud`
+    Keycloak realm (public client `jolly`, no client secret). It serves humans and agents alike, and
+    is the path whenever no token is already configured: a human authorizes at the terminal-shown
+    URL; an agent-driven (non-interactive) run relays the same user code and verification URL to its
+    human on stderr and waits for authorization. Jolly NEVER asks for, prompts for, or accepts a
+    pasted token, and never errors merely because no token is configured — a missing token starts the
+    grant, it does not block the run. A raw token is supplied ONLY as the `JOLLY_SALEOR_CLOUD_TOKEN`
+    environment variable (`.env` or CI), used silently when present; there is no `--token`,
     `--token-file`, or `--token-stdin` flag and no interactive token paste — a secret never reaches
     Jolly through `argv`, a file argument, or standard input.
 
@@ -23,13 +26,25 @@ Feature: Jolly auth commands
       And it should not print any token value
 
     @logic
-    Scenario: Non-interactive jolly login never starts the device grant
+    Scenario: Agent-driven jolly login starts the device grant and relays the code to its human
       Given a non-interactive shell with no JOLLY_SALEOR_CLOUD_TOKEN set
       When the agent runs `jolly login --json`
-      Then the envelope status should be "error" with a stable `code`
-      And it should direct the user to set JOLLY_SALEOR_CLOUD_TOKEN or run `jolly login` interactively to sign in
-      And it should not request a device code and should not block waiting for input
-      And it should not write any value to .env
+      Then Jolly should request a device code from `https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/auth/device` with `client_id=jolly`
+      And it should print the returned user code and the verification URL `https://auth.saleor.io/realms/saleor-cloud/device` to stderr so the agent can relay them to its human
+      And it should poll `https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/token` while waiting for the human to authorize
+      And stdout should carry no token value
+
+    @logic @property
+    Scenario Outline: Every auth-entry command starts the device grant when no token is configured
+      Given a non-interactive shell with no JOLLY_SALEOR_CLOUD_TOKEN set
+      When the agent runs `<command>`
+      Then Jolly should request a device code from `https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/auth/device` with `client_id=jolly`
+      And it should print the device user code and the `https://auth.saleor.io/realms/saleor-cloud/device` verification URL to stderr
+
+      Examples:
+        | command            |
+        | jolly login --json |
+        | jolly start --json |
 
   Rule: The Cloud platform API scheme is chosen by which stored token is used
 

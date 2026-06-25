@@ -20,11 +20,11 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     Then `nextSteps` should name both the register-new and connect-existing paths
 
   @logic
-  Scenario: jolly start guides the user to provide a Saleor Cloud token when none is configured
+  Scenario: jolly start starts the device grant when no token is configured
     Given a fresh project directory with no `JOLLY_SALEOR_CLOUD_TOKEN` configured
     When the agent runs `jolly start --json` in a non-interactive shell
-    Then the `auth` stage should report that a Saleor Cloud token is needed
-    And `nextSteps` should direct the user to run `jolly login` to sign in through the device authorization grant, or to set JOLLY_SALEOR_CLOUD_TOKEN for non-interactive use
+    Then Jolly should request a device code from `https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/auth/device` with `client_id=jolly`
+    And it should print the returned user code and the `https://auth.saleor.io/realms/saleor-cloud/device` verification URL to stderr so the agent can relay them to its human
     And it should not fabricate that authentication succeeded
 
   @sandbox
