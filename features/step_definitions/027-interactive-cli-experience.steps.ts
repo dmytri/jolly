@@ -770,17 +770,16 @@ When(
 );
 
 Then(
-  "the interactive output should show the device user code and the auth.saleor.io verification URL",
+  "the interactive output should show the device user code and the auth.saleor.io verification URL with that code appended as its `user_code` query parameter",
   function (this: JollyWorld) {
     const out = stripAnsi(this.lastRun!.stdout);
-    assert.match(
-      out,
-      DEVICE_USER_CODE_RE,
-      `interactive start must show the device user code; got:\n${out}`,
-    );
+    const code = out.match(DEVICE_USER_CODE_RE);
+    assert.ok(code, `interactive start must show the device user code; got:\n${out}`);
+    // The verification URL carries the user code as its `user_code` query
+    // parameter so opening it pre-fills the code (feature 018 device-grant Rule).
     assert.ok(
-      out.includes(DEVICE_VERIFICATION_URL),
-      `interactive start must show the verification URL ${DEVICE_VERIFICATION_URL}; got:\n${out}`,
+      out.includes(`${DEVICE_VERIFICATION_URL}?user_code=${code![0]}`),
+      `interactive start must show ${DEVICE_VERIFICATION_URL}?user_code=${code?.[0]}; got:\n${out}`,
     );
   },
 );

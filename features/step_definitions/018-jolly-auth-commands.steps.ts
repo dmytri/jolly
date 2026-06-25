@@ -249,13 +249,16 @@ Then(
 );
 
 Then(
-  "it should display the returned user code and the verification URL `https:\\/\\/auth.saleor.io\\/realms\\/saleor-cloud\\/device` through Bombshell's interactive prompt UI",
+  "it should display the returned user code and the verification URL `https:\\/\\/auth.saleor.io\\/realms\\/saleor-cloud\\/device?user_code=` followed by that user code through Bombshell's interactive prompt UI",
   function (this: JollyWorld) {
     const text = this.lastRun!.stdout;
-    assert.match(text, USER_CODE_RE, "the returned user code must be displayed");
+    const code = text.match(USER_CODE_RE);
+    assert.ok(code, "the returned user code must be displayed");
+    // The verification URL carries the returned user code as its `user_code`
+    // query parameter so opening it pre-fills the code (feature 018 Rule).
     assert.ok(
-      text.includes(AUTH_VERIFICATION_URL),
-      `the verification URL ${AUTH_VERIFICATION_URL} must be displayed; got: ${text}`,
+      text.includes(`${AUTH_VERIFICATION_URL}?user_code=${code![0]}`),
+      `the verification URL ${AUTH_VERIFICATION_URL}?user_code=${code?.[0]} must be displayed; got: ${text}`,
     );
     // Bombshell (@clack/prompts) renders box-drawing/symbol glyphs the plain
     // console never emits; their presence is the falsifiable signal the prompt
@@ -289,18 +292,20 @@ Then("it should not print any token value", function (this: JollyWorld) {
 // JOLLY_SALEOR_AUTH_URL, which approves on the first poll, so the run stores the
 // access + refresh tokens and emits a success envelope without a human.
 
+// Shared by the agent-driven `jolly login --json` (018) and `jolly start --json`
+// (002) relay scenarios — both relay the same complete URL + user code on stderr.
 Then(
-  "it should print the returned user code and the verification URL `https:\\/\\/auth.saleor.io\\/realms\\/saleor-cloud\\/device` to stderr so the agent can relay them to its human",
+  "it should print the returned user code and the verification URL `https:\\/\\/auth.saleor.io\\/realms\\/saleor-cloud\\/device?user_code=` followed by that user code to stderr so the agent can relay them to its human",
   function (this: JollyWorld) {
     const stderr = this.lastRun!.stderr;
-    assert.match(
-      stderr,
-      USER_CODE_RE,
-      `the returned user code must be relayed on stderr; got: ${stderr}`,
-    );
+    const code = stderr.match(USER_CODE_RE);
+    assert.ok(code, `the returned user code must be relayed on stderr; got: ${stderr}`);
+    // The relayed verification URL carries the returned user code as its
+    // `user_code` query parameter (feature 018 Rule) so the human opens it
+    // pre-filled.
     assert.ok(
-      stderr.includes(AUTH_VERIFICATION_URL),
-      `the verification URL ${AUTH_VERIFICATION_URL} must be relayed on stderr; got: ${stderr}`,
+      stderr.includes(`${AUTH_VERIFICATION_URL}?user_code=${code![0]}`),
+      `the verification URL ${AUTH_VERIFICATION_URL}?user_code=${code?.[0]} must be relayed on stderr; got: ${stderr}`,
     );
   },
 );

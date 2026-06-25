@@ -656,7 +656,7 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
 async function deviceGrantLogin(command: string): Promise<Envelope> {
   const auth = await requestDeviceCode();
   clackNote(
-    `Open ${auth.verificationUri}\nand enter the code: ${auth.userCode}`,
+    `Open ${auth.verificationUri}?user_code=${auth.userCode}\nand enter the code: ${auth.userCode}`,
     "Sign in to Saleor Cloud",
     CLACK_STDERR,
   );
@@ -691,7 +691,7 @@ const AGENT_POLL_WINDOW_SECONDS = 10;
 // the envelope. No token value is ever printed.
 function relayDeviceCode(auth: DeviceAuthorization): void {
   process.stderr.write(
-    `Sign in to Saleor Cloud: open ${auth.verificationUri} and enter the code ${auth.userCode}\n`,
+    `Sign in to Saleor Cloud: open ${auth.verificationUri}?user_code=${auth.userCode} and enter the code ${auth.userCode}\n`,
   );
 }
 
@@ -3430,7 +3430,7 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
     if (!existingAuth) {
       const auth = await requestDeviceCode();
       clackNote(
-        `Open ${auth.verificationUri}\nand enter the code: ${auth.userCode}`,
+        `Open ${auth.verificationUri}?user_code=${auth.userCode}\nand enter the code: ${auth.userCode}`,
         "Sign in to Saleor Cloud",
         CLACK_STDERR,
       );

@@ -1184,31 +1184,12 @@ Then(
 //
 // With no JOLLY_SALEOR_CLOUD_TOKEN, `jolly start --json` starts the Saleor
 // device authorization grant for its agent: it requests a real device code and
-// relays the user code + verification URL on STDERR so the agent can forward
-// them to its human, while still emitting the start envelope (the auth stage is
-// not fabricated as completed). Run for REAL against auth.saleor.io — the
-// device-code request is unauthenticated, so no credential is needed.
-
-const START_VERIFICATION_URL =
-  "https://auth.saleor.io/realms/saleor-cloud/device";
-// Keycloak's device user-code format: two groups of A–Z/0–9 (e.g. WDJB-MJHT).
-const START_USER_CODE_RE = /\b[A-Z0-9]{4,}-[A-Z0-9]{4,}\b/;
-
-Then(
-  "it should print the returned user code and the `https:\\/\\/auth.saleor.io\\/realms\\/saleor-cloud\\/device` verification URL to stderr so the agent can relay them to its human",
-  function (this: JollyWorld) {
-    const stderr = this.lastRun!.stderr;
-    assert.match(
-      stderr,
-      START_USER_CODE_RE,
-      `the returned user code must be relayed on stderr; got: ${stderr}`,
-    );
-    assert.ok(
-      stderr.includes(START_VERIFICATION_URL),
-      `the verification URL ${START_VERIFICATION_URL} must be relayed on stderr; got: ${stderr}`,
-    );
-  },
-);
+// relays the user code + complete verification URL on STDERR so the agent can
+// forward them to its human, while still emitting the start envelope (the auth
+// stage is not fabricated as completed). Run for REAL against auth.saleor.io —
+// the device-code request is unauthenticated, so no credential is needed. The
+// relay assertion ("…verification URL `…/device?user_code=` followed by that
+// user code to stderr…") is shared from the 018 step definitions.
 
 // --- Shared Given: Cloud token set, no store URL (scenarios 3 + 4) -----------
 //
