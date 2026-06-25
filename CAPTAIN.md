@@ -95,10 +95,26 @@ The approved 0.9.7 push/release is DEFERRED until this cycle lands. [[mvp-then-i
    token**: access token → `Bearer`, staff token → `Token` (separate-vars decision 2026-06-25, below;
    supersedes the earlier "by token shape" framing).
 3. **Host allowlist (020) adds `auth.saleor.io`** (currently excluded) for the grant + refresh.
-4. **Honest interactive copy** — drop the misleading "Gate:" prefix (the CLI is not waiting at the
-   final Stripe step) and purge "side-effecting" from human-facing strings (keep it as internal
-   machine-contract vocabulary). Proceed prompt → "Build your store now? This creates the store,
-   storefront, and deployment."
+4. **Honest interactive copy — IN PROGRESS (2026-06-25, dk).** This change was agreed earlier but
+   never built: the copy was hard-coded in `src/` and unspecified, so nothing failed when it never
+   shipped (the drift this fixes). Decision: move human-facing interactive copy OUT of `src/` into a
+   message catalog **asset** `assets/messages/cli.json` (plain JSON, keyed; a tiny `t(key)` loader
+   reads it at runtime — no gettext/i18n lib, dependency-averse, [[copy-less-is-more]]). Rewording
+   becomes a pure Captain asset edit, no code/test cycle. New 027 Rule "Interactive human-facing copy
+   is rendered from the message catalog asset" + two `@logic` binding scenarios pin that the rendered
+   notes/proceed/decline equal the catalog entries — positive and wording-agnostic, so QM never
+   authors copy and we avoid [[no-self-defeating-absence-assertions]]; copy *quality* stays a
+   human/asset concern, not a test concern. Corrected wording lives in the catalog: no "Gate:" prefix
+   (the Stripe paste is the trailing final step, not a wait — already 027:31-33), no "side-effecting"
+   in human strings (kept as internal machine/spec vocabulary). Proceed → "Build your store now? This
+   creates the store, storefront, and deployment." `assets/messages/` added to package.json `files` so
+   it bundles in the published package. **Scope this cycle = interactive `jolly start` strings only**
+   (`start.vercelSignin`, `start.stripeFinal`, `start.proceed`, `start.declined`); cycle.json selects
+   the two scenarios. **PHASE 2 (later, no re-explaining needed): sweep ALL remaining human-facing CLI
+   copy into the catalog** — identical pattern (add keys, render via `t(key)`); the catalog-binding
+   Rule already generalizes, so each surface needs only a binding assertion, or fold into a `@property`
+   invariant in the 026 "no forbidden double" family once broad. Published-copy edits still need a
+   republish (catalog ships in the tarball); in-repo, copy is decoupled from code and tests.
 5. **Front-load every human gate.** Gather ALL human interaction upfront — Saleor sign-in, Vercel
    sign-in, org/env/dir choices, proceed confirm — then the mechanical chain runs **unattended**, so
    the human need not watch. The ONE irreducible trailing step stays the Stripe keys + `us`-channel

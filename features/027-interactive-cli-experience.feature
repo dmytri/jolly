@@ -138,6 +138,30 @@ Feature: Human-facing interactive CLI experience
     When the agent runs `jolly complete -- lo`
     Then stdout should list the candidate completions `login` and `logout`
 
+  Rule: Interactive human-facing copy is rendered from the message catalog asset
+    - The human-facing strings interactive `jolly start` prints — the up-front Vercel sign-in
+      note, the trailing Stripe-step note, the proceed confirmation, and the decline message —
+      are rendered from the bundled message catalog `assets/messages/cli.json` by message key,
+      not hard-coded in `src/`. The wording is product content owned in the asset, so rewording
+      is an asset edit rather than a code change. The catalog ships inside the published
+      `@dk/jolly` package alongside `assets/skills/`, so `npx @dk/jolly` renders it self-contained.
+
+  @logic
+  Scenario: Interactive start renders its up-front gate notes from the message catalog
+    Given a fresh empty project directory
+    And `jolly start --dry-run` runs in an interactive terminal
+    When the user presses Enter at every prompt
+    Then the up-front Vercel sign-in note should be the catalog's "start.vercelSignin" message
+    And the trailing Stripe-step note should be the catalog's "start.stripeFinal" message
+
+  @logic
+  Scenario: Interactive start renders the proceed confirmation and decline from the message catalog
+    Given a fresh project directory with no real service credentials
+    And `jolly start` runs in an interactive terminal
+    When the user declines the proceed confirmation
+    Then the proceed confirmation should be the catalog's "start.proceed" message
+    And the decline message should be the catalog's "start.declined" message
+
   Rule: Typed arguments and shell completion
     - Argument parsing for every `jolly` invocation — agent and human alike — runs through a
       single Bombshell (`@bomb.sh/args`) typed parser; Jolly keeps no second, hand-rolled

@@ -9,6 +9,7 @@
   "files": [
     "bin/",
     "dist/",
+    "assets/messages/",
     "assets/skills/",
     "README.md"
   ],

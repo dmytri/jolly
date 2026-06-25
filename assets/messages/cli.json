@@ -1,0 +1,6 @@
+{
+  "start.vercelSignin": "Jolly runs the Vercel sign-in (`vercel login`) with you up front, before the unattended stages.",
+  "start.stripeFinal": "Last step is yours, once Jolly's done: paste the Stripe keys in the Saleor Dashboard.",
+  "start.proceed": "Build your store now? This creates the store, storefront, and deployment.",
+  "start.declined": "Stopped before building anything. Nothing was created."
+}
