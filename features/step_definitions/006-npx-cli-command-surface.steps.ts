@@ -23,6 +23,7 @@ import { existsSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { findEnvelope } from "../support/envelope.ts";
 import { absentCredentialsEnv } from "../support/creds-env.ts";
+import { ptyAvailable, runUnderPty } from "../support/pty.ts";
 import { REPO_ROOT } from "../support/world.ts";
 import type { JollyWorld } from "../support/world.ts";
 
@@ -56,6 +57,66 @@ function findGenuineNode(): string | null {
     }
   }
   return null;
+}
+
+// Pack the package exactly as `npm publish` would (runs prepack/prepare, so the
+// build step ships its output), install the tarball into a throwaway prefix so
+// its files live UNDER `node_modules` — the real npx path that disables Node
+// type stripping — and return the installed `jolly` bin. This is the
+// "as actually installed" guarantee: the bin, its `dist` build, and its shipped
+// assets are exactly what `npx @dk/jolly` downloads and runs, not the source
+// tree. `--offline --ignore-scripts`: the package has no runtime deps, so the
+// install never touches the network.
+function packAndInstallJolly(world: JollyWorld): {
+  installedBin: string;
+  fullEnv: Record<string, string>;
+} {
+  // The full (inherited) env for the build/install steps: npm and node must be
+  // resolvable, and so must Bun if the package's build step needs it.
+  const fullEnv: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v !== undefined) fullEnv[k] = v;
+  }
+
+  const packDir = world.newTempDir("pack");
+  const pack = spawnSync("npm", ["pack", "--pack-destination", packDir], {
+    cwd: REPO_ROOT,
+    env: fullEnv,
+    encoding: "utf8",
+    timeout: 180_000,
+  });
+  assert.equal(pack.status, 0, `npm pack must succeed; stderr:\n${pack.stderr}`);
+  const tarball = readdirSync(packDir).find((f) => f.endsWith(".tgz"));
+  assert.ok(tarball, "npm pack must produce a .tgz tarball");
+
+  const installRoot = world.newTempDir("install");
+  const install = spawnSync(
+    "npm",
+    [
+      "install",
+      join(packDir, tarball!),
+      "--prefix",
+      installRoot,
+      "--no-save",
+      "--no-package-lock",
+      "--no-audit",
+      "--no-fund",
+      "--offline",
+      "--ignore-scripts",
+    ],
+    { cwd: installRoot, env: fullEnv, encoding: "utf8", timeout: 180_000 },
+  );
+  assert.equal(
+    install.status,
+    0,
+    `npm install of the packed tarball must succeed; stderr:\n${install.stderr}`,
+  );
+  const installedBin = join(installRoot, "node_modules", ".bin", "jolly");
+  assert.ok(
+    existsSync(installedBin),
+    "the installed package must expose a `jolly` bin",
+  );
+  return { installedBin, fullEnv };
 }
 
 // --- Scenario: Npx execution does not require Bun --------------------------
@@ -101,67 +162,16 @@ When(
   function (this: JollyWorld) {
     const binDir = String(this.notes.nodeOnlyPath);
 
-    // The full (inherited) env for the build/install steps: npm and node must
-    // be resolvable, and so must Bun if the package's build step (prepack)
-    // needs it. Only the FINAL installed-bin run uses the node-only PATH.
-    const fullEnv: Record<string, string> = {};
-    for (const [k, v] of Object.entries(process.env)) {
-      if (v !== undefined) fullEnv[k] = v;
-    }
+    // Pack + install the package as published; only the FINAL installed-bin run
+    // below uses the node-only PATH.
+    const { installedBin } = packAndInstallJolly(this);
 
-    // 1. Pack the package exactly as `npm publish` would (runs prepack/prepare,
-    //    so once a build step exists it runs here and ships its output). The
-    //    tarball is whatever `files` declares — this is what `npx @dk/jolly`
-    //    actually downloads and runs.
-    const packDir = this.newTempDir("pack");
-    const pack = spawnSync("npm", ["pack", "--pack-destination", packDir], {
-      cwd: REPO_ROOT,
-      env: fullEnv,
-      encoding: "utf8",
-      timeout: 180_000,
-    });
-    assert.equal(pack.status, 0, `npm pack must succeed; stderr:\n${pack.stderr}`);
-    const tarball = readdirSync(packDir).find((f) => f.endsWith(".tgz"));
-    assert.ok(tarball, "npm pack must produce a .tgz tarball");
-
-    // 2. Install the tarball into a throwaway prefix — its files now live UNDER
-    //    `node_modules`, the real npx path that disables Node type stripping.
-    //    `--offline --ignore-scripts`: the package has no runtime deps, so the
-    //    install never touches the network.
-    const installRoot = this.newTempDir("install");
-    const install = spawnSync(
-      "npm",
-      [
-        "install",
-        join(packDir, tarball!),
-        "--prefix",
-        installRoot,
-        "--no-save",
-        "--no-package-lock",
-        "--no-audit",
-        "--no-fund",
-        "--offline",
-        "--ignore-scripts",
-      ],
-      { cwd: installRoot, env: fullEnv, encoding: "utf8", timeout: 180_000 },
-    );
-    assert.equal(
-      install.status,
-      0,
-      `npm install of the packed tarball must succeed; stderr:\n${install.stderr}`,
-    );
-    const installedBin = join(installRoot, "node_modules", ".bin", "jolly");
-    assert.ok(
-      existsSync(installedBin),
-      "the installed package must expose a `jolly` bin",
-    );
-
-    // 3. Run the INSTALLED bin on the node-only PATH (Bun unresolvable, asserted
-    //    in the Given) via its own `#!/usr/bin/env node` shebang. Env built from
-    //    scratch with the runtime credentials genuinely unset (real absence), so
-    //    a side-effecting path cannot reach a real account.
-    //    Keep the directory holding `env` on PATH so the shebang resolves,
-    //    without adding any Bun-bearing dir.
+    // Run the INSTALLED bin on the node-only PATH (Bun unresolvable, asserted
+    // in the Given) via its own `#!/usr/bin/env node` shebang. Env built from
+    // scratch with the runtime credentials genuinely unset (real absence), so a
+    // side-effecting path cannot reach a real account. Keep the directory
+    // holding `env` on PATH so the shebang resolves, without adding any
+    // Bun-bearing dir.
     const envBin = spawnSync("sh", ["-c", "command -v env"], { encoding: "utf8" });
     const envDir = dirname((envBin.stdout ?? "/usr/bin/env").trim() || "/usr/bin/env");
     const safe = absentCredentialsEnv();
@@ -201,6 +211,58 @@ Then(
     assert.equal(envelope!.command, "start");
     assert.equal(typeof envelope!.summary, "string");
     assert.ok(Array.isArray(envelope!.nextSteps));
+  },
+);
+
+// --- Scenario: published package renders interactive copy from its catalog --
+// The "as actually installed" guard on the INTERACTIVE path. The human-facing
+// message catalog (`assets/messages/cli.json`) is read at runtime from the
+// installed package, never bundled into `dist/index.js` (feature 006 Rule), so
+// running the source tree would hide a packaging gap. Pack + install the
+// package, then run the installed `jolly start --dry-run` bin under a real PTY
+// (a genuine interactive terminal) pressing Enter at every prompt. The Then
+// asserts the trailing Stripe-step note the human sees IS the catalog's
+// `start.stripeFinal` message — proving the installed CLI resolved the catalog
+// from its own package. Credentials genuinely unset so the dry-run walk-through
+// reaches no real account; skip when no PTY is available.
+
+When(
+  "the installed `jolly start --dry-run` runs through the published launcher in an interactive terminal, accepting every default",
+  { timeout: 240_000 },
+  function (this: JollyWorld) {
+    if (!ptyAvailable()) return "skipped";
+    const { installedBin } = packAndInstallJolly(this);
+
+    // Build the child env from scratch with the runtime credentials genuinely
+    // unset (real absence); keep TERM so the prompt renderer draws its UI.
+    const env: Record<string, string> = {};
+    for (const [k, v] of Object.entries({ ...process.env, ...absentCredentialsEnv() })) {
+      if (v !== undefined) env[k] = v;
+    }
+    if (!env.TERM) env.TERM = "xterm-256color";
+
+    // Run the installed bin itself (its `#!/usr/bin/env node` shebang) — the
+    // published launcher — under the PTY. Press Enter at every prompt: a
+    // generous run of carriage returns; extra Enters past child exit drop
+    // harmlessly.
+    const run = runUnderPty({
+      runtime: installedBin,
+      argv: ["start", "--dry-run"],
+      cwd: this.projectDir,
+      env,
+      inputs: ["\r", "\r", "\r", "\r", "\r", "\r"],
+      inputDelayMs: 600,
+      timeoutMs: 150_000,
+    });
+    this.previousRun = this.lastRun;
+    this.lastRun = {
+      args: ["start", "--dry-run"],
+      cwd: this.projectDir,
+      exitCode: run.exitCode,
+      stdout: run.output,
+      stderr: "",
+      envelope: findEnvelope(run.output),
+    };
   },
 );
 
