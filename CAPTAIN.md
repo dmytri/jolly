@@ -157,22 +157,29 @@ future iteration, not this cycle's Crew work — [[mvp-then-iterate]], [[spec-cl
    `--token-stdin`/paste); flags dropped; every `jolly login --token <value>` guidance string →
    `jolly login`; the 3 rewritten env-var scenarios (018 login --dry-run / .env-private / .env-POSIX)
    implemented; 40 orphaned step defs + dead helpers pruned. Logic tier 149 passed / 0 failed.
-3. **Interactive-start paste→device-grant — NOT a quick change; it IS the device-grant-Bearer
-   end-to-end cycle.** Switching `runInteractiveStart`'s no-token auth from the paste to the inline
-   device grant CANNOT be done in isolation: the device grant yields a Keycloak JWT access token, but
-   `cloudFetch` (src/lib/cloud-api.ts) hardcodes `Authorization: Token` and every downstream start
-   stage requires the `JOLLY_SALEOR_CLOUD_TOKEN` staff token — so a device-grant start would break
-   end-to-end (the working staff-token paste path is replaced by stages that error on the missing
-   staff token / reject the JWT sent as `Token`), and it would break the `@logic` start tests that
-   authenticate via the paste seam (027 decline/progress; there is no local device-grant seam — the
-   grant cannot complete unattended). Doing it correctly requires: (a) `cloudFetch` choosing the scheme
-   by which variable holds the token (staff→`Token`, device-grant JWT→`Bearer`); (b) the refresh grant
-   when the access token expires — exactly what `018:78` "An expired access token is refreshed…" and
-   `014:145` "Doctor validates stored device-grant credentials with Bearer" already spec and CI-test
-   (`@sandbox @exceptional-double`, production-unimplemented, skip locally); (c) switching start auth to
-   the device grant; (d) reworking the `@logic` start-auth seam to seed a staff token rather than paste.
-   This is its own cycle. Until then `start` keeps the working staff-token paste; the drift is recorded,
-   not papered over. [[mvp-then-iterate]], [[skip-mask-sandbox-unverified]]
+3. **Device-grant Bearer end-to-end + interactive-start device-grant sign-in — DONE** (dk: "do all
+   three / finish the work"). The full cycle landed: (a) `cloudFetch` (src/lib/cloud-api.ts) now chooses
+   the platform-API scheme by which variable holds the token — a value equal to
+   `JOLLY_SALEOR_ACCESS_TOKEN` authenticates as `Bearer`, the staff token as `Token`
+   (`platformAuthScheme`); (b) `refreshAccessToken` + `isJwtExpired` (device-grant.ts) mint a fresh
+   access token through the refresh grant, and the doctor-saleor path (`resolvePlatformToken`) prefers
+   the access token and refreshes-on-expiry, persisting the fresh token — the production behind
+   `018:78` + `014:145` (`@sandbox @exceptional-double`, CI-verified when `JOLLY_SALEOR_REFRESH_TOKEN`
+   is seeded; skip locally); (c) `runInteractiveStart`'s no-token auth now runs the device grant inline
+   (shows the user code + verification URL, never a pasted secret), verified by the new `@logic` 027
+   scenario "Interactive start signs in with the device grant inline, never a pasted token" (front-half,
+   PTY, real `auth.saleor.io` device-code request, polls to the deadline); `promptForToken`/paste
+   removed; (d) the non-doctor platform/cloud-token call sites (create-store, provision, app-token,
+   stripe install, org-resolution, start's auth-stage `needsToken`) resolve through `cloudPlatformToken`
+   (prefer access → Bearer, else staff → Token) — non-regressive for staff-token flows by construction
+   (no access token present → staff resolved unchanged), so all `@sandbox`/staff scenarios are
+   unaffected; (e) the `@logic` start seam (020 `runStartSeparated`, 027 decline) seeds a stand-in staff
+   token in the environment instead of pasting, so start skips the grant and reaches the gates.
+   **Verified-in-real-use only (no `@logic`/`@sandbox` coverage exists — the e2e device-grant grant
+   cannot complete unattended):** that a device-grant access token is accepted by the *store* GraphQL
+   stages (`appInstall`/app-token) — feature 005 documents those as staff-token operations; the
+   device-grant JWT is sent there as `Bearer` exactly as the staff token is, the consistent choice, but
+   the store's acceptance of it is exercised only by a real authorized run. [[mvp-then-iterate]]
 
 ### Shipped design being superseded by the above
 

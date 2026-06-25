@@ -399,7 +399,14 @@ function runStartSeparated(world: JollyWorld): boolean {
   if (!ptyAvailable()) return false;
   const argv = (world.notes.startArgv as string[]) ?? ["start"];
   const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries({ ...process.env, ...absentCredentialsEnv() })) {
+  // A real-format stand-in staff token in the environment satisfies start's auth
+  // gate (interactive start signs in through the device grant only when NO auth
+  // is configured, feature 018/027), so the run reaches the gates and stages
+  // without a real sign-in; it resolves no organizations, which start handles.
+  for (const [k, v] of Object.entries({
+    ...process.env,
+    ...absentCredentialsEnv({ JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN }),
+  })) {
     if (v !== undefined) env[k] = v;
   }
   if (!env.TERM) env.TERM = "xterm-256color";
@@ -408,11 +415,9 @@ function runStartSeparated(world: JollyWorld): boolean {
     argv: [CLI_ENTRY, ...argv],
     cwd: world.projectDir,
     env,
-    // No Cloud token configured, so interactive start prompts for it inline
-    // first (feature 027): paste a real-format stand-in token, then Enter
-    // advances each pre-filled prompt (environment name, project dir) and
+    // Enter advances each pre-filled prompt (environment name, project dir) and
     // confirms the proceed gate, so the side-effecting stages are reached.
-    inputs: [`${STAND_IN_TOKEN}\r`, "\r", "\r", "\r", "\r"],
+    inputs: ["\r", "\r", "\r", "\r", "\r"],
     inputDelayMs: 600,
     timeoutMs: 150_000,
     separateStreams: true,

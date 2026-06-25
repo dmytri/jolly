@@ -193,3 +193,11 @@ Feature: Human-facing interactive CLI experience
       discovery; Jolly still owns the Vercel sign-in there rather than handing the agent a
       `vercel login` next step (feature 002), and reports every other stage it cannot complete as
       honest checks and next steps for the agent to act on (feature 020).
+
+  @logic
+  Scenario: Interactive start signs in with the device grant inline, never a pasted token
+    Given a fresh project directory with no real service credentials
+    And `jolly start` runs in an interactive terminal
+    When the user starts interactive setup with no Cloud token configured
+    Then the interactive output should show the device user code and the auth.saleor.io verification URL
+    And the interactive output should not prompt the user to paste a token

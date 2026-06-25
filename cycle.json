@@ -1,28 +1,13 @@
 {
   "pass1": {
     "scenarios": [
-      "018-jolly-auth-commands.feature:Interactive jolly login starts the Saleor device authorization grant",
-      "018-jolly-auth-commands.feature:Non-interactive jolly login never starts the device grant",
-      "018-jolly-auth-commands.feature:jolly login verifies and stores the env/.env staff token as Token",
-      "018-jolly-auth-commands.feature:jolly login rejects an invalid env/.env staff token",
-      "018-jolly-auth-commands.feature:jolly login with an empty env/.env token fails honestly",
       "018-jolly-auth-commands.feature:An expired access token is refreshed from the stored refresh token",
-      "018-jolly-auth-commands.feature:Jolly logout removes every Jolly-managed auth value from .env",
-      "020-cli-output-contract.feature:Jolly's request code contacts only first-party hosts"
+      "014-jolly-doctor-diagnostics.feature:Doctor validates stored device-grant credentials with Bearer"
     ]
   },
   "pass2": {
     "scenarios": [
-      "002-v1-end-to-end-saleor-cloud-storefront.feature:jolly start guides the user to provide a Saleor Cloud token when none is configured",
-      "027-interactive-cli-experience.feature:Interactive start tells the human which steps are theirs",
-      "027-interactive-cli-experience.feature:Declining the proceed confirmation stops honestly",
-      "027-interactive-cli-experience.feature:Setup-stage progress updates in place, showing each stage's status"
-    ]
-  },
-  "pass3": {
-    "scenarios": [
-      "014-jolly-doctor-diagnostics.feature:Doctor validates the Saleor Cloud token, not just its presence",
-      "014-jolly-doctor-diagnostics.feature:Doctor validates stored device-grant credentials with Bearer"
+      "027-interactive-cli-experience.feature:Interactive start signs in with the device grant inline, never a pasted token"
     ]
   }
 }

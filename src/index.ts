@@ -52,14 +52,18 @@ import {
 } from "./lib/cloud-api.ts";
 import { loadEnvValues, writeEnvValues } from "./lib/env-file.ts";
 import { normalizeSaleorUrl } from "./lib/saleor-url.ts";
-import { requestDeviceCode, pollForDeviceTokens } from "./lib/device-grant.ts";
+import {
+  requestDeviceCode,
+  pollForDeviceTokens,
+  refreshAccessToken,
+  isJwtExpired,
+} from "./lib/device-grant.ts";
 import { parse as parseBombArgs } from "@bomb.sh/args";
 import { runCompletion } from "./lib/completion.ts";
 import {
   intro as clackIntro,
   outro as clackOutro,
   text as clackText,
-  password as clackPassword,
   confirm as clackConfirm,
   select as clackSelect,
   note as clackNote,
@@ -468,21 +472,6 @@ function loginRiskContext(dryRunAvailable = true): RiskContext {
   };
 }
 
-// Prompt the interactive user to paste their Cloud token, served by Bombshell's
-// masked-secret entry (@clack/prompts password) — the single terminal-prompt
-// mechanism (feature 027). The mask keeps the secret off the terminal. The
-// lowest-precedence token source, used only when no explicit source supplied one
-// and stdin is a TTY.
-async function promptForToken(
-  clackOpts: { output?: NodeJS.WriteStream } = {},
-): Promise<string> {
-  const value = await clackPassword({
-    message: "Paste your Saleor Cloud token",
-    ...clackOpts,
-  });
-  if (clackIsCancel(value)) process.exit(130); // Ctrl-C
-  return String(value).trim();
-}
 
 async function commandLogin(args: ParsedArgs): Promise<Envelope> {
   const command = "login";
@@ -697,7 +686,12 @@ async function deviceGrantLogin(command: string): Promise<Envelope> {
     CLACK_STDERR,
   );
   const tokens = await pollForDeviceTokens(auth);
+  // The device grant writes only the access + refresh variables and never
+  // overwrites JOLLY_SALEOR_CLOUD_TOKEN (feature 018 scheme rule). The access
+  // token authenticates the platform API as Bearer; the refresh token mints a
+  // fresh one when it expires.
   writeEnvValues(projectDir(), {
+    JOLLY_SALEOR_ACCESS_TOKEN: tokens.accessToken,
     JOLLY_SALEOR_REFRESH_TOKEN: tokens.refreshToken,
   });
   return envelope({
@@ -973,9 +967,7 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
   // `.env`-first: a real agent writes the Cloud token to the project `.env`
   // (via `jolly login`/`jolly create store`) and does not export it (feature
   // 008 Rule "Credentials are read from .env").
-  const token =
-    loadEnvValues(projectDir())["JOLLY_SALEOR_CLOUD_TOKEN"] ??
-    process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
+  const token = cloudPlatformToken(loadEnvValues(projectDir()));
   const region = args.options["region"] ?? "us-east-1";
   const orgOverride = args.options["organization"];
   const name = args.options["name"];
@@ -1354,8 +1346,7 @@ async function commandCreateAppToken(args: ParsedArgs): Promise<Envelope> {
   // `.env`-first (feature 008 Rule "Credentials are read from .env"): the Cloud
   // token is read from the project `.env` FILE the agent left it in, with a
   // fallback to the process environment.
-  const token =
-    values["JOLLY_SALEOR_CLOUD_TOKEN"] ?? process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
+  const token = cloudPlatformToken(values);
   // Report where the Cloud token was read from: the project `.env` FILE is the
   // real-agent path (feature 008 Rule "Credentials are read from .env"); the
   // process environment is only a fallback.
@@ -1721,6 +1712,66 @@ function agentsMdHasJollyMarker(): boolean {
   return readFileSync(path, "utf8").includes("<!-- jolly:begin -->");
 }
 
+/**
+ * The Cloud platform token for a non-doctor stage, preferring a stored
+ * device-grant access token (sent as Bearer) over the staff token (sent as
+ * Token), per the feature 018 scheme rule. Synchronous — it does not refresh; the
+ * refresh-on-expiry path is the doctor's {@link resolvePlatformToken}. A staff-only
+ * environment (no access token) resolves the staff token unchanged.
+ */
+function cloudPlatformToken(values: Record<string, string>): string | undefined {
+  const access = (
+    values["JOLLY_SALEOR_ACCESS_TOKEN"] ??
+    process.env["JOLLY_SALEOR_ACCESS_TOKEN"] ??
+    ""
+  ).trim();
+  if (access !== "") return access;
+  const staff = (
+    values["JOLLY_SALEOR_CLOUD_TOKEN"] ??
+    process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ??
+    ""
+  ).trim();
+  return staff !== "" ? staff : undefined;
+}
+
+/**
+ * Resolve the Cloud platform token, preferring a stored device-grant access
+ * token (Bearer) over the staff token (Token), per the feature 018 scheme rule.
+ * When the access token (a Keycloak JWT) has expired and a refresh token is
+ * stored, mints a fresh access token through the refresh grant and persists it
+ * to `.env` + `process.env` (so the scheme picker and the read below see it),
+ * rather than re-prompting. A refresh failure falls through with the stale token,
+ * which the read then reports as rejected.
+ */
+async function resolvePlatformToken(
+  values: Record<string, string>,
+): Promise<{ token: string; source: "access" | "staff" | "none" }> {
+  const read = (key: string): string =>
+    String(values[key] ?? process.env[key] ?? "").trim();
+  let access = read("JOLLY_SALEOR_ACCESS_TOKEN");
+  const refresh = read("JOLLY_SALEOR_REFRESH_TOKEN");
+  if (access !== "") {
+    if (isJwtExpired(access) && refresh !== "") {
+      try {
+        const fresh = await refreshAccessToken(refresh);
+        writeEnvValues(projectDir(), {
+          JOLLY_SALEOR_ACCESS_TOKEN: fresh.accessToken,
+          JOLLY_SALEOR_REFRESH_TOKEN: fresh.refreshToken,
+        });
+        process.env["JOLLY_SALEOR_ACCESS_TOKEN"] = fresh.accessToken;
+        process.env["JOLLY_SALEOR_REFRESH_TOKEN"] = fresh.refreshToken;
+        access = fresh.accessToken;
+      } catch {
+        // Leave the stale token; the platform read reports it rejected.
+      }
+    }
+    return { token: access, source: "access" };
+  }
+  const staff = read("JOLLY_SALEOR_CLOUD_TOKEN");
+  if (staff !== "") return { token: staff, source: "staff" };
+  return { token: "", source: "none" };
+}
+
 async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
   const group = args.positionals[1];
   const values = loadEnvValues(projectDir());
@@ -1784,9 +1835,14 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
   }
 
   if (wants("saleor")) {
-    const cloudToken = String(
-      values["JOLLY_SALEOR_CLOUD_TOKEN"] ?? process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? "",
-    ).trim();
+    // Resolve the Cloud platform token, preferring a stored device-grant access
+    // token (sent as Bearer) over the staff token (sent as Token), per the
+    // feature 018 scheme rule. A short-lived access token that has expired during
+    // a long run is refreshed from the stored refresh token and persisted, rather
+    // than re-prompting (feature 018 "A long run refreshes the short-lived access
+    // token"); the fresh token then authenticates the read below.
+    const platform = await resolvePlatformToken(values);
+    const cloudToken = platform.token;
     const hasEndpoint = Boolean(
       values["NEXT_PUBLIC_SALEOR_API_URL"] ?? process.env["NEXT_PUBLIC_SALEOR_API_URL"],
     );
@@ -1807,10 +1863,11 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
         description: "No Saleor Cloud token configured.",
         command: "jolly login",
       });
-    } else if (!cloudToken.includes(".")) {
-      // A separator-free value is the per-store app-token shape, not a Cloud
-      // staff token (minted with a dot separator at the tokens page). Flag the
-      // likely mix-up before the network probe.
+    } else if (platform.source === "staff" && !cloudToken.includes(".")) {
+      // A separator-free staff token is the per-store app-token shape, not a
+      // Cloud staff token (minted with a dot separator at the tokens page). Flag
+      // the likely mix-up before the network probe. (A device-grant access JWT
+      // always carries dots, so this heuristic applies only to the staff token.)
       checks.push({
         id: "saleor-cloud-token",
         status: "warning",
@@ -2446,8 +2503,7 @@ async function runStoreStage(checks: Check[]): Promise<StageOutcome> {
     return { status: "completed" };
   }
 
-  const token =
-    values["JOLLY_SALEOR_CLOUD_TOKEN"] ?? process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? "";
+  const token = cloudPlatformToken(values) ?? "";
   if (!token) {
     checks.push({
       id: "store-provisioned",
@@ -2831,8 +2887,7 @@ async function runStripeStage(checks: Check[]): Promise<StageStatus> {
   const values = loadEnvValues(projectDir());
   const endpoint =
     process.env["NEXT_PUBLIC_SALEOR_API_URL"] ?? values["NEXT_PUBLIC_SALEOR_API_URL"] ?? "";
-  const cloudToken =
-    process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? values["JOLLY_SALEOR_CLOUD_TOKEN"] ?? "";
+  const cloudToken = cloudPlatformToken(values) ?? "";
 
   if (!endpoint || !cloudToken) {
     checks.push({
@@ -3288,9 +3343,7 @@ async function resolveInteractiveOrgs(
     const slugs = mock.length > 0 ? mock.split(",") : ["org-one", "org-two"];
     return slugs.map((slug) => ({ slug: slug.trim() }));
   }
-  const token =
-    loadEnvValues(projectDir())["JOLLY_SALEOR_CLOUD_TOKEN"] ??
-    process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
+  const token = cloudPlatformToken(loadEnvValues(projectDir()));
   if (!token) return [];
   try {
     return await listOrganizations(token);
@@ -3308,21 +3361,35 @@ async function resolveInteractiveOrgs(
 async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
   clackIntro("jolly start — guided setup", CLACK_STDERR);
 
-  // No Cloud token configured (feature 027 Rule "runs end-to-end in one
-  // session"): prompt the human to paste it inline with the same Bombshell
-  // masked entry as `jolly login`, persist it, and continue with it — never
-  // report a blocked authentication stage and exit. Skipped under --dry-run
-  // (preview only; nothing is gathered or written).
+  // No Saleor Cloud authentication configured (feature 027 Rule "runs
+  // end-to-end in one session" + feature 018): sign in inline through the Saleor
+  // device authorization grant — the same grant as `jolly login`, never a pasted
+  // secret — showing the user code + verification URL and continuing with the
+  // acquired credentials, rather than reporting a blocked authentication stage
+  // and exiting. Skipped under --dry-run (preview only; nothing is gathered or
+  // written). A configured staff token or a stored device-grant access token
+  // already satisfies auth, so the grant is skipped.
   if (!args.dryRun) {
-    const existingToken =
-      loadEnvValues(projectDir())["JOLLY_SALEOR_CLOUD_TOKEN"] ??
-      process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
-    if (!existingToken) {
-      // On stderr, consistent with every other interactive prompt, so the
-      // result stream (stdout) stays clean (feature 020 progress/output contract).
-      const pasted = await promptForToken(CLACK_STDERR);
-      writeEnvValues(projectDir(), { JOLLY_SALEOR_CLOUD_TOKEN: pasted });
-      process.env["JOLLY_SALEOR_CLOUD_TOKEN"] = pasted;
+    const env = loadEnvValues(projectDir());
+    const existingAuth =
+      env["JOLLY_SALEOR_CLOUD_TOKEN"] ??
+      process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ??
+      env["JOLLY_SALEOR_ACCESS_TOKEN"] ??
+      process.env["JOLLY_SALEOR_ACCESS_TOKEN"];
+    if (!existingAuth) {
+      const auth = await requestDeviceCode();
+      clackNote(
+        `Open ${auth.verificationUri}\nand enter the code: ${auth.userCode}`,
+        "Sign in to Saleor Cloud",
+        CLACK_STDERR,
+      );
+      const tokens = await pollForDeviceTokens(auth);
+      writeEnvValues(projectDir(), {
+        JOLLY_SALEOR_ACCESS_TOKEN: tokens.accessToken,
+        JOLLY_SALEOR_REFRESH_TOKEN: tokens.refreshToken,
+      });
+      process.env["JOLLY_SALEOR_ACCESS_TOKEN"] = tokens.accessToken;
+      process.env["JOLLY_SALEOR_REFRESH_TOKEN"] = tokens.refreshToken;
     }
   }
 
@@ -3488,9 +3555,7 @@ async function runStartCore(args: ParsedArgs): Promise<Envelope> {
   // token, the auth stage cannot silently complete — it reports the token is
   // needed (a gate it cannot self-clear), token-only with no browser flow.
   const startEnvValues = loadEnvValues(projectDir());
-  const hasCloudToken = Boolean(
-    startEnvValues["JOLLY_SALEOR_CLOUD_TOKEN"] ?? process.env["JOLLY_SALEOR_CLOUD_TOKEN"],
-  );
+  const hasCloudToken = Boolean(cloudPlatformToken(startEnvValues));
   const needsToken = !hasCloudToken;
 
   // A store endpoint already configured (a prior `jolly create store` or earlier

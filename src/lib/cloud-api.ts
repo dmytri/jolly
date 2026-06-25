@@ -86,6 +86,23 @@ export class CloudApiError extends Error {
   }
 }
 
+/**
+ * The platform-API auth scheme for a token, chosen by which stored variable
+ * holds it (feature 018 Rule "The Cloud platform API scheme is chosen by which
+ * stored token is used"): a device-grant access token (a Keycloak JWT in
+ * `JOLLY_SALEOR_ACCESS_TOKEN`) is sent as `Authorization: Bearer`; a staff token
+ * (`JOLLY_SALEOR_CLOUD_TOKEN`) as `Authorization: Token`. The access token, when
+ * stored, takes precedence — so a value equal to `JOLLY_SALEOR_ACCESS_TOKEN`
+ * authenticates as `Bearer`, everything else as `Token`.
+ */
+export function platformAuthScheme(token: string): "Bearer" | "Token" {
+  const access = process.env["JOLLY_SALEOR_ACCESS_TOKEN"];
+  if (access !== undefined && access.trim() !== "" && token === access.trim()) {
+    return "Bearer";
+  }
+  return "Token";
+}
+
 async function cloudFetch(
   url: string,
   token: string,
@@ -94,7 +111,7 @@ async function cloudFetch(
   return await fetch(url, {
     ...options,
     headers: {
-      Authorization: `Token ${token}`,
+      Authorization: `${platformAuthScheme(token)} ${token}`,
       "Content-Type": "application/json",
       ...((options.headers as Record<string, string>) ?? {}),
     },

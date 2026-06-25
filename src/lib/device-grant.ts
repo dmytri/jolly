@@ -89,6 +89,68 @@ export interface DeviceTokens {
   refreshToken: string;
 }
 
+const REFRESH_GRANT_TYPE = "refresh_token";
+
+/**
+ * Mint a fresh access token from a stored refresh token through the refresh
+ * grant (`grant_type=refresh_token`, `client_id=jolly`) at the realm token
+ * endpoint — used when a short-lived device-grant access token has expired
+ * during a long run, rather than re-prompting the human (feature 018 Rule "A
+ * long run refreshes the short-lived access token"). Returns the new access
+ * token and the (possibly rotated) refresh token. Targets the first-party host
+ * auth.saleor.io (feature 020 allowlist).
+ */
+export async function refreshAccessToken(
+  refreshToken: string,
+): Promise<DeviceTokens> {
+  assertFirstParty(DEVICE_TOKEN_URL);
+  const response = await fetch(DEVICE_TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: REFRESH_GRANT_TYPE,
+      client_id: DEVICE_CLIENT_ID,
+      refresh_token: refreshToken,
+    }).toString(),
+  });
+  const body = (await response.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
+  if (!response.ok || typeof body["access_token"] !== "string") {
+    const error = String(body["error"] ?? `HTTP ${response.status}`);
+    throw new DeviceGrantError(
+      `The refresh grant did not return a fresh access token: ${error}.`,
+      error || "REFRESH_GRANT_FAILED",
+    );
+  }
+  return {
+    accessToken: String(body["access_token"]),
+    // Keycloak may rotate the refresh token; keep the new one when present.
+    refreshToken: String(body["refresh_token"] ?? refreshToken),
+  };
+}
+
+/**
+ * Whether a JWT's `exp` claim is in the past (or within a small skew). Decodes
+ * the payload without verifying the signature — enough to decide a proactive
+ * refresh. A token that cannot be parsed is treated as expired so the caller
+ * refreshes rather than sending a stale credential.
+ */
+export function isJwtExpired(token: string, skewSeconds = 30): boolean {
+  const parts = token.split(".");
+  if (parts.length < 2) return true;
+  try {
+    const payload = JSON.parse(
+      Buffer.from(parts[1]!, "base64url").toString("utf8"),
+    ) as { exp?: number };
+    if (typeof payload.exp !== "number") return true;
+    return payload.exp * 1000 <= Date.now() + skewSeconds * 1000;
+  } catch {
+    return true;
+  }
+}
+
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 

@@ -418,17 +418,20 @@ When(
   "the user declines the proceed confirmation",
   { timeout: 160_000 },
   function (this: JollyWorld) {
-    // No Cloud token configured, so interactive start authenticates inline first
-    // (the loopback stand-in reached via STAND_IN_TOKEN), accept the env-name and
-    // project-directory defaults with Enter, then decline the single proceed
-    // confirmation with `n` (clack confirm submits on `n`).
+    // A real-format stand-in staff token satisfies start's auth gate (interactive
+    // start signs in through the device grant only when no auth is configured),
+    // so the run reaches the proceed confirmation without a real sign-in.
+    // `--mock-organizations` (the CLI's deterministic org affordance, feature
+    // 027) resolves the organization without a network call, so the prompt timing
+    // stays deterministic under load and the scripted Enter, Enter, decline align;
+    // a single org means no organization choice prompt. Accept the env-name and
+    // project-directory defaults with Enter, then decline the proceed confirmation
+    // with `n`.
+    this.notes.mockOrgs = "org-solo";
     if (
-      !runInteractive(this, startArgvWithMock(this), [
-        `${STAND_IN_TOKEN}\r`,
-        "\r",
-        "\r",
-        "n",
-      ])
+      !runInteractive(this, startArgvWithMock(this), ["\r", "\r", "n"], {
+        JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN,
+      })
     ) {
       return "skipped";
     }
@@ -725,6 +728,71 @@ Then(
       out,
       /\b(verified|verification (?:passed|succeeded)|store is ready|environment[^\n]*ready)\b/i,
       `declining must not print a fabricated verification result; got:\n${out}`,
+    );
+  },
+);
+
+// ─── Inline device-grant sign-in (feature 027 Rule "runs end-to-end in one ──
+// session" + feature 018). No auth configured: interactive start signs in
+// through the Saleor device authorization grant inline — the same grant as
+// `jolly login`, never a pasted secret. Driven against the real kernel PTY with
+// credentials genuinely absent; the device-code request is unauthenticated (no
+// credential needed) and the human never authorizes, so the PTY deadline stops
+// the still-polling run and the captured output holds the displayed code + URL.
+
+const DEVICE_USER_CODE_RE = /\b[A-Z0-9]{4,}-[A-Z0-9]{4,}\b/;
+const DEVICE_VERIFICATION_URL =
+  "https://auth.saleor.io/realms/saleor-cloud/device";
+
+When(
+  "the user starts interactive setup with no Cloud token configured",
+  { timeout: 30_000 },
+  function (this: JollyWorld) {
+    if (!ptyAvailable()) return "skipped";
+    const run = runUnderPty({
+      runtime: process.env.HARNESS_CLI_RUNTIME ?? "node",
+      argv: [CLI_ENTRY, "start"],
+      cwd: this.projectDir,
+      env: interactiveChildEnv(),
+      inputs: [],
+      timeoutMs: 15_000,
+    });
+    this.previousRun = this.lastRun;
+    this.lastRun = {
+      args: ["start"],
+      cwd: this.projectDir,
+      exitCode: run.exitCode,
+      stdout: run.output,
+      stderr: "",
+      envelope: undefined,
+    };
+  },
+);
+
+Then(
+  "the interactive output should show the device user code and the auth.saleor.io verification URL",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.match(
+      out,
+      DEVICE_USER_CODE_RE,
+      `interactive start must show the device user code; got:\n${out}`,
+    );
+    assert.ok(
+      out.includes(DEVICE_VERIFICATION_URL),
+      `interactive start must show the verification URL ${DEVICE_VERIFICATION_URL}; got:\n${out}`,
+    );
+  },
+);
+
+Then(
+  "the interactive output should not prompt the user to paste a token",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout).toLowerCase();
+    assert.doesNotMatch(
+      out,
+      /paste[^\n]*token/,
+      `interactive start must sign in via the device grant, never a paste prompt; got:\n${out}`,
     );
   },
 );
