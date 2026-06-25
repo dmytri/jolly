@@ -142,19 +142,37 @@ production interactive `jolly start` still authenticates by pasted token (`src/i
 `clackPassword`); the 027 Rule says device-grant inline. No scenario now drives that switch, so it is a
 future iteration, not this cycle's Crew work — [[mvp-then-iterate]], [[spec-cleanup-found-issues]].
 
-**Follow-ups opened for a future cycle (2026-06-25 — Bosun findings, dk approved push).** Recorded so
-the next cycle picks them up; none block the current green deck (commits `2f63df6` + `2612839`, pushed):
-1. **gplint gate is vacuous — dedicated lint-cleanup cycle.** The AGENTS.md spec-lint command
-   `npx gplint "features/**/*.feature"` matches ZERO files (gplint 2.5.2 does not expand the quoted
-   `**`; exit 0, no output), so the corpus has never been linted by the gate. An explicit
-   `npx gplint features/*.feature` reports ~514 problems against the enabled `.gplintrc` rules
-   (e.g. `allow-all-lowercase`, `name-length`). Future cycle: fix the AGENTS.md lint command glob
-   (tooling config — needs the explicit edit), then work the violations down. [[spec-cleanup-found-issues]]
-2. **Retired `--token`/paste machinery still present.** Per the cycle-correction above, the
-   `--token`/`--token-file`/`--token-stdin`/interactive-paste step definitions in 018 and the matching
-   production machinery are orphaned but NOT yet removed (this cycle's `cycle.json` did not select the
-   scenarios that drive their removal). A future cycle prunes them with the paste→device-grant switch.
-3. **Interactive-start paste→device-grant drift** — see the "Known drift" note directly above.
+**Follow-ups (2026-06-25 — dk: "do all three").** Status after the follow-up work:
+1. **gplint gate made real — DONE** (commit `2c2ab8a`). The AGENTS.md command
+   `npx gplint "features/**/*.feature"` matched ZERO files (gplint 2.5.2 does not expand a quoted
+   `**`), so the gate never linted the corpus. Fixed to `features/*.feature`; tuned `.gplintrc` to the
+   project's codified conventions (lowercase domain steps; long descriptive titles; many-scenario
+   files; multi-assertion `Then`s; `When`-first scenarios; per-scenario tags) and disabled the
+   cosmetic/convention-conflict rules (`indentation` — flat 2-space under Rules per the Shipshape
+   agreement, which gplint can't model; `table-align`; `file-name` — intentional `002-v1`); fixed the
+   genuine violations (020 dual-phase colour scenario split; 025 background-only inlined; 009/014
+   blank lines). Gate lints all 22 files and exits 0.
+2. **`--token`/paste machinery retired — DONE** (commit `8640fec`). `commandLogin` now resolves the
+   token from `$JOLLY_SALEOR_CLOUD_TOKEN` + the device grant only (no `--token`/`--token-file`/
+   `--token-stdin`/paste); flags dropped; every `jolly login --token <value>` guidance string →
+   `jolly login`; the 3 rewritten env-var scenarios (018 login --dry-run / .env-private / .env-POSIX)
+   implemented; 40 orphaned step defs + dead helpers pruned. Logic tier 149 passed / 0 failed.
+3. **Interactive-start paste→device-grant — NOT a quick change; it IS the device-grant-Bearer
+   end-to-end cycle.** Switching `runInteractiveStart`'s no-token auth from the paste to the inline
+   device grant CANNOT be done in isolation: the device grant yields a Keycloak JWT access token, but
+   `cloudFetch` (src/lib/cloud-api.ts) hardcodes `Authorization: Token` and every downstream start
+   stage requires the `JOLLY_SALEOR_CLOUD_TOKEN` staff token — so a device-grant start would break
+   end-to-end (the working staff-token paste path is replaced by stages that error on the missing
+   staff token / reject the JWT sent as `Token`), and it would break the `@logic` start tests that
+   authenticate via the paste seam (027 decline/progress; there is no local device-grant seam — the
+   grant cannot complete unattended). Doing it correctly requires: (a) `cloudFetch` choosing the scheme
+   by which variable holds the token (staff→`Token`, device-grant JWT→`Bearer`); (b) the refresh grant
+   when the access token expires — exactly what `018:78` "An expired access token is refreshed…" and
+   `014:145` "Doctor validates stored device-grant credentials with Bearer" already spec and CI-test
+   (`@sandbox @exceptional-double`, production-unimplemented, skip locally); (c) switching start auth to
+   the device grant; (d) reworking the `@logic` start-auth seam to seed a staff token rather than paste.
+   This is its own cycle. Until then `start` keeps the working staff-token paste; the drift is recorded,
+   not papered over. [[mvp-then-iterate]], [[skip-mask-sandbox-unverified]]
 
 ### Shipped design being superseded by the above
 
