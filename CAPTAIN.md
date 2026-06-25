@@ -100,15 +100,21 @@ The approved 0.9.7 push/release is DEFERRED until this cycle lands. [[mvp-then-i
    shipped (the drift this fixes). Decision: move human-facing interactive copy OUT of `src/` into a
    message catalog **asset** `assets/messages/cli.json` (plain JSON, keyed; a tiny `t(key)` loader
    reads it at runtime — no gettext/i18n lib, dependency-averse, [[copy-less-is-more]]). Rewording
-   becomes a pure Captain asset edit, no code/test cycle. New 027 Rule "Interactive human-facing copy
-   is rendered from the message catalog asset" + two `@logic` binding scenarios pin that the rendered
+   becomes a pure Captain asset edit, no code/test cycle. Two `@logic` 027 scenarios (no dedicated
+   Rule — Bosun `4622ced` moved the contract out of Rule prose into the scenarios, per the
+   scenario-writing agreement) pin that the rendered
    notes/proceed/decline equal the catalog entries — positive and wording-agnostic, so QM never
    authors copy and we avoid [[no-self-defeating-absence-assertions]]; copy *quality* stays a
    human/asset concern, not a test concern. Corrected wording lives in the catalog: no "Gate:" prefix
    (the Stripe paste is the trailing final step, not a wait — already 027:31-33), no "side-effecting"
    in human strings (kept as internal machine/spec vocabulary). Proceed → "Build your store now? This
    creates the store, storefront, and deployment." `assets/messages/` added to package.json `files` so
-   it bundles in the published package. **Scope this cycle = interactive `jolly start` strings only**
+   it bundles in the published package. **Packaging guard deferred (decided 2026-06-25):** the `files`
+   entry is the only safeguard this cycle — 006's published-launcher scenario runs the `--json` agent
+   path, which never reads the catalog, so it would not catch a missing catalog in the tarball. A
+   cheap follow-up — assert the packed tarball contains `assets/messages/cli.json` (npm pack + list,
+   no PTY), or a PTY published-launcher catalog-render check — is deferred to keep scope-1 tight
+   ([[mvp-then-iterate]], [[outbound-check-npm-publish-not-just-git]]). **Scope this cycle = interactive `jolly start` strings only**
    (`start.vercelSignin`, `start.stripeFinal`, `start.proceed`, `start.declined`); cycle.json selects
    the two scenarios. **PHASE 2 (later, no re-explaining needed): sweep ALL remaining human-facing CLI
    copy into the catalog** — identical pattern (add keys, render via `t(key)`); the catalog-binding
