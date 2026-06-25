@@ -1,0 +1,217 @@
+{
+  "allow-all-caps": [
+    "error",
+    {
+      "Global": false,
+      "Description": false,
+      "Feature": false,
+      "Rule": false,
+      "Background": false,
+      "Scenario": false,
+      "Step": false,
+      "Example": false,
+      "ExampleHeader": false,
+      "ExampleBody": false
+    }
+  ],
+
+  "allow-all-lowercase": [
+    "error",
+    {
+      "Global": false,
+      "Description": false,
+      "Feature": false,
+      "Rule": false,
+      "Background": false,
+      "Scenario": false,
+      "Step": false,
+      "Example": false,
+      "ExampleHeader": false,
+      "ExampleBody": false
+    }
+  ],
+
+  "allowed-tags": [
+    "error",
+    {
+      "tags": [],
+      "patterns": ["^@.+$"]
+    }
+  ],
+
+  "file-name": [
+    "error",
+    {
+      "style": "kebab-case",
+      "allowAcronyms": false
+    }
+  ],
+
+  "indentation": [
+    "error",
+    {
+      "Feature": 0,
+      "Background": 2,
+      "Rule": 2,
+      "Scenario": 2,
+      "Step": 4,
+      "Examples": 4,
+      "example": 6,
+      "given": 4,
+      "when": 4,
+      "then": 4,
+      "and": 4,
+      "but": 4,
+      "RuleFallback": true,
+      "type": "space",
+      "preferType": "space",
+      "feature tag": 0,
+      "scenario tag": 2,
+      "examples tag": 4
+    }
+  ],
+
+  "keywords-in-logical-order": [
+    "error",
+    {
+      "detectMissingKeywords": true
+    }
+  ],
+
+  "max-keywords": [
+    "error",
+    {
+      "given": 5,
+      "when": 3,
+      "then": 5,
+      "onlyContiguous": false,
+      "ignoreConjunctions": false
+    }
+  ],
+
+  "max-scenarios-per-file": [
+    "error",
+    {
+      "maxScenarios": 10,
+      "countOutlineExamples": true
+    }
+  ],
+
+  "max-tags-lines": [
+    "error",
+    {
+      "feature": 1,
+      "rule": 2,
+      "scenario": 2,
+      "example": 2
+    }
+  ],
+
+  "name-length": [
+    "error",
+    {
+      "Feature": 70,
+      "Rule": 70,
+      "Scenario": 70,
+      "Step": 100
+    }
+  ],
+
+  "new-line-at-eof": ["error", "yes"],
+
+  "no-background-only-scenario": "error",
+  "no-dupe-feature-names": "error",
+  "no-dupe-scenario-names": ["error", "anywhere"],
+  "no-duplicate-tags": "error",
+  "no-empty-background": "error",
+  "no-empty-file": "error",
+  "no-examples-in-scenarios": "error",
+  "no-files-without-scenarios": "error",
+  "no-homogenous-tags": "error",
+  "no-multiple-empty-lines": "error",
+
+  "no-partially-commented-tag-lines": [
+    "error",
+    {
+      "allowSeparated": false
+    }
+  ],
+
+  "no-restricted-patterns": [
+    "error",
+    {
+      "Global": [],
+      "Feature": [],
+      "Rule": [],
+      "Background": [],
+      "Scenario": [],
+      "ScenarioOutline": [],
+      "Examples": [],
+      "ExampleHeader": [],
+      "ExampleBody": [],
+      "Step": [],
+      "Given": [],
+      "When": [],
+      "Then": [],
+      "DocString": [],
+      "DataTable": []
+    }
+  ],
+
+  "no-restricted-tags": [
+    "error",
+    {
+      "tags": ["@ignore", "@disabled", "@todo", "@wip"],
+      "patterns": ["^@skip.*", "^@todo.*", "^@wip.*"]
+    }
+  ],
+
+  "no-scenario-outlines-without-examples": "error",
+  "no-superfluous-tags": "error",
+  "no-trailing-spaces": "error",
+  "no-unnamed-features": "error",
+  "no-unnamed-scenarios": "error",
+  "no-unused-variables": "error",
+  "one-space-between-tags": "error",
+
+  "related-tags": [
+    "error",
+    {
+      "tags": {}
+    }
+  ],
+
+  "required-tags": [
+    "error",
+    {
+      "ignoreUntagged": false,
+      "global": [],
+      "feature": [],
+      "rule": [],
+      "scenario": [],
+      "example": [],
+      "extendRule": true,
+      "extendExample": true
+    }
+  ],
+
+  "scenario-size": [
+    "error",
+    {
+      "steps-length": {
+        "Background": 10,
+        "Scenario": 10
+      }
+    }
+  ],
+
+  "table-align": [
+    "error",
+    {
+      "steps": true,
+      "examples": true
+    }
+  ],
+
+  "use-and": "error"
+}
