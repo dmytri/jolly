@@ -1135,15 +1135,14 @@ function startStage(world: JollyWorld, name: string): StartStage | undefined {
   return startStages(world).find((s) => s.stage === name);
 }
 
-// --- Scenario: jolly start guides the user to provide a Saleor Cloud token ---
-//     when none is configured (@logic) ------------------------------------------
+// --- Scenario: jolly start starts the device grant when no token is configured ---
+//     (@logic) --------------------------------------------------------------------
 //
-// A real agent's first run with no Cloud token: `jolly start` must report the
-// auth stage needs a token and direct the user to create one at the token page
-// and run `jolly login --token <value>` — it cannot mint a token itself — without
-// treating the missing token as a fatal error and without fabricating success.
-// The runtime credentials are genuinely unset (absentCredentialsEnv), and the
-// child is a non-TTY subprocess (the agent-driven case).
+// A real agent's first run with no Cloud token: `jolly start --json` starts the
+// Saleor device authorization grant for its agent — it never treats the missing
+// token as a fatal error and never fabricates success. The runtime credentials
+// are genuinely unset (absentCredentialsEnv), and the child is a non-TTY
+// subprocess (the agent-driven case).
 
 Given(
   "a fresh project directory with no `JOLLY_SALEOR_CLOUD_TOKEN` configured",
@@ -1166,49 +1165,6 @@ When(
 );
 
 Then(
-  "the `auth` stage should report that a Saleor Cloud token is needed",
-  function (this: JollyWorld) {
-    const auth = startStage(this, "auth");
-    assert.ok(auth, "the orchestrated stages must include the auth stage");
-    // No token configured: the auth stage cannot silently complete — it reports
-    // the token is needed, never a fabricated "completed".
-    assert.notEqual(
-      auth!.status,
-      "completed",
-      "the auth stage must not report completed when no Cloud token is configured",
-    );
-    // Token-only auth: the auth stage must NOT present a browser OAuth URL.
-    const blob = JSON.stringify(this.envelope) + " " + this.lastRun!.stdout;
-    assert.ok(
-      !/auth\.saleor\.io/.test(blob),
-      "the auth stage must not present a browser OAuth authorization URL",
-    );
-  },
-);
-
-Then(
-  "`nextSteps` should direct the user to run `jolly login` to sign in through the device authorization grant, or to set JOLLY_SALEOR_CLOUD_TOKEN for non-interactive use",
-  function (this: JollyWorld) {
-    const text = JSON.stringify(this.envelope.nextSteps ?? []);
-    // Interactive sign-in is `jolly login` (the device authorization grant,
-    // feature 018) — never a `--token` flag, which no longer exists.
-    assert.ok(
-      /jolly login\b(?![^"]*--token)/.test(text),
-      `nextSteps must direct the user to run \`jolly login\`: ${text}`,
-    );
-    assert.match(
-      text,
-      /device authoriz(?:ation|ed) grant|device grant/i,
-      `nextSteps must name the device authorization grant as the interactive sign-in: ${text}`,
-    );
-    assert.ok(
-      text.includes("JOLLY_SALEOR_CLOUD_TOKEN"),
-      `nextSteps must offer setting JOLLY_SALEOR_CLOUD_TOKEN for non-interactive use: ${text}`,
-    );
-  },
-);
-
-Then(
   "it should not fabricate that authentication succeeded",
   function (this: JollyWorld) {
     const auth = startStage(this, "auth");
@@ -1221,6 +1177,36 @@ Then(
     for (const claim of ["authentication succeeded", "authenticated as", "logged in", "token verified"]) {
       assert.ok(!text.includes(claim), `must not fabricate authentication success ("${claim}")`);
     }
+  },
+);
+
+// --- Scenario: jolly start starts the device grant when no token is configured ---
+//
+// With no JOLLY_SALEOR_CLOUD_TOKEN, `jolly start --json` starts the Saleor
+// device authorization grant for its agent: it requests a real device code and
+// relays the user code + verification URL on STDERR so the agent can forward
+// them to its human, while still emitting the start envelope (the auth stage is
+// not fabricated as completed). Run for REAL against auth.saleor.io — the
+// device-code request is unauthenticated, so no credential is needed.
+
+const START_VERIFICATION_URL =
+  "https://auth.saleor.io/realms/saleor-cloud/device";
+// Keycloak's device user-code format: two groups of A–Z/0–9 (e.g. WDJB-MJHT).
+const START_USER_CODE_RE = /\b[A-Z0-9]{4,}-[A-Z0-9]{4,}\b/;
+
+Then(
+  "it should print the returned user code and the `https:\\/\\/auth.saleor.io\\/realms\\/saleor-cloud\\/device` verification URL to stderr so the agent can relay them to its human",
+  function (this: JollyWorld) {
+    const stderr = this.lastRun!.stderr;
+    assert.match(
+      stderr,
+      START_USER_CODE_RE,
+      `the returned user code must be relayed on stderr; got: ${stderr}`,
+    );
+    assert.ok(
+      stderr.includes(START_VERIFICATION_URL),
+      `the verification URL ${START_VERIFICATION_URL} must be relayed on stderr; got: ${stderr}`,
+    );
   },
 );
 

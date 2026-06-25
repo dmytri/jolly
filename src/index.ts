@@ -57,6 +57,7 @@ import {
   pollForDeviceTokens,
   refreshAccessToken,
   isJwtExpired,
+  type DeviceAuthorization,
 } from "./lib/device-grant.ts";
 import { parse as parseBombArgs } from "@bomb.sh/args";
 import { runCompletion } from "./lib/completion.ts";
@@ -529,46 +530,19 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
     });
   }
 
-  // No staff token configured and stdin is a TTY: sign in through the Saleor
-  // device authorization grant (feature 018) — request a device code, show the
-  // user code + verification URL, and poll while the human authorizes.
+  // No staff token configured: sign in through the Saleor device authorization
+  // grant (feature 018, Rule "Interactive authentication is the Saleor device
+  // authorization grant") — a missing token starts the grant, it never errors
+  // merely because no token is configured. An interactive terminal renders the
+  // code + URL through Bombshell's prompt UI; an agent-driven (non-interactive)
+  // run relays the same user code + verification URL to its human on plain
+  // stderr. Both then poll while the human authorizes.
   if (token === undefined && process.stdin.isTTY) {
     return await deviceGrantLogin(command);
   }
 
   if (token === undefined) {
-    // No staff token and stdin is not a TTY, so the device grant cannot run.
-    // Fail honestly, write nothing, and point to the env var or an interactive
-    // sign-in.
-    return errorEnvelope(
-      command,
-      "No Saleor Cloud authentication available. Nothing was written.",
-      [
-        {
-          code: "NO_TOKEN_SOURCE",
-          message:
-            "`jolly login` found no Saleor Cloud authentication. The interactive device authorization grant runs only in a terminal; this shell is not interactive.",
-          remediation:
-            "Set JOLLY_SALEOR_CLOUD_TOKEN (a staff token from " +
-            `${TOKEN_PAGE}) for non-interactive use, or run \`jolly login\` interactively to sign in through the device authorization grant.`,
-        },
-      ],
-      {
-        nextSteps: [
-          {
-            description:
-              "Set JOLLY_SALEOR_CLOUD_TOKEN in .env or the environment for non-interactive sign-in.",
-            command: "export JOLLY_SALEOR_CLOUD_TOKEN=<staff-token>",
-          },
-          {
-            description:
-              "Run `jolly login` interactively to sign in through the Saleor device authorization grant.",
-            command: "jolly login",
-          },
-        ],
-        data: { riskContext: loginRiskContext() },
-      },
-    );
+    return await deviceGrantLoginAgent(command, args);
   }
 
   // Verify the env/.env staff token via an authenticated Token-scheme GET of
@@ -700,6 +674,85 @@ async function deviceGrantLogin(command: string): Promise<Envelope> {
     summary: "Signed in through the Saleor device authorization grant.",
     data: { cloudTokenStored: true, riskContext: loginRiskContext() },
   });
+}
+
+// A single agent-driven `jolly login` waits this many seconds for the human to
+// authorize before reporting the grant is still pending (non-zero) and letting
+// the agent re-run. Bounded so one invocation does not hang for the full
+// device-code lifetime; the relayed code stays valid for the re-run.
+const AGENT_POLL_WINDOW_SECONDS = 10;
+
+// Relay a device authorization's user code + verification URL to STDERR in plain
+// text so an agent-driven (non-interactive) run can forward them to its human
+// (feature 018, Rule "Interactive authentication is the Saleor device
+// authorization grant"). Plain stderr, never the Bombshell prompt UI — the
+// interactive path keeps the prompt UI; the agent path keeps stdout clean for
+// the envelope. No token value is ever printed.
+function relayDeviceCode(auth: DeviceAuthorization): void {
+  process.stderr.write(
+    `Sign in to Saleor Cloud: open ${auth.verificationUri} and enter the code ${auth.userCode}\n`,
+  );
+}
+
+// Agent-driven sign-in through the Saleor device authorization grant. Request a
+// device code, relay the user code + verification URL to plain STDERR so the
+// agent can forward them to its human, emit the standard output envelope on
+// STDOUT announcing the grant started, then poll the token endpoint while the
+// human authorizes out-of-band. The envelope carries no token value; the
+// code + URL stay on STDERR only. On authorization, store the access + refresh
+// tokens (never the staff token) and exit successfully.
+async function deviceGrantLoginAgent(
+  command: string,
+  args: ParsedArgs,
+): Promise<Envelope> {
+  const auth = await requestDeviceCode();
+  relayDeviceCode(auth);
+  // Emit the announcement envelope on stdout BEFORE polling, so the agent sees
+  // the standard envelope (feature 006/020) the moment the grant starts.
+  emit(
+    envelope({
+      command,
+      status: "warning",
+      summary:
+        "Started the Saleor device authorization grant. Authorize at the URL relayed on stderr.",
+      data: { authorizationPending: true, riskContext: loginRiskContext() },
+      nextSteps: [
+        {
+          description:
+            "Authorize the device sign-in at the verification URL relayed on stderr.",
+          command: "jolly login",
+        },
+      ],
+    }),
+    args,
+  );
+  // Poll the token endpoint while the human authorizes out-of-band. A single
+  // agent-driven invocation waits a bounded window (the grant's own interval is
+  // honoured) rather than the full device-code lifetime: the agent has relayed
+  // the code + URL, so the human authorizes and the agent re-runs `jolly login`
+  // (the relayed envelope's nextStep) to complete. On authorization within the
+  // window, store the access + refresh tokens and exit successfully; otherwise
+  // the grant has not yet completed and the run exits non-zero with the
+  // announcement envelope already on stdout.
+  try {
+    const tokens = await pollForDeviceTokens({
+      ...auth,
+      expiresIn: Math.min(auth.expiresIn, AGENT_POLL_WINDOW_SECONDS),
+    });
+    writeEnvValues(projectDir(), {
+      JOLLY_SALEOR_ACCESS_TOKEN: tokens.accessToken,
+      JOLLY_SALEOR_REFRESH_TOKEN: tokens.refreshToken,
+    });
+    process.stderr.write(
+      "Signed in through the Saleor device authorization grant.\n",
+    );
+    process.exit(0);
+  } catch (err) {
+    process.stderr.write(
+      `${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    process.exit(1);
+  }
 }
 
 function resolveOrgName(orgs: CloudOrganization[]): string | undefined {
@@ -3507,6 +3560,19 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
 async function runStartCore(args: ParsedArgs): Promise<Envelope> {
   const command = "start";
 
+  // When no Cloud token is configured the auth stage starts the device grant and
+  // relays the code + URL to stderr (feature 002). Kick the device-code request
+  // off here so its network round-trip overlaps the bootstrap below rather than
+  // adding serial latency; the auth stage awaits the (likely already-resolved)
+  // result to relay it. A request failure is swallowed (the stage still blocks).
+  const tokenAlreadyConfigured = Boolean(
+    cloudPlatformToken(loadEnvValues(projectDir())),
+  );
+  const deviceCodePromise: Promise<DeviceAuthorization | undefined> =
+    tokenAlreadyConfigured
+      ? Promise.resolve(undefined)
+      : requestDeviceCode().catch(() => undefined);
+
   // Bootstrap: run init (real, on-disk) + run doctor (read-only). Never
   // fabricate stages the agent must perform.
   const initEnv = commandInit(args);
@@ -3577,13 +3643,19 @@ async function runStartCore(args: ParsedArgs): Promise<Envelope> {
       // Bootstrap itself failed; nothing downstream was attempted.
       status = isBootstrap && planStage.stage === "init" ? "error" : "pending";
     } else if (planStage.stage === "auth" && needsToken) {
-      // No Cloud token configured: the auth stage cannot mint a token itself, so
-      // it is reported `blocked` — a gate it cannot self-clear — never a
-      // fabricated `completed`. It does NOT set the approval `gate` (reserved for
-      // the high-risk per-stage approval pause): the run proceeds through the
-      // remaining stages, which block/pend honestly on the still-missing
-      // credentials. `blocked` (not `awaiting-approval`) keeps a `--yes` run free
-      // of any per-stage approval pause.
+      // No Cloud token configured: the auth stage starts the Saleor device
+      // authorization grant for the agent (feature 018, 002) — request a device
+      // code and relay the user code + verification URL to plain STDERR so the
+      // agent can forward them to its human. It does NOT poll/block (start stays
+      // non-blocking) and the code + URL stay on STDERR ONLY — never in the
+      // stdout envelope. The stage stays non-`completed` (`blocked`): it cannot
+      // self-clear, never a fabricated `completed`. It does NOT set the approval
+      // `gate` (reserved for the high-risk per-stage approval pause): the run
+      // proceeds through the remaining stages, which block/pend honestly on the
+      // still-missing credentials. A device-code request failure leaves the
+      // stage `blocked` just the same (the relay is simply skipped).
+      const deviceAuth = await deviceCodePromise;
+      if (deviceAuth) relayDeviceCode(deviceAuth);
       status = "blocked";
     } else if (isBootstrap) {
       status = "completed";

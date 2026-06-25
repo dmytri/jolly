@@ -598,12 +598,17 @@ Then(
 // --- Scenario: Agent branches on stable codes ------------------------------
 
 Given(
-  "the agent runs `jolly login --json` in a non-interactive shell with no token configured",
+  "the agent runs `jolly login --json` with an invalid JOLLY_SALEOR_CLOUD_TOKEN",
   function (this: JollyWorld) {
-    // No staff token configured and a non-interactive shell (spawned, no TTY):
-    // the device-grant sign-in cannot prompt, so login must fail honestly with
-    // an envelope carrying errors[].code, never fabricated success.
-    this.runCli(["login", "--json"], { env: absentCredentialsEnv() });
+    // A present-but-invalid staff token is verified for real against the Cloud
+    // API and really rejected (401/403), yielding an error envelope with a
+    // stable INVALID_TOKEN code the agent can branch on. Real bad input — no
+    // account is reached — so it stays a safe @logic check.
+    const token = `invalid-${this.namespace}-token`;
+    this.trackSecret(token);
+    this.runCli(["login", "--json"], {
+      env: absentCredentialsEnv({ JOLLY_SALEOR_CLOUD_TOKEN: token }),
+    });
   },
 );
 

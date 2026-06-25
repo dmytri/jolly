@@ -90,61 +90,16 @@ Then(
   },
 );
 
-// ─── Scenario: Non-interactive jolly login never starts the device grant ────
-// A non-TTY `jolly login --json` (runCli pipes stdin, so stdin is not a TTY)
-// with no JOLLY_SALEOR_CLOUD_TOKEN must NOT start the device authorization grant
-// — that is interactive-only. It fails honestly with a stable code, directs the
-// user to set the env var or run `jolly login` interactively, requests no device
-// code, never blocks on input, and writes nothing to .env.
+// Shared Given for the agent-driven device-grant scenarios: a non-TTY
+// `jolly login --json` (runCli pipes stdin, so stdin is not a TTY) with no
+// JOLLY_SALEOR_CLOUD_TOKEN. `When the agent runs `jolly login --json`` is the
+// generic global-flag run step (feature 006), which runs with credentials absent.
 
 Given(
   "a non-interactive shell with no JOLLY_SALEOR_CLOUD_TOKEN set",
   function (this: JollyWorld) {
     // Framing for the When: runCli runs a child whose stdin is a pipe (non-TTY),
     // and absentCredentialsEnv unsets JOLLY_SALEOR_CLOUD_TOKEN for the child.
-  },
-);
-
-// `When the agent runs `jolly login --json`` is the generic global-flag run step
-// (feature 006), which runs `jolly login --json` with credentials absent.
-
-Then(
-  "it should direct the user to set JOLLY_SALEOR_CLOUD_TOKEN or run `jolly login` interactively to sign in",
-  function (this: JollyWorld) {
-    const text =
-      JSON.stringify(this.envelope.errors) +
-      " " +
-      JSON.stringify(this.envelope.nextSteps) +
-      " " +
-      this.envelope.summary;
-    assert.ok(
-      text.includes("JOLLY_SALEOR_CLOUD_TOKEN"),
-      `guidance must name the JOLLY_SALEOR_CLOUD_TOKEN env var; got: ${text}`,
-    );
-    assert.ok(
-      /jolly login\b(?![^"]*--token)/.test(text) && /interactiv/i.test(text),
-      `guidance must point to running \`jolly login\` interactively; got: ${text}`,
-    );
-  },
-);
-
-Then(
-  "it should not request a device code and should not block waiting for input",
-  function (this: JollyWorld) {
-    // It returned (runCli would have timed out had it blocked) with an error
-    // envelope, so it short-circuited before any device flow.
-    assert.equal(this.envelope.status, "error");
-    const text = (this.lastRun!.stdout + " " + this.lastRun!.stderr).toLowerCase();
-    // No device-grant artifacts: no device-authorization endpoint, no verification
-    // URL, no "user code" prompt — the grant was never started.
-    assert.ok(
-      !text.includes("auth.saleor.io/realms/saleor-cloud/device"),
-      "a non-interactive login must not show the device verification URL",
-    );
-    assert.ok(
-      !/user code|device code/.test(text),
-      "a non-interactive login must not request or display a device code",
-    );
   },
 );
 
@@ -208,7 +163,9 @@ When(
 Then(
   "Jolly should request a device code from `https:\\/\\/auth.saleor.io\\/realms\\/saleor-cloud\\/protocol\\/openid-connect\\/auth\\/device` with `client_id=jolly`",
   function (this: JollyWorld) {
-    const text = this.lastRun!.stdout;
+    // Interactive PTY merges everything into stdout; the agent-driven case relays
+    // the code on stderr. Read both so the one shared step serves both paths.
+    const text = this.lastRun!.stdout + "\n" + this.lastRun!.stderr;
     // The realm answers a device-code request only when the public client
     // `jolly` is recognized; a wrong client_id yields invalid_client and no
     // device authorization. A user code rendered in the terminal is therefore
@@ -276,6 +233,88 @@ Then("it should not print any token value", function (this: JollyWorld) {
     "no token value may be printed to the terminal",
   );
 });
+
+// ─── Scenario: Agent-driven jolly login starts the device grant ─────────────
+// A non-interactive `jolly login --json` with no JOLLY_SALEOR_CLOUD_TOKEN starts
+// the same Saleor device authorization grant: it requests a real device code,
+// relays the user code + verification URL to its human on STDERR (the agent
+// reads stderr and forwards them), and keeps polling the token endpoint while
+// the human authorizes out-of-band. The human never authorizes here, so the
+// bounded-timeout When kills the still-polling process; the captured stderr
+// holds the relayed code + URL. Run for REAL against auth.saleor.io — the
+// device-code request is unauthenticated, so no credential is needed and an
+// unauthorized device code expires harmlessly.
+
+Then(
+  "it should print the returned user code and the verification URL `https:\\/\\/auth.saleor.io\\/realms\\/saleor-cloud\\/device` to stderr so the agent can relay them to its human",
+  function (this: JollyWorld) {
+    const stderr = this.lastRun!.stderr;
+    assert.match(
+      stderr,
+      USER_CODE_RE,
+      `the returned user code must be relayed on stderr; got: ${stderr}`,
+    );
+    assert.ok(
+      stderr.includes(AUTH_VERIFICATION_URL),
+      `the verification URL ${AUTH_VERIFICATION_URL} must be relayed on stderr; got: ${stderr}`,
+    );
+  },
+);
+
+Then(
+  "it should poll `https:\\/\\/auth.saleor.io\\/realms\\/saleor-cloud\\/protocol\\/openid-connect\\/token` while waiting for the human to authorize",
+  function (this: JollyWorld) {
+    // The human never authorizes, so a polling login keeps running until the
+    // bounded-timeout When kills it (non-zero exit). A login that printed the
+    // code and returned on its own would exit 0 and never poll the token
+    // endpoint. The relayed code on stderr proves polling began only after the
+    // device code was shown to the human.
+    assert.notEqual(
+      this.lastRun!.exitCode,
+      0,
+      "agent-driven login must keep polling the token endpoint while waiting for " +
+        "authorization, not exit after relaying the code",
+    );
+    assert.match(
+      this.lastRun!.stderr,
+      USER_CODE_RE,
+      "polling must begin only after the device code was relayed on stderr",
+    );
+  },
+);
+
+Then("stdout should carry no token value", function (this: JollyWorld) {
+  const stdout = this.lastRun!.stdout;
+  assert.ok(
+    !/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/.test(stdout),
+    "no access/refresh JWT may appear on stdout",
+  );
+  assert.ok(
+    !/JOLLY_SALEOR_(CLOUD|APP|REFRESH|ACCESS)_TOKEN=\S/.test(stdout),
+    "no token value may be printed to stdout",
+  );
+});
+
+// ─── Scenario Outline: Every auth-entry command starts the device grant ─────
+// `jolly login --json` and `jolly start --json`, run non-interactively with no
+// token, each start the grant and relay the device user code + verification URL
+// on stderr for the agent to forward to its human.
+
+Then(
+  "it should print the device user code and the `https:\\/\\/auth.saleor.io\\/realms\\/saleor-cloud\\/device` verification URL to stderr",
+  function (this: JollyWorld) {
+    const stderr = this.lastRun!.stderr;
+    assert.match(
+      stderr,
+      USER_CODE_RE,
+      `the device user code must be relayed on stderr; got: ${stderr}`,
+    );
+    assert.ok(
+      stderr.includes(AUTH_VERIFICATION_URL),
+      `the verification URL ${AUTH_VERIFICATION_URL} must be relayed on stderr; got: ${stderr}`,
+    );
+  },
+);
 
 // ─── Scenario: An expired access token is refreshed from the stored refresh token ──
 // @sandbox @exceptional-double. The authorized grant is seeded from the
