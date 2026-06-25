@@ -18,10 +18,6 @@ Feature: Agent skill affordance evaluation
   # store. The skill's editorial quality stays a real-use concern outside normal
   # deterministic testing; this tier tests the agent's ability to ACT on it.
 
-  Background:
-    Given the actual published-shape Jolly CLI and the actual shipped Jolly skill (no mocks)
-    And feature 007 defines the local artifacts `jolly init` produces
-
   Rule: Opt-in, outside the default worklist
     - The eval is tagged `@eval` and excluded from the default BDD profile; it
       never gates normal green/red CI.
@@ -116,7 +112,9 @@ Feature: Agent skill affordance evaluation
       be `jolly-test`-namespaced and cleaned up.
 
   Scenario: A baseline agent follows the published /setup entry point to set up a project
-    Given a fresh per-run temporary workspace with the Jolly skill and CLI available
+    Given the actual published-shape Jolly CLI and the actual shipped Jolly skill (no mocks)
+    And feature 007 defines the local artifacts `jolly init` produces
+    And a fresh per-run temporary workspace with the Jolly skill and CLI available
     And the baseline agent runs under a throwaway `$HOME` so its own config and credentials stay isolated
     And the agent is run with the real integrated test-env credentials, every resource it creates `jolly-test`-namespaced and removed in teardown
     And Jolly's CLI invocations in the workspace are traced

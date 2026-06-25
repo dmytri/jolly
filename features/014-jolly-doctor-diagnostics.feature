@@ -202,4 +202,3 @@ Feature: Jolly doctor diagnostics
       authenticated organization slug, and a passing `vercel-auth` check names the Vercel
       account `vercel whoami` reported, so the agent and the human consent to a named target
       — not a "session confirmed" with no subject.
-

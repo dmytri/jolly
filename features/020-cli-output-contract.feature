@@ -47,9 +47,12 @@ Feature: Jolly CLI output contract
     And no JSON envelope should be printed
 
   @logic
-  Scenario: Human output is colourful in a terminal and plain when it is not
+  Scenario: Human output is colourful in an interactive terminal
     When `jolly doctor` runs in an interactive terminal
     Then stdout should contain ANSI colour codes
+
+  @logic
+  Scenario: Human output is plain when stdout is not a terminal
     When the agent runs `jolly doctor` with stdout not a terminal
     Then stdout should contain no ANSI colour codes
     And `jolly doctor --json` stdout should contain no ANSI colour codes

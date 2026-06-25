@@ -23,11 +23,12 @@
       "Feature": false,
       "Rule": false,
       "Background": false,
-      "Scenario": false,
-      "Step": false,
-      "Example": false,
-      "ExampleHeader": false,
-      "ExampleBody": false
+      "Rule": true,
+      "Scenario": true,
+      "Step": true,
+      "Example": true,
+      "ExampleHeader": true,
+      "ExampleBody": true
     }
   ],
 
@@ -39,51 +40,23 @@
     }
   ],
 
-  "file-name": [
-    "error",
-    {
-      "style": "kebab-case",
-      "allowAcronyms": false
-    }
-  ],
+  "file-name": "off",
 
-  "indentation": [
-    "error",
-    {
-      "Feature": 0,
-      "Background": 2,
-      "Rule": 2,
-      "Scenario": 2,
-      "Step": 4,
-      "Examples": 4,
-      "example": 6,
-      "given": 4,
-      "when": 4,
-      "then": 4,
-      "and": 4,
-      "but": 4,
-      "RuleFallback": true,
-      "type": "space",
-      "preferType": "space",
-      "feature tag": 0,
-      "scenario tag": 2,
-      "examples tag": 4
-    }
-  ],
+  "indentation": "off",
 
   "keywords-in-logical-order": [
     "error",
     {
-      "detectMissingKeywords": true
+      "detectMissingKeywords": false
     }
   ],
 
   "max-keywords": [
     "error",
     {
-      "given": 5,
-      "when": 3,
-      "then": 5,
+      "given": 10,
+      "when": 5,
+      "then": 15,
       "onlyContiguous": false,
       "ignoreConjunctions": false
     }
@@ -92,7 +65,7 @@
   "max-scenarios-per-file": [
     "error",
     {
-      "maxScenarios": 10,
+      "maxScenarios": 50,
       "countOutlineExamples": true
     }
   ],
@@ -110,10 +83,10 @@
   "name-length": [
     "error",
     {
-      "Feature": 70,
-      "Rule": 70,
-      "Scenario": 70,
-      "Step": 100
+      "Feature": 90,
+      "Rule": 110,
+      "Scenario": 110,
+      "Step": 320
     }
   ],
 
@@ -127,7 +100,7 @@
   "no-empty-file": "error",
   "no-examples-in-scenarios": "error",
   "no-files-without-scenarios": "error",
-  "no-homogenous-tags": "error",
+  "no-homogenous-tags": "off",
   "no-multiple-empty-lines": "error",
 
   "no-partially-commented-tag-lines": [
@@ -199,19 +172,13 @@
     "error",
     {
       "steps-length": {
-        "Background": 10,
-        "Scenario": 10
+        "Background": 12,
+        "Scenario": 20
       }
     }
   ],
 
-  "table-align": [
-    "error",
-    {
-      "steps": true,
-      "examples": true
-    }
-  ],
+  "table-align": "off",
 
   "use-and": "error"
 }

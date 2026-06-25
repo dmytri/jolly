@@ -36,4 +36,3 @@ Feature: Agent skill installation targets
 
   Rule: Agent detection
     - Jolly detects the current agent environment and writes the correct glue files. The `claude` glue (written when a CLAUDE.md marker is present) and the generic fallback (when no agent marker is present) are pinned by the detection scenarios above.
-
