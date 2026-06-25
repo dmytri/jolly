@@ -171,8 +171,7 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   // The invalid-token scenario needs only outbound network (a real request,
   // really rejected) — no credentials at all.
   "Jolly login rejects an invalid token gracefully": [],
-  "Jolly login verifies a headless token against the Cloud API": ["saleorCloud"],
-  "Jolly login --token-file verifies the file's token against the Cloud API": ["saleorCloud"],
+  "jolly login verifies and stores the env/.env staff token as Token": ["saleorCloud"],
   // 024-jolly-app-token-acquisition
   "Jolly create app-token acquires a real, fully-permissioned token from Saleor": [
     "saleorEndpoint",

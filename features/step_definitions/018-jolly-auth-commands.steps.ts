@@ -519,6 +519,85 @@ Then(
   },
 );
 
+// ─── @sandbox: jolly login verifies & stores the env/.env staff token ──────
+// The non-interactive login resolves the staff token from the runtime
+// JOLLY_SALEOR_CLOUD_TOKEN env var (no flag), verifies it with an authenticated
+// `Authorization: Token` read of the real Cloud API organizations endpoint, and
+// stores the token + returned organization name in .env. A staff token (not a
+// Keycloak JWT) is accepted by the platform API only under the `Token` scheme, so
+// a success envelope with a passing verification check is the falsifiable proof
+// the Token-scheme read of cloud.saleor.io really happened.
+
+Given(
+  "JOLLY_SALEOR_CLOUD_TOKEN is a valid staff token from https:\\/\\/cloud.saleor.io\\/tokens",
+  function (this: JollyWorld) {
+    const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
+    assert.ok(token, "the @sandbox staff-token scenario requires JOLLY_SALEOR_CLOUD_TOKEN");
+    this.notes.validToken = token;
+    this.notes.loginEnvToken = token;
+    this.trackSecret(token!);
+  },
+);
+
+When(
+  "the agent runs `jolly login` in a non-interactive shell",
+  function (this: JollyWorld) {
+    // No --token flag: login resolves the staff token from the runtime
+    // JOLLY_SALEOR_CLOUD_TOKEN env var (the scenario's Given set the value) and
+    // really sends it to the Cloud API (no JOLLY_SALEOR_CLOUD_API_URL override →
+    // cloud.saleor.io). runCli pipes stdin, so the shell is non-interactive.
+    this.runCli(["login", "--json"], {
+      env: { JOLLY_SALEOR_CLOUD_TOKEN: String(this.notes.loginEnvToken ?? "") },
+    });
+  },
+);
+
+Then(
+  "it should verify the token with an authenticated `Authorization: Token` read of `https:\\/\\/cloud.saleor.io\\/platform\\/api\\/organizations\\/`",
+  function (this: JollyWorld) {
+    // A staff token is accepted by the platform API only under the `Token`
+    // scheme (a JWT-only `Bearer` read would reject it), so a success envelope
+    // with a passing verification check is the falsifiable proof the
+    // authenticated `Authorization: Token` read of the organizations endpoint
+    // really happened.
+    assert.equal(this.envelope.status, "success");
+    const verification = this.envelope.checks.find((c) =>
+      String(c.id).includes("verification"),
+    );
+    assert.ok(verification, "expected a verification check");
+    assert.equal(verification!.status, "pass");
+  },
+);
+
+// ─── Scenario: jolly login rejects an invalid env/.env staff token ─────────
+// JOLLY_SALEOR_CLOUD_TOKEN holds a bogus value. The non-interactive login really
+// sends it to the real Cloud API and is really rejected (HTTP 401/403); login
+// reports an error naming the rejection status, writes nothing to .env, and
+// makes no success/verified/authenticated claim. A real request from real bad
+// input — no account is reached, so it stays a safe @logic check.
+
+Given(
+  "JOLLY_SALEOR_CLOUD_TOKEN is set to an invalid or expired value",
+  function (this: JollyWorld) {
+    const token = `invalid-${this.namespace}-token`;
+    this.notes.loginEnvToken = token;
+    this.trackSecret(token);
+  },
+);
+
+Then(
+  "Jolly should report an error naming the HTTP rejection status",
+  function (this: JollyWorld) {
+    const reported =
+      JSON.stringify(this.envelope.errors) + " " + this.envelope.summary;
+    assert.match(
+      reported,
+      /\b(401|403)\b/,
+      `the error must name the HTTP rejection status (401/403); got: ${reported}`,
+    );
+  },
+);
+
 // ─── @sandbox: login rejects an invalid token gracefully ───────────────────
 // saleorCloud requirement is `[]` per SANDBOX_REQUIREMENTS (network only).
 
