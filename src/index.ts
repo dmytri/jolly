@@ -1570,6 +1570,18 @@ function bundledJollySkillPath(): string {
   return fileURLToPath(new URL("../assets/skills/jolly", import.meta.url));
 }
 
+// Human-facing CLI copy lives in the message catalog asset, rendered by key, not
+// hard-coded here (feature 027 "copy is a catalog asset"). The catalog ships in
+// the package beside the skills, resolved the same `../assets/...` way.
+let cliMessageCatalog: Record<string, string> | undefined;
+function cliMessage(key: string): string {
+  if (!cliMessageCatalog) {
+    const path = fileURLToPath(new URL("../assets/messages/cli.json", import.meta.url));
+    cliMessageCatalog = JSON.parse(readFileSync(path, "utf8")) as Record<string, string>;
+  }
+  return cliMessageCatalog[key]!;
+}
+
 function installSkill(skill: SkillSpec): { installed: boolean; stderr?: string } {
   // The Jolly skill installs from its bundled local copy (no network); the
   // Saleor skills install from their own refs (feature 007 Rule "Jolly skill
@@ -3492,14 +3504,8 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
     "Planned stages",
     CLACK_STDERR,
   );
-  clackLog.info(
-    "Gate: Jolly runs the Vercel sign-in (`vercel login`) with you up front, before the unattended stages.",
-    CLACK_STDERR,
-  );
-  clackLog.info(
-    "Gate: final step is yours — paste the Stripe keys in the Saleor Dashboard.",
-    CLACK_STDERR,
-  );
+  clackLog.info(cliMessage("start.vercelSignin"), CLACK_STDERR);
+  clackLog.info(cliMessage("start.stripeFinal"), CLACK_STDERR);
 
   const resolved = {
     organization,
@@ -3518,13 +3524,12 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
   // Each side-effecting stage is confirmed before it runs; the default is to
   // proceed, so Enter advances. Declining stops honestly.
   const proceed = await clackConfirm({
-    message:
-      "Proceed with the side-effecting setup stages (store, storefront, recipe, deploy)?",
+    message: cliMessage("start.proceed"),
     initialValue: true,
     ...CLACK_STDERR,
   });
   if (clackIsCancel(proceed) || proceed === false) {
-    clackOutro("Stopped before any side-effecting stage. Nothing was created.", CLACK_STDERR);
+    clackOutro(cliMessage("start.declined"), CLACK_STDERR);
     return runStartCore({ ...args, yes: false });
   }
 

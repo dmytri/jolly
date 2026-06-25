@@ -795,3 +795,46 @@ Then(
     );
   },
 );
+
+// ─── Message catalog binding (feature 027: human copy is a catalog asset) ──
+// The interactive notes and the proceed/decline copy are not hard-coded in
+// `src/`; they are rendered from `assets/messages/cli.json` by key. These
+// scenarios pin that contract: the text the human sees must BE the catalog
+// message for the named key. clack renders notes inside a box and wraps at the
+// 80-column PTY width, prefixing wrapped lines with `│`; normalize that framing
+// away (strip ANSI, drop the box/symbol glyphs, collapse whitespace) so the
+// assertion compares the catalog copy itself, not clack's line-wrapping.
+const CLI_MESSAGES_PATH = join(REPO_ROOT, "assets", "messages", "cli.json");
+
+function catalogMessage(key: string): string {
+  const catalog = JSON.parse(readFileSync(CLI_MESSAGES_PATH, "utf8")) as Record<
+    string,
+    string
+  >;
+  const message = catalog[key];
+  assert.ok(
+    typeof message === "string" && message.length > 0,
+    `the message catalog must define a non-empty "${key}"`,
+  );
+  return message;
+}
+
+function normalizeCatalogText(text: string): string {
+  return stripAnsi(text)
+    .replace(/[│┌└├─◆◇◻◼●○◐◓◑◒▪]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+Then(
+  /^the .+ should be the `([\w.]+)` message from `assets\/messages\/cli\.json`$/,
+  function (this: JollyWorld, key: string) {
+    const expected = catalogMessage(key);
+    const out = normalizeCatalogText(this.lastRun!.stdout);
+    assert.ok(
+      out.includes(normalizeCatalogText(expected)),
+      `the interactive output must render the "${key}" catalog message verbatim ` +
+        `("${expected}"); got:\n${out}`,
+    );
+  },
+);
