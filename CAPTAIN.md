@@ -71,7 +71,7 @@ testing Keycloak itself — the fake just returns the approval. Specs rewritten 
   slow. Update feature 026's double-enumeration step to bless the fake auth host as the new
   `@exceptional-double`, so the no-forbidden-double `@property` stays green.
 
-The approved 0.9.7 push/release is DEFERRED until this cycle lands. [[mvp-then-iterate]] [[outbound-check-npm-publish-not-just-git]]
+Shipped as **0.10.2** (`main` + tag `v0.10.2` on GitHub, `@dk/jolly` on npm `latest`, 2026-06-25): the catalog ships in the tarball (`files`), guarded by `006:14`; live 0.10.1 predated the whole feature. [[mvp-then-iterate]] [[outbound-check-npm-publish-not-just-git]]
 
 1. **Device authorization grant = the ONLY interactive auth flow**, humans and agents alike.
    - **Saleor** — Jolly drives the grant itself (no Saleor CLI exists). Realm `saleor-cloud`, public
@@ -334,6 +334,12 @@ future iteration, not this cycle's Crew work — [[mvp-then-iterate]], [[spec-cl
   instructions, so this contract lives in the copy.
 
 ## Shipped
+
+Latest **0.10.2** (`main` + tag `v0.10.2`, `@dk/jolly` npm `latest`, 2026-06-25): human-facing
+interactive `jolly start` copy renders from the `assets/messages/cli.json` catalog asset (027), shipped
+in the tarball and guarded by the `006:14` PTY published-launcher catalog-render scenario. Earlier in
+0.10.x: device-grant `Bearer`/refresh platform-API auth, `JOLLY_SALEOR_AUTH_URL` override, agent-login
+success envelope, device-grant verification URL carrying `user_code`.
 
 Through **v0.9.5** (`main`+tag on GitHub, `@dk/jolly` on npm `latest`; homepage redeployed): token-only
 Saleor auth (browser OAuth removed), Stripe = app + skill (Stripe CLI removed), `@dk/jolly` naming, the
