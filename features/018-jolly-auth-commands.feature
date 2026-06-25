@@ -8,8 +8,10 @@ Feature: Jolly auth commands
     The Saleor sign-in is the OAuth 2.0 device authorization grant against the `saleor-cloud`
     Keycloak realm (public client `jolly`, no client secret). It serves humans and agents alike, and
     is the path whenever no token is already configured: a human authorizes at the terminal-shown
-    URL; an agent-driven (non-interactive) run relays the same user code and verification URL to its
-    human on stderr and waits for authorization. Jolly NEVER asks for, prompts for, or accepts a
+    verification URL, which carries the returned user code as its `user_code` query parameter so
+    opening it pre-fills the code instead of asking the human to type it; an agent-driven
+    (non-interactive) run relays the same complete URL and user code to its human on stderr and
+    waits for authorization. Jolly NEVER asks for, prompts for, or accepts a
     pasted token, and never errors merely because no token is configured — a missing token starts the
     grant, it does not block the run. A raw token is supplied ONLY as the `JOLLY_SALEOR_CLOUD_TOKEN`
     environment variable (`.env` or CI), used silently when present; there is no `--token`,
@@ -28,7 +30,7 @@ Feature: Jolly auth commands
       Given a non-interactive shell with no JOLLY_SALEOR_CLOUD_TOKEN set
       And the Saleor auth host approves the device grant on the first poll
       When the agent runs `jolly login --json`
-      Then it should print the returned user code and the verification URL `https://auth.saleor.io/realms/saleor-cloud/device` to stderr so the agent can relay them to its human
+      Then it should print the returned user code and the verification URL `https://auth.saleor.io/realms/saleor-cloud/device?user_code=` followed by that user code to stderr so the agent can relay them to its human
       And the envelope status should be "success"
       And it should store the device-grant access token in .env as JOLLY_SALEOR_ACCESS_TOKEN
       And it should store the device-grant refresh token in .env as JOLLY_SALEOR_REFRESH_TOKEN
@@ -43,7 +45,7 @@ Feature: Jolly auth commands
       Given an interactive terminal with no JOLLY_SALEOR_CLOUD_TOKEN set
       And the Saleor auth host approves the device grant on the first poll
       When the user runs `jolly login`
-      Then it should display the returned user code and the verification URL `https://auth.saleor.io/realms/saleor-cloud/device` through Bombshell's interactive prompt UI
+      Then it should display the returned user code and the verification URL `https://auth.saleor.io/realms/saleor-cloud/device?user_code=` followed by that user code through Bombshell's interactive prompt UI
       And it should store the device-grant access token in .env as JOLLY_SALEOR_ACCESS_TOKEN
       And it should not print any token value
 

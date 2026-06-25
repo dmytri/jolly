@@ -24,7 +24,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     Given a fresh project directory with no `JOLLY_SALEOR_CLOUD_TOKEN` configured
     When the agent runs `jolly start --json` in a non-interactive shell
     Then Jolly should request a device code from `https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/auth/device` with `client_id=jolly`
-    And it should print the returned user code and the `https://auth.saleor.io/realms/saleor-cloud/device` verification URL to stderr so the agent can relay them to its human
+    And it should print the returned user code and the verification URL `https://auth.saleor.io/realms/saleor-cloud/device?user_code=` followed by that user code to stderr so the agent can relay them to its human
     And it should not fabricate that authentication succeeded
 
   @sandbox

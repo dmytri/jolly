@@ -178,7 +178,8 @@ Feature: Human-facing interactive CLI experience
       continues. This is the human (interactive) path only; it does not change the agent path below.
     - When no Saleor Cloud token is configured, Jolly runs the Saleor device authorization grant
       inline (the same grant as `jolly login`, feature 018): it shows the user code and the
-      `auth.saleor.io` verification URL, waits for the human to authorize, and continues with the
+      `auth.saleor.io` verification URL carrying that code as its `user_code` query parameter (so
+      opening the link pre-fills the code), waits for the human to authorize, and continues with the
       acquired credentials — rather than reporting a blocked authentication stage and exiting.
     - Before the unattended stages, when there is no Vercel session, Jolly runs `npx vercel login`
       inline in the same terminal so the human completes the sign-in there and lets the CLI's
@@ -199,5 +200,5 @@ Feature: Human-facing interactive CLI experience
     Given a fresh project directory with no real service credentials
     And `jolly start` runs in an interactive terminal
     When the user starts interactive setup with no Cloud token configured
-    Then the interactive output should show the device user code and the auth.saleor.io verification URL
+    Then the interactive output should show the device user code and the auth.saleor.io verification URL with that code appended as its `user_code` query parameter
     And the interactive output should not prompt the user to paste a token

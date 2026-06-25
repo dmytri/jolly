@@ -1,0 +1,10 @@
+{
+  "pass1": {
+    "scenarios": [
+      "018-jolly-auth-commands.feature:Agent-driven jolly login signs in once the human approves the grant",
+      "018-jolly-auth-commands.feature:Interactive jolly login signs in through the Saleor device authorization grant",
+      "002-v1-end-to-end-saleor-cloud-storefront.feature:jolly start starts the device grant when no token is configured",
+      "027-interactive-cli-experience.feature:Interactive start signs in with the device grant inline, never a pasted token"
+    ]
+  }
+}
