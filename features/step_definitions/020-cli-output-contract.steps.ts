@@ -598,11 +598,12 @@ Then(
 // --- Scenario: Agent branches on stable codes ------------------------------
 
 Given(
-  "the agent runs `jolly login --token {string} --json`",
-  function (this: JollyWorld, token: string) {
-    // An empty token is junk input: login must fail honestly with an
-    // envelope carrying errors[].code, never fabricated success.
-    this.runCli(["login", "--token", token, "--json"], { env: absentCredentialsEnv() });
+  "the agent runs `jolly login --json` in a non-interactive shell with no token configured",
+  function (this: JollyWorld) {
+    // No staff token configured and a non-interactive shell (spawned, no TTY):
+    // the device-grant sign-in cannot prompt, so login must fail honestly with
+    // an envelope carrying errors[].code, never fabricated success.
+    this.runCli(["login", "--json"], { env: absentCredentialsEnv() });
   },
 );
 
@@ -654,18 +655,26 @@ function assertNoLeakAcrossModes(
   world: JollyWorld,
   baseArgs: string[],
 ): void {
+  // login now reads the staff token from JOLLY_SALEOR_CLOUD_TOKEN (the `--token`
+  // machinery is retired, feature 018). The probe is configured as that env
+  // secret — real bad input — so login genuinely processes it (verification is
+  // rejected or unreachable) and must reference it by name only, never echo it.
   for (const mode of [[], ["--json"], ["--quiet"]]) {
-    world.runCli([...baseArgs, ...mode], { env: absentCredentialsEnv() });
+    world.runCli([...baseArgs, ...mode], {
+      env: absentCredentialsEnv({
+        JOLLY_SALEOR_CLOUD_TOKEN: REDACTION_PROBE_CLOUD_TOKEN,
+      }),
+    });
     world.assertNoSecretsIn(world.lastRun!.stdout, "stdout");
     world.assertNoSecretsIn(world.lastRun!.stderr, "stderr");
   }
 }
 
 When(
-  "the agent runs `jolly login --token <value>` in default, `--json`, and `--quiet` modes",
+  "the agent runs `jolly login` in default, `--json`, and `--quiet` modes",
   function (this: JollyWorld) {
     this.trackSecret(REDACTION_PROBE_CLOUD_TOKEN);
-    assertNoLeakAcrossModes(this, ["login", "--token", REDACTION_PROBE_CLOUD_TOKEN]);
+    assertNoLeakAcrossModes(this, ["login"]);
   },
 );
 

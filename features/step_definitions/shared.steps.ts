@@ -88,6 +88,15 @@ Given(
 );
 
 Given(
+  /^Jolly has an authenticated Saleor Cloud session — a device-grant credential \(feature 018\) or JOLLY_SALEOR_CLOUD_TOKEN$/,
+  function (this: JollyWorld) {
+    // Capability statement (024 Background): each scenario supplies the actual
+    // session — the @logic dry-run runs with the workflow tokens unset, the
+    // @sandbox run with the real runtime JOLLY_SALEOR_CLOUD_TOKEN.
+  },
+);
+
+Given(
   "Jolly has a Saleor GraphQL instance URL",
   function (this: JollyWorld) {
     // Capability statement; the instance URL is supplied per-scenario via a
