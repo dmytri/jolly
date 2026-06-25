@@ -150,6 +150,7 @@ All `.feature` scenarios and steps must follow the **scenario-writing guide — 
 - Preserves current behavioral contracts; if a removal would change design or is ambiguous, leave it and raise a Captain blocker.
 - After spec pruning, ensure step definitions/tests are not orphaned and verification discovery is clean.
 - Lints the `.feature` corpus with gplint — `npx gplint "features/**/*.feature"` (config in `.gplintrc`; run via `npx` per the runtime rules, no global install). Treat a non-zero exit as a hygiene blocker: fix pure-formatting violations (trailing spaces, EOF newline, indentation, table alignment) as hygiene edits; flag semantic ones (name length, scenario count, banned tags) to Captain.
+- MAY edit `.gplintrc` to fine-tune the gplint rule set as needed — adjust, enable, or relax rules so the linter matches the project's current spec conventions. Rule reference: https://gplint.github.io/docs/rules.
 - Stages intended changes only and creates the local commit boundary. Captain handles push/publish/release/deploy decisions.
 
 ## Durable Assets
