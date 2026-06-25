@@ -38,7 +38,7 @@ On any role takeover (QM→Captain, Crew→QM, Bosun→Captain, and so on), the 
 | `<test command>` | `npm run test:bdd` |
 | `<focused test command>` | `npx cucumber-js <feature>:<line>` or `node --test <test-file>` |
 | `<typecheck command>` | `npm run typecheck` |
-| `<lint command>` | `N/A` |
+| `<lint command>` | `npx gplint "features/**/*.feature"` (gherkin/feature-file lint; config in `.gplintrc`) |
 
 ## Runtime and Build
 
@@ -149,6 +149,7 @@ All `.feature` scenarios and steps must follow the **scenario-writing guide — 
 - **Removes unreachable production code.** `src/` is disposable and exists only to satisfy current specs/tests, so code that no current scenario, test, or step exercises — a path orphaned after a behavior was retired or refactored — is dead and must be removed, so the MVP carries only code a current spec demands. Detect it by following from the current verification surface (grep for unreferenced exports/functions; where practical, a coverage pass over the BDD run flags `src/` lines no test reaches). When it is unclear whether a path is truly unreachable vs. covering live behavior the tests merely under-exercise, leave it and raise a Captain blocker rather than risk removing a real contract. *(Local addition pending upstream into the canonical Shipshape Bosun role.)*
 - Preserves current behavioral contracts; if a removal would change design or is ambiguous, leave it and raise a Captain blocker.
 - After spec pruning, ensure step definitions/tests are not orphaned and verification discovery is clean.
+- Lints the `.feature` corpus with gplint — `npx gplint "features/**/*.feature"` (config in `.gplintrc`; run via `npx` per the runtime rules, no global install). Treat a non-zero exit as a hygiene blocker: fix pure-formatting violations (trailing spaces, EOF newline, indentation, table alignment) as hygiene edits; flag semantic ones (name length, scenario count, banned tags) to Captain.
 - Stages intended changes only and creates the local commit boundary. Captain handles push/publish/release/deploy decisions.
 
 ## Durable Assets
