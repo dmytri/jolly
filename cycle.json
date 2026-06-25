@@ -1,8 +1,0 @@
-{
-  "pass1": {
-    "scenarios": [
-      "027-interactive-cli-experience.feature:Interactive start renders its up-front gate notes from the message catalog",
-      "027-interactive-cli-experience.feature:Interactive start renders the proceed confirmation and decline from the message catalog"
-    ]
-  }
-}
