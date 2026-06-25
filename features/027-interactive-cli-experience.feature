@@ -75,17 +75,6 @@ Feature: Human-facing interactive CLI experience
     Then the interactive output should name "org-solo" as the target organization
     And no organization choice should be shown, because the token resolves exactly one organization
 
-  @sandbox @exceptional-double
-  Scenario: Interactive start gathers every human gate before the unattended stages
-    # @exceptional-double: the human authorizations the front-loaded gates need — the Saleor
-    # device-grant approval and the Vercel sign-in — cannot be produced on demand in CI, so they
-    # are seeded by the harness; the gate ordering and the unattended run they enable are real.
-    Given a fresh project directory with no real service credentials
-    And the Vercel CLI is pointed at an isolated config with no signed-in session
-    When the user runs `jolly start` in an interactive terminal and presses Enter through the opening prompts
-    Then the Saleor device-grant sign-in, the Vercel sign-in, the setup choices, and the proceed confirmation should all be presented before the first mechanical stage runs
-    And after the user proceeds, the mechanical stages should run with no further interactive prompt
-
   @logic
   Scenario: Interactive start tells the human which steps are theirs
     Given a fresh empty project directory
@@ -204,14 +193,3 @@ Feature: Human-facing interactive CLI experience
       discovery; Jolly still owns the Vercel sign-in there rather than handing the agent a
       `vercel login` next step (feature 002), and reports every other stage it cannot complete as
       honest checks and next steps for the agent to act on (feature 020).
-
-  @sandbox @exceptional-double
-  Scenario: Interactive start runs the Saleor device-grant sign-in inline, in the same session
-    # @exceptional-double: the human authorize cannot be produced on demand in CI, so the
-    # device-grant approval is seeded by the harness; the inline sign-in display and the
-    # continuation into setup it enables are real.
-    Given a fresh project directory with no real service credentials
-    And `jolly start` runs in an interactive terminal
-    When the user works through the prompts with no Cloud token configured
-    Then Jolly should run the Saleor device authorization grant inline, showing the user code and the auth.saleor.io verification URL
-    And after the user authorizes, the run should continue into the setup stages rather than ending at the authentication step

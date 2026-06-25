@@ -415,27 +415,6 @@ When(
 );
 
 When(
-  "the user declines the confirmation before the first side-effecting stage",
-  { timeout: 160_000 },
-  function (this: JollyWorld) {
-    // No Cloud token configured, so interactive start prompts for it inline
-    // first (feature 027): paste a stand-in token, accept the config prompts
-    // (environment name, project directory) with Enter, then decline the
-    // side-effecting confirmation with `n` (clack confirm submits on `n`).
-    if (
-      !runInteractive(this, startArgvWithMock(this), [
-        `${STAND_IN_TOKEN}\r`,
-        "\r",
-        "\r",
-        "n",
-      ])
-    ) {
-      return "skipped";
-    }
-  },
-);
-
-When(
   "the user declines the proceed confirmation",
   { timeout: 160_000 },
   function (this: JollyWorld) {
@@ -700,18 +679,6 @@ Then(
 );
 
 Then(
-  "the interactive output should state that setup stopped before the first side-effecting stage ran",
-  function (this: JollyWorld) {
-    const out = stripAnsi(this.lastRun!.stdout);
-    assert.match(
-      out,
-      /stopped before[^\n]*side-effecting stage/i,
-      `the interactive output must state setup stopped before the first side-effecting stage; got:\n${out}`,
-    );
-  },
-);
-
-Then(
   "the interactive output should not report the store, storefront, recipe, or deployment stages as completed",
   function (this: JollyWorld) {
     const out = stripAnsi(this.lastRun!.stdout);
@@ -758,71 +725,6 @@ Then(
       out,
       /\b(verified|verification (?:passed|succeeded)|store is ready|environment[^\n]*ready)\b/i,
       `declining must not print a fabricated verification result; got:\n${out}`,
-    );
-  },
-);
-
-// ─── Inline Cloud-token paste, same session (feature 027 Rule "Interactive ──
-// start runs end-to-end in one session"). No token configured: instead of
-// reporting a blocked authentication stage and exiting, Jolly prompts the human
-// to paste the token inline with the same Bombshell masked entry as
-// `jolly login`, then continues with it. Driven against the real PTY with
-// credentials genuinely absent. A real-format stand-in token is pasted at the
-// masked prompt — the side-effecting confirmation is then DECLINED so the run
-// stays harmless (no real provision / clone), while still proving the run got
-// past auth into the setup-stage flow.
-
-When(
-  "the user works through the prompts with no Cloud token configured",
-  { timeout: 160_000 },
-  function (this: JollyWorld) {
-    // Paste the token at the masked prompt, accept the env-name and
-    // project-directory defaults, then decline the side-effecting confirmation.
-    if (
-      !runInteractive(this, ["start"], [`${STAND_IN_TOKEN}\r`, "\r", "\r", "n"])
-    ) {
-      return "skipped";
-    }
-  },
-);
-
-Then(
-  "Jolly should present a masked Cloud-token entry prompt in the same session",
-  function (this: JollyWorld) {
-    const out = stripAnsi(this.lastRun!.stdout);
-    assert.match(
-      out,
-      /paste[^\n]*token/i,
-      `interactive start must present a Cloud-token entry prompt when none is configured; got:\n${out}`,
-    );
-    // The entry is Bombshell's masked password prompt (same as `jolly login`):
-    // its prompt UI renders the clack glyphs, distinguishing it from plain text.
-    assert.ok(
-      CLACK_GLYPH.test(this.lastRun!.stdout),
-      `the Cloud-token entry must be the Bombshell masked prompt; got:\n${out}`,
-    );
-  },
-);
-
-Then(
-  "after the token is entered the run should continue into the setup stages rather than ending at the authentication step",
-  function (this: JollyWorld) {
-    const out = stripAnsi(this.lastRun!.stdout);
-    // Continued PAST auth into the side-effecting setup-stage flow: the run
-    // reached the per-stage confirmation that governs those stages (here
-    // declined), which only happens once authentication is satisfied inline.
-    assert.match(
-      out,
-      /side-effecting (?:setup )?stages?/i,
-      `after the token is entered, the run must continue into the setup-stage flow; got:\n${out}`,
-    );
-    // It did NOT end at the authentication step: no report that the Cloud token
-    // is still missing, and no agent-style handoff to run `jolly login` to clear
-    // the gate (feature 027 Rule: gates are satisfied inline, not handed off).
-    assert.doesNotMatch(
-      out,
-      /cloud token is (?:not configured|required|missing)|configure[^\n]*cloud token|\brun `?jolly login`?/i,
-      `the run must not end at the authentication step handing off a login command; got:\n${out}`,
     );
   },
 );

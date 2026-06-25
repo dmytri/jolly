@@ -14,8 +14,6 @@
   "pass2": {
     "scenarios": [
       "002-v1-end-to-end-saleor-cloud-storefront.feature:jolly start guides the user to provide a Saleor Cloud token when none is configured",
-      "027-interactive-cli-experience.feature:Interactive start runs the Saleor device-grant sign-in inline, in the same session",
-      "027-interactive-cli-experience.feature:Interactive start gathers every human gate before the unattended stages",
       "027-interactive-cli-experience.feature:Interactive start tells the human which steps are theirs",
       "027-interactive-cli-experience.feature:Declining the proceed confirmation stops honestly",
       "027-interactive-cli-experience.feature:Setup-stage progress updates in place, showing each stage's status"

@@ -124,6 +124,24 @@ grows accordingly (store the access token in its own var; choose scheme by varia
 seed stays a skip-when-absent `HARNESS_*` secret the harness writes into the project `.env` as
 `JOLLY_SALEOR_REFRESH_TOKEN`.
 
+**Interactive device-grant scenarios removed (2026-06-25 — dk).** The two `027` scenarios "Interactive
+start gathers every human gate before the unattended stages" and "Interactive start runs the Saleor
+device-grant sign-in inline, in the same session" are REMOVED. Each bundled a real front-half with a
+back-half ("after the user authorizes/proceeds, the run continues into the setup stages") that needs
+the device grant — and, for the gates scenario, the Vercel sign-in — to COMPLETE unattended. That is
+the same unrealizability that retired the 018 "authorized device grant stores credentials" scenario
+(testability note above): a `HARNESS_*` captured refresh token realizes only the refresh-CONSUMPTION
+path, not a freshly-displayed grant completing on demand. Realizable coverage already lives elsewhere:
+the inline device-grant front-half in 018 "Interactive jolly login starts the Saleor device
+authorization grant"; the Jolly-owned, bounded Vercel sign-in in 002/014 `@sandbox`; the inline /
+up-front framing in 027 "tells the human which steps are theirs" and "Declining the proceed
+confirmation stops honestly". The "runs unattended once every gate passes" guarantee stays as 027 Rule
+prose (context only). `cycle.json` pass2 dropped both. Bosun prunes the now-orphaned paste step
+definitions (the masked Cloud-token entry When/Thens, used by no scenario). **Known drift to iterate:**
+production interactive `jolly start` still authenticates by pasted token (`src/index.ts:473`
+`clackPassword`); the 027 Rule says device-grant inline. No scenario now drives that switch, so it is a
+future iteration, not this cycle's Crew work — [[mvp-then-iterate]], [[spec-cleanup-found-issues]].
+
 ### Shipped design being superseded by the above
 
 - **Saleor auth is token-only (018) — being replaced by req 1/2 above.** `jolly login` takes the Cloud token from
