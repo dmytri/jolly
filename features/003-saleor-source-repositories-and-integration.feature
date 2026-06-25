@@ -3,9 +3,11 @@ Feature: Saleor source repositories and integration boundaries
   I want Jolly to use current Saleor repositories and avoid deprecated tooling
   So that my storefront setup is reliable and not coupled to legacy workflows
 
+  Background:
+    Given a fresh empty project directory
+
   @sandbox
   Scenario: Use Saleor Paper as the storefront baseline
-    Given a fresh empty project directory
     When the agent runs `jolly start --dry-run --json`
     Then the plan's storefront stage should name `saleor/storefront` as the baseline to clone
     And the plan should not name the deprecated `saleor` CLI as required to create the storefront
@@ -27,7 +29,6 @@ Feature: Saleor source repositories and integration boundaries
 
   @logic
   Scenario: Use Saleor Configurator through the official CLI
-    Given a fresh empty project directory
     When the agent runs `jolly start --dry-run --json`
     Then the plan's recipe stage should name the spawned command `npx @saleor/configurator deploy`
 
@@ -60,7 +61,6 @@ Feature: Saleor source repositories and integration boundaries
 
   @logic
   Scenario: Jolly never depends on the deprecated Saleor CLI
-    Given a fresh empty project directory
     When the agent runs `jolly start --dry-run --json`
     Then no planned stage should spawn the `saleor` CLI binary
     And no planned stage should require the `saleor` CLI to be installed
