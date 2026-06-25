@@ -1,29 +1,32 @@
 // Feature 018 — Jolly auth commands (login / logout / auth status).
 //
+// Interactive sign-in is the Saleor device authorization grant; non-interactive
+// supply is the env/.env staff token JOLLY_SALEOR_CLOUD_TOKEN only. There is no
+// --token/--token-file/--token-stdin flag and no interactive paste.
+//
 // @logic scenarios pinned here:
-//   - login --token when the Cloud API is unreachable: token stored honestly,
-//     status "warning", "stored, not verified", verification check "unknown"
-//     (never "pass"), no organization written, token never printed.
-//   - login token sources: --token-file, --token-stdin, $JOLLY_SALEOR_CLOUD_TOKEN,
-//     and the interactive paste prompt (real PTY); precedence and empty-source
-//     honest errors.
-//   - login with no token source in a non-interactive shell: honest error
-//     pointing to `jolly login --token <value>`; never prompts or blocks.
-//   - logout: removes the Jolly-managed auth vars, preserves third-party vars.
+//   - interactive login starts the device grant (real PTY against auth.saleor.io,
+//     human never authorizes so it polls to the deadline); non-interactive login
+//     never starts the grant and errors honestly.
+//   - login rejects an invalid env staff token (real Cloud API 401/403) and an
+//     empty JOLLY_SALEOR_CLOUD_TOKEN, writing nothing.
+//   - login --dry-run: riskContext action "login", no device code, .env not
+//     written, non-empty nextSteps.
+//   - the shared .env writer is private (mode 600) and shell-safe, exercised via
+//     the stored-not-verified path against a deliberately-unreachable Cloud API.
+//   - logout: removes every Jolly-managed auth var, preserves third-party vars.
 //   - auth status: configuration only, accountContext from
 //     JOLLY_SALEOR_ORGANIZATION or "unknown", no token printed, --json/--quiet.
-//   - login --token --dry-run: riskContext action "login", .env not created,
-//     non-empty nextSteps.
 //
-// @sandbox scenarios (invalid/valid token verification) have bodies written for
-// credentialed CI; they SKIP locally.
+// @sandbox scenarios (staff-token verify+store; refresh-grant Bearer) have bodies
+// written for credentialed CI; they SKIP locally.
 //
 // Safety: every @logic command runs with the runtime credentials genuinely
 // UNSET (absentCredentialsEnv) — real absence, never dummy values — so no @logic
 // path can reach a real account. The one exception is the @exceptional-double
-// "login when the Cloud API is unreachable" scenario, which deliberately points
-// the Cloud API at an unreachable `.invalid` host (justified inline) — the
-// "stored, not verified" condition the real test env cannot produce on demand.
+// stored-not-verified path, which deliberately points the Cloud API at an
+// unreachable `.invalid` host (justified inline) — the condition the real test
+// env cannot produce on demand.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -43,45 +46,6 @@ function envData(world: JollyWorld): Record<string, unknown> {
 
 // ─── Scenario: login stores a token honestly when verification unreachable ──
 
-Given("the Saleor Cloud API is unreachable", function (this: JollyWorld) {
-  // Framing for the @exceptional-double condition: the When points the Cloud
-  // API at a deliberately-unreachable host so verification genuinely cannot
-  // happen and login must store the token honestly without verifying.
-  this.notes.cloudUnreachable = true;
-});
-
-Given(
-  "the agent has a Saleor Cloud token value {string}",
-  function (this: JollyWorld, token: string) {
-    this.notes.loginToken = token;
-    this.trackSecret(token);
-  },
-);
-
-When(
-  "the agent runs `jolly login --token jolly-login-test-token-abc`",
-  function (this: JollyWorld) {
-    const token = String(this.notes.loginToken ?? "jolly-login-test-token-abc");
-    this.trackSecret(token);
-    // Verification cannot happen against a deliberately-unreachable Cloud API, so
-    // login must store the token honestly ("stored, not verified").
-    // @exceptional-double: a deliberately-unreachable Cloud API host (RFC 6761),
-    // the unreachable-service condition the real test env cannot produce on demand.
-    const unreachableCloudApi = "https://jolly-unreachable.invalid";
-    this.runCli(["login", "--token", token, "--json"], {
-      env: absentCredentialsEnv({ JOLLY_SALEOR_CLOUD_API_URL: unreachableCloudApi }),
-    });
-  },
-);
-
-Then(
-  "Jolly should write the token to .env as JOLLY_SALEOR_CLOUD_TOKEN",
-  function (this: JollyWorld) {
-    const values = loadEnvValues(this.lastRun!.cwd);
-    assert.equal(values["JOLLY_SALEOR_CLOUD_TOKEN"], String(this.notes.loginToken));
-  },
-);
-
 Then(
   // Parametrized: the exact stored value varies per scenario (the unreachable
   // "stored, not verified" token, plus the --token-file / --token-stdin / env
@@ -91,66 +55,6 @@ Then(
     const text = readFileSync(join(this.lastRun!.cwd, ".env"), "utf8");
     const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     assert.match(text, new RegExp(`^JOLLY_SALEOR_CLOUD_TOKEN=${escaped}$`, "m"));
-  },
-);
-
-Then(
-  "the output should state the token was stored, not verified",
-  function (this: JollyWorld) {
-    const haystack = (
-      this.envelope.summary +
-      " " +
-      JSON.stringify(this.envelope.data)
-    ).toLowerCase();
-    assert.ok(
-      haystack.includes("stored, not verified"),
-      `output must say exactly "stored, not verified"; got: ${haystack}`,
-    );
-  },
-);
-
-Then("no check may report the token as verified", function (this: JollyWorld) {
-  const verification = this.envelope.checks.find((c) =>
-    String(c.id).includes("verification"),
-  );
-  if (verification) {
-    assert.notEqual(
-      verification.status,
-      "pass",
-      "the verification check must not be 'pass' when verification did not happen",
-    );
-    assert.equal(verification.status, "unknown");
-  }
-  // No check anywhere may claim a pass for verification.
-  for (const check of this.envelope.checks) {
-    if (String(check.id).includes("verification")) {
-      assert.notEqual(check.status, "pass");
-    }
-  }
-});
-
-Then(
-  "no organization name should be written to .env",
-  function (this: JollyWorld) {
-    const values = loadEnvValues(this.lastRun!.cwd);
-    assert.ok(
-      !("JOLLY_SALEOR_ORGANIZATION" in values),
-      "no organization should be written when verification did not happen",
-    );
-  },
-);
-
-Then(
-  "subsequent `jolly auth status` should report the token is configured",
-  function (this: JollyWorld) {
-    // Re-run auth status in the SAME project dir (the .env just written), with
-    // the env token unset so it can't override the on-disk value (auth status is
-    // configuration-only and reads the on-disk .env).
-    this.runCli(["auth", "status", "--json"], {
-      cwd: this.lastRun!.cwd,
-      env: absentCredentialsEnv({ JOLLY_SALEOR_CLOUD_TOKEN: undefined }),
-    });
-    assert.equal(envData(this)["hasCloudToken"], true);
   },
 );
 
@@ -540,27 +444,6 @@ Then(
 
 // ─── Shared: no existing authentication / no token value in output ──────────
 
-Given(
-  "the agent has no existing Saleor Cloud authentication",
-  function (this: JollyWorld) {
-    // The scenario's temp project has no .env; nothing to do.
-  },
-);
-
-Then("no token value should appear in the output", function (this: JollyWorld) {
-  const text = this.lastRun!.stdout + " " + this.lastRun!.stderr;
-  // No real credential value: only var names and bracketed <placeholders> are
-  // allowed in the dry-run preview, never an actual token assignment or value.
-  assert.ok(
-    !/JOLLY_SALEOR_(CLOUD|APP)_TOKEN=\S/.test(text),
-    "no token value should be written to the output",
-  );
-  assert.ok(
-    !/"(id_token|access_token|cloud_token)"\s*:\s*"(?!<)/.test(text),
-    "no concrete token value should appear in the output",
-  );
-});
-
 Then("it should not write any value to .env", function (this: JollyWorld) {
   const path = join(this.lastRun!.cwd, ".env");
   if (existsSync(path)) {
@@ -584,33 +467,6 @@ Then(
 
 // ─── @sandbox: verify a headless token against the Cloud API ───────────────
 // saleorCloud-gated; runs in CI with the real token. Written for CI.
-
-Given(
-  "the agent provides a valid token from https:\\/\\/cloud.saleor.io\\/tokens",
-  function (this: JollyWorld) {
-    const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
-    assert.ok(token, "the @sandbox valid-token scenario requires JOLLY_SALEOR_CLOUD_TOKEN");
-    this.notes.validToken = token;
-    this.trackSecret(token!);
-  },
-);
-
-When("Jolly validates the token", function (this: JollyWorld) {
-  // Real verification against the real Cloud API (no override → cloud.saleor.io).
-  this.runCli(["login", "--token", String(this.notes.validToken), "--json"]);
-});
-
-Then(
-  "it should verify the token with an authenticated read-only request to the Cloud API organizations endpoint",
-  function (this: JollyWorld) {
-    assert.equal(this.envelope.status, "success");
-    const verification = this.envelope.checks.find((c) =>
-      String(c.id).includes("verification"),
-    );
-    assert.ok(verification, "expected a verification check");
-    assert.equal(verification!.status, "pass");
-  },
-);
 
 Then(
   "it should store the token in .env as JOLLY_SALEOR_CLOUD_TOKEN",
@@ -723,38 +579,12 @@ Then(
 // ─── @sandbox: login rejects an invalid token gracefully ───────────────────
 // saleorCloud requirement is `[]` per SANDBOX_REQUIREMENTS (network only).
 
-Given(
-  "the agent provides an invalid or expired token",
-  function (this: JollyWorld) {
-    this.notes.invalidToken = `invalid-${this.namespace}-token`;
-    this.trackSecret(String(this.notes.invalidToken));
-  },
-);
-
-When("Jolly validates the token against the Cloud API", function (this: JollyWorld) {
-  // Real request to the real Cloud API; a bogus token is really rejected 401.
-  this.runCli(["login", "--token", String(this.notes.invalidToken), "--json"]);
-});
-
 Then(
   "the verification request should really be sent and really be rejected",
   function (this: JollyWorld) {
     assert.equal(this.envelope.status, "error");
     const code = this.envelope.errors[0]?.code;
     assert.equal(code, "INVALID_TOKEN");
-  },
-);
-
-Then("Jolly should report a clear error message", function (this: JollyWorld) {
-  assert.ok(this.envelope.errors.length > 0);
-  assert.ok((this.envelope.errors[0].message as string).length > 0);
-});
-
-Then(
-  "the error message should direct the customer to create a new token at https:\\/\\/cloud.saleor.io\\/tokens",
-  function (this: JollyWorld) {
-    const text = JSON.stringify(this.envelope.errors) + " " + JSON.stringify(this.envelope.nextSteps);
-    assert.ok(text.includes(TOKEN_PAGE), `error guidance must name ${TOKEN_PAGE}`);
   },
 );
 
@@ -874,17 +704,6 @@ Then(
 
 // ─── Scenario: login --token --dry-run does not write to .env ──────────────
 
-When(
-  "the agent runs `jolly login --token jolly-dry-run-token --dry-run --json`",
-  function (this: JollyWorld) {
-    this.trackSecret("jolly-dry-run-token");
-    this.runCli(
-      ["login", "--token", "jolly-dry-run-token", "--dry-run", "--json"],
-      { env: absentCredentialsEnv() },
-    );
-  },
-);
-
 Then(
   "the output should include a nextSteps array with at least one step",
   function (this: JollyWorld) {
@@ -895,32 +714,9 @@ Then(
 
 // ─── Scenario: logout removes only Jolly-managed auth values from .env ──────
 
-Given(
-  ".env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token and JOLLY_SALEOR_APP_TOKEN=some-app-token and JOLLY_SALEOR_ORGANIZATION=some-org and THIRD_PARTY_KEY=keep-me",
-  function (this: JollyWorld) {
-    writeFileSync(
-      join(this.projectDir, ".env"),
-      "JOLLY_SALEOR_CLOUD_TOKEN=some-token\n" +
-        "JOLLY_SALEOR_APP_TOKEN=some-app-token\n" +
-        "JOLLY_SALEOR_ORGANIZATION=some-org\n" +
-        "THIRD_PARTY_KEY=keep-me\n",
-    );
-  },
-);
-
 When("the agent runs `jolly logout`", function (this: JollyWorld) {
   this.runCli(["logout", "--json"], { env: absentCredentialsEnv() });
 });
-
-Then(
-  "Jolly should remove JOLLY_SALEOR_CLOUD_TOKEN, JOLLY_SALEOR_APP_TOKEN, and JOLLY_SALEOR_ORGANIZATION from .env",
-  function (this: JollyWorld) {
-    const values = loadEnvValues(this.lastRun!.cwd);
-    assert.ok(!("JOLLY_SALEOR_CLOUD_TOKEN" in values));
-    assert.ok(!("JOLLY_SALEOR_APP_TOKEN" in values));
-    assert.ok(!("JOLLY_SALEOR_ORGANIZATION" in values));
-  },
-);
 
 Then("THIRD_PARTY_KEY should remain in .env unchanged", function (this: JollyWorld) {
   const values = loadEnvValues(this.lastRun!.cwd);
@@ -938,141 +734,6 @@ Then(
   },
 );
 
-// ─── Headless token sources: --token-file, --token-stdin, $JOLLY_SALEOR_CLOUD_TOKEN ──
-// The non-interactive login sources. The @logic scenarios point the Cloud API
-// at a deliberately-unreachable host so login stores the token honestly
-// ("stored, not verified") without a verification round-trip.
-
-// @exceptional-double: deliberately-unreachable Cloud API host for the "stored, not verified" path the real test env cannot produce on demand.
-const UNREACHABLE_CLOUD_API = "https://jolly-unreachable.invalid";
-
-// Build the child env for a headless-source login. Re-adds a real $JOLLY_SALEOR_
-// CLOUD_TOKEN when the scenario set one (the env-source and precedence cases),
-// and points the Cloud API at the unreachable host when the scenario declared it.
-function headlessLoginEnv(world: JollyWorld): Record<string, string | undefined> {
-  const overrides: Record<string, string | undefined> = {};
-  if (world.notes.cloudUnreachable) {
-    overrides.JOLLY_SALEOR_CLOUD_API_URL = UNREACHABLE_CLOUD_API;
-  }
-  if (world.notes.envToken !== undefined) {
-    overrides.JOLLY_SALEOR_CLOUD_TOKEN = String(world.notes.envToken);
-  }
-  return absentCredentialsEnv(overrides);
-}
-
-Given(
-  "a file at .\\/cloud-token.txt contains the token value {string}",
-  function (this: JollyWorld, token: string) {
-    this.notes.loginToken = token;
-    this.notes.tokenFilePath = "./cloud-token.txt";
-    this.trackSecret(token);
-    // Realistic file shape: trailing newline. Login reads "the token value", so
-    // the stored value is the trimmed token, not the raw bytes.
-    writeFileSync(join(this.projectDir, "cloud-token.txt"), token + "\n");
-  },
-);
-
-When(
-  "the agent runs `jolly login --token-file .\\/cloud-token.txt`",
-  function (this: JollyWorld) {
-    // The scenario asserts the envelope status ("warning", stored-not-verified);
-    // an agent reads that via --json (feature 020 — default login output is
-    // human-only and carries no envelope).
-    this.runCli(["login", "--token-file", "./cloud-token.txt", "--json"], {
-      env: headlessLoginEnv(this),
-    });
-  },
-);
-
-Given(
-  "the token value {string} is provided on standard input",
-  function (this: JollyWorld, token: string) {
-    this.notes.loginToken = token;
-    this.notes.stdinToken = token;
-    this.trackSecret(token);
-  },
-);
-
-When("the agent runs `jolly login --token-stdin`", function (this: JollyWorld) {
-  this.runCli(["login", "--token-stdin"], {
-    env: headlessLoginEnv(this),
-    input: String(this.notes.stdinToken) + "\n",
-  });
-});
-
-Given(
-  "the environment variable JOLLY_SALEOR_CLOUD_TOKEN is set to {string}",
-  function (this: JollyWorld, token: string) {
-    this.notes.envToken = token;
-    this.notes.loginToken = token;
-    this.trackSecret(token);
-  },
-);
-
-// ─── Scenario: no token source in a non-interactive shell fails honestly ────
-// Non-TTY subprocess (runCli pipes stdin) with every token source absent: login
-// must fail honestly with a stable code that points to `jolly login --token
-// <value>`, never prompt and never block waiting for terminal input.
-
-When(
-  "the agent runs `jolly login --json` with no token source in a non-interactive shell",
-  function (this: JollyWorld) {
-    this.runCli(["login", "--json"], { env: absentCredentialsEnv() });
-  },
-);
-
-Then(
-  "it should direct the user to run `jolly login --token <value>`",
-  function (this: JollyWorld) {
-    const text =
-      JSON.stringify(this.envelope.errors) + " " + JSON.stringify(this.envelope.nextSteps);
-    assert.ok(
-      text.includes("jolly login --token"),
-      `login must direct the user to run jolly login --token <value>; got: ${text}`,
-    );
-  },
-);
-
-// ─── Scenario: env-source token in a non-interactive shell ──────────────────
-// Non-TTY subprocess with no token flag: login resolves the token from
-// $JOLLY_SALEOR_CLOUD_TOKEN and stores it (stored-not-verified against the
-// deliberately-unreachable Cloud API), never prompting or blocking on input.
-
-When(
-  "the agent runs `jolly login` with no token flag in a non-interactive shell",
-  function (this: JollyWorld) {
-    this.runCli(["login"], { env: headlessLoginEnv(this) });
-  },
-);
-
-Then(
-  /^the value (\S+) should not appear in \.env$/,
-  function (this: JollyWorld, value: string) {
-    const path = join(this.lastRun!.cwd, ".env");
-    const text = existsSync(path) ? readFileSync(path, "utf8") : "";
-    assert.ok(
-      !text.includes(value),
-      `the superseded value "${value}" must not appear in .env`,
-    );
-  },
-);
-
-Given(
-  "a file at .\\/empty-token.txt that is empty",
-  function (this: JollyWorld) {
-    writeFileSync(join(this.projectDir, "empty-token.txt"), "");
-  },
-);
-
-When(
-  "the agent runs `jolly login --token-file .\\/empty-token.txt --json`",
-  function (this: JollyWorld) {
-    this.runCli(["login", "--token-file", "./empty-token.txt", "--json"], {
-      env: absentCredentialsEnv(),
-    });
-  },
-);
-
 Then(
   "the envelope status should be \"error\" with a stable `code`",
   function (this: JollyWorld) {
@@ -1082,59 +743,14 @@ Then(
   },
 );
 
-Then(
-  "the error should name the empty token file as the cause",
-  function (this: JollyWorld) {
-    const reported = (
-      JSON.stringify(this.envelope.errors) +
-      " " +
-      this.envelope.summary
-    ).toLowerCase();
-    assert.ok(reported.includes("empty"), `error must name the empty file as the cause; got: ${reported}`);
-    assert.ok(
-      /token[ -]?file|empty-token\.txt/.test(reported),
-      `error must identify the token file; got: ${reported}`,
-    );
-  },
-);
-
 // ─── @sandbox: verify a --token-file token against the real Cloud API ──────
 // saleorCloud-gated; runs in CI with the real token, skips locally.
-
-Given(
-  "a file containing a valid token from https:\\/\\/cloud.saleor.io\\/tokens",
-  function (this: JollyWorld) {
-    const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
-    assert.ok(token, "the @sandbox valid-token-file scenario requires JOLLY_SALEOR_CLOUD_TOKEN");
-    this.notes.validToken = token;
-    this.trackSecret(token!);
-    const path = join(this.projectDir, "valid-cloud-token.txt");
-    writeFileSync(path, token! + "\n");
-    this.notes.tokenFilePath = path;
-  },
-);
-
-When("the agent runs `jolly login --token-file <path>`", function (this: JollyWorld) {
-  // Real verification against the real Cloud API (no override → cloud.saleor.io).
-  this.runCli(["login", "--token-file", String(this.notes.tokenFilePath), "--json"]);
-});
 
 // ─── @property: the .env Jolly writes is private to its owner (mode 600) ────
 // The shared .env writer must create the file owner-read/write only. Exercised
 // via the stored-not-verified path against the deliberately-unreachable Cloud
 // API (the inline @exceptional-double) so the local WRITE is observed without a
 // real verify round-trip.
-
-When(
-  "the agent runs `jolly login --token jolly-perms-test-token-001`",
-  function (this: JollyWorld) {
-    const token = String(this.notes.loginToken ?? "jolly-perms-test-token-001");
-    this.trackSecret(token);
-    this.runCli(["login", "--token", token, "--json"], {
-      env: headlessLoginEnv(this),
-    });
-  },
-);
 
 Then(
   /^the \.env file Jolly wrote should be readable and writable only by its owner \(mode 600\)$/,
@@ -1154,25 +770,6 @@ Then(
 // A value carrying a space and an apostrophe must be quoted so `set -a; . .env`
 // sources without error and round-trips the original value. Same stored-not-
 // verified path against the unreachable Cloud API.
-
-Given(
-  "a file at .\\/odd-token.txt contains the token value {string}",
-  function (this: JollyWorld, token: string) {
-    this.notes.loginToken = token;
-    this.notes.tokenFilePath = "./odd-token.txt";
-    this.trackSecret(token);
-    writeFileSync(join(this.projectDir, "odd-token.txt"), token + "\n");
-  },
-);
-
-When(
-  "the agent runs `jolly login --token-file .\\/odd-token.txt`",
-  function (this: JollyWorld) {
-    this.runCli(["login", "--token-file", "./odd-token.txt"], {
-      env: headlessLoginEnv(this),
-    });
-  },
-);
 
 Then(
   "sourcing the written .env in a POSIX shell should exit zero",
@@ -1222,84 +819,74 @@ function resolvedChildEnv(
   return env;
 }
 
-Given(
-  "`jolly login` runs in an interactive terminal with no token flag and no token in the environment",
-  function (this: JollyWorld) {
-    // Framing for the When: an interactive (TTY) invocation with no token from
-    // any explicit source. The TTY is the real PTY the When allocates; the
-    // env-token is absent because the child env unsets every runtime credential.
-    this.notes.interactiveLogin = true;
-  },
-);
+// ─── Scenario: jolly login --dry-run does not write to .env ─────────────────
+// A dry-run login previews only: it shows the login riskContext + nextSteps,
+// never starts the device grant (no device code), and writes nothing to .env.
 
 When(
-  "the user pastes the token value {string} at the prompt",
-  { timeout: 45_000 },
-  function (this: JollyWorld, token: string) {
-    if (!ptyAvailable()) return "skipped";
-    this.notes.loginToken = token;
-    this.trackSecret(token);
-    // No token flag and no env token (absentCredentialsEnv unsets the runtime
-    // credentials); the Cloud API points at the deliberately-unreachable host so
-    // the pasted token follows the stored-not-verified path.
-    const env = resolvedChildEnv(
-      absentCredentialsEnv({ JOLLY_SALEOR_CLOUD_API_URL: UNREACHABLE_CLOUD_API }),
-    );
-    const runtime = process.env.HARNESS_CLI_RUNTIME ?? "node";
-    const run = runUnderPty({
-      runtime,
-      argv: [CLI_ENTRY, "login"],
-      cwd: this.projectDir,
-      env,
-      input: token,
-    });
-    this.previousRun = this.lastRun;
-    this.lastRun = {
-      args: ["login"],
-      cwd: this.projectDir,
-      exitCode: run.exitCode,
-      stdout: run.output,
-      stderr: "",
-    };
+  "the user runs `jolly login --dry-run --json`",
+  function (this: JollyWorld) {
+    this.runCli(["login", "--dry-run", "--json"], { env: absentCredentialsEnv() });
   },
 );
 
 Then(
-  "Jolly should prompt the user to paste their Saleor Cloud token",
+  "it should not request a device code and should not write to .env",
   function (this: JollyWorld) {
-    const text = this.lastRun!.stdout.toLowerCase();
-    // Must be a prompt to paste the TOKEN at the terminal — not the browser
-    // URL-first guidance ("copy and paste it into any browser"), which also
-    // mentions paste and --token. Require "paste <your/the/their> [Saleor
-    // Cloud] token".
+    const text = (this.lastRun!.stdout + " " + this.lastRun!.stderr).toLowerCase();
     assert.ok(
-      /paste\s+(your|the|their)\s+(saleor\s+cloud\s+)?token/.test(text),
-      `the terminal output must prompt the user to paste their Saleor Cloud token; got: ${this.lastRun!.stdout}`,
+      !text.includes("auth.saleor.io/realms/saleor-cloud/device") &&
+        !/user code|device code/.test(text),
+      "a dry-run login must not request or display a device code",
+    );
+    assert.ok(
+      !existsSync(join(this.lastRun!.cwd, ".env")),
+      "a dry-run login must not write .env",
     );
   },
 );
 
-Then(
-  "the token prompt should render with Bombshell's interactive prompt UI",
-  function (this: JollyWorld) {
-    // The masked-secret entry is served by Bombshell (@clack/prompts), which
-    // renders with box-drawing/symbol glyphs the plain readline prompt never
-    // emitted. Their presence in the terminal output is the falsifiable signal
-    // that the Bombshell prompt UI rendered.
-    assert.ok(
-      /[│┌└◆◇●○▪]/u.test(this.lastRun!.stdout),
-      `the token prompt must render with Bombshell's prompt UI; got: ${this.lastRun!.stdout}`,
-    );
+// ─── @property: the .env Jolly writes is private + shell-safe ───────────────
+// 018:153/164 exercise the shared .env writer via the stored-not-verified path:
+// an env/.env staff token plus a deliberately-unreachable Cloud API
+// (@exceptional-double) so login stores the token without a verify round-trip
+// and the local WRITE — mode 600, shell-safe quoting — is observed.
+
+Given("the Cloud API is unreachable", function (this: JollyWorld) {
+  this.notes.cloudUnreachable = true;
+});
+
+Given(
+  "JOLLY_SALEOR_CLOUD_TOKEN is set to {string}",
+  function (this: JollyWorld, value: string) {
+    this.notes.envToken = value;
+    this.trackSecret(value);
   },
 );
 
-Then(
-  "the terminal output should not contain the pasted token value",
-  function (this: JollyWorld) {
-    const token = String(this.notes.loginToken);
+When("the agent runs `jolly login`", function (this: JollyWorld) {
+  const overrides: Record<string, string | undefined> = {
+    JOLLY_SALEOR_CLOUD_TOKEN: String(this.notes.envToken ?? ""),
+  };
+  if (this.notes.cloudUnreachable) {
+    // @exceptional-double: a deliberately-unreachable Cloud API host (RFC 6761) —
+    // the unreachable-service condition the real test env cannot produce on
+    // demand — so login stores the token honestly without verifying.
+    overrides.JOLLY_SALEOR_CLOUD_API_URL = "https://jolly-unreachable.invalid";
+  }
+  this.runCli(["login"], { env: absentCredentialsEnv(overrides) });
+});
+
+Then("Jolly should not print any token value", function (this: JollyWorld) {
+  const text = this.lastRun!.stdout + " " + this.lastRun!.stderr;
+  assert.ok(
+    !/JOLLY_SALEOR_(CLOUD|APP|REFRESH|ACCESS)_TOKEN=\S/.test(text),
+    "no token value may be printed",
+  );
+  if (this.notes.envToken) {
     assert.ok(
-      !this.lastRun!.stdout.includes(token),
-      "the pasted token must be read with echo disabled and never appear in the terminal output",
+      !text.includes(String(this.notes.envToken)),
+      "the token value must never appear in the output",
     );
-  },
-);
+  }
+});
