@@ -109,12 +109,13 @@ The approved 0.9.7 push/release is DEFERRED until this cycle lands. [[mvp-then-i
    (the Stripe paste is the trailing final step, not a wait — already 027:31-33), no "side-effecting"
    in human strings (kept as internal machine/spec vocabulary). Proceed → "Build your store now? This
    creates the store, storefront, and deployment." `assets/messages/` added to package.json `files` so
-   it bundles in the published package. **Packaging guard deferred (decided 2026-06-25):** the `files`
-   entry is the only safeguard this cycle — 006's published-launcher scenario runs the `--json` agent
-   path, which never reads the catalog, so it would not catch a missing catalog in the tarball. A
-   cheap follow-up — assert the packed tarball contains `assets/messages/cli.json` (npm pack + list,
-   no PTY), or a PTY published-launcher catalog-render check — is deferred to keep scope-1 tight
-   ([[mvp-then-iterate]], [[outbound-check-npm-publish-not-just-git]]). **Scope this cycle = interactive `jolly start` strings only**
+   it bundles in the published package. **Packaging guard landed (2026-06-25):** beyond the `files`
+   entry, 006 now carries a PTY published-launcher catalog-render scenario ("The published package
+   renders interactive copy from its shipped message catalog", `006:14`) — npm pack + install the
+   tarball, run the installed `jolly start --dry-run` under a real PTY accepting every default, and
+   assert the trailing Stripe-step note IS the `start.stripeFinal` catalog message. A missing catalog
+   in the published tarball now fails `@logic`, closing the drift this point fixes
+   ([[outbound-check-npm-publish-not-just-git]]). **Scope this cycle = interactive `jolly start` strings only**
    (`start.vercelSignin`, `start.stripeFinal`, `start.proceed`, `start.declined`); cycle.json selects
    the two scenarios. **PHASE 2 (later, no re-explaining needed): sweep ALL remaining human-facing CLI
    copy into the catalog** — identical pattern (add keys, render via `t(key)`); the catalog-binding

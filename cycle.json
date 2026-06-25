@@ -1,7 +1,0 @@
-{
-  "pass1": {
-    "scenarios": [
-      "006-npx-cli-command-surface.feature:The published package renders interactive copy from its shipped message catalog"
-    ]
-  }
-}
