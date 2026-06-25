@@ -14,37 +14,38 @@ Feature: Jolly auth commands
     grant, it does not block the run. A raw token is supplied ONLY as the `JOLLY_SALEOR_CLOUD_TOKEN`
     environment variable (`.env` or CI), used silently when present; there is no `--token`,
     `--token-file`, or `--token-stdin` flag and no interactive token paste — a secret never reaches
-    Jolly through `argv`, a file argument, or standard input.
+    Jolly through `argv`, a file argument, or standard input. All device-grant and refresh requests
+    target the `saleor-cloud` realm base, which an optional `JOLLY_SALEOR_AUTH_URL` override may
+    redirect (default the first-party realm) for proxy or self-routing — the same affordance as
+    `JOLLY_SALEOR_CLOUD_API_URL` for the Cloud API.
 
-    @logic
-    Scenario: Interactive jolly login starts the Saleor device authorization grant
-      Given an interactive terminal with no JOLLY_SALEOR_CLOUD_TOKEN set
-      When the user runs `jolly login`
-      Then Jolly should request a device code from `https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/auth/device` with `client_id=jolly`
-      And it should display the returned user code and the verification URL `https://auth.saleor.io/realms/saleor-cloud/device` through Bombshell's interactive prompt UI
-      And it should poll `https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/token` while waiting for the user to authorize
-      And it should not print any token value
-
-    @logic
-    Scenario: Agent-driven jolly login starts the device grant and relays the code to its human
+    @logic @exceptional-double
+    Scenario: Agent-driven jolly login signs in once the human approves the grant
+      # @exceptional-double: the human approval cannot be produced on demand; the
+      # local fake auth host (reached via JOLLY_SALEOR_AUTH_URL) approves on the
+      # first poll, so Jolly's real relay, poll, and token-store code completes
+      # without waiting on a human.
       Given a non-interactive shell with no JOLLY_SALEOR_CLOUD_TOKEN set
+      And the Saleor auth host approves the device grant on the first poll
       When the agent runs `jolly login --json`
-      Then Jolly should request a device code from `https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/auth/device` with `client_id=jolly`
-      And it should print the returned user code and the verification URL `https://auth.saleor.io/realms/saleor-cloud/device` to stderr so the agent can relay them to its human
-      And it should poll `https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/token` while waiting for the human to authorize
+      Then it should print the returned user code and the verification URL `https://auth.saleor.io/realms/saleor-cloud/device` to stderr so the agent can relay them to its human
+      And the envelope status should be "success"
+      And it should store the device-grant access token in .env as JOLLY_SALEOR_ACCESS_TOKEN
+      And it should store the device-grant refresh token in .env as JOLLY_SALEOR_REFRESH_TOKEN
+      And it should not write JOLLY_SALEOR_CLOUD_TOKEN to .env
       And stdout should carry no token value
 
-    @logic @property
-    Scenario Outline: Every auth-entry command starts the device grant when no token is configured
-      Given a non-interactive shell with no JOLLY_SALEOR_CLOUD_TOKEN set
-      When the agent runs `<command>`
-      Then Jolly should request a device code from `https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/auth/device` with `client_id=jolly`
-      And it should print the device user code and the `https://auth.saleor.io/realms/saleor-cloud/device` verification URL to stderr
-
-      Examples:
-        | command            |
-        | jolly login --json |
-        | jolly start --json |
+    @logic @exceptional-double
+    Scenario: Interactive jolly login signs in through the Saleor device authorization grant
+      # @exceptional-double: the human approval cannot be produced on demand; the
+      # local fake auth host (JOLLY_SALEOR_AUTH_URL) approves on the first poll, so
+      # the interactive grant completes against a real PTY without a human.
+      Given an interactive terminal with no JOLLY_SALEOR_CLOUD_TOKEN set
+      And the Saleor auth host approves the device grant on the first poll
+      When the user runs `jolly login`
+      Then it should display the returned user code and the verification URL `https://auth.saleor.io/realms/saleor-cloud/device` through Bombshell's interactive prompt UI
+      And it should store the device-grant access token in .env as JOLLY_SALEOR_ACCESS_TOKEN
+      And it should not print any token value
 
   Rule: The Cloud platform API scheme is chosen by which stored token is used
 

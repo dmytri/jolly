@@ -102,7 +102,7 @@ Feature: Jolly CLI output contract
   Scenario: Jolly's request code contacts only first-party hosts
     Given Jolly's own network-request-sending code
     When the hosts it can contact are enumerated
-    Then they should be exactly cloud.saleor.io, auth.saleor.io, the customer's `*.saleor.cloud` domains, and github.com, plus any `JOLLY_SALEOR_CLOUD_API_URL` override
+    Then they should be exactly cloud.saleor.io, auth.saleor.io, the customer's `*.saleor.cloud` domains, and github.com, plus any `JOLLY_SALEOR_CLOUD_API_URL` or `JOLLY_SALEOR_AUTH_URL` override
     And neither api.vercel.com nor api.stripe.com should appear in Jolly's own request code — Vercel is reached only by the spawned Vercel CLI, and api.stripe.com only by the Saleor Stripe app that Jolly installs via Saleor GraphQL `appInstall`
     And the retired hosts id.saleor.online and api.saleor.cloud should not appear anywhere in Jolly's code or output
 

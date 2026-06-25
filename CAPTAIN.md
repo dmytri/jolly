@@ -45,6 +45,34 @@ dk-directed overhaul of the interactive experience. **Device grant verified live
 requirements, recorded as one coherent cycle (018/002/020/024/027/014); the pnpm + recipe-collections
 bug-fixes follow as a small second cycle.
 
+**Device-grant test speed — fake auth host (2026-06-25 — dk).** The device grant is a POLLING flow,
+not a redirect/callback: Jolly reaches OUT to `auth.saleor.io/.../token` and polls; nothing calls back
+INTO Jolly (no local callback server, no `redirect_uri`). So the slow `@logic` login scenarios were
+waiting out the real poll for an approval no human gives in CI. Decision (dk, after a long design
+back-and-forth): verify the device grant against a tiny LOCAL fake auth host that approves on the first
+poll, which Jolly is pointed at through a new `JOLLY_SALEOR_AUTH_URL` override (mirrors
+`JOLLY_SALEOR_CLOUD_API_URL`; default the real `saleor-cloud` realm base; added to the 020 allowlist).
+The faked human-approve is the narrow `@exceptional-double` (026 rule extended) — Jolly's real
+request/relay/poll/store code runs unchanged; only the un-producible human click is injected. This
+makes the login scenarios fast AND restores the approved-completion coverage (access + refresh tokens
+stored) that earlier had to be dropped as unrealizable. We are NOT mocking Keycloak's protocol or
+testing Keycloak itself — the fake just returns the approval. Specs rewritten this cycle: 018
+(Interactive + Agent-driven login sign-in, the relay `Scenario Outline`), 020 (allowlist enumeration),
+026 (admissible-double rule). Worklist:
+- **Crew** — (a) add the `JOLLY_SALEOR_AUTH_URL` override to `src/lib/device-grant.ts` + the
+  `src/lib/hosts.ts` allowlist; (b) on approval, the agent-driven `jolly login --json` MUST report
+  status `success` honestly — today `deviceGrantLoginAgent` emits a "pending" warning envelope and then
+  `process.exit(0)` without correcting it, so a completed sign-in misreports as pending. The new
+  `018:Agent-driven jolly login signs in` asserts `status "success"`, which forces this fix.
+- **QM** — write the fake-auth-host harness (a tiny `127.0.0.1` HTTP server returning the device code +
+  approval) and the step defs. Apply the fake to EVERY no-token `jolly login` invocation, not only the
+  two 018 scenarios: the `006` "Every command accepts the global output flags" login rows currently
+  poll real Keycloak too, so wire the fake there (via a shared hook or the login When) or they stay
+  slow. Update feature 026's double-enumeration step to bless the fake auth host as the new
+  `@exceptional-double`, so the no-forbidden-double `@property` stays green.
+
+The approved 0.9.7 push/release is DEFERRED until this cycle lands. [[mvp-then-iterate]] [[outbound-check-npm-publish-not-just-git]]
+
 1. **Device authorization grant = the ONLY interactive auth flow**, humans and agents alike.
    - **Saleor** — Jolly drives the grant itself (no Saleor CLI exists). Realm `saleor-cloud`, public
      client `jolly` (no secret): POST `…/auth/device` with `client_id=jolly&scope=openid` → show the
