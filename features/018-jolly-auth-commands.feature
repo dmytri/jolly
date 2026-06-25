@@ -31,20 +31,6 @@ Feature: Jolly auth commands
       And it should not request a device code and should not block waiting for input
       And it should not write any value to .env
 
-    @sandbox @exceptional-double
-    Scenario: An authorized device grant stores credentials and reports the organization
-      # @exceptional-double: a human pressing "authorize" in the browser cannot be produced on
-      # demand in CI, so the authorized grant is completed from the harness's stored refresh
-      # grant; the credential store, the Bearer read of the platform API, and the reported
-      # organization it exercises are all real.
-      Given an interactive terminal with no JOLLY_SALEOR_CLOUD_TOKEN set
-      And the device-grant authorization is completed for the interactive user
-      When the user runs `jolly login`
-      Then it should store the device-grant refresh token in .env so a later run can mint a fresh access token
-      And it should read the organizations from the Cloud platform API with `Authorization: Bearer <access-token>`
-      And it should store the returned organization name in .env as JOLLY_SALEOR_ORGANIZATION
-      And it should not print any token value
-
   Rule: The Cloud platform API scheme is chosen by token shape
 
     A Saleor Keycloak access token (a JWT) is sent as `Authorization: Bearer <jwt>`; a staff token

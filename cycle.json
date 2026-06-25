@@ -3,7 +3,6 @@
     "scenarios": [
       "018-jolly-auth-commands.feature:Interactive jolly login starts the Saleor device authorization grant",
       "018-jolly-auth-commands.feature:Non-interactive jolly login never starts the device grant",
-      "018-jolly-auth-commands.feature:An authorized device grant stores credentials and reports the organization",
       "018-jolly-auth-commands.feature:jolly login verifies and stores the env/.env staff token as Token",
       "018-jolly-auth-commands.feature:jolly login rejects an invalid env/.env staff token",
       "018-jolly-auth-commands.feature:jolly login with an empty env/.env token fails honestly",

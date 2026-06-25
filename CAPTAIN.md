@@ -82,6 +82,24 @@ authorization step is the narrow justified `@exceptional-double` (Article 8) for
 grant's coverage. The front-half (device-code request + `user_code`/URL display + polling start) is
 `@logic`-observable.
 
+**Cycle correction (2026-06-25 — QM blocker resolved).** The device-grant `Bearer` platform-API
+coverage is realizable ONLY on a path that genuinely consumes a stored refresh token: `jolly doctor
+saleor` minting a fresh JWT through the real refresh grant, then a real `Authorization: Bearer`
+platform-API read (018 "An expired access token is refreshed from the stored refresh token"). The
+harness seeds a real refresh token captured once from a human authorize — a `HARNESS_*` secret,
+gated to skip when absent (so it is CI-verified, not a [[skip-mask-sandbox-unverified]]). The 018
+scenario "An authorized device grant stores credentials and reports the organization" was NOT
+realizable — `jolly login`'s interactive grant cannot be completed unattended in CI and login does
+not (and should not) consume a stored refresh token — so it contradicted the testability note above
+and is REMOVED. Its real coverage already lives in the front-half `@logic` (018 "Interactive jolly
+login starts the Saleor device authorization grant"), the staff-token store+report (`@sandbox` 018
+"jolly login verifies and stores the env/.env staff token as Token"), and the refresh
+`@exceptional-double` above. The token-shape scheme (JWT→`Bearer`, staff→`Token`), env-only
+non-interactive supply, and org-name storage stay UNIMPLEMENTED in production (`cloudFetch` hardcodes
+`Token`; `commandLogin` still carries the retired `--token`/`--token-file`/`--token-stdin`
+machinery) — that is the expected Crew worklist this cycle, with Bosun removing the orphaned
+`--token*` step definitions and the stale `SANDBOX_REQUIREMENTS` keys.
+
 ### Shipped design being superseded by the above
 
 - **Saleor auth is token-only (018) — being replaced by req 1/2 above.** `jolly login` takes the Cloud token from
