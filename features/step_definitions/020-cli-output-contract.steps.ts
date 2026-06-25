@@ -752,7 +752,7 @@ When("the hosts it can contact are enumerated", async function (this: JollyWorld
 });
 
 Then(
-  /^they should be exactly cloud\.saleor\.io, auth\.saleor\.io, the customer's `\*\.saleor\.cloud` domains, and github\.com, plus any `JOLLY_SALEOR_CLOUD_API_URL` override$/,
+  /^they should be exactly cloud\.saleor\.io, auth\.saleor\.io, the customer's `\*\.saleor\.cloud` domains, and github\.com, plus any `JOLLY_SALEOR_CLOUD_API_URL` or `JOLLY_SALEOR_AUTH_URL` override$/,
   function (this: JollyWorld) {
     const mod = this.notes.hostsModule as
       | { FIRST_PARTY_HOSTS?: unknown; isFirstPartyHost?: (h: string) => boolean }
@@ -789,6 +789,21 @@ Then(
     } finally {
       if (prev === undefined) delete process.env["JOLLY_SALEOR_CLOUD_API_URL"];
       else process.env["JOLLY_SALEOR_CLOUD_API_URL"] = prev;
+    }
+    // The auth-host override host is honored when JOLLY_SALEOR_AUTH_URL is set:
+    // the device + refresh grant may be redirected (proxy/self-routing), the same
+    // affordance as JOLLY_SALEOR_CLOUD_API_URL for the Cloud API.
+    const prevAuth = process.env["JOLLY_SALEOR_AUTH_URL"];
+    try {
+      process.env["JOLLY_SALEOR_AUTH_URL"] =
+        "https://auth.example.test/realms/saleor-cloud";
+      assert.ok(
+        isFirstParty!("auth.example.test"),
+        "the JOLLY_SALEOR_AUTH_URL override host must be first-party",
+      );
+    } finally {
+      if (prevAuth === undefined) delete process.env["JOLLY_SALEOR_AUTH_URL"];
+      else process.env["JOLLY_SALEOR_AUTH_URL"] = prevAuth;
     }
     // Non-first-party hosts are rejected: Vercel and Stripe are reached only by
     // their own spawned CLIs, never by Jolly's own request code.

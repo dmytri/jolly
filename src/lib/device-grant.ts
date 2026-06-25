@@ -6,10 +6,23 @@
 // the first-party host auth.saleor.io (feature 020 allowlist).
 import { isFirstPartyHost } from "./hosts.ts";
 
-const REALM_BASE =
-  "https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect";
-export const DEVICE_AUTH_URL = `${REALM_BASE}/auth/device`;
-export const DEVICE_TOKEN_URL = `${REALM_BASE}/token`;
+const DEFAULT_REALM_BASE = "https://auth.saleor.io/realms/saleor-cloud";
+
+/**
+ * The saleor-cloud realm base every device-grant and refresh request targets.
+ * An optional JOLLY_SALEOR_AUTH_URL override may redirect it (default the
+ * first-party realm) for proxy or self-routing — read at call time so the
+ * override applies per process (feature 018 Rule).
+ */
+function realmBase(): string {
+  const override = process.env["JOLLY_SALEOR_AUTH_URL"];
+  if (override && override.trim() !== "") return override.trim().replace(/\/+$/, "");
+  return DEFAULT_REALM_BASE;
+}
+
+const deviceAuthUrl = (): string =>
+  `${realmBase()}/protocol/openid-connect/auth/device`;
+const deviceTokenUrl = (): string => `${realmBase()}/protocol/openid-connect/token`;
 export const DEVICE_CLIENT_ID = "jolly";
 const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
 
@@ -54,8 +67,9 @@ export interface DeviceAuthorization {
 
 /** Start the grant: request a device code with client_id=jolly. */
 export async function requestDeviceCode(): Promise<DeviceAuthorization> {
-  assertFirstParty(DEVICE_AUTH_URL);
-  const response = await fetch(DEVICE_AUTH_URL, {
+  const url = deviceAuthUrl();
+  assertFirstParty(url);
+  const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -103,8 +117,9 @@ const REFRESH_GRANT_TYPE = "refresh_token";
 export async function refreshAccessToken(
   refreshToken: string,
 ): Promise<DeviceTokens> {
-  assertFirstParty(DEVICE_TOKEN_URL);
-  const response = await fetch(DEVICE_TOKEN_URL, {
+  const url = deviceTokenUrl();
+  assertFirstParty(url);
+  const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -163,12 +178,13 @@ const sleep = (ms: number): Promise<void> =>
 export async function pollForDeviceTokens(
   auth: DeviceAuthorization,
 ): Promise<DeviceTokens> {
-  assertFirstParty(DEVICE_TOKEN_URL);
+  const url = deviceTokenUrl();
+  assertFirstParty(url);
   let intervalMs = Math.max(auth.interval, 1) * 1000;
   const deadline = Date.now() + auth.expiresIn * 1000;
   while (Date.now() < deadline) {
     await sleep(intervalMs);
-    const response = await fetch(DEVICE_TOKEN_URL, {
+    const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({

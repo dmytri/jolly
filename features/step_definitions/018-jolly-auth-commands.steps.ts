@@ -34,6 +34,7 @@ import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { absentCredentialsEnv } from "../support/creds-env.ts";
 import { ptyAvailable, runUnderPty } from "../support/pty.ts";
+import { FAKE_AUTH_MARKER, startFakeAuthHost } from "../support/fake-auth-host.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
 
@@ -103,17 +104,80 @@ Given(
   },
 );
 
-// ─── Scenario: interactive jolly login starts the device authorization grant ─
+// Shared @exceptional-double Given for the approved-completion device-grant
+// scenarios (agent-driven and interactive). A human authorizing at the
+// verification URL cannot be produced on demand, so a local fake auth host — a
+// separate process reached through the JOLLY_SALEOR_AUTH_URL realm-base override
+// — serves the real device-grant endpoints and approves on the first token poll.
+// Jolly's real request, relay/display, poll, and token-store code runs unchanged;
+// only the human click is stood in for. startFakeAuthHost sets the override env
+// var (inherited by both the spawnSync child and the PTY child) and registers
+// teardown.
+
+Given(
+  "the Saleor auth host approves the device grant on the first poll",
+  async function (this: JollyWorld) {
+    await startFakeAuthHost(this);
+  },
+);
+
+/** Decode a stored device-grant JWT and assert it carries the fake host's
+ * marker — proof the value in .env is exactly the token THIS grant issued, not a
+ * staff token or some other source. */
+function assertFakeDeviceToken(
+  value: string | undefined,
+  varName: string,
+): void {
+  assert.ok(value, `${varName} must be stored in .env after the grant completes`);
+  const parts = value!.split(".");
+  assert.equal(parts.length, 3, `${varName} must be a JWT minted by the device grant`);
+  const payload = JSON.parse(
+    Buffer.from(parts[1]!, "base64url").toString("utf8"),
+  ) as { marker?: string };
+  assert.equal(
+    payload.marker,
+    FAKE_AUTH_MARKER,
+    `${varName} must be the token the device grant issued (marker mismatch)`,
+  );
+}
+
+Then(
+  "it should store the device-grant access token in .env as JOLLY_SALEOR_ACCESS_TOKEN",
+  function (this: JollyWorld) {
+    const values = loadEnvValues(this.lastRun!.cwd);
+    assertFakeDeviceToken(values["JOLLY_SALEOR_ACCESS_TOKEN"], "JOLLY_SALEOR_ACCESS_TOKEN");
+  },
+);
+
+Then(
+  "it should store the device-grant refresh token in .env as JOLLY_SALEOR_REFRESH_TOKEN",
+  function (this: JollyWorld) {
+    const values = loadEnvValues(this.lastRun!.cwd);
+    assertFakeDeviceToken(values["JOLLY_SALEOR_REFRESH_TOKEN"], "JOLLY_SALEOR_REFRESH_TOKEN");
+  },
+);
+
+Then(
+  "it should not write JOLLY_SALEOR_CLOUD_TOKEN to .env",
+  function (this: JollyWorld) {
+    const values = loadEnvValues(this.lastRun!.cwd);
+    assert.ok(
+      !("JOLLY_SALEOR_CLOUD_TOKEN" in values),
+      "the device grant writes only the access + refresh variables and must never " +
+        "write the staff token JOLLY_SALEOR_CLOUD_TOKEN",
+    );
+  },
+);
+
+// ─── Scenario: interactive jolly login signs in through the device grant ─────
 // An interactive `jolly login` (stdin a real PTY) with no JOLLY_SALEOR_CLOUD_
-// TOKEN must start the OAuth 2.0 device authorization grant against the real
-// saleor-cloud Keycloak realm: request a device code (public client `jolly`, no
-// secret), display the returned user code + verification URL through Bombshell's
-// prompt UI, then poll the token endpoint while the (never-arriving) human
-// authorizes. Run for REAL against auth.saleor.io — the device-code request is
-// unauthenticated, so no credential is needed and no resource outlives the run
-// (an unauthorized device code expires harmlessly). The human never authorizes,
-// so the PTY deadline stops the still-polling process; the captured output holds
-// the displayed code + URL.
+// TOKEN runs the OAuth 2.0 device authorization grant: request a device code
+// (public client `jolly`, no secret), display the returned user code +
+// verification URL through Bombshell's prompt UI, then poll the token endpoint.
+// The shared @exceptional-double Given points the grant at the local fake auth
+// host through JOLLY_SALEOR_AUTH_URL, which approves on the first poll, so the
+// sign-in completes against a real PTY without a human: Jolly stores the access
+// token in .env and exits. The displayed code + URL stay in the captured output.
 
 const AUTH_DEVICE_URL =
   "https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/auth/device";
@@ -135,9 +199,10 @@ When(
   { timeout: 30_000 },
   function (this: JollyWorld) {
     if (!ptyAvailable()) return "skipped";
-    // No env token (absentCredentialsEnv unsets the runtime credentials); the
-    // human never authorizes, so the device grant displays the code + URL and
-    // keeps polling until the PTY deadline kills it.
+    // No env token (absentCredentialsEnv unsets the runtime credentials). The
+    // shared Given exported JOLLY_SALEOR_AUTH_URL pointing at the fake auth host,
+    // inherited here through resolvedChildEnv, so the grant approves on the first
+    // poll and the login completes on its own — no human input is typed.
     const env = resolvedChildEnv(absentCredentialsEnv());
     const runtime = process.env.HARNESS_CLI_RUNTIME ?? "node";
     const run = runUnderPty({
@@ -145,7 +210,7 @@ When(
       argv: [CLI_ENTRY, "login"],
       cwd: this.projectDir,
       env,
-      // No scripted input: the human never authorizes, so nothing is typed.
+      // No scripted input: the fake host approves, so nothing is typed.
       inputs: [],
       timeoutMs: 15_000,
     });
@@ -202,25 +267,6 @@ Then(
   },
 );
 
-Then(
-  "it should poll `https:\\/\\/auth.saleor.io\\/realms\\/saleor-cloud\\/protocol\\/openid-connect\\/token` while waiting for the user to authorize",
-  function (this: JollyWorld) {
-    // The human never authorizes, so a polling login keeps running until the PTY
-    // deadline kills it (non-zero exit). A login that printed the code and
-    // returned on its own would exit 0 — and never poll the token endpoint.
-    assert.notEqual(
-      this.lastRun!.exitCode,
-      0,
-      "interactive login must keep polling the token endpoint while waiting for " +
-        "authorization, not exit after displaying the code",
-    );
-    assert.ok(
-      USER_CODE_RE.test(this.lastRun!.stdout),
-      "polling must begin only after the device code was displayed",
-    );
-  },
-);
-
 Then("it should not print any token value", function (this: JollyWorld) {
   const text = this.lastRun!.stdout;
   // No JWT and no token assignment may appear in the terminal output.
@@ -234,16 +280,14 @@ Then("it should not print any token value", function (this: JollyWorld) {
   );
 });
 
-// ─── Scenario: Agent-driven jolly login starts the device grant ─────────────
-// A non-interactive `jolly login --json` with no JOLLY_SALEOR_CLOUD_TOKEN starts
-// the same Saleor device authorization grant: it requests a real device code,
-// relays the user code + verification URL to its human on STDERR (the agent
-// reads stderr and forwards them), and keeps polling the token endpoint while
-// the human authorizes out-of-band. The human never authorizes here, so the
-// bounded-timeout When kills the still-polling process; the captured stderr
-// holds the relayed code + URL. Run for REAL against auth.saleor.io — the
-// device-code request is unauthenticated, so no credential is needed and an
-// unauthorized device code expires harmlessly.
+// ─── Scenario: Agent-driven jolly login signs in once the human approves ────
+// A non-interactive `jolly login --json` with no JOLLY_SALEOR_CLOUD_TOKEN runs
+// the Saleor device authorization grant: it requests a device code, relays the
+// user code + verification URL to its human on plain STDERR (stdout stays clean
+// for the single result envelope), and polls the token endpoint. The shared
+// @exceptional-double Given points the grant at the local fake auth host through
+// JOLLY_SALEOR_AUTH_URL, which approves on the first poll, so the run stores the
+// access + refresh tokens and emits a success envelope without a human.
 
 Then(
   "it should print the returned user code and the verification URL `https:\\/\\/auth.saleor.io\\/realms\\/saleor-cloud\\/device` to stderr so the agent can relay them to its human",
@@ -261,28 +305,6 @@ Then(
   },
 );
 
-Then(
-  "it should poll `https:\\/\\/auth.saleor.io\\/realms\\/saleor-cloud\\/protocol\\/openid-connect\\/token` while waiting for the human to authorize",
-  function (this: JollyWorld) {
-    // The human never authorizes, so a polling login keeps running until the
-    // bounded-timeout When kills it (non-zero exit). A login that printed the
-    // code and returned on its own would exit 0 and never poll the token
-    // endpoint. The relayed code on stderr proves polling began only after the
-    // device code was shown to the human.
-    assert.notEqual(
-      this.lastRun!.exitCode,
-      0,
-      "agent-driven login must keep polling the token endpoint while waiting for " +
-        "authorization, not exit after relaying the code",
-    );
-    assert.match(
-      this.lastRun!.stderr,
-      USER_CODE_RE,
-      "polling must begin only after the device code was relayed on stderr",
-    );
-  },
-);
-
 Then("stdout should carry no token value", function (this: JollyWorld) {
   const stdout = this.lastRun!.stdout;
   assert.ok(
@@ -294,27 +316,6 @@ Then("stdout should carry no token value", function (this: JollyWorld) {
     "no token value may be printed to stdout",
   );
 });
-
-// ─── Scenario Outline: Every auth-entry command starts the device grant ─────
-// `jolly login --json` and `jolly start --json`, run non-interactively with no
-// token, each start the grant and relay the device user code + verification URL
-// on stderr for the agent to forward to its human.
-
-Then(
-  "it should print the device user code and the `https:\\/\\/auth.saleor.io\\/realms\\/saleor-cloud\\/device` verification URL to stderr",
-  function (this: JollyWorld) {
-    const stderr = this.lastRun!.stderr;
-    assert.match(
-      stderr,
-      USER_CODE_RE,
-      `the device user code must be relayed on stderr; got: ${stderr}`,
-    );
-    assert.ok(
-      stderr.includes(AUTH_VERIFICATION_URL),
-      `the verification URL ${AUTH_VERIFICATION_URL} must be relayed on stderr; got: ${stderr}`,
-    );
-  },
-);
 
 // ─── Scenario: An expired access token is refreshed from the stored refresh token ──
 // @sandbox @exceptional-double. The authorized grant is seeded from the

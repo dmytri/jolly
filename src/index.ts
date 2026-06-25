@@ -57,6 +57,7 @@ import {
   pollForDeviceTokens,
   refreshAccessToken,
   isJwtExpired,
+  DeviceGrantError,
   type DeviceAuthorization,
 } from "./lib/device-grant.ts";
 import { parse as parseBombArgs } from "@bomb.sh/args";
@@ -703,37 +704,19 @@ function relayDeviceCode(auth: DeviceAuthorization): void {
 // tokens (never the staff token) and exit successfully.
 async function deviceGrantLoginAgent(
   command: string,
-  args: ParsedArgs,
+  _args: ParsedArgs,
 ): Promise<Envelope> {
   const auth = await requestDeviceCode();
+  // Relay the user code + verification URL to plain STDERR so the agent forwards
+  // them to its human; stdout stays clean for the single result envelope.
   relayDeviceCode(auth);
-  // Emit the announcement envelope on stdout BEFORE polling, so the agent sees
-  // the standard envelope (feature 006/020) the moment the grant starts.
-  emit(
-    envelope({
-      command,
-      status: "warning",
-      summary:
-        "Started the Saleor device authorization grant. Authorize at the URL relayed on stderr.",
-      data: { authorizationPending: true, riskContext: loginRiskContext() },
-      nextSteps: [
-        {
-          description:
-            "Authorize the device sign-in at the verification URL relayed on stderr.",
-          command: "jolly login",
-        },
-      ],
-    }),
-    args,
-  );
-  // Poll the token endpoint while the human authorizes out-of-band. A single
-  // agent-driven invocation waits a bounded window (the grant's own interval is
-  // honoured) rather than the full device-code lifetime: the agent has relayed
-  // the code + URL, so the human authorizes and the agent re-runs `jolly login`
-  // (the relayed envelope's nextStep) to complete. On authorization within the
-  // window, store the access + refresh tokens and exit successfully; otherwise
-  // the grant has not yet completed and the run exits non-zero with the
-  // announcement envelope already on stdout.
+  // Poll the token endpoint while the human authorizes out-of-band, within a
+  // bounded window (the grant's own interval is honoured) rather than the full
+  // device-code lifetime. On authorization within the window, store the access +
+  // refresh tokens (never the staff token) and return a success envelope — the
+  // single envelope on stdout, with no token value printed. If the window passes
+  // without authorization, return a pending warning so the agent re-runs
+  // `jolly login` to complete.
   try {
     const tokens = await pollForDeviceTokens({
       ...auth,
@@ -743,15 +726,30 @@ async function deviceGrantLoginAgent(
       JOLLY_SALEOR_ACCESS_TOKEN: tokens.accessToken,
       JOLLY_SALEOR_REFRESH_TOKEN: tokens.refreshToken,
     });
-    process.stderr.write(
-      "Signed in through the Saleor device authorization grant.\n",
-    );
-    process.exit(0);
+    return envelope({
+      command,
+      status: "success",
+      summary: "Signed in through the Saleor device authorization grant.",
+      data: { cloudTokenStored: true, riskContext: loginRiskContext() },
+    });
   } catch (err) {
-    process.stderr.write(
-      `${err instanceof Error ? err.message : String(err)}\n`,
-    );
-    process.exit(1);
+    if (err instanceof DeviceGrantError && err.code === "DEVICE_CODE_EXPIRED") {
+      return envelope({
+        command,
+        status: "warning",
+        summary:
+          "Started the Saleor device authorization grant. Authorize at the URL relayed on stderr, then re-run `jolly login`.",
+        data: { authorizationPending: true, riskContext: loginRiskContext() },
+        nextSteps: [
+          {
+            description:
+              "Authorize the device sign-in at the verification URL relayed on stderr.",
+            command: "jolly login",
+          },
+        ],
+      });
+    }
+    throw err;
   }
 }
 
