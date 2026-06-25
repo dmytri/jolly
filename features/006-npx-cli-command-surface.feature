@@ -11,6 +11,12 @@ Feature: Npx-first Jolly CLI command surface
     And stdout should carry the standard output envelope
 
   @logic
+  Scenario: The published package renders interactive copy from its shipped message catalog
+    Given the published Jolly CLI
+    When the installed `jolly start --dry-run` runs through the published launcher in an interactive terminal, accepting every default
+    Then the trailing Stripe-step note should be the `start.stripeFinal` message from `assets/messages/cli.json`
+
+  @logic
   Scenario: Agent starts the guided setup flow
     Given the customer wants the end-to-end guided Saleor storefront setup
     When the agent runs `jolly start --json`
@@ -137,6 +143,13 @@ Feature: Npx-first Jolly CLI command surface
       temporary `node_modules`, and run the installed `jolly` bin — because
       running the launcher from the source tree (where `src/` is not under
       `node_modules`) gives a false pass.
+    - The published package ships the human-facing message catalog
+      (`assets/messages/cli.json`) the interactive layer renders by key (feature
+      027). The catalog is read at runtime, not bundled into `dist/index.js`, so
+      the "as actually installed" guarantee covers it: the installed CLI resolves
+      the catalog from its own package, not the source tree. The `--json` path
+      never reads the catalog, so this guard exercises the installed CLI on its
+      interactive path.
     - The published package's `engines` field must declare the Node.js requirement.
     - On a Node.js older than the minimum, the launcher should fail with a clear
       message naming the minimum Node version, not a raw syntax or module error.
