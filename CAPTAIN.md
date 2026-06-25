@@ -61,8 +61,11 @@ bug-fixes follow as a small second cycle.
 2. **Raw token only via env/.env (and CI).** Non-interactive supply is `$JOLLY_SALEOR_CLOUD_TOKEN`
    (today's staff token from `https://cloud.saleor.io/tokens`) — kept for testing flows + CI. The
    explicit `--token`/`--token-file`/`--token-stdin` argv/file/stdin sources and the interactive masked
-   paste are RETIRED. Jolly picks the platform-API scheme by token shape: **Keycloak JWT → `Bearer`,
-   staff token → `Token`.**
+   paste are RETIRED. Jolly keeps the device-grant tokens in their own variables
+   (`JOLLY_SALEOR_ACCESS_TOKEN` + `JOLLY_SALEOR_REFRESH_TOKEN`) and the staff token in
+   `JOLLY_SALEOR_CLOUD_TOKEN`, and picks the platform-API scheme by **which variable holds the
+   token**: access token → `Bearer`, staff token → `Token` (separate-vars decision 2026-06-25, below;
+   supersedes the earlier "by token shape" framing).
 3. **Host allowlist (020) adds `auth.saleor.io`** (currently excluded) for the grant + refresh.
 4. **Honest interactive copy** — drop the misleading "Gate:" prefix (the CLI is not waiting at the
    final Stripe step) and purge "side-effecting" from human-facing strings (keep it as internal
@@ -99,6 +102,27 @@ non-interactive supply, and org-name storage stay UNIMPLEMENTED in production (`
 `Token`; `commandLogin` still carries the retired `--token`/`--token-file`/`--token-stdin`
 machinery) — that is the expected Crew worklist this cycle, with Bosun removing the orphaned
 `--token*` step definitions and the stale `SANDBOX_REQUIREMENTS` keys.
+
+**Separate-vars decision (2026-06-25 — dk).** The device grant MUST NOT clobber a configured staff
+token, because tests (and CI) run on the staff token in `.env` (`JOLLY_SALEOR_CLOUD_TOKEN`). So the
+two Cloud credentials live in separate variables:
+- staff token → `JOLLY_SALEOR_CLOUD_TOKEN`, sent as `Authorization: Token`;
+- device-grant access token (Keycloak JWT) → `JOLLY_SALEOR_ACCESS_TOKEN`, sent as
+  `Authorization: Bearer`, refreshed from `JOLLY_SALEOR_REFRESH_TOKEN` when expired.
+
+The interactive device grant writes only the access + refresh variables and never overwrites
+`JOLLY_SALEOR_CLOUD_TOKEN`. The platform-API scheme is chosen by **which variable holds the token**,
+not by token shape; when both are stored, the device-grant access token is used (this is what makes
+the refresh `@exceptional-double` exercise the refresh path even with a staff token also present).
+The realizable, falsifiable home for the non-clobber/separate-var guarantee is the refresh path
+(018 "An expired access token is refreshed…" + 014 "Doctor validates stored device-grant credentials
+with Bearer"), which stores a freshly-minted access token into `JOLLY_SALEOR_ACCESS_TOKEN`. Logout's
+managed set now includes `JOLLY_SALEOR_ACCESS_TOKEN`. Specs rewritten in 018 (scheme rule, refresh,
+logout, verification rule) and 014 (doctor rule prose + the device-grant Bearer scenario);
+`@logic`/staff-token scenarios and titles are unchanged so `cycle.json` stays valid. Crew worklist
+grows accordingly (store the access token in its own var; choose scheme by variable). The refresh
+seed stays a skip-when-absent `HARNESS_*` secret the harness writes into the project `.env` as
+`JOLLY_SALEOR_REFRESH_TOKEN`.
 
 ### Shipped design being superseded by the above
 

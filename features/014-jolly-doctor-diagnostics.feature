@@ -146,7 +146,7 @@ Feature: Jolly doctor diagnostics
     # @exceptional-double: a human authorize cannot be produced on demand in CI, so the stored
     # device-grant refresh token is seeded from the harness; the refresh grant and the Bearer
     # probe of the platform API it enables are real.
-    Given .env contains a stored Saleor device-grant refresh token
+    Given an expired device-grant access token in JOLLY_SALEOR_ACCESS_TOKEN and its refresh token in JOLLY_SALEOR_REFRESH_TOKEN
     When the agent runs `jolly doctor saleor --json`
     Then the "saleor-cloud-token" check should mint a fresh access token and authenticate an `Authorization: Bearer` read of the Cloud API organizations endpoint
     And the "saleor-cloud-token" check should be "pass" naming the authenticated organization slug from the real response
@@ -180,19 +180,20 @@ Feature: Jolly doctor diagnostics
     - A credential present in `.env` is not a credential that works. Doctor's
       `saleor-cloud-token` check authenticates a read-only GET of the Cloud API
       organizations endpoint (`https://cloud.saleor.io/platform/api/organizations/`) with the
-      scheme chosen by token shape — a Saleor device-grant access token (a Keycloak JWT) as
-      `Authorization: Bearer <jwt>`, a staff token as `Authorization: Token <value>` — and
+      scheme chosen by which variable holds the token — a device-grant access token in
+      `JOLLY_SALEOR_ACCESS_TOKEN` (a Keycloak JWT) as `Authorization: Bearer <jwt>`, a staff token
+      in `JOLLY_SALEOR_CLOUD_TOKEN` as `Authorization: Token <value>` — and
       reports the real result: `pass` naming the authenticated organization slug on a real 2xx
       with a parseable org list; `warning` or `fail` reporting the HTTP status on a real 401/403;
       `unknown` when the Cloud API is unreachable. A `[pass]` from presence alone is a fabricated
       pass — forbidden by feature 020.
-    - When the stored Saleor credential is a device grant (a refresh token, feature 018), doctor
-      mints a fresh access token through the refresh grant and probes with `Authorization: Bearer`
-      — so the check reflects whether the device-grant session still works, not merely that a
-      refresh token is present.
-    - Before the network probe, doctor inspects the value's shape: a Keycloak JWT (a
-      `eyJ`-prefixed, dot-segmented token) is a device-grant access token probed as `Bearer`; a
-      Cloud staff token (minted at `https://cloud.saleor.io/tokens`) carries a single dot
+    - When a device-grant access token is stored (`JOLLY_SALEOR_ACCESS_TOKEN` paired with a
+      `JOLLY_SALEOR_REFRESH_TOKEN`, feature 018) and the access token has expired, doctor mints a
+      fresh access token through the refresh grant and probes with `Authorization: Bearer` — so the
+      check reflects whether the device-grant session still works, not merely that a refresh token
+      is present.
+    - Before the network probe, doctor inspects the value in the `JOLLY_SALEOR_CLOUD_TOKEN` staff
+      slot: a Cloud staff token (minted at `https://cloud.saleor.io/tokens`) carries a single dot
       separator and is probed as `Token`; a per-store app token is a short separator-free string.
       A separator-free value in the `JOLLY_SALEOR_CLOUD_TOKEN` slot is a `warning` naming the
       likely mix-up — this is the common confusion because both Saleor token kinds look alike.

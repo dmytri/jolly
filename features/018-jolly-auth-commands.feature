@@ -31,12 +31,15 @@ Feature: Jolly auth commands
       And it should not request a device code and should not block waiting for input
       And it should not write any value to .env
 
-  Rule: The Cloud platform API scheme is chosen by token shape
+  Rule: The Cloud platform API scheme is chosen by which stored token is used
 
-    A Saleor Keycloak access token (a JWT) is sent as `Authorization: Bearer <jwt>`; a staff token
-    from `https://cloud.saleor.io/tokens` (supplied through `JOLLY_SALEOR_CLOUD_TOKEN`) is sent as
-    `Authorization: Token <token>`. Jolly discriminates by token shape, so both the interactive
-    device grant and the env/.env/CI staff token authenticate against the same Cloud platform API.
+    Jolly keeps the two Cloud credentials in separate variables so a device sign-in never clobbers a
+    configured staff token. A device-grant access token (a Keycloak JWT) is stored in
+    `JOLLY_SALEOR_ACCESS_TOKEN` and sent as `Authorization: Bearer <jwt>`, refreshed from
+    `JOLLY_SALEOR_REFRESH_TOKEN` when it expires. A staff token from `https://cloud.saleor.io/tokens`
+    is stored in `JOLLY_SALEOR_CLOUD_TOKEN` and sent as `Authorization: Token <token>`. The
+    interactive device grant writes only the access and refresh variables and never overwrites
+    `JOLLY_SALEOR_CLOUD_TOKEN`. When both are stored, the device-grant access token is used.
 
     @sandbox
     Scenario: jolly login verifies and stores the env/.env staff token as Token
@@ -76,10 +79,11 @@ Feature: Jolly auth commands
       # @exceptional-double: the authorized grant is seeded from the harness's stored refresh
       # token (a human authorize cannot be produced on demand); the refresh-grant call and the
       # platform-API read it enables are real.
-      Given a stored Saleor device-grant refresh token whose access token has expired
+      Given an expired device-grant access token in JOLLY_SALEOR_ACCESS_TOKEN and its refresh token in JOLLY_SALEOR_REFRESH_TOKEN
       When the agent runs `jolly doctor saleor --json`
       Then it should mint a fresh access token through the refresh grant at `https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/token`
       And the Cloud platform API read should succeed with the refreshed `Authorization: Bearer` token
+      And it should store the refreshed access token in .env as JOLLY_SALEOR_ACCESS_TOKEN
       And it should not re-prompt the user to authorize again
 
   Rule: Auth command set and principles
@@ -110,9 +114,9 @@ Feature: Jolly auth commands
 
     @logic
     Scenario: Jolly logout removes every Jolly-managed auth value from .env
-      Given .env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token and JOLLY_SALEOR_REFRESH_TOKEN=some-refresh and JOLLY_SALEOR_APP_TOKEN=some-app-token and JOLLY_SALEOR_ORGANIZATION=some-org and THIRD_PARTY_KEY=keep-me
+      Given .env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token and JOLLY_SALEOR_ACCESS_TOKEN=some-access and JOLLY_SALEOR_REFRESH_TOKEN=some-refresh and JOLLY_SALEOR_APP_TOKEN=some-app-token and JOLLY_SALEOR_ORGANIZATION=some-org and THIRD_PARTY_KEY=keep-me
       When the agent runs `jolly logout`
-      Then Jolly should remove JOLLY_SALEOR_CLOUD_TOKEN, JOLLY_SALEOR_REFRESH_TOKEN, JOLLY_SALEOR_APP_TOKEN, and JOLLY_SALEOR_ORGANIZATION from .env
+      Then Jolly should remove JOLLY_SALEOR_CLOUD_TOKEN, JOLLY_SALEOR_ACCESS_TOKEN, JOLLY_SALEOR_REFRESH_TOKEN, JOLLY_SALEOR_APP_TOKEN, and JOLLY_SALEOR_ORGANIZATION from .env
       And THIRD_PARTY_KEY should remain in .env unchanged
       And subsequent `jolly auth status` should report not authenticated
 
@@ -170,8 +174,9 @@ Feature: Jolly auth commands
   Rule: Token verification is a real request or it is not verification
     - Verification means an authenticated read-only GET of the Cloud API organizations endpoint
       (`https://cloud.saleor.io/platform/api/organizations/`) whose response was actually received and
-      checked, with the scheme chosen by token shape (a Keycloak JWT as `Authorization: Bearer
-      <jwt>`, a staff token as `Authorization: Token <token>`). A 2xx response with a parseable
+      checked, with the scheme chosen by which variable holds the token (a device-grant access token
+      in `JOLLY_SALEOR_ACCESS_TOKEN` as `Authorization: Bearer <jwt>`, a staff token in
+      `JOLLY_SALEOR_CLOUD_TOKEN` as `Authorization: Token <token>`). A 2xx response with a parseable
       organization list is verified; a 401/403 is an invalid token (error, nothing written); any other
       failure (network unreachable, 5xx, timeout) means verification did not happen.
     - When verification did not happen but a token was stored, every surface (summary, checks, data)
