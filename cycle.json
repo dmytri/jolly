@@ -1,13 +1,14 @@
 {
   "pass1": {
     "scenarios": [
-      "018-jolly-auth-commands.feature:An expired access token is refreshed from the stored refresh token",
-      "014-jolly-doctor-diagnostics.feature:Doctor validates stored device-grant credentials with Bearer"
+      "020-cli-output-contract.feature:Agent branches on stable codes",
+      "020-cli-output-contract.feature:Output never exposes secrets",
+      "024-jolly-app-token-acquisition.feature:Jolly create app-token --dry-run shows risk context"
     ]
   },
   "pass2": {
     "scenarios": [
-      "027-interactive-cli-experience.feature:Interactive start signs in with the device grant inline, never a pasted token"
+      "024-jolly-app-token-acquisition.feature:Jolly create app-token acquires a real, fully-permissioned token from Saleor"
     ]
   }
 }
