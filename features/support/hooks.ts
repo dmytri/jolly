@@ -19,7 +19,9 @@ import {
 } from "./provision.ts";
 import {
   classifyCredentials,
+  deviceGrantRefreshAvailable,
   requiredGroups,
+  requiresDeviceGrantRefresh,
   requiresVercelCli,
   vercelCliAuthenticated,
 } from "./sandbox.ts";
@@ -52,6 +54,17 @@ Before(
       // The derived app token entered process.env after this world snapshot
       // took its secrets; track it so output-safety assertions cover it.
       for (const secret of derivedSecrets()) this.trackSecret(secret);
+    }
+    // Device-grant refresh capability gate (@exceptional-double): the refresh-
+    // grant scenarios need a stored device-grant refresh token a human authorize
+    // cannot produce on demand. Absent → skip, never fail.
+    if (requiresDeviceGrantRefresh(scenarioName) && !deviceGrantRefreshAvailable()) {
+      this.attach(
+        "Skipped: no stored device-grant refresh token (JOLLY_SALEOR_REFRESH_TOKEN) " +
+          "to seed the authorized grant",
+        "text/plain",
+      );
+      return "skipped";
     }
     // Vercel capability gate (decision 2026-06-13): deployment-touching
     // scenarios need an authenticated Vercel CLI session, not a Jolly env var.

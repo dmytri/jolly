@@ -160,11 +160,12 @@ Then(
 // and JOLLY_SALEOR_ORGANIZATION while preserving any non-Jolly variable.
 
 Given(
-  ".env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token and JOLLY_SALEOR_REFRESH_TOKEN=some-refresh and JOLLY_SALEOR_APP_TOKEN=some-app-token and JOLLY_SALEOR_ORGANIZATION=some-org and THIRD_PARTY_KEY=keep-me",
+  ".env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token and JOLLY_SALEOR_ACCESS_TOKEN=some-access and JOLLY_SALEOR_REFRESH_TOKEN=some-refresh and JOLLY_SALEOR_APP_TOKEN=some-app-token and JOLLY_SALEOR_ORGANIZATION=some-org and THIRD_PARTY_KEY=keep-me",
   function (this: JollyWorld) {
     writeFileSync(
       join(this.projectDir, ".env"),
       "JOLLY_SALEOR_CLOUD_TOKEN=some-token\n" +
+        "JOLLY_SALEOR_ACCESS_TOKEN=some-access\n" +
         "JOLLY_SALEOR_REFRESH_TOKEN=some-refresh\n" +
         "JOLLY_SALEOR_APP_TOKEN=some-app-token\n" +
         "JOLLY_SALEOR_ORGANIZATION=some-org\n" +
@@ -174,10 +175,11 @@ Given(
 );
 
 Then(
-  "Jolly should remove JOLLY_SALEOR_CLOUD_TOKEN, JOLLY_SALEOR_REFRESH_TOKEN, JOLLY_SALEOR_APP_TOKEN, and JOLLY_SALEOR_ORGANIZATION from .env",
+  "Jolly should remove JOLLY_SALEOR_CLOUD_TOKEN, JOLLY_SALEOR_ACCESS_TOKEN, JOLLY_SALEOR_REFRESH_TOKEN, JOLLY_SALEOR_APP_TOKEN, and JOLLY_SALEOR_ORGANIZATION from .env",
   function (this: JollyWorld) {
     const values = loadEnvValues(this.lastRun!.cwd);
     assert.ok(!("JOLLY_SALEOR_CLOUD_TOKEN" in values));
+    assert.ok(!("JOLLY_SALEOR_ACCESS_TOKEN" in values));
     assert.ok(!("JOLLY_SALEOR_REFRESH_TOKEN" in values));
     assert.ok(!("JOLLY_SALEOR_APP_TOKEN" in values));
     assert.ok(!("JOLLY_SALEOR_ORGANIZATION" in values));
@@ -370,6 +372,126 @@ Then("it should not print any token value", function (this: JollyWorld) {
     "no token value may be printed to the terminal",
   );
 });
+
+// ─── Scenario: An expired access token is refreshed from the stored refresh token ──
+// @sandbox @exceptional-double. The authorized grant is seeded from the
+// harness's stored device-grant refresh token (JOLLY_SALEOR_REFRESH_TOKEN) — a
+// human authorize cannot be produced on demand — while the expired access token
+// is constructed locally (its `exp` in the past). The refresh-grant call and the
+// Bearer platform-API read it enables are real. The When (`jolly doctor saleor
+// --json`) is feature 014's step; it reads notes.saleorDoctorEnv as the env. The
+// same Given seeds 014's "Doctor validates stored device-grant credentials with
+// Bearer".
+
+const REFRESH_TOKEN_URL =
+  "https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/token";
+
+/** A structurally-valid JWT whose `exp` is far in the past, so any expiry check
+ * (decode exp, or a rejected Bearer read) forces the refresh grant. */
+function makeExpiredAccessJwt(): string {
+  const b64url = (obj: unknown): string =>
+    Buffer.from(JSON.stringify(obj)).toString("base64url");
+  const header = b64url({ alg: "RS256", typ: "JWT" });
+  const payload = b64url({ exp: 1_000_000_000, iss: "saleor-cloud" }); // year 2001
+  return `${header}.${payload}.expired-signature`;
+}
+
+Given(
+  "an expired device-grant access token in JOLLY_SALEOR_ACCESS_TOKEN and its refresh token in JOLLY_SALEOR_REFRESH_TOKEN",
+  function (this: JollyWorld) {
+    // @sandbox capability gate guarantees a real stored refresh token is present.
+    const refresh = process.env["JOLLY_SALEOR_REFRESH_TOKEN"];
+    assert.ok(
+      refresh && refresh.trim() !== "",
+      "the @exceptional-double gate must have ensured a stored device-grant refresh token is present",
+    );
+    this.trackSecret(refresh!);
+    const expiredAccess = makeExpiredAccessJwt();
+    this.notes.expiredAccess = expiredAccess;
+    this.trackSecret(expiredAccess);
+    // No Cloud staff token (absentCredentialsEnv unsets it), so the platform-API
+    // scheme is the device-grant Bearer token, not Token. The expired access
+    // token + real refresh token drive the refresh grant.
+    this.notes.saleorDoctorEnv = absentCredentialsEnv({
+      JOLLY_SALEOR_ACCESS_TOKEN: expiredAccess,
+      JOLLY_SALEOR_REFRESH_TOKEN: refresh,
+    });
+  },
+);
+
+Then(
+  "it should mint a fresh access token through the refresh grant at `https:\\/\\/auth.saleor.io\\/realms\\/saleor-cloud\\/protocol\\/openid-connect\\/token`",
+  function (this: JollyWorld) {
+    // The seeded access token is expired, so the only way to authenticate the
+    // platform API is by minting a fresh access token through the refresh grant
+    // (grant_type=refresh_token, client_id=jolly) at the realm token endpoint.
+    // A fresh, well-formed JWT stored in .env — distinct from the expired seed —
+    // is the falsifiable proof the refresh grant ran.
+    void REFRESH_TOKEN_URL;
+    const values = loadEnvValues(this.lastRun!.cwd);
+    const refreshed = values["JOLLY_SALEOR_ACCESS_TOKEN"];
+    assert.ok(refreshed, "a refreshed access token must be stored");
+    assert.notEqual(
+      refreshed,
+      this.notes.expiredAccess,
+      "the refreshed access token must differ from the expired one",
+    );
+    assert.match(
+      refreshed!,
+      /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\./,
+      "the refreshed value must be a JWT minted by the refresh grant",
+    );
+  },
+);
+
+Then(
+  "the Cloud platform API read should succeed with the refreshed `Authorization: Bearer` token",
+  function (this: JollyWorld) {
+    const check = this.findCheck("saleor-cloud-token");
+    assert.ok(check, "doctor saleor must report a `saleor-cloud-token` check");
+    // A device-grant JWT is accepted by the platform API only under `Bearer`
+    // (the `Token` scheme rejects it), so a pass that shows the organizations
+    // read is the falsifiable proof the Bearer read succeeded with the
+    // refreshed token.
+    assert.equal(
+      check!.status,
+      "pass",
+      "the Bearer platform-API read must succeed with the refreshed token",
+    );
+    assert.match(
+      JSON.stringify(check),
+      /organizations/i,
+      "the check must show the authenticated platform organizations read",
+    );
+  },
+);
+
+Then(
+  "it should store the refreshed access token in .env as JOLLY_SALEOR_ACCESS_TOKEN",
+  function (this: JollyWorld) {
+    const values = loadEnvValues(this.lastRun!.cwd);
+    const refreshed = values["JOLLY_SALEOR_ACCESS_TOKEN"];
+    assert.ok(
+      refreshed && refreshed !== this.notes.expiredAccess,
+      "the refreshed access token must be persisted to .env as JOLLY_SALEOR_ACCESS_TOKEN",
+    );
+  },
+);
+
+Then(
+  "it should not re-prompt the user to authorize again",
+  function (this: JollyWorld) {
+    const text = (this.lastRun!.stdout + " " + this.lastRun!.stderr).toLowerCase();
+    assert.ok(
+      !text.includes("auth.saleor.io/realms/saleor-cloud/device"),
+      "a refresh must not re-show the device verification URL",
+    );
+    assert.ok(
+      !/user code|device code|authorize at/.test(text),
+      "a refresh must not re-prompt the user to authorize again",
+    );
+  },
+);
 
 // ─── Scenario: jolly login with an empty env/.env token fails honestly ──────
 // JOLLY_SALEOR_CLOUD_TOKEN present but empty is a present-but-empty token. Login

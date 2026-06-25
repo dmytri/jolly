@@ -773,6 +773,7 @@ function resolveOrgName(orgs: CloudOrganization[]): string | undefined {
 
 const MANAGED_AUTH_VARS = [
   "JOLLY_SALEOR_CLOUD_TOKEN",
+  "JOLLY_SALEOR_ACCESS_TOKEN",
   "JOLLY_SALEOR_REFRESH_TOKEN",
   "JOLLY_SALEOR_APP_TOKEN",
   "JOLLY_SALEOR_ORGANIZATION",
@@ -3429,7 +3430,10 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
     "Planned stages",
     CLACK_STDERR,
   );
-  clackLog.info("Gate: Jolly runs the Vercel sign-in (`vercel login`) with you inline.", CLACK_STDERR);
+  clackLog.info(
+    "Gate: Jolly runs the Vercel sign-in (`vercel login`) with you up front, before the unattended stages.",
+    CLACK_STDERR,
+  );
   clackLog.info(
     "Gate: final step is yours — paste the Stripe keys in the Saleor Dashboard.",
     CLACK_STDERR,
@@ -3458,7 +3462,7 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
     ...CLACK_STDERR,
   });
   if (clackIsCancel(proceed) || proceed === false) {
-    clackOutro("Stopped before any side-effecting stage. Nothing was changed.", CLACK_STDERR);
+    clackOutro("Stopped before any side-effecting stage. Nothing was created.", CLACK_STDERR);
     return runStartCore({ ...args, yes: false });
   }
 
@@ -3695,13 +3699,16 @@ async function runStartCore(args: ParsedArgs): Promise<Envelope> {
     });
   }
 
-  // No Cloud token configured (feature 002): direct the user to create a Saleor
-  // Cloud token and supply it with `jolly login --token <value>`, then re-run.
-  // Token-only auth — a gate Jolly cannot self-clear, never fabricated as done.
+  // No Cloud token configured (feature 002): direct the user to sign in with
+  // `jolly login` through the Saleor device authorization grant (feature 018), or
+  // to set JOLLY_SALEOR_CLOUD_TOKEN for non-interactive use, then re-run. An auth
+  // gate Jolly cannot self-clear, never fabricated as done.
   if (needsToken) {
     nextSteps.push({
-      description: `Create a Saleor Cloud token at ${TOKEN_PAGE} and run jolly login --token <value> to supply it, then re-run jolly start.`,
-      command: "jolly login --token <value>",
+      description:
+        "Run `jolly login` to sign in through the Saleor device authorization grant, " +
+        "or set JOLLY_SALEOR_CLOUD_TOKEN for non-interactive use, then re-run jolly start.",
+      command: "jolly login",
     });
   }
 

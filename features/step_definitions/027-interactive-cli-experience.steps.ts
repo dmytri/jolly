@@ -436,6 +436,62 @@ When(
 );
 
 When(
+  "the user declines the proceed confirmation",
+  { timeout: 160_000 },
+  function (this: JollyWorld) {
+    // No Cloud token configured, so interactive start authenticates inline first
+    // (the loopback stand-in reached via STAND_IN_TOKEN), accept the env-name and
+    // project-directory defaults with Enter, then decline the single proceed
+    // confirmation with `n` (clack confirm submits on `n`).
+    if (
+      !runInteractive(this, startArgvWithMock(this), [
+        `${STAND_IN_TOKEN}\r`,
+        "\r",
+        "\r",
+        "n",
+      ])
+    ) {
+      return "skipped";
+    }
+  },
+);
+
+Then(
+  "the proceed confirmation should name the store, storefront, and deployment it would create",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    for (const [label, re] of [
+      ["store", /\bstore\b/i],
+      ["storefront", /\bstorefront\b/i],
+      ["deployment", /\bdeploy/i],
+    ] as const) {
+      assert.match(
+        out,
+        re,
+        `the proceed confirmation must name the "${label}" it would create; got:\n${out}`,
+      );
+    }
+  },
+);
+
+Then(
+  "the interactive output should state that setup stopped and nothing was created",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.match(
+      out,
+      /\b(stopped|cancelled|canceled|did not proceed)\b/i,
+      `the interactive output must state that setup stopped; got:\n${out}`,
+    );
+    assert.match(
+      out,
+      /nothing (?:was )?created|created nothing|no[^\n]*\b(store|storefront|deployment|resources?|changes?)\b[^\n]*created/i,
+      `the interactive output must state that nothing was created; got:\n${out}`,
+    );
+  },
+);
+
+When(
   "`jolly start --dry-run --yes` runs in an interactive terminal and receives no input",
   { timeout: 160_000 },
   function (this: JollyWorld) {
@@ -506,6 +562,23 @@ Then(
       out,
       /\b(inline|with you|together|in this (?:terminal|session)|same (?:terminal|session)|here)\b/i,
       `the interactive output must say the Vercel sign-in is run with the human inline; got:\n${out}`,
+    );
+  },
+);
+
+Then(
+  "the interactive output should say Jolly will run the Vercel sign-in with the human up front, before the unattended stages",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.match(
+      out,
+      /vercel[^\n]*\b(sign[ -]?in|log[ -]?in|login)\b/i,
+      `the interactive output must name the Vercel sign-in step; got:\n${out}`,
+    );
+    assert.match(
+      out,
+      /\bup front\b|before the (?:unattended|mechanical|setup) stages?/i,
+      `the interactive output must say the Vercel sign-in runs up front, before the unattended stages; got:\n${out}`,
     );
   },
 );

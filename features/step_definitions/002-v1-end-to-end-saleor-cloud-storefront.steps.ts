@@ -1187,16 +1187,23 @@ Then(
 );
 
 Then(
-  "`nextSteps` should direct the user to create a token at https:\\/\\/cloud.saleor.io\\/tokens and run `jolly login --token <value>`",
+  "`nextSteps` should direct the user to run `jolly login` to sign in through the device authorization grant, or to set JOLLY_SALEOR_CLOUD_TOKEN for non-interactive use",
   function (this: JollyWorld) {
     const text = JSON.stringify(this.envelope.nextSteps ?? []);
+    // Interactive sign-in is `jolly login` (the device authorization grant,
+    // feature 018) — never a `--token` flag, which no longer exists.
     assert.ok(
-      text.includes("https://cloud.saleor.io/tokens"),
-      `nextSteps must direct the user to create a token at the token page: ${text}`,
+      /jolly login\b(?![^"]*--token)/.test(text),
+      `nextSteps must direct the user to run \`jolly login\`: ${text}`,
+    );
+    assert.match(
+      text,
+      /device authoriz(?:ation|ed) grant|device grant/i,
+      `nextSteps must name the device authorization grant as the interactive sign-in: ${text}`,
     );
     assert.ok(
-      text.includes("jolly login --token"),
-      `nextSteps must direct the user to run jolly login --token <value>: ${text}`,
+      text.includes("JOLLY_SALEOR_CLOUD_TOKEN"),
+      `nextSteps must offer setting JOLLY_SALEOR_CLOUD_TOKEN for non-interactive use: ${text}`,
     );
   },
 );

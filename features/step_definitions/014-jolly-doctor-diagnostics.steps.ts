@@ -838,6 +838,51 @@ Then(
   },
 );
 
+// Scenario: Doctor validates stored device-grant credentials with Bearer (@sandbox @exceptional-double)
+// The Given/When are shared with feature 018's refresh scenario (the device-grant
+// Given seeds notes.saleorDoctorEnv; the When is the saleor-doctor run above). The
+// "pass naming the authenticated organization slug" assertion reuses the generic
+// `{string} check should be {string} naming the authenticated organization slug`
+// step defined below.
+
+Then(
+  "the {string} check should mint a fresh access token and authenticate an `Authorization: Bearer` read of the Cloud API organizations endpoint",
+  function (this: JollyWorld, id: string) {
+    const check = this.findCheck(id);
+    assert.ok(check, `doctor saleor must report a \`${id}\` check`);
+    // The seeded access token is expired, so a passing organizations read can
+    // only come from minting a fresh access token through the refresh grant and
+    // reading the platform API under `Authorization: Bearer` (a device-grant JWT
+    // the `Token` scheme rejects). A pass that shows the organizations read is
+    // the falsifiable proof both happened.
+    assert.equal(
+      check!.status,
+      "pass",
+      `${id} must pass via a refreshed Bearer read, not the expired token`,
+    );
+    assert.match(
+      JSON.stringify(check),
+      /organizations/i,
+      `the ${id} check must show the authenticated organizations read`,
+    );
+  },
+);
+
+Then(
+  "the check must not report {string} from the refresh token's presence alone",
+  async function (this: JollyWorld, passWord: string) {
+    const check = cloudTokenCheck(this);
+    // A presence-only verdict could not carry the org identity the real Bearer
+    // GET returned; require that response-derived evidence to back any pass.
+    const slugs = await realOrgSlugs(this);
+    const text = JSON.stringify(check);
+    assert.ok(
+      check.status !== passWord || slugs.some((slug) => text.includes(slug)),
+      `${passWord} must be backed by the real organizations response, not the refresh token's presence`,
+    );
+  },
+);
+
 // Scenario: Doctor reports a rejected Saleor Cloud token as warning, never pass (@logic)
 
 Given(

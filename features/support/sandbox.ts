@@ -172,6 +172,17 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   // really rejected) — no credentials at all.
   "Jolly login rejects an invalid token gracefully": [],
   "jolly login verifies and stores the env/.env staff token as Token": ["saleorCloud"],
+  // The refresh-grant scenario reads the platform API with the refreshed
+  // device-grant Bearer token — no JOLLY_* credential group; it gates instead on
+  // the stored device-grant refresh token capability (DEVICE_GRANT_REFRESH_SCENARIOS).
+  "An expired access token is refreshed from the stored refresh token": [],
+  // 014-jolly-doctor-diagnostics
+  // The Bearer device-grant probe reads the platform API with the refreshed
+  // Bearer token (no credential group of its own — gated on the device-grant
+  // capability). It additionally needs the staff Cloud token as the harness's
+  // INDEPENDENT oracle for the expected organization slug (realOrgSlugs), so the
+  // pass is checked against ground truth, not the device-grant response alone.
+  "Doctor validates stored device-grant credentials with Bearer": ["saleorCloud"],
   // 024-jolly-app-token-acquisition
   "Jolly create app-token acquires a real, fully-permissioned token from Saleor": [
     "saleorEndpoint",
@@ -228,6 +239,32 @@ export const VERCEL_CLI_SCENARIOS: ReadonlySet<string> = new Set([
 
 export function requiresVercelCli(scenarioName: string): boolean {
   return VERCEL_CLI_SCENARIOS.has(scenarioName);
+}
+
+/**
+ * Scenarios that need a stored device-grant refresh token
+ * (`JOLLY_SALEOR_REFRESH_TOKEN`) — the @exceptional-double seed a human
+ * authorize cannot produce on demand. Gated as a capability separate from the
+ * JOLLY_* credential groups so it never widens the conservative all-groups
+ * requirement of unlisted @sandbox scenarios.
+ */
+export const DEVICE_GRANT_REFRESH_SCENARIOS: ReadonlySet<string> = new Set([
+  "An expired access token is refreshed from the stored refresh token",
+  "Doctor validates stored device-grant credentials with Bearer",
+]);
+
+export function requiresDeviceGrantRefresh(scenarioName: string): boolean {
+  return DEVICE_GRANT_REFRESH_SCENARIOS.has(scenarioName);
+}
+
+/**
+ * Whether a stored device-grant refresh token is present — the capability gate
+ * for the refresh-grant scenarios. Absent → skip (never fail), exactly like the
+ * Vercel CLI session gate.
+ */
+export function deviceGrantRefreshAvailable(): boolean {
+  const value = process.env["JOLLY_SALEOR_REFRESH_TOKEN"];
+  return value !== undefined && value.trim() !== "";
 }
 
 /**
