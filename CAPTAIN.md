@@ -38,7 +38,53 @@ double" so a green suite carrying a fake fails there.
 
 ## Current product design
 
-- **Saleor auth is token-only (018).** `jolly login` takes the Cloud token from
+### IN FLIGHT — interactive `jolly start` overhaul (cycle being specced 2026-06-25)
+
+dk-directed overhaul of the interactive experience. **Device grant verified live with dk this session**
+— [[device-grant-platform-api-gap]] is RESOLVED (the old "gap" was a header-scheme mismatch). Six
+requirements, recorded as one coherent cycle (018/002/020/024/027/014); the pnpm + recipe-collections
+bug-fixes follow as a small second cycle.
+
+1. **Device authorization grant = the ONLY interactive auth flow**, humans and agents alike.
+   - **Saleor** — Jolly drives the grant itself (no Saleor CLI exists). Realm `saleor-cloud`, public
+     client `jolly` (no secret): POST `…/auth/device` with `client_id=jolly&scope=openid` → show the
+     `user_code` + `https://auth.saleor.io/realms/saleor-cloud/device` URL via Bombshell → poll
+     `…/token` → JWT (`aud: jolly`) + refresh_token. **The platform API accepts this JWT only as
+     `Authorization: Bearer <jwt>`** (sending `Token <jwt>` → 401 "Invalid token header"). Access token
+     is **300s**; refresh ~12h — so a long `jolly start` MUST refresh (grant_type=refresh_token,
+     client_id=jolly). An agent relays the `user_code` + URL to its human; same flow, no
+     terminal-blocking — this dissolves the old "agent can't paste a secret" firewall problem.
+   - **Vercel** — `npx vercel login` IS a device grant. Jolly spawns the CLI and lets it **complete**
+     (stop killing it before auth — reverses the v0.9.5 "bounds the spawn"), run **upfront**. Stays
+     CLI-driven: the 002 invariants hold (Jolly holds no Vercel token, no api.vercel.com, never
+     reimplements the CLI).
+2. **Raw token only via env/.env (and CI).** Non-interactive supply is `$JOLLY_SALEOR_CLOUD_TOKEN`
+   (today's staff token from `https://cloud.saleor.io/tokens`) — kept for testing flows + CI. The
+   explicit `--token`/`--token-file`/`--token-stdin` argv/file/stdin sources and the interactive masked
+   paste are RETIRED. Jolly picks the platform-API scheme by token shape: **Keycloak JWT → `Bearer`,
+   staff token → `Token`.**
+3. **Host allowlist (020) adds `auth.saleor.io`** (currently excluded) for the grant + refresh.
+4. **Honest interactive copy** — drop the misleading "Gate:" prefix (the CLI is not waiting at the
+   final Stripe step) and purge "side-effecting" from human-facing strings (keep it as internal
+   machine-contract vocabulary). Proceed prompt → "Build your store now? This creates the store,
+   storefront, and deployment."
+5. **Front-load every human gate.** Gather ALL human interaction upfront — Saleor sign-in, Vercel
+   sign-in, org/env/dir choices, proceed confirm — then the mechanical chain runs **unattended**, so
+   the human need not watch. The ONE irreducible trailing step stays the Stripe keys + `us`-channel
+   mapping in the Saleor Dashboard (005: needs the installed app to exist; no public API can do it).
+6. **Pretty in-place progress.** The setup stages render as a live, in-place, updating multi-stage
+   display (status per stage), NOT an append-only log scroll. On stderr (020); falsifiable via the
+   3-PTY harness (in-place = CR redraws, not newline appends).
+
+**Testability note:** the Saleor grant cannot complete without a human clicking authorize, so CI cannot
+drive the full grant unattended. CI/tests use the env/.env staff-token lane (req 2); the human
+authorization step is the narrow justified `@exceptional-double` (Article 8) for the interactive
+grant's coverage. The front-half (device-code request + `user_code`/URL display + polling start) is
+`@logic`-observable.
+
+### Shipped design being superseded by the above
+
+- **Saleor auth is token-only (018) — being replaced by req 1/2 above.** `jolly login` takes the Cloud token from
   `--token`/`--token-file`/`--token-stdin`/`$JOLLY_SALEOR_CLOUD_TOKEN`/interactive TTY paste (echo off,
   never via argv/LLM), verifies, and stores it. No token + no TTY → honest error pointing to
   `jolly login --token <value>`. No browser OAuth. Host allowlist (020) excludes `auth.saleor.io`/`127.0.0.1`.

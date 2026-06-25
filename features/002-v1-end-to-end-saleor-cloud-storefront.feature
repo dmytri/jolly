@@ -24,7 +24,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     Given a fresh project directory with no `JOLLY_SALEOR_CLOUD_TOKEN` configured
     When the agent runs `jolly start --json` in a non-interactive shell
     Then the `auth` stage should report that a Saleor Cloud token is needed
-    And `nextSteps` should direct the user to create a token at https://cloud.saleor.io/tokens and run `jolly login --token <value>`
+    And `nextSteps` should direct the user to run `jolly login` to sign in through the device authorization grant, or to set JOLLY_SALEOR_CLOUD_TOKEN for non-interactive use
     And it should not fabricate that authentication succeeded
 
   @sandbox
@@ -188,18 +188,21 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
       api.vercel.com in Jolly's own request code (see "Agent-supervised orchestration" and feature
       020 "First-party hosts only"). The Vercel CLI does NOT passively report a missing session: with
       no session the CLI's sign-in (`vercel whoami` / `vercel login`) emits a device-authorization URL
-      and then waits for a human to complete it. So Jolly owns the sign-in at the deploy stage in both
-      the human and agent paths: it spawns `npx vercel login`, captures the device-authorization URL,
-      routes it to stderr (never stdout) for the human at the terminal or the relaying agent, and
-      reports the deploy stage as a `pending` human sign-in gate that states Jolly runs the Vercel
-      sign-in together with the human — bounded, never blocking indefinitely on auth completion (the
-      completed sign-in stays the human's step, which the device flow cannot auto-complete). A missing
-      session is therefore a pending sign-in gate, never a deploy `fail`, and NO envelope surface —
-      `nextSteps`, error remediations, or check `command`/`remediation` fields — ever hands the agent
-      `vercel login` or tells it to re-run `jolly start` after a manual sign-in. Reports `completed`
-      only on a real exit-0 deploy, and a genuine deploy error with a session present is honest
-      `blocked`/`failed`. Reaching this gate spawns the real Vercel CLI, so it is verified at
-      `@sandbox`, not `@logic`.
+      and then waits for a human to complete it. Jolly owns the sign-in by spawning `npx vercel login`
+      itself (never telling the agent to run it). On the interactive human path (feature 027) Jolly
+      runs the sign-in UP FRONT, before the unattended stages, with the terminal passed through, and
+      lets the Vercel CLI's device grant COMPLETE — exit 0 means the session exists and the deploy
+      proceeds unattended. On the agent path (`--json`, `--yes`/`-y`, or no interactive terminal)
+      Jolly cannot complete a human authorization, so it captures the device-authorization URL, routes
+      it to stderr (never stdout) for the relaying agent, and reports the deploy stage as a `pending`
+      human sign-in gate that states Jolly runs the Vercel sign-in together with the human — bounded,
+      never blocking indefinitely on a human authorization the device flow cannot auto-complete in a
+      non-interactive context. A missing session is therefore a pending sign-in gate, never a deploy
+      `fail`, and NO envelope surface — `nextSteps`, error remediations, or check
+      `command`/`remediation` fields — ever hands the agent `vercel login` or tells it to re-run
+      `jolly start` after a manual sign-in. Reports `completed` only on a real exit-0 deploy, and a
+      genuine deploy error with a session present is honest `blocked`/`failed`. Reaching this gate
+      spawns the real Vercel CLI, so it is verified at `@sandbox`, not `@logic`.
     - Both stages are high-risk → approval: each emits the feature 021 `riskContext` and pauses for
       the agent to approve; `--yes` pre-approves. `--dry-run` previews each by naming the spawned
       command(s), target directory/template, and the Vercel invariants, performing no work and

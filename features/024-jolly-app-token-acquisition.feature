@@ -5,7 +5,7 @@ Feature: Jolly app token acquisition via Saleor GraphQL
   without requiring manual token creation in the Dashboard
 
   Background:
-    Given Jolly has a Saleor Cloud token authenticated via JOLLY_SALEOR_CLOUD_TOKEN
+    Given Jolly has an authenticated Saleor Cloud session — a device-grant credential (feature 018) or JOLLY_SALEOR_CLOUD_TOKEN
     And Jolly has a Saleor GraphQL instance URL
 
   @logic

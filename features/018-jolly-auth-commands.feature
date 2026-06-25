@@ -3,260 +3,196 @@ Feature: Jolly auth commands
   I want explicit Jolly auth commands
   So that Saleor Cloud authentication can be managed independently from the full setup flow
 
-  @logic @exceptional-double
-  Scenario: Jolly login stores a token honestly when verification is unreachable
-    Given the Saleor Cloud API is unreachable
-    And the agent has a Saleor Cloud token value "jolly-login-test-token-abc"
-    When the agent runs `jolly login --token jolly-login-test-token-abc`
-    Then Jolly should write the token to .env as JOLLY_SALEOR_CLOUD_TOKEN
-    And .env should contain JOLLY_SALEOR_CLOUD_TOKEN=jolly-login-test-token-abc
-    And .gitignore should contain .env
-    And Jolly should load the updated .env values for the current command flow
-    And the envelope status should be "warning"
-    And the output should state the token was stored, not verified
-    And no check may report the token as verified
-    And no organization name should be written to .env
-    And subsequent `jolly auth status` should report the token is configured
-    And Jolly should not print the token value
+  Rule: Interactive authentication is the Saleor device authorization grant
 
-  @sandbox
-  Scenario: Jolly login verifies a headless token against the Cloud API
-    Given the agent provides a valid token from https://cloud.saleor.io/tokens
-    When Jolly validates the token
-    Then it should verify the token with an authenticated read-only request to the Cloud API organizations endpoint
-    And it should store the token in .env as JOLLY_SALEOR_CLOUD_TOKEN
-    And it should store the organization name returned by the Cloud API in .env as JOLLY_SALEOR_ORGANIZATION
-    And it should report the authenticated organization context using values from the real response
+    The only interactive Saleor sign-in is the OAuth 2.0 device authorization grant against the
+    `saleor-cloud` Keycloak realm (public client `jolly`, no client secret). It serves humans and
+    agents alike: a human authorizes at the terminal-shown URL; an agent relays the same user code
+    and URL to its human. A raw token is supplied ONLY non-interactively through the
+    `JOLLY_SALEOR_CLOUD_TOKEN` environment variable (`.env` or CI). There is no `--token`,
+    `--token-file`, or `--token-stdin` flag and no interactive token paste — a secret never reaches
+    Jolly through `argv`, a file argument, or standard input.
 
-  @sandbox
-  Scenario: Jolly login rejects an invalid token gracefully
-    Given the agent provides an invalid or expired token
-    When Jolly validates the token against the Cloud API
-    Then the verification request should really be sent and really be rejected
-    And Jolly should report a clear error message
-    And it should not write any value to .env
-    And the output should contain no success, verified, or authenticated language
-    And the error message should direct the customer to create a new token at https://cloud.saleor.io/tokens
+    @logic
+    Scenario: Interactive jolly login starts the Saleor device authorization grant
+      Given an interactive terminal with no JOLLY_SALEOR_CLOUD_TOKEN set
+      When the user runs `jolly login`
+      Then Jolly should request a device code from `https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/auth/device` with `client_id=jolly`
+      And it should display the returned user code and the verification URL `https://auth.saleor.io/realms/saleor-cloud/device` through Bombshell's interactive prompt UI
+      And it should poll `https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/token` while waiting for the user to authorize
+      And it should not print any token value
 
-  @logic
-  Scenario: Jolly login with an empty token fails honestly
-    Given the agent has no existing Saleor Cloud authentication
-    When the agent runs `jolly login --token "" --json`
-    Then each entry in `errors` should include a stable `code`, a `message`, and optional `remediation`
-    And it should not write any value to .env
+    @logic
+    Scenario: Non-interactive jolly login never starts the device grant
+      Given a non-interactive shell with no JOLLY_SALEOR_CLOUD_TOKEN set
+      When the agent runs `jolly login --json`
+      Then the envelope status should be "error" with a stable `code`
+      And it should direct the user to set JOLLY_SALEOR_CLOUD_TOKEN or run `jolly login` interactively to sign in
+      And it should not request a device code and should not block waiting for input
+      And it should not write any value to .env
 
-  @logic
-  Scenario: Jolly login with no token source fails honestly and points to the token flag
-    Given the agent has no existing Saleor Cloud authentication
-    When the agent runs `jolly login --json` with no token source in a non-interactive shell
-    Then the envelope status should be "error" with a stable `code`
-    And it should direct the user to run `jolly login --token <value>`
-    And no token value should appear in the output
-    And it should not write any value to .env
+    @sandbox @exceptional-double
+    Scenario: An authorized device grant stores credentials and reports the organization
+      # @exceptional-double: a human pressing "authorize" in the browser cannot be produced on
+      # demand in CI, so the authorized grant is completed from the harness's stored refresh
+      # grant; the credential store, the Bearer read of the platform API, and the reported
+      # organization it exercises are all real.
+      Given an interactive terminal with no JOLLY_SALEOR_CLOUD_TOKEN set
+      And the device-grant authorization is completed for the interactive user
+      When the user runs `jolly login`
+      Then it should store the device-grant refresh token in .env so a later run can mint a fresh access token
+      And it should read the organizations from the Cloud platform API with `Authorization: Bearer <access-token>`
+      And it should store the returned organization name in .env as JOLLY_SALEOR_ORGANIZATION
+      And it should not print any token value
 
-  @logic
-  Scenario: Agent logs out
-    Given .env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token
-    When the agent invokes `jolly logout`
-    Then Jolly should remove JOLLY_SALEOR_CLOUD_TOKEN from .env
-    And any non-JOLLY_ variable in .env should remain unchanged
-    And it should load the updated `.env` values for the current command flow
-    And the envelope status should be "success"
+  Rule: The Cloud platform API scheme is chosen by token shape
 
-  @logic
-  Scenario: Agent checks auth status
-    Given .env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token
-    When it invokes `jolly auth status`
-    Then Jolly should report whether Saleor Cloud authentication is configured
-    And when .env contains JOLLY_SALEOR_ORGANIZATION, it should report that value as the account context
-    And when no organization is stored, it should report the account context as unknown rather than failing
-    And the output should not contain the token value
-    And it should support `--json` and `--quiet`
+    A Saleor Keycloak access token (a JWT) is sent as `Authorization: Bearer <jwt>`; a staff token
+    from `https://cloud.saleor.io/tokens` (supplied through `JOLLY_SALEOR_CLOUD_TOKEN`) is sent as
+    `Authorization: Token <token>`. Jolly discriminates by token shape, so both the interactive
+    device grant and the env/.env/CI staff token authenticate against the same Cloud platform API.
 
-  @logic
-  Scenario: Jolly login --dry-run does not write to .env
-    Given the agent has no existing .env file
-    When the agent runs `jolly login --token jolly-dry-run-token --dry-run --json`
-    Then the output should include a risk context with action "login"
-    And .env should not be created
-    And the output should include a nextSteps array with at least one step
+    @sandbox
+    Scenario: jolly login verifies and stores the env/.env staff token as Token
+      Given JOLLY_SALEOR_CLOUD_TOKEN is a valid staff token from https://cloud.saleor.io/tokens
+      When the agent runs `jolly login` in a non-interactive shell
+      Then it should verify the token with an authenticated `Authorization: Token` read of `https://cloud.saleor.io/platform/api/organizations/`
+      And it should store the token in .env as JOLLY_SALEOR_CLOUD_TOKEN
+      And it should store the organization name returned by the Cloud API in .env as JOLLY_SALEOR_ORGANIZATION
+      And it should report the authenticated organization context using values from the real response
+      And Jolly should not print the token value
 
-  @logic
-  Scenario: Jolly logout removes only Jolly-managed auth values from .env
-    Given .env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token and JOLLY_SALEOR_APP_TOKEN=some-app-token and JOLLY_SALEOR_ORGANIZATION=some-org and THIRD_PARTY_KEY=keep-me
-    When the agent runs `jolly logout`
-    Then Jolly should remove JOLLY_SALEOR_CLOUD_TOKEN, JOLLY_SALEOR_APP_TOKEN, and JOLLY_SALEOR_ORGANIZATION from .env
-    And THIRD_PARTY_KEY should remain in .env unchanged
-    And subsequent `jolly auth status` should report not authenticated
+    @logic
+    Scenario: jolly login rejects an invalid env/.env staff token
+      Given JOLLY_SALEOR_CLOUD_TOKEN is set to an invalid or expired value
+      When the agent runs `jolly login` in a non-interactive shell
+      Then the verification request should really be sent and really be rejected
+      And Jolly should report an error naming the HTTP rejection status
+      And it should not write any value to .env
+      And the output should contain no success, verified, or authenticated language
 
-  @logic @exceptional-double
-  Scenario: Jolly login reads the token from a file with --token-file
-    Given the Saleor Cloud API is unreachable
-    And a file at ./cloud-token.txt contains the token value "jolly-token-from-file-001"
-    When the agent runs `jolly login --token-file ./cloud-token.txt`
-    Then Jolly should write the token to .env as JOLLY_SALEOR_CLOUD_TOKEN
-    And .env should contain JOLLY_SALEOR_CLOUD_TOKEN=jolly-token-from-file-001
-    And Jolly should not print the token value
-    And the envelope status should be "warning"
-    And the output should state the token was stored, not verified
+    @logic
+    Scenario: jolly login with an empty env/.env token fails honestly
+      Given JOLLY_SALEOR_CLOUD_TOKEN is set to the empty value
+      When the agent runs `jolly login --json` in a non-interactive shell
+      Then the envelope status should be "error" with a stable `code` naming the empty token
+      And it should not write any value to .env
 
-  @logic @exceptional-double
-  Scenario: Jolly login reads the token from standard input with --token-stdin
-    Given the Saleor Cloud API is unreachable
-    And the token value "jolly-token-from-stdin-002" is provided on standard input
-    When the agent runs `jolly login --token-stdin`
-    Then Jolly should write the token to .env as JOLLY_SALEOR_CLOUD_TOKEN
-    And .env should contain JOLLY_SALEOR_CLOUD_TOKEN=jolly-token-from-stdin-002
-    And Jolly should not print the token value
+  Rule: A long run refreshes the short-lived access token
 
-  @logic @exceptional-double
-  Scenario: Jolly login reads the token from $JOLLY_SALEOR_CLOUD_TOKEN when no token flag is given
-    Given the Saleor Cloud API is unreachable
-    And the environment variable JOLLY_SALEOR_CLOUD_TOKEN is set to "jolly-token-from-env-003"
-    When the agent runs `jolly login` with no token flag in a non-interactive shell
-    Then Jolly should write the token to .env as JOLLY_SALEOR_CLOUD_TOKEN
-    And .env should contain JOLLY_SALEOR_CLOUD_TOKEN=jolly-token-from-env-003
-    And Jolly should not print the token value
+    The device-grant access token is short-lived (about five minutes), far shorter than a full
+    `jolly start`. Jolly stores the refresh token and, when a Cloud API call needs a token whose
+    access token has expired, mints a fresh access token through the refresh grant
+    (`grant_type=refresh_token`, `client_id=jolly`) rather than failing or re-prompting.
 
-  @logic @exceptional-double
-  Scenario: Jolly login prompts the interactive user to paste a token when no source is given
-    # @exceptional-double: the local interactive terminal read is the contract here,
-    # not the network verify. A reachable Cloud API would require a real valid token
-    # (a @sandbox concern), so the pasted token is exercised via the
-    # stored-not-verified path against an unreachable Cloud API — the only double,
-    # never the normal verify path (the @sandbox login scenarios cover that).
-    Given the Saleor Cloud API is unreachable
-    And `jolly login` runs in an interactive terminal with no token flag and no token in the environment
-    When the user pastes the token value "jolly-pasted-token-004" at the prompt
-    Then Jolly should prompt the user to paste their Saleor Cloud token
-    And the token prompt should render with Bombshell's interactive prompt UI
-    And .env should contain JOLLY_SALEOR_CLOUD_TOKEN=jolly-pasted-token-004
-    And the terminal output should not contain the pasted token value
+    @sandbox @exceptional-double
+    Scenario: An expired access token is refreshed from the stored refresh token
+      # @exceptional-double: the authorized grant is seeded from the harness's stored refresh
+      # token (a human authorize cannot be produced on demand); the refresh-grant call and the
+      # platform-API read it enables are real.
+      Given a stored Saleor device-grant refresh token whose access token has expired
+      When the agent runs `jolly doctor saleor --json`
+      Then it should mint a fresh access token through the refresh grant at `https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/token`
+      And the Cloud platform API read should succeed with the refreshed `Authorization: Bearer` token
+      And it should not re-prompt the user to authorize again
 
-  @logic @exceptional-double
-  Scenario: --token-file takes precedence over the $JOLLY_SALEOR_CLOUD_TOKEN environment variable
-    Given the Saleor Cloud API is unreachable
-    And the environment variable JOLLY_SALEOR_CLOUD_TOKEN is set to "jolly-token-env-loser"
-    And a file at ./cloud-token.txt contains the token value "jolly-token-file-winner"
-    When the agent runs `jolly login --token-file ./cloud-token.txt`
-    Then .env should contain JOLLY_SALEOR_CLOUD_TOKEN=jolly-token-file-winner
-    And the value jolly-token-env-loser should not appear in .env
+  Rule: Auth command set and principles
+    - V1 includes `jolly login`, `jolly logout`, and `jolly auth status`.
+    - Auth commands are helpers that empower the customer's agent; they do not make Jolly a separate
+      control plane.
+    - Interactive `jolly login` authenticates through the Saleor device authorization grant (Rule
+      "Interactive authentication is the Saleor device authorization grant"); non-interactive supply
+      is the `JOLLY_SALEOR_CLOUD_TOKEN` environment variable only.
+    - Jolly does not depend on the deprecated Saleor CLI for authentication.
+    - Auth output must not expose secret values.
+    - Jolly auth secrets are written to `.env` as environment variables in v1.
+    - Successful login also stores the authenticated organization name in `.env` as
+      JOLLY_SALEOR_ORGANIZATION. It is non-secret account context, not a credential; it may appear in
+      output, and `jolly auth status` reads it back so it can report account context without a network
+      call. When it is absent, account context is reported as unknown — never an error. The stored
+      value is always the organization name returned by the Cloud API — never a placeholder or
+      invented label.
 
-  @logic
-  Scenario: Jolly login --token-file with an empty file fails honestly and writes nothing
-    Given a file at ./empty-token.txt that is empty
-    When the agent runs `jolly login --token-file ./empty-token.txt --json`
-    Then the envelope status should be "error" with a stable `code`
-    And the error should name the empty token file as the cause
-    And it should not write any value to .env
+    @logic
+    Scenario: Agent logs out
+      Given .env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token
+      When the agent invokes `jolly logout`
+      Then Jolly should remove JOLLY_SALEOR_CLOUD_TOKEN from .env
+      And any non-JOLLY_ variable in .env should remain unchanged
+      And it should load the updated `.env` values for the current command flow
+      And the envelope status should be "success"
 
-  @sandbox
-  Scenario: Jolly login --token-file verifies the file's token against the Cloud API
-    Given a file containing a valid token from https://cloud.saleor.io/tokens
-    When the agent runs `jolly login --token-file <path>`
-    Then it should verify the token with an authenticated read-only request to the Cloud API organizations endpoint
-    And it should store the token in .env as JOLLY_SALEOR_CLOUD_TOKEN
-    And it should report the authenticated organization context using values from the real response
-    And Jolly should not print the token value
+    @logic
+    Scenario: Jolly logout removes every Jolly-managed auth value from .env
+      Given .env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token and JOLLY_SALEOR_REFRESH_TOKEN=some-refresh and JOLLY_SALEOR_APP_TOKEN=some-app-token and JOLLY_SALEOR_ORGANIZATION=some-org and THIRD_PARTY_KEY=keep-me
+      When the agent runs `jolly logout`
+      Then Jolly should remove JOLLY_SALEOR_CLOUD_TOKEN, JOLLY_SALEOR_REFRESH_TOKEN, JOLLY_SALEOR_APP_TOKEN, and JOLLY_SALEOR_ORGANIZATION from .env
+      And THIRD_PARTY_KEY should remain in .env unchanged
+      And subsequent `jolly auth status` should report not authenticated
 
-  @logic @property @exceptional-double
-  Scenario: The .env Jolly writes is private to its owner
-    # @exceptional-double: this invariant is about the local .env WRITE, not the
-    # network verify. A reachable Cloud API would require a real valid token (a
-    # @sandbox concern), so the write is exercised via the stored-not-verified
-    # path against an unreachable Cloud API — the only double, never the normal
-    # verify path (the @sandbox login scenarios cover that).
-    Given the Saleor Cloud API is unreachable
-    And the agent has a Saleor Cloud token value "jolly-perms-test-token-001"
-    When the agent runs `jolly login --token jolly-perms-test-token-001`
-    Then the .env file Jolly wrote should be readable and writable only by its owner (mode 600)
-    And Jolly should not print the token value
+    @logic
+    Scenario: Agent checks auth status
+      Given .env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token
+      When it invokes `jolly auth status`
+      Then Jolly should report whether Saleor Cloud authentication is configured
+      And when .env contains JOLLY_SALEOR_ORGANIZATION, it should report that value as the account context
+      And when no organization is stored, it should report the account context as unknown rather than failing
+      And the output should not contain the token value
+      And it should support `--json` and `--quiet`
 
-  @logic @property @exceptional-double
-  Scenario: The .env Jolly writes survives POSIX shell sourcing
-    # @exceptional-double: as above, the local .env write is exercised via the
-    # stored-not-verified path against an unreachable Cloud API; the real verify
-    # path is the @sandbox login scenarios. The token value carries a space and
-    # an apostrophe to exercise shell-quoting of the value the writer emits.
-    Given the Saleor Cloud API is unreachable
-    And a file at ./odd-token.txt contains the token value "jolly token's value 002"
-    When the agent runs `jolly login --token-file ./odd-token.txt`
-    Then sourcing the written .env in a POSIX shell should exit zero
-    And the value read back for JOLLY_SALEOR_CLOUD_TOKEN should equal "jolly token's value 002"
+    @logic
+    Scenario: Jolly login --dry-run does not write to .env
+      Given an interactive terminal with no JOLLY_SALEOR_CLOUD_TOKEN set
+      When the user runs `jolly login --dry-run --json`
+      Then the output should include a risk context with action "login"
+      And it should not request a device code and should not write to .env
+      And the output should include a nextSteps array with at least one step
 
   Rule: The .env Jolly writes is private and shell-safe
-    - Every .env Jolly creates or updates (the Cloud token, app token, organization name,
-      Stripe keys, storefront variables) is written with owner-only permissions (mode 600);
-      a file holding credentials is never group- or world-readable.
+    - Every .env Jolly creates or updates (the Cloud token, refresh token, app token, organization
+      name, Stripe keys, storefront variables) is written with owner-only permissions (mode 600); a
+      file holding credentials is never group- or world-readable.
     - Values are written so the file stays a valid POSIX shell env file: a value containing
       whitespace, an apostrophe, or another shell-significant character is quoted so
-      `set -a; . ./.env` sources it without error and round-trips the original value. An
-      apostrophe in the organization name (e.g. "Dmytri's Organization") is the common case.
-    - This is a cross-cutting invariant of the shared .env writer, not one command's behaviour;
-      it holds wherever Jolly writes .env.
+      `set -a; . ./.env` sources it without error and round-trips the original value. An apostrophe in
+      the organization name (e.g. "Dmytri's Organization") is the common case.
+    - This is a cross-cutting invariant of the shared .env writer, not one command's behaviour; it
+      holds wherever Jolly writes .env.
 
-  Rule: Auth command principles
-    - V1 should include `jolly login`, `jolly logout`, and `jolly auth status`.
-    - Auth commands are helpers that empower the customer's agent; they do not make Jolly a separate control plane.
-    - `jolly login` authenticates with a Saleor Cloud token. The customer creates a token at
-      https://cloud.saleor.io/tokens and hands it to Jolly through one of the token sources (Rule
-      "Token input is flexible so the secret need never be a process argument").
-    - Jolly should not depend on the deprecated Saleor CLI for authentication.
-    - Auth output must not expose secret values.
-    - Jolly auth secrets should be written to `.env` as environment variables in v1.
-    - Successful login flows also store the authenticated organization name in `.env` as
-      JOLLY_SALEOR_ORGANIZATION. It is non-secret account context, not a credential; it may
-      appear in output, and `jolly auth status` reads it back so it can report account
-      context without a network call. When it is absent, account context is reported as
-      unknown — never an error. The stored value is always the organization name returned
-      by the Cloud API — never a placeholder or invented label.
+    @logic @property @exceptional-double
+    Scenario: The .env Jolly writes is private to its owner
+      # @exceptional-double: the invariant is about the local .env WRITE, not the network verify; a
+      # reachable Cloud API would need a real valid token (a @sandbox concern), so the write is
+      # exercised via the stored-not-verified path against an unreachable Cloud API.
+      Given the Cloud API is unreachable
+      And JOLLY_SALEOR_CLOUD_TOKEN is set to "jolly-perms-test-token-001"
+      When the agent runs `jolly login`
+      Then the .env file Jolly wrote should be readable and writable only by its owner (mode 600)
+      And Jolly should not print any token value
+
+    @logic @property @exceptional-double
+    Scenario: The .env Jolly writes survives POSIX shell sourcing
+      # @exceptional-double: as above, the local .env write is exercised via the stored-not-verified
+      # path against an unreachable Cloud API; the token value carries a space and an apostrophe to
+      # exercise shell-quoting of the value the writer emits.
+      Given the Cloud API is unreachable
+      And JOLLY_SALEOR_CLOUD_TOKEN is set to "jolly token's value 002"
+      When the agent runs `jolly login`
+      Then sourcing the written .env in a POSIX shell should exit zero
+      And the value read back for JOLLY_SALEOR_CLOUD_TOKEN should equal "jolly token's value 002"
 
   Rule: Token verification is a real request or it is not verification
-    - Token verification means one thing: an authenticated read-only
-      GET of the Cloud API organizations endpoint
-      (`https://cloud.saleor.io/platform/api/organizations/`, `Authorization: Token <value>`)
-      whose response was actually received and checked. A 2xx response with a parseable
-      organization list is verified; a 401/403 is an invalid token (error, nothing written);
-      any other failure (network unreachable, 5xx, timeout) means verification did not
-      happen.
-    - When verification did not happen but the token was stored, every surface (summary,
-      checks, data) must say "stored, not verified"; the envelope status is "warning" and
-      the verification check status is "unknown" — never "pass".
+    - Verification means an authenticated read-only GET of the Cloud API organizations endpoint
+      (`https://cloud.saleor.io/platform/api/organizations/`) whose response was actually received and
+      checked, with the scheme chosen by token shape (a Keycloak JWT as `Authorization: Bearer
+      <jwt>`, a staff token as `Authorization: Token <token>`). A 2xx response with a parseable
+      organization list is verified; a 401/403 is an invalid token (error, nothing written); any other
+      failure (network unreachable, 5xx, timeout) means verification did not happen.
+    - When verification did not happen but a token was stored, every surface (summary, checks, data)
+      must say "stored, not verified"; the envelope status is "warning" and the verification check
+      status is "unknown" — never "pass".
     - `JOLLY_SALEOR_CLOUD_API_URL` optionally overrides the Cloud API base URL (default
-      `https://cloud.saleor.io/platform/api`) for proxy or self-routing setups; all Cloud
-      API requests honor it. Pointing it elsewhere is the customer's explicit choice.
-    - All Cloud API requests target the first-party host cloud.saleor.io, which serves both the
-      Cloud API and the token page at https://cloud.saleor.io/tokens.
-
-  Rule: Token input is flexible so the secret need never be a process argument
-    - `jolly login` accepts the Cloud token from four explicit sources, in precedence order:
-      `--token-file <path>` (read the file, trim surrounding whitespace and the trailing
-      newline) > `--token-stdin` (read standard input) > `--token <value>` > the
-      `JOLLY_SALEOR_CLOUD_TOKEN` environment variable. The file, stdin, and environment
-      paths exist so an agent can supply the token without placing the literal in `argv`,
-      where it is visible in process listings and shell history; the agent therefore never
-      has to hand-write the secret into `.env` itself and skip Jolly's verify-before-write.
-    - When none of those four sources supplies a token AND `jolly login` runs in an
-      interactive terminal (stdin is a TTY), Jolly prompts the user to paste the Cloud
-      token through a Bombshell (`@clack/prompts`) masked password prompt — the same
-      interactive-prompt stack `jolly start` uses (feature 027), so Jolly drives every human
-      prompt through one mechanism — which never echoes the secret to the terminal, then
-      verifies and stores it exactly as a `--token <value>` login. This interactive paste is the
-      lowest-precedence source — any explicit source above skips it. It lets a human at the
-      terminal hand Jolly the secret directly, so when an agent is driving Jolly the token
-      reaches Jolly through the terminal and never through the agent's process arguments,
-      output, or context.
-    - The interactive prompt is gated on an interactive terminal. When stdin is NOT a TTY —
-      the agent-driven subprocess case — Jolly never prompts and never blocks waiting for
-      input; with no token from any source it fails honestly with a stable error code that
-      directs the user to `jolly login --token <value>`.
-    - Every source is trimmed and checked non-empty BEFORE the verification request. An
-      empty file, empty stdin, or an explicit empty `--token ""` fails with a stable error
-      code naming the empty input.
-    - A token from any source is verified and stored exactly as a `--token <value>` login
-      is (Rule "Token verification is a real request or it is not verification"):
-      verified-and-stored on a real 2xx, error-and-nothing-written on a real 401/403,
-      stored-not-verified when the Cloud API is unreachable.
-    - With no token from any source and no interactive terminal, `jolly login` fails honestly
-      with a stable error code directing the user to `jolly login --token <value>`. A
-      present-but-empty source is an honest error, not a fall-through.
+      `https://cloud.saleor.io/platform/api`) for proxy or self-routing setups; all Cloud API requests
+      honor it. Pointing it elsewhere is the customer's explicit choice.
+    - Cloud API requests target the first-party host cloud.saleor.io; the device grant and refresh
+      target the first-party host auth.saleor.io (feature 020 allowlist).
