@@ -142,6 +142,20 @@ production interactive `jolly start` still authenticates by pasted token (`src/i
 `clackPassword`); the 027 Rule says device-grant inline. No scenario now drives that switch, so it is a
 future iteration, not this cycle's Crew work — [[mvp-then-iterate]], [[spec-cleanup-found-issues]].
 
+**Follow-ups opened for a future cycle (2026-06-25 — Bosun findings, dk approved push).** Recorded so
+the next cycle picks them up; none block the current green deck (commits `2f63df6` + `2612839`, pushed):
+1. **gplint gate is vacuous — dedicated lint-cleanup cycle.** The AGENTS.md spec-lint command
+   `npx gplint "features/**/*.feature"` matches ZERO files (gplint 2.5.2 does not expand the quoted
+   `**`; exit 0, no output), so the corpus has never been linted by the gate. An explicit
+   `npx gplint features/*.feature` reports ~514 problems against the enabled `.gplintrc` rules
+   (e.g. `allow-all-lowercase`, `name-length`). Future cycle: fix the AGENTS.md lint command glob
+   (tooling config — needs the explicit edit), then work the violations down. [[spec-cleanup-found-issues]]
+2. **Retired `--token`/paste machinery still present.** Per the cycle-correction above, the
+   `--token`/`--token-file`/`--token-stdin`/interactive-paste step definitions in 018 and the matching
+   production machinery are orphaned but NOT yet removed (this cycle's `cycle.json` did not select the
+   scenarios that drive their removal). A future cycle prunes them with the paste→device-grant switch.
+3. **Interactive-start paste→device-grant drift** — see the "Known drift" note directly above.
+
 ### Shipped design being superseded by the above
 
 - **Saleor auth is token-only (018) — being replaced by req 1/2 above.** `jolly login` takes the Cloud token from
