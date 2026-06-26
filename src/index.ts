@@ -70,7 +70,6 @@ import {
   select as clackSelect,
   note as clackNote,
   log as clackLog,
-  spinner as clackSpinner,
   isCancel as clackIsCancel,
 } from "@clack/prompts";
 
@@ -2010,6 +2009,26 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
   }
 
   if (wants("storefront")) {
+    // pnpm is the storefront install prerequisite Jolly spawns (`pnpm install`,
+    // feature 002). A missing pnpm is reported as a clean check with install
+    // guidance — never the raw spawn ENOENT. The probe is read-only
+    // (`pnpm --version`); the error object is inspected but never surfaced.
+    const pnpmProbe = spawnSync("pnpm", ["--version"], { encoding: "utf8" });
+    const pnpmOk = !pnpmProbe.error && pnpmProbe.status === 0;
+    checks.push({
+      id: "pnpm-available",
+      status: pnpmOk ? "pass" : "fail",
+      description: pnpmOk
+        ? `pnpm is available (${pnpmProbe.stdout.trim()}).`
+        : "pnpm is not available; the storefront stage spawns `pnpm install` to install Paper's dependencies.",
+      ...(pnpmOk
+        ? {}
+        : {
+            remediation:
+              "Install pnpm (https://pnpm.io/installation), for example `npm install -g pnpm`, then re-run jolly start.",
+          }),
+    });
+
     const storefrontPresent =
       existsSync(join(projectDir(), "storefront", "package.json")) &&
       existsSync(join(projectDir(), "storefront", "src", "app"));
@@ -3415,6 +3434,45 @@ async function resolveInteractiveOrgs(
   }
 }
 
+// Wrap a URL in an OSC 8 terminal hyperlink so terminals render it as a
+// clickable link (feature 027). The visible text is the URL itself; the string
+// terminator is BEL. Terminals without OSC 8 support show the visible text.
+function osc8Hyperlink(url: string): string {
+  return `\x1b]8;;${url}\x07${url}\x1b]8;;\x07`;
+}
+
+// A live setup-stage status list on stderr (feature 027): every stage listed by
+// name, each carrying its own status glyph, with a stage's row redrawn in place
+// as the run reaches it — not one fixed spinner. The list owns its region; each
+// update moves the cursor back over the rows and erase-reprints them, so the
+// same region is redrawn rather than appended. Only the interactive path renders
+// it (the agent/--json path passes no reporter), keeping machine output clean.
+function stageProgress(
+  stageNames: string[],
+): { update: (stage: string, status: StageStatus) => void; stop: () => void } {
+  const out = process.stderr;
+  const statuses = new Map<string, StageStatus>(
+    stageNames.map((s) => [s, "pending" as StageStatus]),
+  );
+  const glyph = (status: StageStatus): string =>
+    status === "completed" ? "✓" : status === "pending" ? "○" : status === "skipped" ? "○" : "✗";
+  const row = (s: string): string => `${glyph(statuses.get(s)!)} ${s} — ${statuses.get(s)!}`;
+  // Initial frame: the full list, every stage pending.
+  out.write(stageNames.map(row).join("\n") + "\n");
+  const redraw = (): void => {
+    out.write(`\x1b[${stageNames.length}A`);
+    for (const s of stageNames) out.write(`\x1b[2K${row(s)}\n`);
+  };
+  return {
+    update: (stage, status) => {
+      if (!statuses.has(stage)) return;
+      statuses.set(stage, status);
+      redraw();
+    },
+    stop: () => {},
+  };
+}
+
 // The human-facing interactive `jolly start` (feature 027). Walks the human
 // through only the decisions that cannot be safely inferred — each pre-filled
 // with a default so Enter advances — previews the plan, announces the
@@ -3442,7 +3500,7 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
     if (!existingAuth) {
       const auth = await requestDeviceCode();
       clackNote(
-        `Open ${auth.verificationUri}?user_code=${auth.userCode}\nand enter the code: ${auth.userCode}`,
+        `Open ${osc8Hyperlink(`${auth.verificationUri}?user_code=${auth.userCode}`)}\nand enter the code: ${auth.userCode}`,
         "Sign in to Saleor Cloud",
         CLACK_STDERR,
       );
@@ -3499,8 +3557,14 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
   // Preview the plan and announce the irreducible human gates Jolly cannot pass
   // for the user (feature 027 Rule).
   const plan = startPlan();
+  // Preview only the side-effecting stages the human is approving; the internal
+  // bootstrap stages (init, auth) are not human decisions, so they are omitted
+  // from the plan note (feature 027).
   clackNote(
-    plan.map((s) => `${s.stage}: ${s.riskContext?.action ?? s.stage}`).join("\n"),
+    plan
+      .filter((s) => s.stage !== "init" && s.stage !== "auth")
+      .map((s) => `${s.stage}: ${s.riskContext?.action ?? s.stage}`)
+      .join("\n"),
     "Planned stages",
     CLACK_STDERR,
   );
@@ -3518,7 +3582,11 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
   if (args.dryRun) {
     clackOutro("Previewed the plan. No files were written and no changes were made.", CLACK_STDERR);
     const preview = commandStartDryRun();
-    return { ...preview, data: { ...preview.data, resolved } };
+    // The interactive close is a concise human summary, not the machine check
+    // enumeration or the agent `next:` playbook (feature 027): the prose summary
+    // line stands alone. The per-check and next-step detail stays on the
+    // --json/agent surface, which this human-only path never renders.
+    return { ...preview, checks: [], nextSteps: [], data: { ...preview.data, resolved } };
   }
 
   // Each side-effecting stage is confirmed before it runs; the default is to
@@ -3533,24 +3601,27 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
     return runStartCore({ ...args, yes: false });
   }
 
-  // Run the long setup stages behind an in-place spinner on stderr, so the human
-  // sees live progress while stdout stays reserved for the final result summary
-  // emit() prints (feature 020 Rule).
-  const spin = clackSpinner(CLACK_STDERR);
-  spin.start("Running setup stages");
+  // Run the long setup stages behind a live, per-stage status list on stderr:
+  // every stage listed by name, each carrying its own status that updates in
+  // place as the run reaches it — not one fixed spinner (feature 027). stdout
+  // stays reserved for the final result summary emit() prints (feature 020).
+  const progress = stageProgress(plan.map((s) => s.stage));
   try {
-    return await runStartCore({
-      ...args,
-      yes: true,
-      options: {
-        ...args.options,
-        ...(organization ? { organization } : {}),
-        name: resolved.environmentName,
-        "domain-label": resolved.environmentName,
+    return await runStartCore(
+      {
+        ...args,
+        yes: true,
+        options: {
+          ...args.options,
+          ...(organization ? { organization } : {}),
+          name: resolved.environmentName,
+          "domain-label": resolved.environmentName,
+        },
       },
-    });
+      (stage, status) => progress.update(stage, status),
+    );
   } finally {
-    spin.stop("Setup stages finished");
+    progress.stop();
   }
 }
 
@@ -3560,7 +3631,10 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
   return runStartCore(args);
 }
 
-async function runStartCore(args: ParsedArgs): Promise<Envelope> {
+async function runStartCore(
+  args: ParsedArgs,
+  onStage?: (stage: string, status: StageStatus) => void,
+): Promise<Envelope> {
   const command = "start";
 
   // When no Cloud token is configured the auth stage starts the device grant and
@@ -3757,6 +3831,11 @@ async function runStartCore(args: ParsedArgs): Promise<Envelope> {
       status,
       ...(stageRiskContext ? { riskContext: stageRiskContext } : {}),
     });
+    // Report this stage's resolved status so the interactive caller can update
+    // its live per-stage status list in place as the run reaches each stage
+    // (feature 027). The agent/--json path passes no reporter, so machine output
+    // stays clean.
+    onStage?.(planStage.stage, status);
   }
 
   // A run that performed only the bootstrap and stopped at the orchestration

@@ -838,3 +838,219 @@ Then(
     );
   },
 );
+
+// ─── Setup-stage live progress (feature 027) ───────────────────────────────
+//
+// The setup stages must render as a live STATUS LIST on stderr — every stage
+// named, each carrying its OWN status that updates in place as the run reaches
+// it — not one fixed spinner. To observe the stream split (progress on stderr,
+// a clean stdout), `jolly start` runs under separate stdout/stderr PTYs
+// (support/pty.ts separateStreams). A real-format stand-in Cloud token satisfies
+// start's auth gate without a real sign-in; the stages attempt and fail fast
+// under the otherwise-absent real credentials while their per-stage status still
+// renders. Enter advances each pre-filled prompt and the proceed gate, so the
+// run reaches the stages.
+
+// The user-visible setup stages the progress region must name and status. The
+// single fixed spinner ("Running setup stages") names none of these.
+const SETUP_STAGE_NAMES = ["store", "storefront", "recipe", "deploy"] as const;
+
+// In-place redraw: a carriage return or cursor-up / erase-line control. A
+// line-per-update implementation carries none of these.
+const STAGE_IN_PLACE = /\r|\x1b\[[0-9]*[AK]/;
+
+// A per-stage status marker: a completion/spinner glyph or a status word that
+// reports a stage's progress. clack's PROMPT-state glyphs (◆◇●○ — active /
+// submitted / radio) are deliberately EXCLUDED: they decorate the plan-preview
+// and confirm prompts, not a stage's status, so they must not let plan-preview
+// text masquerade as a live per-stage status.
+const STAGE_STATUS_MARKER =
+  /[✓✔✗✘☑☒]|[⠀-⣿]|\b(done|running|pending|failed|skipped|complete|completed|installing|cloning|provisioning|deploying|waiting|queued|active|in progress)\b/i;
+
+// Run `jolly start` interactively with stdout and stderr on separate PTYs, so
+// the per-stage status region on stderr is observable apart from the clean
+// stdout. Records the captured streams as the world's last run. Returns false
+// when no PTY is available (caller skips).
+function runStartStagesSeparated(world: JollyWorld): boolean {
+  if (!ptyAvailable()) return false;
+  const argv = (world.notes.startArgv as string[]) ?? ["start"];
+  const run = runUnderPty({
+    runtime: process.env.HARNESS_CLI_RUNTIME ?? "node",
+    argv: [CLI_ENTRY, ...argv],
+    cwd: world.projectDir,
+    env: interactiveChildEnv({ JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN }),
+    inputs: ["\r", "\r", "\r", "\r", "\r"],
+    inputDelayMs: 600,
+    timeoutMs: 150_000,
+    separateStreams: true,
+  });
+  world.previousRun = world.lastRun;
+  world.lastRun = {
+    args: argv,
+    cwd: world.projectDir,
+    exitCode: run.exitCode,
+    stdout: run.stdout ?? "",
+    stderr: run.stderr ?? "",
+    envelope: findEnvelope(run.stdout ?? run.output),
+  };
+  return true;
+}
+
+Then(
+  "the setup-stage progress on stderr should list every setup stage by name, each carrying its own status",
+  { timeout: 160_000 },
+  function (this: JollyWorld) {
+    // The shared When records only the argv; perform the separated-stream run
+    // here so stderr is captured distinctly from the clean stdout.
+    if (!runStartStagesSeparated(this)) return "skipped";
+    const stderr = this.lastRun!.stderr;
+    assert.ok(
+      stderr.trim().length > 0,
+      `interactive start must write setup-stage progress to stderr; it was empty. stdout was:\n${this.lastRun!.stdout}`,
+    );
+    // Each setup stage carries its OWN status: a status list renders every stage
+    // on its own row, the stage name and that stage's status TOGETHER on one
+    // line (e.g. `✓ store` / `⠙ storefront installing`). Split on every line
+    // break (carriage-return redraws included) and require, for each stage, a
+    // line that names it AND carries a status marker. The one-fixed-spinner
+    // anti-pattern fails this: its only status line is "Running setup stages"
+    // (a status word, no stage name), while the plan-preview rows name a stage
+    // but carry no status — neither line satisfies the co-occurrence.
+    const lines = stripAnsi(stderr).split(/[\r\n]+/);
+    for (const stage of SETUP_STAGE_NAMES) {
+      const nameOnLine = new RegExp(`\\b${stage}\\b`, "i");
+      const row = lines.find(
+        (line) => nameOnLine.test(line) && STAGE_STATUS_MARKER.test(line),
+      );
+      assert.ok(
+        row !== undefined,
+        `the "${stage}" stage must appear as its own status row (stage name + status on one line), not folded into one fixed spinner; stderr lines:\n${lines.join("\n")}`,
+      );
+    }
+    return undefined;
+  },
+);
+
+Then(
+  "it should update a stage's status in place as the run reaches that stage, so each stage's progress is visible during the run rather than only after it ends",
+  function (this: JollyWorld) {
+    assert.match(
+      this.lastRun!.stderr,
+      STAGE_IN_PLACE,
+      `each stage's status must update live in place (carriage-return / cursor control) as the run reaches it; got:\n${JSON.stringify(this.lastRun!.stderr)}`,
+    );
+  },
+);
+
+Then(
+  "the progress should redraw the same region in place rather than appending one line per update",
+  function (this: JollyWorld) {
+    assert.match(
+      this.lastRun!.stderr,
+      STAGE_IN_PLACE,
+      `progress must redraw the same region in place (carriage-return / cursor control), not append one line per update; got:\n${JSON.stringify(this.lastRun!.stderr)}`,
+    );
+  },
+);
+
+// ─── Concise human close (feature 027): the interactive run ends with a prose
+// summary, not the machine check enumeration or the agent `next:` playbook.
+
+Then(
+  "the human result on stdout should state in prose that the plan was previewed and nothing was created",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.match(
+      out,
+      /previewed/i,
+      `the human close must state in prose that the plan was previewed; got:\n${out}`,
+    );
+    assert.match(
+      out,
+      /nothing was created|no files were (?:written|created)|no changes were made|created nothing/i,
+      `the human close must state in prose that nothing was created; got:\n${out}`,
+    );
+  },
+);
+
+Then(
+  "the human result on stdout should carry no per-check `[status] check-id` enumeration line",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    const checkLine = out
+      .split(/\r?\n/)
+      .find((line) => /^\s*-\s+\S*\s*\[[a-z]+\]\s+[a-z0-9][a-z0-9-]*\b/i.test(line));
+    assert.equal(
+      checkLine,
+      undefined,
+      `the human close must carry no per-check [status] check-id line; found:\n${checkLine}`,
+    );
+  },
+);
+
+Then(
+  "the human result on stdout should carry no `next:` command line",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    const nextLine = out.split(/\r?\n/).find((line) => /^\s*next:/i.test(line));
+    assert.equal(
+      nextLine,
+      undefined,
+      `the human close must carry no next: command line; found:\n${nextLine}`,
+    );
+  },
+);
+
+// ─── Plan preview lists the human-relevant side-effecting stages only (feature
+// 027): the internal bootstrap stages (init, auth) are not human decisions.
+
+Then(
+  "the interactive output should list the side-effecting setup stages it will create, including the store, storefront, and deployment stages",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    for (const stage of ["store", "storefront", "deploy"]) {
+      assert.match(
+        out,
+        new RegExp(`\\b${stage}:`, "i"),
+        `the plan preview must list the "${stage}" side-effecting stage; got:\n${out}`,
+      );
+    }
+  },
+);
+
+Then(
+  "the interactive output should not list the internal bootstrap stages `init` or `auth`, which are not human decisions",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    const bootstrapRow = out
+      .split(/\r?\n/)
+      .find((line) => /^[│\s]*(init|auth):/i.test(line));
+    assert.equal(
+      bootstrapRow,
+      undefined,
+      `the plan preview must not list the internal bootstrap stages init/auth; found row:\n${bootstrapRow}`,
+    );
+  },
+);
+
+// ─── Clickable sign-in URL (feature 027): the verification URL is wrapped in an
+// OSC 8 terminal hyperlink so the human can click it. The OSC 8 escape survives
+// stripAnsi (which removes only CSI sequences), so the RAW output is inspected.
+
+Then(
+  "the auth.saleor.io verification URL should be wrapped in an OSC 8 terminal hyperlink escape pointing at that URL",
+  function (this: JollyWorld) {
+    const raw = this.lastRun!.stdout; // OSC 8 escapes are the observable — keep raw
+    const code = stripAnsi(raw).match(DEVICE_USER_CODE_RE);
+    assert.ok(code, `interactive start must show the device user code; got:\n${stripAnsi(raw)}`);
+    const url = `${DEVICE_VERIFICATION_URL}?user_code=${code![0]}`;
+    const escaped = url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // OSC 8 hyperlink open: ESC ] 8 ; <params> ; <URI> ST  (ST = BEL or ESC \).
+    const osc8 = new RegExp(`\\x1b\\]8;[^;]*;${escaped}(?:\\x07|\\x1b\\\\)`);
+    assert.match(
+      raw,
+      osc8,
+      `the verification URL must be wrapped in an OSC 8 hyperlink pointing at ${url}; got:\n${JSON.stringify(raw)}`,
+    );
+  },
+);

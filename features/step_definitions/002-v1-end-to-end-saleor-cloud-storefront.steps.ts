@@ -23,8 +23,8 @@
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, symlinkSync } from "node:fs";
+import { delimiter, join } from "node:path";
 import { loadEnvValues, writeEnvValues } from "../../src/lib/env-file.ts";
 import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 import { deleteEnvironment, listAllEnvironments } from "../support/cloud.ts";
@@ -1528,6 +1528,90 @@ Then(
         output,
       ),
       `the production build must not fail on unbuilt native modules:\n${output}`,
+    );
+  },
+);
+
+// ─── pnpm prerequisite reported as a clean check (feature 002) ──────────────
+// Real absence by construction: a sanitized bin dir holds symlinks to the tools
+// `jolly doctor` legitimately uses (node, npx, git) but NOT pnpm, set as the
+// only PATH entry, so `pnpm` genuinely cannot be resolved (a real ENOENT) while
+// the CLI still runs. PATH is restored after the scenario.
+
+function resolveOnPath(tool: string): string | undefined {
+  for (const dir of (process.env.PATH ?? "").split(delimiter).filter(Boolean)) {
+    const candidate = join(dir, tool);
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+Given("`pnpm` is not resolvable on PATH", function (this: JollyWorld) {
+  const binDir = this.newTempDir("nopnpm-bin");
+  symlinkSync(process.execPath, join(binDir, "node"));
+  for (const tool of ["npx", "git"]) {
+    const resolved = resolveOnPath(tool);
+    if (resolved) symlinkSync(resolved, join(binDir, tool));
+  }
+  const originalPath = process.env.PATH;
+  process.env.PATH = binDir;
+  this.cleanup.register("restore PATH after pnpm-absence scenario", () => {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+  });
+});
+
+Then(
+  "a `pnpm-available` check should report status {string}",
+  function (this: JollyWorld, status: string) {
+    const check = this.envelope.checks.find((c) => c.id === "pnpm-available");
+    assert.ok(
+      check,
+      `doctor must report a pnpm-available check; got: ${this.envelope.checks.map((c) => c.id).join(", ")}`,
+    );
+    assert.equal(
+      check.status,
+      status,
+      `pnpm-available must report "${status}" when pnpm is missing; got "${check.status}"`,
+    );
+  },
+);
+
+Then(
+  "the check should carry a remediation that names installing pnpm",
+  function (this: JollyWorld) {
+    const check = this.envelope.checks.find((c) => c.id === "pnpm-available");
+    assert.ok(check, "pnpm-available check must exist to carry a remediation");
+    const text = `${check.remediation ?? ""} ${check.command ?? ""} ${check.description ?? ""}`;
+    assert.match(
+      text,
+      /install/i,
+      `pnpm-available must carry a remediation that names installing; got: ${text}`,
+    );
+    assert.match(
+      text,
+      /pnpm/i,
+      `pnpm-available remediation must name pnpm; got: ${text}`,
+    );
+  },
+);
+
+Then(
+  "no check or error should contain a raw `spawnSync` ENOENT string",
+  function (this: JollyWorld) {
+    const blob = JSON.stringify({
+      checks: this.envelope.checks,
+      errors: this.envelope.errors,
+    });
+    assert.doesNotMatch(
+      blob,
+      /spawnSync/i,
+      `no check or error may leak a raw spawnSync string; got:\n${blob}`,
+    );
+    assert.doesNotMatch(
+      blob,
+      /ENOENT/,
+      `no check or error may leak a raw ENOENT string; got:\n${blob}`,
     );
   },
 );
