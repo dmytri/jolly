@@ -84,8 +84,9 @@ stage rather than redoing work.
 `start` chains these; every one is also a composable command, so you can drive any single stage
 and mediate it yourself. The order and the load-bearing specifics:
 
-1. **Bootstrap** — `jolly init` (skills + `.mcp.json` + scaffold + doctor). Never overwrite
-   Jolly's marked `AGENTS.md` section.
+1. **Bootstrap** — `jolly init` (skills + `.mcp.json` + scaffold); `start`'s bootstrap then also
+   runs `jolly doctor` (standalone `jolly init` does not). Never overwrite Jolly's marked
+   `AGENTS.md` section.
 2. **Authenticate Saleor Cloud** — `jolly login` signs in through the Saleor **device authorization
    grant**. Jolly relays an `auth.saleor.io` verification URL (with the user code pre-filled) and
    the user code on stderr; surface that URL to your human as a clickable link, they open it and
@@ -98,17 +99,25 @@ and mediate it yourself. The order and the load-bearing specifics:
    project, and a **blank** environment via the Cloud API). High-risk → approval gate.
 4. **App token** — `jolly create app-token` (full v1 permissions, for configuration).
 5. **Storefront** — clone Paper (`git clone https://github.com/saleor/storefront.git ./storefront`,
-   `main`), strip the upstream `.git`, `git init`, `cp .env.example .env`, `pnpm install`. If the
-   local Node version is incompatible with Paper, tell the human (don't switch Node yourself). In
-   the storefront `.env` set `NEXT_PUBLIC_SALEOR_API_URL` to your GraphQL endpoint and
-   `NEXT_PUBLIC_DEFAULT_CHANNEL=us` (the channel the recipe creates).
+   `main`), strip the upstream `.git`, `git init`, approve Paper's native build dependencies, and
+   install with pnpm **run via `npx`** (`npx pnpm install` — no global pnpm prerequisite, like the
+   other CLIs). `start` does NOT copy `.env.example` or write a local storefront `.env`:
+   `NEXT_PUBLIC_SALEOR_API_URL` (your GraphQL endpoint) and `NEXT_PUBLIC_DEFAULT_CHANNEL=us` (the
+   channel the recipe creates) are injected only as Vercel **build env** at the deploy stage
+   (`--build-env`), never into a local `storefront/.env`. If the local Node version is incompatible
+   with Paper, tell the human (don't switch Node yourself). Running Paper locally with `pnpm dev` is
+   a manual step you do only if you want it — then `cp .env.example .env` and set those two
+   `NEXT_PUBLIC_*` values in the storefront `.env` yourself.
 6. **Configure the store** — the Jolly starter recipe ships beside this file as `recipe.yml` (a
-   pirate-themed US/USD/English catalog with shipping and the `us` channel Paper points at). Copy
-   it into the storefront repo as `saleor-config.yml` (version-controlled, reviewable), then apply
-   with `@saleor/configurator`'s safe workflow — `diff` to preview, then `deploy` — passing
-   `--url "$NEXT_PUBLIC_SALEOR_API_URL" --token "$JOLLY_SALEOR_APP_TOKEN" --config saleor-config.yml`
-   (or `SALEOR_URL`/`SALEOR_TOKEN`). High-risk → approval gate; review the diff before the deploy
-   writes. `deploy` reconciles the store to the recipe: it creates the recipe's entities and removes
+   pirate-themed US/USD/English catalog with shipping and the `us` channel Paper points at). `start`
+   writes the bundled recipe to `recipe.yml` in the project working dir (not into `storefront/`, not
+   renamed) and spawns `@saleor/configurator deploy --config <projectDir>/recipe.yml --url
+   "$NEXT_PUBLIC_SALEOR_API_URL" --token "$JOLLY_SALEOR_APP_TOKEN"` directly (or
+   `SALEOR_URL`/`SALEOR_TOKEN`). High-risk → approval gate; the executed path has no separate `diff`
+   step — the approval gate (or `--dry-run`/`--plan`) is the preview. As an explicit MANUAL
+   alternative you can instead copy the recipe into the storefront repo as `saleor-config.yml`
+   (version-controlled, reviewable) and run `@saleor/configurator`'s `diff`-then-`deploy` workflow
+   yourself. `deploy` reconciles the store to the recipe: it creates the recipe's entities and removes
    the empty stock placeholders a new Saleor environment ships (a default channel, category, and
    warehouse — never products). **On a store you just created this is safe, not data loss: those
    placeholders are not your catalog, and a fresh environment has no products to delete.** A Saleor
@@ -119,7 +128,16 @@ and mediate it yourself. The order and the load-bearing specifics:
    every recipe variant in the recipe warehouse via Saleor GraphQL, because `@saleor/configurator`
    cannot set stock or `trackInventory` (it hardcodes `trackInventory: true`). Without this the
    catalog has zero stock and checkout fails with `INSUFFICIENT_STOCK` before reaching payment.
-7. **Stripe (test mode)** — `start` installs Saleor's Stripe app in the store via the Saleor GraphQL
+7. **Deploy to Vercel** — `start` spawns the official Vercel CLI (`npx vercel`) and performs the
+   Vercel sign-in itself: when there is no session it runs Vercel's device flow and prints a
+   verification URL for the human to approve in a browser, then resumes when the CLI exits. It
+   deploys to production (`npx vercel deploy --prod`), injecting the required Vercel build env vars
+   (`--build-env NEXT_PUBLIC_SALEOR_API_URL`, `--build-env NEXT_PUBLIC_DEFAULT_CHANNEL=us`), and
+   captures the URL. As part of this stage it also wires the deployed URL into Saleor's
+   allowed/trusted origins (the deploy updates Saleor trusted origins where APIs allow). High-risk →
+   approval gate. Vercel Deployment Protection is on by default; `start` surfaces it so the human can
+   turn it off and the store is reachable.
+8. **Stripe (test mode)** — `start` installs Saleor's Stripe app in the store via the Saleor GraphQL
    `appInstall` mutation (HANDLE_PAYMENTS) and installs the `stripe-best-practices` skill so your
    agent has the Stripe knowledge for the rest; the recipe sets the channel payment flow.
    Configuring the app is a human Dashboard gate `start` waits at: in the Saleor Dashboard →
@@ -127,19 +145,11 @@ and mediate it yourself. The order and the load-bearing specifics:
    Stripe Dashboard → Developers → API keys) and **map it to the `us` channel**. The app then
    registers its own Stripe webhooks. The configurator manages catalog, not payments — the Stripe
    app is the Saleor-supported payment path, and your agent drives this step with the Stripe skill.
-8. **Deploy to Vercel** — `start` spawns the official Vercel CLI (`npx vercel`) and performs the
-   Vercel sign-in itself: when there is no session it runs Vercel's device flow and prints a
-   verification URL for the human to approve in a browser, then resumes when the CLI exits. It sets
-   the project env vars (`NEXT_PUBLIC_SALEOR_API_URL`, `NEXT_PUBLIC_DEFAULT_CHANNEL=us`), deploys to
-   production (`npx vercel --prod`), and captures the URL. High-risk → approval gate. Vercel
-   Deployment Protection is on by default; `start` surfaces it so the human can turn it off and the
-   store is reachable.
-9. **Wire trusted origins** — add the deployed URL to Saleor's allowed/trusted origins.
-10. **Verify** — `jolly doctor` (all groups): Saleor connectivity, storefront env, deployment
-    reachability, and checkout reaching the Stripe test payment step. Report the live URL, the
-    doctor results, and any remaining manual steps. Then remind the human to reload or restart their
-    agent so the installed skills (the Jolly + Saleor skills and `stripe-best-practices`) load into
-    its context for the work ahead.
+9. **Verify** — `jolly doctor` (all groups): Saleor connectivity, storefront env, deployment
+   reachability, and checkout reaching the Stripe test payment step. Report the live URL, the
+   doctor results, and any remaining manual steps. Then remind the human to reload or restart their
+   agent so the installed skills (the Jolly + Saleor skills and `stripe-best-practices`) load into
+   its context for the work ahead.
 
 ## If a step fails or you're unsure
 

@@ -3,14 +3,19 @@
 # storefront for the Paper template. Playful pirate-themed demo catalog, single
 # US / USD / English market (v1).
 #
-# This file ships with the Jolly skill and is copied into the cloned storefront
-# repo (kept version-controlled and reviewable). `jolly start` applies it with the
-# official Configurator safe workflow it spawns — diff to preview, then deploy:
+# This file ships with the Jolly skill. `jolly start` writes it to `recipe.yml` in
+# the project working dir and spawns the official Configurator to deploy it
+# directly, gated by Jolly's approval gate (which serves as the preview):
 #
-#   npx @saleor/configurator diff   --url "$NEXT_PUBLIC_SALEOR_API_URL" \
-#       --token "$JOLLY_SALEOR_APP_TOKEN" --config saleor-config.yml
 #   npx @saleor/configurator deploy --url "$NEXT_PUBLIC_SALEOR_API_URL" \
-#       --token "$JOLLY_SALEOR_APP_TOKEN" --config saleor-config.yml --failOnDelete
+#       --token "$JOLLY_SALEOR_APP_TOKEN" --config recipe.yml
+#
+# `--failOnDelete` is added only when re-deploying over a pre-existing foreign
+# catalog; it is omitted on the blank-store bootstrap path so the recipe can
+# replace the stock placeholders a fresh Saleor environment ships. As an explicit
+# MANUAL alternative you can copy this file into the storefront repo as
+# `saleor-config.yml` (version-controlled, reviewable) and run a `diff`-then-
+# `deploy` workflow yourself.
 #
 # Then point the Paper storefront at this channel: NEXT_PUBLIC_DEFAULT_CHANNEL=us
 #

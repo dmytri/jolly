@@ -1,7 +1,7 @@
 {
   "name": "@dk/jolly",
-  "version": "0.10.9",
-  "description": "Ahoy, agent. Go build a Saleor storefront.",
+  "version": "0.10.10",
+  "description": "Jolly sets up a Saleor Cloud storefront with Vercel and Stripe from your terminal or coding agent.",
   "type": "module",
   "bin": {
     "jolly": "bin/jolly"

@@ -2072,24 +2072,18 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
   }
 
   if (wants("storefront")) {
-    // pnpm is the storefront install prerequisite Jolly spawns (`pnpm install`,
-    // feature 002). A missing pnpm is reported as a clean check with install
-    // guidance — never the raw spawn ENOENT. The probe is read-only
-    // (`pnpm --version`); the error object is inspected but never surfaced.
+    // The storefront stage runs pnpm via `npx` (like Jolly's other spawned
+    // CLIs), so a missing GLOBAL pnpm is not a failure (feature 002). The probe
+    // is read-only (`pnpm --version`); it only reports which path will be used,
+    // and never fails merely because there is no global install.
     const pnpmProbe = spawnSync("pnpm", ["--version"], { encoding: "utf8" });
-    const pnpmOk = !pnpmProbe.error && pnpmProbe.status === 0;
+    const globalPnpm = !pnpmProbe.error && pnpmProbe.status === 0;
     checks.push({
       id: "pnpm-available",
-      status: pnpmOk ? "pass" : "fail",
-      description: pnpmOk
-        ? `pnpm is available (${pnpmProbe.stdout.trim()}).`
-        : "pnpm is not available; the storefront stage spawns `pnpm install` to install Paper's dependencies.",
-      ...(pnpmOk
-        ? {}
-        : {
-            remediation:
-              "Install pnpm (https://pnpm.io/installation), for example `npm install -g pnpm`, then re-run jolly start.",
-          }),
+      status: "pass",
+      description: globalPnpm
+        ? `pnpm is available (${pnpmProbe.stdout.trim()}); the storefront stage installs Paper's dependencies with it.`
+        : "No global pnpm; the storefront stage runs `npx pnpm install` (no global pnpm install required).",
     });
 
     const storefrontPresent =
@@ -2101,8 +2095,8 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
       status: storefrontPresent ? "unknown" : "fail",
       description: storefrontPresent
         ? "A project structure exists; Paper storefront readiness not verified in this run."
-        : "No Paper storefront detected locally.",
-      command: storefrontPresent ? undefined : "Clone saleor/storefront (Paper) per the Jolly skill.",
+        : "No Paper storefront detected locally. `jolly start` clones and prepares the Paper storefront.",
+      command: storefrontPresent ? undefined : "jolly start",
     });
   }
 
@@ -2273,6 +2267,17 @@ function commandSkills(args: ParsedArgs): Envelope {
           : `Skills ${sub === "install" ? "installed" : "checked"}.`,
       data: { skills: DEFAULT_SKILLS.map((s) => s.id) },
       checks,
+      // A warning with no action leaves the agent stuck; point it at the
+      // installer (the same next step the read-only `skills` listing gives).
+      nextSteps:
+        failed.length > 0
+          ? [
+              {
+                description: "Run jolly init (or jolly start) to install the missing skills.",
+                command: "jolly init",
+              },
+            ]
+          : [],
     });
   }
 
@@ -3201,21 +3206,27 @@ async function runStorefrontStage(checks: Check[]): Promise<StageStatus> {
   pnpmCfg.onlyBuiltDependencies = [...approved];
   writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
 
-  // Install Paper's dependencies with pnpm.
-  const install = spawnSync("pnpm", ["install"], {
+  // Install Paper's dependencies with pnpm, run via `npx` — like Jolly's other
+  // spawned CLIs (`@saleor/configurator`, `vercel`), so no global pnpm install
+  // is a prerequisite. `npx --yes pnpm` fetches and runs pnpm (a missing global
+  // pnpm is never a failure, feature 002).
+  const install = spawnSync("npx", ["--yes", "pnpm", "install"], {
     cwd: dir,
     encoding: "utf8",
     timeout: 600_000,
     env: { ...process.env },
   });
   if (install.error || install.status !== 0) {
-    const reason = install.error ? install.error.message : `pnpm install exited ${install.status}`;
+    const reason = install.error
+      ? install.error.message
+      : `npx pnpm install exited ${install.status}`;
     const stderr = (install.stderr ?? "").toString().slice(0, 2000);
     checks.push({
       id: "storefront-prepared",
       status: "fail",
       description: `Cloned Paper but did not install dependencies: ${reason}.${stderr ? ` ${stderr}` : ""}`,
-      remediation: "Verify `pnpm` is installed and the registry is reachable, then re-run jolly start --yes.",
+      remediation:
+        "Verify the npm registry is reachable (Jolly runs pnpm via `npx`), then re-run jolly start --yes.",
     });
     return "blocked";
   }
@@ -3996,6 +4007,15 @@ async function runStartCore(
     onStage?.(planStage.stage, status);
   }
 
+  // The store stage may have just written NEXT_PUBLIC_SALEOR_API_URL. Re-merge
+  // .mcp.json so its mcp-graphql ENDPOINT points at the provisioned store on
+  // THIS pass — `commandInit` merged it during bootstrap (before the store
+  // stage), so without this the entry keeps the init-time placeholder until a
+  // re-run (feature 019 "live store access from the moment setup completes").
+  if (loadEnvValues(projectDir())["NEXT_PUBLIC_SALEOR_API_URL"]) {
+    mergeMcpJson();
+  }
+
   // A run that performed only the bootstrap and stopped at the orchestration
   // gate (paused for approval, or with --yes proceeding into downstream stages
   // it has not completed) is never "success": it is "warning". Only a failed
@@ -4062,6 +4082,7 @@ async function runStartCore(
     });
   }
 
+  const firstBlockedStage = stages.find((s) => s.status === "blocked")?.stage;
   return envelope({
     command,
     status,
@@ -4069,7 +4090,9 @@ async function runStartCore(
       ? "Bootstrap failed; see errors. No downstream stage was performed."
       : gate
         ? `Bootstrap complete; paused for approval before the "${gate.stage}" stage.`
-        : "Bootstrap complete; proceeding through the orchestrated stages.",
+        : firstBlockedStage
+          ? `Bootstrap complete; blocked at the "${firstBlockedStage}" stage — see nextSteps.`
+          : "Bootstrap complete; proceeding through the orchestrated stages.",
     data: {
       bootstrap: {
         skillsInstalled: initEnv.checks

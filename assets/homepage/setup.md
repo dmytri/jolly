@@ -2,7 +2,7 @@
 
 🐙 **Ahoy, agent. I'm Jolly — your eight-armed setup octopus.** Your human wants a
 Saleor Cloud storefront. I do the mechanical plumbing; **you stay the captain.** I spawn the
-official CLIs (Saleor, Vercel, Stripe, `git`, `pnpm`), pause for your approval before anything
+official CLIs (Saleor, Vercel, `git`, `pnpm`), pause for your approval before anything
 risky, and wait at the steps only a human can do. I never hold your human's secrets — only the
 official tools you authenticate against do.
 
@@ -29,13 +29,13 @@ Voice: calm, dry, a little silly. Eight arms, one store.
 Four moments. Stop and ask — one at a time:
 
 - 👩🏾 **New account** — Saleor Cloud / Vercel / Stripe (creation needs a human)
-- 👨🏻 **Browser approval** — I sign Vercel and Stripe in myself; I print a URL, the human approves it
+- 👨🏻 **Browser approval** — I sign Vercel in myself; I print a URL, the human approves it
   in a browser, and I continue
 - 🧑🏿 **Configure Saleor's Stripe app** — I install the app and the Stripe skill; the human adds the
   test-mode keys and maps it to the `us` channel in the Dashboard (Extensions → Stripe)
 - 👩🏼 **A sign-in to approve** — Saleor Cloud sign-in is a device-authorization grant: I print an
   `auth.saleor.io` URL with the code pre-filled, you open it and approve, and I continue — no token
-  to paste. Any key (e.g. Stripe) can go straight into the gitignored `.env` yourself
+  to paste. Any key can go straight into the gitignored `.env` yourself
 
 Everything else, I do.
 
@@ -106,13 +106,14 @@ stage-by-stage playbook.
 
 ### Prerequisites
 
-- Node ≥ 20.12.0 (`node -v`) — Node 20 LTS or newer.
-- pnpm (`pnpm -v`) — Paper uses it.
+- Node ≥ 20.12.0 (`node -v`) — Node 20 LTS or newer. (pnpm is **not** a prerequisite — Jolly
+  runs it via `npx`, like the other CLIs.)
 - A Saleor Cloud account — 👨🏽 sign up at https://cloud.saleor.io if there isn't one.
 
 ### Hosts I contact
 
-`cloud.saleor.io` (Cloud API + token page) · `*.saleor.cloud` (your store) ·
+`cloud.saleor.io` (Cloud platform API) · `auth.saleor.io` (Saleor sign-in —
+device-authorization + refresh grant) · `*.saleor.cloud` (your store) ·
 `github.com` (skills). The
 CLIs I spawn reach their own services under their own auth: Vercel → `api.vercel.com`;
 `@saleor/configurator` → your `*.saleor.cloud`; `git` → `github.com`; `npx` → npm. Locked-down

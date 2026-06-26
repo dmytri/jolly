@@ -297,14 +297,17 @@ Then(
 );
 
 Then(
-  "when `pnpm` is missing the stage should report a `pnpm-available` check with status {string} and a remediation to install pnpm — a clean prerequisite check, never a raw `spawnSync` ENOENT error surfaced to the user — and Jolly should not install Node.js itself",
-  function (_status: string) {
-    // pnpm-presence guidance is start's pre-spawn check. In this real run pnpm is
-    // present (the storefront installs), so the missing-pnpm `fail` is produced
-    // for real where it can be: scenario "A missing pnpm prerequisite is reported
-    // as a clean check, not a raw spawn error" (@logic, this feature), which makes
-    // pnpm unresolvable on PATH and asserts the `pnpm-available` check = "fail",
-    // the install-pnpm remediation, and no raw `spawnSync` ENOENT string.
+  "the storefront stage installs Paper's dependencies by running pnpm via `npx` (no global pnpm prerequisite), and Jolly should not install Node.js itself",
+  function () {
+    // The storefront stage spawns `npx pnpm install` (like Jolly's other spawned
+    // CLIs), so there is NO global-pnpm prerequisite — a missing global pnpm is
+    // never a failure. The `pnpm-available` check is therefore always a clean
+    // `pass`: the missing-global-pnpm case is asserted for real in the @logic
+    // scenario "A missing global pnpm is not a failure — the storefront stage runs
+    // pnpm via npx", which makes pnpm unresolvable on PATH and asserts the
+    // `pnpm-available` check = "pass" with the `npx pnpm install` description and
+    // no raw `spawnSync` ENOENT string. Jolly never installs Node.js itself —
+    // a boundary, not a harmless cucumber assertion here.
   },
 );
 
@@ -1589,6 +1592,8 @@ Given("`pnpm` is not resolvable on PATH", function (this: JollyWorld) {
 Then(
   "a `pnpm-available` check should report status {string}",
   function (this: JollyWorld, status: string) {
+    // With no global pnpm on PATH the storefront stage runs pnpm via `npx`, so
+    // the check is always a clean `pass` — a missing global pnpm is never a fail.
     const check = this.envelope.checks.find((c) => c.id === "pnpm-available");
     assert.ok(
       check,
@@ -1597,26 +1602,30 @@ Then(
     assert.equal(
       check.status,
       status,
-      `pnpm-available must report "${status}" when pnpm is missing; got "${check.status}"`,
+      `pnpm-available must report "${status}" when no global pnpm is on PATH; got "${check.status}"`,
     );
   },
 );
 
 Then(
-  "the check should carry a remediation that names installing pnpm",
+  "the check description should state the storefront stage runs `npx pnpm install` with no global pnpm required",
   function (this: JollyWorld) {
     const check = this.envelope.checks.find((c) => c.id === "pnpm-available");
-    assert.ok(check, "pnpm-available check must exist to carry a remediation");
-    const text = `${check.remediation ?? ""} ${check.command ?? ""} ${check.description ?? ""}`;
+    assert.ok(check, "pnpm-available check must exist to carry a description");
+    const text = `${check.description ?? ""} ${check.remediation ?? ""} ${check.command ?? ""}`;
+    // No global pnpm on PATH: the storefront stage runs pnpm via `npx`, so the
+    // check stays a clean `pass` whose description points at `npx pnpm install`
+    // and states no global pnpm install is required — never an install-pnpm
+    // remediation or a failure.
     assert.match(
       text,
-      /install/i,
-      `pnpm-available must carry a remediation that names installing; got: ${text}`,
+      /npx pnpm install/i,
+      `pnpm-available description must state the storefront stage runs \`npx pnpm install\`; got: ${text}`,
     );
     assert.match(
       text,
-      /pnpm/i,
-      `pnpm-available remediation must name pnpm; got: ${text}`,
+      /no global pnpm/i,
+      `pnpm-available description must state no global pnpm is required; got: ${text}`,
     );
   },
 );
