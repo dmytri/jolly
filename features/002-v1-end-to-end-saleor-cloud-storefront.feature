@@ -78,7 +78,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And it should clone Saleor's official `saleor/storefront` Paper template from `main` by spawning `git`, remove the upstream `.git` history, and initialize a fresh repository
     And it should install Paper's dependencies by spawning `pnpm`
     And on a too-old Node.js version a `node-version` check should report status "fail" naming the required version, and Jolly should not install or switch Node.js itself
-    And the storefront stage installs Paper's dependencies by running pnpm via `npx` (no global pnpm prerequisite), and Jolly should not install Node.js itself
+    And the storefront stage installs Paper's dependencies by running pnpm via `npx`, with no global pnpm prerequisite, and Jolly should not install Node.js itself
     And `jolly doctor storefront --full-validation` should run Paper's generate, typecheck, and build steps and report each as a check
     And it should leave Paper's source and theme files unmodified after the clone and install
 

@@ -297,7 +297,7 @@ Then(
 );
 
 Then(
-  "the storefront stage installs Paper's dependencies by running pnpm via `npx` (no global pnpm prerequisite), and Jolly should not install Node.js itself",
+  "the storefront stage installs Paper's dependencies by running pnpm via `npx`, with no global pnpm prerequisite, and Jolly should not install Node.js itself",
   function () {
     // The storefront stage spawns `npx pnpm install` (like Jolly's other spawned
     // CLIs), so there is NO global-pnpm prerequisite — a missing global pnpm is

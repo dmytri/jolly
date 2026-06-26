@@ -101,11 +101,13 @@ export function interactiveCloseSummary<E extends CloseEnvelope>(
   } else {
     const dashboardUrl = dashboardUrlFrom(core, opts.endpoint);
     const storefrontUrl = storefrontUrlFrom(core);
-    const parts: string[] = [];
-    if (dashboardUrl) parts.push(`Saleor Dashboard: ${dashboardUrl}`);
-    if (storefrontUrl) parts.push(`storefront: ${storefrontUrl}`);
-    const urls = parts.length > 0 ? ` — ${parts.join(", ")}` : "";
-    summary = `Your store is live${urls}. ${opts.stripeStep}`;
+    // A structured, celebratory close — the live store is the win; the remaining
+    // Stripe step is a calm final note, each on its own line (feature 027).
+    const lines = ["Your store is live! 🎉"];
+    if (storefrontUrl) lines.push(`  Storefront:       ${storefrontUrl}`);
+    if (dashboardUrl) lines.push(`  Saleor Dashboard: ${dashboardUrl}`);
+    lines.push(`  ${opts.stripeStep}`);
+    summary = lines.join("\n");
   }
 
   return { ...core, summary, checks: [], nextSteps: [] } as E;

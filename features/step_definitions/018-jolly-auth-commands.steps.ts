@@ -34,7 +34,12 @@ import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { absentCredentialsEnv } from "../support/creds-env.ts";
 import { ptyAvailable, runUnderPty } from "../support/pty.ts";
-import { FAKE_AUTH_MARKER, startFakeAuthHost } from "../support/fake-auth-host.ts";
+import {
+  FAKE_AUTH_MARKER,
+  FAKE_AUTH_USER_CODE,
+  FAKE_AUTH_VERIFICATION_URI,
+  startFakeAuthHost,
+} from "../support/fake-auth-host.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
 
@@ -163,6 +168,51 @@ Given(
   "the Saleor auth host approves the device grant on the first poll",
   async function (this: JollyWorld) {
     await startFakeAuthHost(this);
+  },
+);
+
+// A prior `jolly login`/`jolly start` relayed a device code and persisted it.
+// Seed that persisted pending authorization so a re-run RESUMES this exact code
+// (the fake host, started by the sibling Given, approves it on the next poll)
+// rather than orphaning it by requesting a new one.
+Given(
+  "a pending device authorization was relayed and persisted in a prior run",
+  function (this: JollyWorld) {
+    writeFileSync(
+      join(this.projectDir, ".jolly-pending-auth.json"),
+      JSON.stringify({
+        deviceCode: "resume-test-device-code",
+        userCode: FAKE_AUTH_USER_CODE,
+        verificationUri: FAKE_AUTH_VERIFICATION_URI,
+        interval: 1,
+        expiresIn: 600,
+        savedAt: Date.now(),
+      }),
+    );
+  },
+);
+
+// A resumed grant polls the SAME persisted code; it does NOT request and relay a
+// fresh one, so the device-code relay line is absent from stderr (proof it
+// resumed rather than starting over).
+Then(
+  "Jolly should resume the persisted pending device code without relaying a new one",
+  function (this: JollyWorld) {
+    const stderr = this.lastRun!.stderr;
+    assert.ok(
+      !/Sign in to Saleor Cloud: open/.test(stderr),
+      `a resumed grant must not relay a NEW device code; stderr: ${stderr}`,
+    );
+  },
+);
+
+Then(
+  "the persisted pending device authorization should be cleared",
+  function (this: JollyWorld) {
+    assert.ok(
+      !existsSync(join(this.lastRun!.cwd, ".jolly-pending-auth.json")),
+      "the persisted pending device authorization must be removed after a completed sign-in",
+    );
   },
 );
 

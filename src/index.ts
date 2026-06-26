@@ -684,7 +684,11 @@ async function deviceGrantLogin(command: string): Promise<Envelope> {
 // authorize before reporting the grant is still pending (non-zero) and letting
 // the agent re-run. Bounded so one invocation does not hang for the full
 // device-code lifetime; the relayed code stays valid for the re-run.
-const AGENT_POLL_WINDOW_SECONDS = 10;
+// Default 10s for a real agent run; the test harness shortens it via
+// HARNESS_AGENT_POLL_WINDOW_SECONDS so device-grant scenarios don't idle-poll.
+const AGENT_POLL_WINDOW_SECONDS = process.env.HARNESS_AGENT_POLL_WINDOW_SECONDS
+  ? Number(process.env.HARNESS_AGENT_POLL_WINDOW_SECONDS)
+  : 10;
 
 // Relay a device authorization's user code + verification URL to STDERR in plain
 // text so an agent-driven (non-interactive) run can forward them to its human
@@ -698,6 +702,86 @@ function relayDeviceCode(auth: DeviceAuthorization): void {
   );
 }
 
+// The pending device authorization is persisted between agent invocations so a
+// re-run RESUMES the same code the human approved out-of-band, instead of
+// orphaning it by requesting a new one each run (feature 018 "resumable across
+// runs"). Lives in the project dir; cleared on success or expiry.
+const PENDING_DEVICE_AUTH_FILE = ".jolly-pending-auth.json";
+
+function pendingDeviceAuthPath(): string {
+  return join(projectDir(), PENDING_DEVICE_AUTH_FILE);
+}
+
+function loadPendingDeviceAuth(): DeviceAuthorization | undefined {
+  try {
+    const saved = JSON.parse(readFileSync(pendingDeviceAuthPath(), "utf8")) as DeviceAuthorization & {
+      savedAt?: number;
+    };
+    if (!saved.deviceCode) return undefined;
+    if (typeof saved.savedAt === "number" && typeof saved.expiresIn === "number") {
+      const remaining = saved.expiresIn - (Date.now() - saved.savedAt) / 1000;
+      if (remaining <= 1) {
+        clearPendingDeviceAuth();
+        return undefined;
+      }
+      // Poll only the code's REMAINING lifetime.
+      saved.expiresIn = Math.floor(remaining);
+    }
+    return saved;
+  } catch {
+    return undefined;
+  }
+}
+
+function savePendingDeviceAuth(auth: DeviceAuthorization): void {
+  try {
+    writeFileSync(pendingDeviceAuthPath(), JSON.stringify({ ...auth, savedAt: Date.now() }));
+  } catch {
+    /* best-effort: persistence only enables faster re-run resume */
+  }
+}
+
+function clearPendingDeviceAuth(): void {
+  try {
+    rmSync(pendingDeviceAuthPath(), { force: true });
+  } catch {
+    /* best-effort */
+  }
+}
+
+// Resume a persisted pending device authorization the human may have approved
+// since it was relayed, or start a fresh one and relay it. Polls within the
+// bounded agent window. Returns the tokens on success (clearing the persisted
+// code), or undefined when still pending (the code stays persisted so the next
+// run resumes it) or genuinely expired (cleared). Feature 018.
+async function resumeOrStartDeviceGrant(
+  relay: (auth: DeviceAuthorization) => void,
+): Promise<{ accessToken: string; refreshToken: string } | undefined> {
+  let auth = loadPendingDeviceAuth();
+  if (!auth) {
+    auth = await requestDeviceCode();
+    relay(auth);
+    savePendingDeviceAuth(auth);
+  }
+  try {
+    const tokens = await pollForDeviceTokens({
+      ...auth,
+      expiresIn: Math.min(auth.expiresIn, AGENT_POLL_WINDOW_SECONDS),
+    });
+    clearPendingDeviceAuth();
+    return tokens;
+  } catch (err) {
+    if (err instanceof DeviceGrantError && err.code === "DEVICE_CODE_EXPIRED") {
+      // The bounded poll window passed without approval. Keep the persisted code
+      // if its real lifetime remains (the next run resumes it); loadPending
+      // clears it if it has truly expired.
+      loadPendingDeviceAuth();
+      return undefined;
+    }
+    throw err;
+  }
+}
+
 // Agent-driven sign-in through the Saleor device authorization grant. Request a
 // device code, relay the user code + verification URL to plain STDERR so the
 // agent can forward them to its human, emit the standard output envelope on
@@ -709,22 +793,12 @@ async function deviceGrantLoginAgent(
   command: string,
   _args: ParsedArgs,
 ): Promise<Envelope> {
-  const auth = await requestDeviceCode();
-  // Relay the user code + verification URL to plain STDERR so the agent forwards
-  // them to its human; stdout stays clean for the single result envelope.
-  relayDeviceCode(auth);
-  // Poll the token endpoint while the human authorizes out-of-band, within a
-  // bounded window (the grant's own interval is honoured) rather than the full
-  // device-code lifetime. On authorization within the window, store the access +
-  // refresh tokens (never the staff token) and return a success envelope — the
-  // single envelope on stdout, with no token value printed. If the window passes
-  // without authorization, return a pending warning so the agent re-runs
-  // `jolly login` to complete.
-  try {
-    const tokens = await pollForDeviceTokens({
-      ...auth,
-      expiresIn: Math.min(auth.expiresIn, AGENT_POLL_WINDOW_SECONDS),
-    });
+  // Resume a persisted pending code the human approved out-of-band, or relay +
+  // persist a fresh one, polling only the bounded agent window (feature 018,
+  // resumable across runs). The code + URL go to plain STDERR; stdout stays
+  // clean for the single result envelope, which carries no token value.
+  const tokens = await resumeOrStartDeviceGrant(relayDeviceCode);
+  if (tokens) {
     writeEnvValues(projectDir(), {
       JOLLY_SALEOR_ACCESS_TOKEN: tokens.accessToken,
       JOLLY_SALEOR_REFRESH_TOKEN: tokens.refreshToken,
@@ -735,25 +809,23 @@ async function deviceGrantLoginAgent(
       summary: "Signed in through the Saleor device authorization grant.",
       data: { cloudTokenStored: true, riskContext: loginRiskContext() },
     });
-  } catch (err) {
-    if (err instanceof DeviceGrantError && err.code === "DEVICE_CODE_EXPIRED") {
-      return envelope({
-        command,
-        status: "warning",
-        summary:
-          "Started the Saleor device authorization grant. Authorize at the URL relayed on stderr, then re-run `jolly login`.",
-        data: { authorizationPending: true, riskContext: loginRiskContext() },
-        nextSteps: [
-          {
-            description:
-              "Authorize the device sign-in at the verification URL relayed on stderr.",
-            command: "jolly login",
-          },
-        ],
-      });
-    }
-    throw err;
   }
+  // Still pending: the code is persisted, so re-running `jolly login` resumes the
+  // SAME code the human approves at the URL — never a fresh code that orphans it.
+  return envelope({
+    command,
+    status: "warning",
+    summary:
+      "Started the Saleor device authorization grant. Authorize at the URL relayed on stderr, then re-run `jolly login` to complete the sign-in.",
+    data: { authorizationPending: true, riskContext: loginRiskContext() },
+    nextSteps: [
+      {
+        description:
+          "Authorize the device sign-in at the verification URL relayed on stderr, then re-run jolly login to complete it.",
+        command: "jolly login",
+      },
+    ],
+  });
 }
 
 function resolveOrgName(orgs: CloudOrganization[]): string | undefined {
@@ -3161,7 +3233,10 @@ async function runStorefrontStage(checks: Check[]): Promise<StageStatus> {
     }
     const clone = spawnSync(
       "git",
-      ["clone", "--branch", "main", "https://github.com/saleor/storefront.git", dir],
+      // Shallow clone: Jolly strips the upstream `.git` and re-inits a fresh
+      // repo immediately, so the history is discarded anyway — `--depth 1`
+      // fetches only main's latest commit (faster, less data) for the same result.
+      ["clone", "--depth", "1", "--branch", "main", "https://github.com/saleor/storefront.git", dir],
       { encoding: "utf8", timeout: 600_000, env: { ...process.env } },
     );
     if (clone.error || clone.status !== 0) {
@@ -3806,19 +3881,6 @@ async function runStartCore(
 ): Promise<Envelope> {
   const command = "start";
 
-  // When no Cloud token is configured the auth stage starts the device grant and
-  // relays the code + URL to stderr (feature 002). Kick the device-code request
-  // off here so its network round-trip overlaps the bootstrap below rather than
-  // adding serial latency; the auth stage awaits the (likely already-resolved)
-  // result to relay it. A request failure is swallowed (the stage still blocks).
-  const tokenAlreadyConfigured = Boolean(
-    cloudPlatformToken(loadEnvValues(projectDir())),
-  );
-  const deviceCodePromise: Promise<DeviceAuthorization | undefined> =
-    tokenAlreadyConfigured
-      ? Promise.resolve(undefined)
-      : requestDeviceCode().catch(() => undefined);
-
   // Bootstrap: run init (real, on-disk) + run doctor (read-only). Never
   // fabricate stages the agent must perform.
   const initEnv = commandInit(args);
@@ -3868,7 +3930,7 @@ async function runStartCore(
   // needed (a gate it cannot self-clear), token-only with no browser flow.
   const startEnvValues = loadEnvValues(projectDir());
   const hasCloudToken = Boolean(cloudPlatformToken(startEnvValues));
-  const needsToken = !hasCloudToken;
+  let needsToken = !hasCloudToken;
 
   // A store endpoint already configured (a prior `jolly create store` or earlier
   // run) means the store stage is already satisfied: no store would be created
@@ -3889,20 +3951,28 @@ async function runStartCore(
       // Bootstrap itself failed; nothing downstream was attempted.
       status = isBootstrap && planStage.stage === "init" ? "error" : "pending";
     } else if (planStage.stage === "auth" && needsToken) {
-      // No Cloud token configured: the auth stage starts the Saleor device
-      // authorization grant for the agent (feature 018, 002) — request a device
-      // code and relay the user code + verification URL to plain STDERR so the
-      // agent can forward them to its human. It does NOT poll/block (start stays
-      // non-blocking) and the code + URL stay on STDERR ONLY — never in the
-      // stdout envelope. The stage stays non-`completed` (`blocked`): it cannot
-      // self-clear, never a fabricated `completed`. It does NOT set the approval
-      // `gate` (reserved for the high-risk per-stage approval pause): the run
-      // proceeds through the remaining stages, which block/pend honestly on the
-      // still-missing credentials. A device-code request failure leaves the
-      // stage `blocked` just the same (the relay is simply skipped).
-      const deviceAuth = await deviceCodePromise;
-      if (deviceAuth) relayDeviceCode(deviceAuth);
-      status = "blocked";
+      // No Cloud token configured: the auth stage drives the Saleor device
+      // authorization grant for the agent (feature 018, 002). It RESUMES a
+      // persisted pending code the human approved out-of-band, or relays+persists
+      // a fresh one, polling only the bounded agent window so the run never hangs.
+      // The code + URL stay on STDERR ONLY — never in the stdout envelope.
+      //   - resumed-and-approved → store the session and mark `completed`, so the
+      //     run continues authenticated this same pass;
+      //   - still pending → the code stays persisted and the stage is `blocked`
+      //     (re-run jolly start to resume) — never a fabricated `completed`, and
+      //     it never sets the high-risk approval `gate`.
+      // A device-code request failure leaves the stage `blocked` just the same.
+      const tokens = await resumeOrStartDeviceGrant(relayDeviceCode).catch(() => undefined);
+      if (tokens) {
+        writeEnvValues(projectDir(), {
+          JOLLY_SALEOR_ACCESS_TOKEN: tokens.accessToken,
+          JOLLY_SALEOR_REFRESH_TOKEN: tokens.refreshToken,
+        });
+        needsToken = false;
+        status = "completed";
+      } else {
+        status = "blocked";
+      }
     } else if (isBootstrap) {
       status = "completed";
     } else if (planStage.stage === "store" && storeEndpoint) {
@@ -4016,11 +4086,21 @@ async function runStartCore(
     mergeMcpJson();
   }
 
-  // A run that performed only the bootstrap and stopped at the orchestration
-  // gate (paused for approval, or with --yes proceeding into downstream stages
-  // it has not completed) is never "success": it is "warning". Only a failed
-  // local bootstrap is an "error".
-  const status: EnvelopeStatus = bootstrapFailed ? "error" : "warning";
+  // A run that drove every side-effecting stage to completion — the store is
+  // provisioned, configured, and DEPLOYED (live) — is a SUCCESS, even though
+  // the human's remaining Stripe-keys Dashboard step is surfaced as a nextStep
+  // (a known human gate, not a failure). A failed local bootstrap is "error";
+  // anything paused at a gate or with a blocked/pending side-effecting stage is
+  // "warning" — never a fabricated success.
+  const SIDE_EFFECTING_STAGES = ["store", "storefront", "recipe", "stock", "deploy", "stripe"];
+  const allStagesDone = stages.every(
+    (s) => !SIDE_EFFECTING_STAGES.includes(s.stage) || s.status === "completed",
+  );
+  const status: EnvelopeStatus = bootstrapFailed
+    ? "error"
+    : allStagesDone
+      ? "success"
+      : "warning";
 
   const nextSteps: NextStep[] = [];
   if (bootstrapFailed) {
