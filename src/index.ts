@@ -680,15 +680,16 @@ async function deviceGrantLogin(command: string): Promise<Envelope> {
   });
 }
 
-// A single agent-driven `jolly login` waits this many seconds for the human to
-// authorize before reporting the grant is still pending (non-zero) and letting
-// the agent re-run. Bounded so one invocation does not hang for the full
-// device-code lifetime; the relayed code stays valid for the re-run.
-// Default 10s for a real agent run; the test harness shortens it via
-// HARNESS_AGENT_POLL_WINDOW_SECONDS so device-grant scenarios don't idle-poll.
-const AGENT_POLL_WINDOW_SECONDS = process.env.HARNESS_AGENT_POLL_WINDOW_SECONDS
-  ? Number(process.env.HARNESS_AGENT_POLL_WINDOW_SECONDS)
-  : 10;
+// Seconds an agent-driven sign-in polls for the human to authorize. A real run
+// blocks for the device code's FULL lifetime — the agent streams the URL to its
+// human and waits, exactly like an interactive run, so one invocation completes
+// the sign-in (no bounded window, no re-run dance). The test harness caps it via
+// HARNESS_AGENT_POLL_WINDOW_SECONDS so device-grant scenarios never wait on a
+// human; 0/unset means "the code's full lifetime".
+function agentPollWindowSeconds(codeLifetime: number): number {
+  const override = process.env.HARNESS_AGENT_POLL_WINDOW_SECONDS;
+  return override ? Number(override) : codeLifetime;
+}
 
 // Relay a device authorization's user code + verification URL to STDERR in plain
 // text so an agent-driven (non-interactive) run can forward them to its human
@@ -702,80 +703,24 @@ function relayDeviceCode(auth: DeviceAuthorization): void {
   );
 }
 
-// The pending device authorization is persisted between agent invocations so a
-// re-run RESUMES the same code the human approved out-of-band, instead of
-// orphaning it by requesting a new one each run (feature 018 "resumable across
-// runs"). Lives in the project dir; cleared on success or expiry.
-const PENDING_DEVICE_AUTH_FILE = ".jolly-pending-auth.json";
-
-function pendingDeviceAuthPath(): string {
-  return join(projectDir(), PENDING_DEVICE_AUTH_FILE);
-}
-
-function loadPendingDeviceAuth(): DeviceAuthorization | undefined {
-  try {
-    const saved = JSON.parse(readFileSync(pendingDeviceAuthPath(), "utf8")) as DeviceAuthorization & {
-      savedAt?: number;
-    };
-    if (!saved.deviceCode) return undefined;
-    if (typeof saved.savedAt === "number" && typeof saved.expiresIn === "number") {
-      const remaining = saved.expiresIn - (Date.now() - saved.savedAt) / 1000;
-      if (remaining <= 1) {
-        clearPendingDeviceAuth();
-        return undefined;
-      }
-      // Poll only the code's REMAINING lifetime.
-      saved.expiresIn = Math.floor(remaining);
-    }
-    return saved;
-  } catch {
-    return undefined;
-  }
-}
-
-function savePendingDeviceAuth(auth: DeviceAuthorization): void {
-  try {
-    writeFileSync(pendingDeviceAuthPath(), JSON.stringify({ ...auth, savedAt: Date.now() }));
-  } catch {
-    /* best-effort: persistence only enables faster re-run resume */
-  }
-}
-
-function clearPendingDeviceAuth(): void {
-  try {
-    rmSync(pendingDeviceAuthPath(), { force: true });
-  } catch {
-    /* best-effort */
-  }
-}
-
-// Resume a persisted pending device authorization the human may have approved
-// since it was relayed, or start a fresh one and relay it. Polls within the
-// bounded agent window. Returns the tokens on success (clearing the persisted
-// code), or undefined when still pending (the code stays persisted so the next
-// run resumes it) or genuinely expired (cleared). Feature 018.
-async function resumeOrStartDeviceGrant(
+// Drive the Saleor device authorization grant for an agent-driven run: request a
+// code, relay its URL to the human (plain STDERR), then BLOCK polling the token
+// endpoint until the human authorizes in their browser — the agent streams the
+// URL and waits, so one invocation completes the sign-in. Returns the tokens on
+// approval, or undefined if the code's lifetime elapses without approval (the
+// agent re-runs to retry with a fresh code). Feature 018.
+async function deviceGrantSignIn(
   relay: (auth: DeviceAuthorization) => void,
 ): Promise<{ accessToken: string; refreshToken: string } | undefined> {
-  let auth = loadPendingDeviceAuth();
-  if (!auth) {
-    auth = await requestDeviceCode();
-    relay(auth);
-    savePendingDeviceAuth(auth);
-  }
+  const auth = await requestDeviceCode();
+  relay(auth);
   try {
-    const tokens = await pollForDeviceTokens({
+    return await pollForDeviceTokens({
       ...auth,
-      expiresIn: Math.min(auth.expiresIn, AGENT_POLL_WINDOW_SECONDS),
+      expiresIn: agentPollWindowSeconds(auth.expiresIn),
     });
-    clearPendingDeviceAuth();
-    return tokens;
   } catch (err) {
     if (err instanceof DeviceGrantError && err.code === "DEVICE_CODE_EXPIRED") {
-      // The bounded poll window passed without approval. Keep the persisted code
-      // if its real lifetime remains (the next run resumes it); loadPending
-      // clears it if it has truly expired.
-      loadPendingDeviceAuth();
       return undefined;
     }
     throw err;
@@ -793,11 +738,10 @@ async function deviceGrantLoginAgent(
   command: string,
   _args: ParsedArgs,
 ): Promise<Envelope> {
-  // Resume a persisted pending code the human approved out-of-band, or relay +
-  // persist a fresh one, polling only the bounded agent window (feature 018,
-  // resumable across runs). The code + URL go to plain STDERR; stdout stays
-  // clean for the single result envelope, which carries no token value.
-  const tokens = await resumeOrStartDeviceGrant(relayDeviceCode);
+  // Relay the URL to plain STDERR and block polling until the human authorizes
+  // (feature 018). stdout stays clean for the single result envelope, which
+  // carries no token value.
+  const tokens = await deviceGrantSignIn(relayDeviceCode);
   if (tokens) {
     writeEnvValues(projectDir(), {
       JOLLY_SALEOR_ACCESS_TOKEN: tokens.accessToken,
@@ -811,12 +755,12 @@ async function deviceGrantLoginAgent(
     });
   }
   // Still pending: the code is persisted, so re-running `jolly login` resumes the
-  // SAME code the human approves at the URL — never a fresh code that orphans it.
+  // code's lifetime elapsed without approval; re-running requests a fresh code.
   return envelope({
     command,
     status: "warning",
     summary:
-      "Started the Saleor device authorization grant. Authorize at the URL relayed on stderr, then re-run `jolly login` to complete the sign-in.",
+      "The Saleor device authorization grant expired before it was approved. Re-run `jolly login` and authorize at the URL relayed on stderr.",
     data: { authorizationPending: true, riskContext: loginRiskContext() },
     nextSteps: [
       {
@@ -3665,19 +3609,26 @@ function osc8Hyperlink(url: string): string {
 // update moves the cursor back over the rows and erase-reprints them, so the
 // same region is redrawn rather than appended. Only the interactive path renders
 // it (the agent/--json path passes no reporter), keeping machine output clean.
-function stageProgress(
-  stageNames: string[],
-): { update: (stage: string, status: StageStatus) => void; stop: () => void } {
+function stageProgress(stageNames: string[]): {
+  start: (stage: string) => void;
+  update: (stage: string, status: StageStatus) => void;
+  stop: () => void;
+} {
   const out = process.stderr;
   const colour = Boolean(out.isTTY) && !process.env["NO_COLOR"];
   const paint = (code: string, s: string): string => (colour ? `${code}${s}${SGR.reset}` : s);
-  const statuses = new Map<string, StageStatus>(
-    stageNames.map((s) => [s, "pending" as StageStatus]),
-  );
-  const glyph = (status: StageStatus): string => {
+  // The stages run via blocking spawnSync, so the event loop is frozen during a
+  // stage's work — a spinner would not animate. Instead, the CURRENT stage shows
+  // a static `▸ running` glyph (set before it executes), then ✓/✗ when it
+  // resolves: an honest "here's where the run is" cursor, no fake animation.
+  type StageVis = StageStatus | "running";
+  const statuses = new Map<string, StageVis>(stageNames.map((s) => [s, "pending" as StageVis]));
+  const glyph = (status: StageVis): string => {
     switch (status) {
       case "completed":
         return paint(SGR.green, "✓");
+      case "running":
+        return paint(SGR.cyan, "▸");
       case "awaiting-approval":
         return paint(SGR.yellow, "◌");
       case "skipped":
@@ -3688,9 +3639,9 @@ function stageProgress(
         return paint(SGR.red, "✗"); // blocked / error
     }
   };
-  // The glyph already conveys completed/pending/skipped; only a wait or a
-  // problem names itself, so the list reads as a clean checklist.
-  const label = (status: StageStatus): string => {
+  // The glyph already conveys completed/running/pending/skipped; only a wait or
+  // a problem names itself, so the list reads as a clean checklist.
+  const label = (status: StageVis): string => {
     if (status === "awaiting-approval") return paint(SGR.yellow, " — awaiting approval");
     if (status === "blocked" || status === "error") return paint(SGR.red, ` — ${status}`);
     return "";
@@ -3699,17 +3650,35 @@ function stageProgress(
     const status = statuses.get(s)!;
     return `${glyph(status)} ${status === "pending" ? paint(SGR.dim, s) : s}${label(status)}`;
   };
-  // Initial frame: the full list, every stage pending.
-  out.write(stageNames.map(row).join("\n") + "\n");
-  const redraw = (): void => {
+  // Render lazily: write the initial frame on the FIRST update, not now. Any
+  // bootstrap output (init/doctor) emitted before the first stage then PRECEDES
+  // the frame instead of landing between it and the first redraw — which would
+  // shift the cursor-up reference down a line and duplicate the first row. Once
+  // the frame is drawn, per-stage subprocesses run captured, so nothing
+  // interleaves and the in-place redraw stays anchored.
+  let drawn = false;
+  const render = (): void => {
+    if (!drawn) {
+      out.write(stageNames.map(row).join("\n") + "\n");
+      drawn = true;
+      return;
+    }
     out.write(`\x1b[${stageNames.length}A`);
     for (const s of stageNames) out.write(`\x1b[2K${row(s)}\n`);
   };
   return {
+    start: (stage) => {
+      // Mark the stage running only while it is still pending (don't override a
+      // resolved status, e.g. an already-satisfied skip).
+      if (statuses.get(stage) === "pending") {
+        statuses.set(stage, "running");
+        render();
+      }
+    },
     update: (stage, status) => {
       if (!statuses.has(stage)) return;
       statuses.set(stage, status);
-      redraw();
+      render();
     },
     stop: () => {},
   };
@@ -3871,6 +3840,7 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
         },
       },
       (stage, status) => progress.update(stage, status),
+      (stage) => progress.start(stage),
     );
 
     // The completed interactive run closes with a concise human summary, not the
@@ -3902,6 +3872,7 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
 async function runStartCore(
   args: ParsedArgs,
   onStage?: (stage: string, status: StageStatus) => void,
+  onStageStart?: (stage: string) => void,
 ): Promise<Envelope> {
   const command = "start";
 
@@ -3964,6 +3935,9 @@ async function runStartCore(
     startEnvValues["NEXT_PUBLIC_SALEOR_API_URL"] ?? process.env["NEXT_PUBLIC_SALEOR_API_URL"];
 
   for (const planStage of plan) {
+    // Mark the stage running before it executes, so the interactive progress
+    // shows where the run currently is (the stage's resolved status follows).
+    onStageStart?.(planStage.stage);
     const isBootstrap = planStage.stage === "init" || planStage.stage === "auth";
     const isHighRisk = (HIGH_RISK_STAGES as readonly string[]).includes(planStage.stage);
     // The riskContext surfaced for this stage; rewritten below for an
@@ -3976,17 +3950,15 @@ async function runStartCore(
       status = isBootstrap && planStage.stage === "init" ? "error" : "pending";
     } else if (planStage.stage === "auth" && needsToken) {
       // No Cloud token configured: the auth stage drives the Saleor device
-      // authorization grant for the agent (feature 018, 002). It RESUMES a
-      // persisted pending code the human approved out-of-band, or relays+persists
-      // a fresh one, polling only the bounded agent window so the run never hangs.
-      // The code + URL stay on STDERR ONLY — never in the stdout envelope.
-      //   - resumed-and-approved → store the session and mark `completed`, so the
-      //     run continues authenticated this same pass;
-      //   - still pending → the code stays persisted and the stage is `blocked`
-      //     (re-run jolly start to resume) — never a fabricated `completed`, and
-      //     it never sets the high-risk approval `gate`.
+      // authorization grant for the agent (feature 018, 002). It relays the URL
+      // to STDERR and blocks polling until the human authorizes in their browser,
+      // so this same run continues authenticated. The code + URL stay on STDERR
+      // ONLY — never in the stdout envelope.
+      //   - approved → store the session and mark `completed`;
+      //   - lifetime elapsed without approval → `blocked` (re-run jolly start) —
+      //     never a fabricated `completed`, and never the high-risk approval gate.
       // A device-code request failure leaves the stage `blocked` just the same.
-      const tokens = await resumeOrStartDeviceGrant(relayDeviceCode).catch(() => undefined);
+      const tokens = await deviceGrantSignIn(relayDeviceCode).catch(() => undefined);
       if (tokens) {
         writeEnvValues(projectDir(), {
           JOLLY_SALEOR_ACCESS_TOKEN: tokens.accessToken,

@@ -46,22 +46,6 @@ Feature: Jolly auth commands
       And stdout should carry no token value
 
     @logic @exceptional-double
-    Scenario: A relayed device grant resumes on a re-run and completes the sign-in the human approved
-      # @exceptional-double: the human approval cannot be produced on demand; the
-      # local fake auth host approves the persisted pending code on the next poll,
-      # so Jolly's real resume-poll-and-store path completes without waiting. This
-      # pins that a re-run resumes the SAME relayed code rather than orphaning it
-      # by requesting a new one (so a human who approves between runs is honoured).
-      Given a non-interactive shell with no JOLLY_SALEOR_CLOUD_TOKEN set
-      And the Saleor auth host approves the device grant on the first poll
-      And a pending device authorization was relayed and persisted in a prior run
-      When the agent runs `jolly login --json`
-      Then Jolly should resume the persisted pending device code without relaying a new one
-      And the envelope status should be "success"
-      And it should store the device-grant access token in .env as JOLLY_SALEOR_ACCESS_TOKEN
-      And the persisted pending device authorization should be cleared
-
-    @logic @exceptional-double
     Scenario: Interactive jolly login signs in through the Saleor device authorization grant
       # @exceptional-double: the human approval cannot be produced on demand; the
       # local fake auth host (JOLLY_SALEOR_AUTH_URL) approves on the first poll, so

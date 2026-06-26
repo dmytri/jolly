@@ -120,6 +120,31 @@ describe("interactiveCloseSummary — genuine stage failure is honest, never fab
     assert.equal(r.checks.length, 0, "still concise — no check enumeration");
   });
 
+  test("a pending deploy stage (Vercel sign-in not approved, no failure reason) is never reported as live", () => {
+    // dk's real run: the human did not approve the Vercel device sign-in, so the
+    // deploy stage was left `pending` (it never ran) — NOT `blocked`/`failed`,
+    // and with no `vercel-deployed` failure check. The close must still be honest
+    // and never celebrate a live store.
+    const core = baseCore();
+    const stages = (core.data as { stages: Array<{ stage: string; status: string }> }).stages;
+    for (const s of stages) if (s.stage === "deploy") s.status = "pending";
+    (core.data as Record<string, unknown>).deploy = {}; // deploy never ran — no storefront URL
+    core.checks = [{ id: "store-provisioned", status: "pass" }] as Envelope["checks"];
+    const r = interactiveCloseSummary(core, {
+      endpoint: "https://shop.saleor.cloud/graphql/",
+      stripeStep: STRIPE_STEP,
+    });
+    assert.match(r.summary, /deploy/i, "names the incomplete deploy stage");
+    assert.match(r.summary, FAIL_WORDS, "honest 'did not finish' language, not a celebration");
+    assert.doesNotMatch(r.summary, FABRICATED_SUCCESS, "must not claim the store is live");
+    assert.doesNotMatch(
+      r.summary,
+      /\.vercel\.app/,
+      "must not present a deployed storefront URL when deploy never ran",
+    );
+    assert.doesNotMatch(r.summary, /🎉/, "no celebratory close when a stage did not finish");
+  });
+
   test("a failed recipe stage is reported honestly", () => {
     const core = withFailedStage(
       "recipe",

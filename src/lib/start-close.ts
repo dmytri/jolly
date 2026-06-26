@@ -32,14 +32,21 @@ interface StageEntry {
   status: string;
 }
 
-function failedStages(core: CloseEnvelope): string[] {
+// Side-effecting stages that did NOT complete. A "live" close requires EVERY
+// side-effecting stage to be `completed` (or legitimately `skipped`, e.g. a
+// store that was already configured). Anything else — `blocked`, `failed`, or
+// `pending` (the stage never ran, e.g. the Vercel sign-in was not approved so
+// deploy was left pending) — means setup did not finish, and the close must say
+// so honestly rather than fabricate a live store (feature 027 Rule).
+function incompleteStages(core: CloseEnvelope): string[] {
   const stages = (core.data as { stages?: unknown }).stages;
   if (!Array.isArray(stages)) return [];
   return (stages as StageEntry[])
     .filter(
       (s) =>
         SIDE_EFFECTING.includes(s.stage) &&
-        (s.status === "blocked" || s.status === "failed"),
+        s.status !== "completed" &&
+        s.status !== "skipped",
     )
     .map((s) => s.stage);
 }
@@ -87,22 +94,30 @@ export function interactiveCloseSummary<E extends CloseEnvelope>(
   core: E,
   opts: { endpoint?: string; stripeStep: string },
 ): E {
-  const failed = failedStages(core);
+  const incomplete = incompleteStages(core);
+  const dashboardUrl = dashboardUrlFrom(core, opts.endpoint);
+  const storefrontUrl = storefrontUrlFrom(core);
 
   let summary: string;
-  if (failed.length > 0) {
-    const stageLabel = failed.join(", ");
+  if (incomplete.length > 0) {
+    // Honest close: name the stage(s) that did not finish and surface whatever
+    // DID come up (e.g. the store exists even when deploy did not run), then
+    // point at the re-run. Never claim the store is live.
+    const stageLabel = incomplete.join(", ");
     const reasons = failureReasons(core);
-    const plural = failed.length > 1 ? "stages" : "stage";
-    summary =
-      `Setup did not finish — the ${stageLabel} ${plural} failed` +
-      (reasons.length > 0 ? `: ${reasons.join("; ")}` : "") +
-      ".";
+    const plural = incomplete.length > 1 ? "stages" : "stage";
+    const lines = [
+      `Setup did not finish — the ${stageLabel} ${plural} did not complete` +
+        (reasons.length > 0 ? `: ${reasons.join("; ")}` : "") +
+        ".",
+    ];
+    if (storefrontUrl) lines.push(`  Storefront:       ${storefrontUrl}`);
+    if (dashboardUrl) lines.push(`  Saleor Dashboard: ${dashboardUrl}`);
+    lines.push("  Re-run `jolly start` to finish the remaining stages.");
+    summary = lines.join("\n");
   } else {
-    const dashboardUrl = dashboardUrlFrom(core, opts.endpoint);
-    const storefrontUrl = storefrontUrlFrom(core);
-    // A structured, celebratory close — the live store is the win; the remaining
-    // Stripe step is a calm final note, each on its own line (feature 027).
+    // Every side-effecting stage completed — the store really is live. The
+    // remaining Stripe step is a calm final note, each line on its own (027).
     const lines = ["Your store is live! 🎉"];
     if (storefrontUrl) lines.push(`  Storefront:       ${storefrontUrl}`);
     if (dashboardUrl) lines.push(`  Saleor Dashboard: ${dashboardUrl}`);

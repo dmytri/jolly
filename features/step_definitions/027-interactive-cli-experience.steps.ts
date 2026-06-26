@@ -875,7 +875,7 @@ const STAGE_IN_PLACE = /\r|\x1b\[[0-9]*[AK]/;
 // and confirm prompts, not a stage's status, so they must not let plan-preview
 // text masquerade as a live per-stage status.
 const STAGE_STATUS_MARKER =
-  /[✓✔✗✘☑☒○◌·]|[⠀-⣿]|\b(done|running|pending|failed|skipped|complete|completed|installing|cloning|provisioning|deploying|waiting|queued|active|in progress)\b/i;
+  /[✓✔✗✘☑☒○◌·▸▶]|[⠀-⣿]|\b(done|running|pending|failed|skipped|complete|completed|installing|cloning|provisioning|deploying|waiting|queued|active|in progress)\b/i;
 
 // Run `jolly start` interactively with stdout and stderr on separate PTYs, so
 // the per-stage status region on stderr is observable apart from the clean
