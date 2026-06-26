@@ -21,6 +21,13 @@ import { join, relative } from "node:path";
 import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 import { ptyAvailable, runUnderPty } from "../support/pty.ts";
 import { findEnvelope } from "../support/envelope.ts";
+import { listOrganizations } from "../support/cloud.ts";
+import {
+  addVercelProject,
+  makeNamespace,
+  removeVercelProject,
+  vercelCliAuthenticated,
+} from "../support/sandbox.ts";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
 
 const CLI_ENTRY = join(REPO_ROOT, "src", "index.ts");
@@ -1051,6 +1058,175 @@ Then(
       raw,
       osc8,
       `the verification URL must be wrapped in an OSC 8 hyperlink pointing at ${url}; got:\n${JSON.stringify(raw)}`,
+    );
+  },
+);
+
+// ─── Completed interactive run: the human close names the live store and the ──
+// remaining human step (feature 027 @sandbox). A REAL interactive `jolly start`
+// driven to completion: the configured Cloud token auto-provisions the store
+// (so the close can name the live store's Saleor Dashboard URL), Jolly clones,
+// installs, and deploys, and the deploy reaches a real Vercel deploy under the
+// authenticated CLI session (gated as a capability). Harmless by design: the
+// created Saleor environment and Vercel project are both `jolly-test`-namespaced
+// (the env name is typed at the prompt; the Vercel project name is the
+// JOLLY_VERCEL_PROJECT deploy hook), and teardown of both is registered BEFORE
+// the run creates them. Driven against separate stdout/stderr PTYs so the human
+// RESULT summary emit() prints to stdout (the "closing summary") is observable
+// apart from the per-stage progress on stderr (feature 020/027 stream split).
+
+// The real process environment (real JOLLY_* credentials), with overrides — the
+// completing run must reach the real accounts, so absentCredentialsEnv is NOT
+// applied here. `undefined` overrides delete the variable.
+function realChildEnv(
+  overrides: Record<string, string | undefined> = {},
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries({ ...process.env, ...overrides })) {
+    if (v !== undefined) env[k] = v;
+  }
+  if (!env.TERM) env.TERM = "xterm-256color";
+  return env;
+}
+
+When(
+  "`jolly start` runs to completion in an interactive terminal",
+  { timeout: 1_560_000 },
+  async function (this: JollyWorld) {
+    if (!ptyAvailable()) return "skipped";
+    const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
+    // The @sandbox gate guarantees the Cloud token under CI; guard defensively.
+    if (!cloudToken) return "skipped";
+
+    // The @sandbox gate pre-provisioned one shared `jolly-test`-namespaced store
+    // (endpoint + app token now in process.env) and torn-down at run end. Seed the
+    // fresh project's .env with it so the interactive run REUSES that namespaced
+    // live store (runStoreStage reuses a configured endpoint; it never creates a
+    // default-named environment) — harmless, and the close can name its Dashboard URL.
+    const endpoint = process.env["NEXT_PUBLIC_SALEOR_API_URL"];
+    const appToken = process.env["JOLLY_SALEOR_APP_TOKEN"];
+    if (!endpoint || !appToken) return "skipped";
+
+    // One `jolly-test` namespace for the Vercel project the deploy stage creates,
+    // so it is attributable cannon fodder torn down after the run.
+    const namespace = makeNamespace(this.runId);
+
+    // Pin the organization deterministically (a real feature 012 affordance) so a
+    // multi-org token never inserts an org-choice prompt that would misalign the
+    // scripted keystrokes; with --organization set the org prompt is skipped.
+    const orgs = await listOrganizations(cloudToken);
+    const organization = orgs[0];
+    if (!organization) return "skipped";
+
+    // Pre-create the namespaced Vercel project the deploy targets and register its
+    // removal BEFORE the run creates the deployment (harmless by design).
+    if (vercelCliAuthenticated()) {
+      addVercelProject(namespace);
+      this.cleanup.register(`jolly-test Vercel project (run ${namespace})`, () => {
+        removeVercelProject(namespace);
+      });
+    }
+
+    // Inputs, in prompt order (Cloud token configured → no device sign-in;
+    // --organization pinned → no org choice): accept the environment name, the
+    // storefront directory, and the proceed gate, each with Enter. Each keystroke
+    // is gated on its prompt marker (waitFor) so the real run's network gaps before
+    // each prompt cannot make a fixed cadence send — and lose — an Enter before the
+    // prompt renders.
+    const run = runUnderPty({
+      runtime: process.env.HARNESS_CLI_RUNTIME ?? "node",
+      argv: [CLI_ENTRY, "start", "--organization", organization],
+      cwd: this.projectDir,
+      env: realChildEnv({
+        NEXT_PUBLIC_SALEOR_API_URL: endpoint,
+        JOLLY_SALEOR_APP_TOKEN: appToken,
+        JOLLY_VERCEL_PROJECT: namespace,
+      }),
+      inputs: ["\r", "\r", "\r"],
+      waitFor: ["Environment name", "Storefront project directory", "Build your store now?"],
+      timeoutMs: 1_500_000,
+      separateStreams: true,
+    });
+    this.previousRun = this.lastRun;
+    this.lastRun = {
+      args: ["start", "--organization", organization],
+      cwd: this.projectDir,
+      exitCode: run.exitCode,
+      stdout: run.stdout ?? "",
+      stderr: run.stderr ?? "",
+      envelope: findEnvelope(run.stdout ?? run.output),
+    };
+  },
+);
+
+// The store's Saleor Dashboard URL ends in `.saleor.cloud/dashboard/` (feature
+// 002). The completed run's human close on stdout must name it, so the human
+// knows where their live store lives.
+const SALEOR_DASHBOARD_URL = /https:\/\/[a-z0-9-]+\.saleor\.cloud\/dashboard\//i;
+
+Then(
+  "the closing summary on stdout should name the store's Saleor Dashboard URL",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.match(
+      out,
+      SALEOR_DASHBOARD_URL,
+      `the closing summary must name the live store's Saleor Dashboard URL (…​.saleor.cloud/dashboard/); got:\n${out}`,
+    );
+  },
+);
+
+Then(
+  "the closing summary on stdout should name the Stripe Dashboard key entry as the human's remaining step",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.match(
+      out,
+      /stripe[^\n]*\b(key|keys)\b[^\n]*dashboard|dashboard[^\n]*stripe[^\n]*\b(key|keys)\b/i,
+      `the closing summary must name the Saleor Dashboard Stripe key entry; got:\n${out}`,
+    );
+    assert.match(
+      out,
+      /\b(remaining|final|last|closing|left|next step)\b/i,
+      `the closing summary must frame the Stripe key entry as the human's remaining step; got:\n${out}`,
+    );
+  },
+);
+
+// The human close is a concise prose summary, not the machine check enumeration
+// (feature 027): renderHuman prints a per-check line as `  - [status] check-id…`.
+const PER_CHECK_LINE = /^\s*-\s+\S*\s*\[[a-z]+\]\s+[a-z0-9][a-z0-9-]*\b/i;
+
+Then(
+  "the closing summary on stdout should not enumerate per-check results as `[status] check-id` lines",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    const checkLine = out.split(/\r?\n/).find((line) => PER_CHECK_LINE.test(line));
+    assert.equal(
+      checkLine,
+      undefined,
+      `the closing summary must carry no per-check [status] check-id enumeration line; found:\n${checkLine}`,
+    );
+  },
+);
+
+Then(
+  "the closing summary on stdout should not present the Saleor endpoint or app-token readiness check, which the store stage resolved, as a failure of the completed run",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    // The store stage provisioned the endpoint and acquired the app token, so the
+    // endpoint/app-token readiness is satisfied. No close line may present that
+    // readiness as a failure (a stale doctor-style fail re-surfaced after the
+    // store stage already resolved it).
+    const readiness = /\b(saleor-endpoint|saleor-app-token|app-token-configured|app token)\b/i;
+    const failure = /\[fail\]|\berror\[|\bfailed\b|\bnot configured\b|\bmissing\b|\bunreachable\b/i;
+    const offending = out
+      .split(/\r?\n/)
+      .find((line) => readiness.test(line) && failure.test(line));
+    assert.equal(
+      offending,
+      undefined,
+      `the closing summary must not present the Saleor endpoint/app-token readiness (resolved by the store stage) as a failure; found:\n${offending}`,
     );
   },
 );

@@ -662,10 +662,14 @@ export const DEFAULT_STOCK_QUANTITY = 100;
  */
 export const RECIPE_COLLECTIONS: ReadonlyArray<{
   slug: string;
+  name: string;
+  channelSlug: string;
   productSlugs: readonly string[];
 }> = [
   {
     slug: "featured-products",
+    name: "Crew Favorites",
+    channelSlug: "us",
     productSlugs: [
       "the-jolly",
       "cutlass",
@@ -874,23 +878,102 @@ export async function seedRecipeStock(
 }
 
 /**
+ * Create a recipe collection the configurator deploy left absent, published on
+ * its declared channel, and return its id. Resolves the channel id by slug, runs
+ * `collectionCreate` (name + slug), then `collectionChannelListingUpdate` to add
+ * the channel as published so the storefront renders it. Only invoked when the
+ * store read-back shows the slug missing, so it never duplicates an existing
+ * collection. Throws COLLECTION_CREATE_FAILED on a payload error.
+ */
+async function createRecipeCollection(
+  graphqlUrl: string,
+  token: string,
+  collectionSlug: string,
+  collectionName: string,
+  channelSlug: string,
+): Promise<{ id: string; slug: string }> {
+  const createData = await graphqlFetch(
+    graphqlUrl,
+    token,
+    `mutation CreateCollection($input: CollectionCreateInput!) {
+      collectionCreate(input: $input) {
+        collection { id slug }
+        errors { code field message }
+      }
+    }`,
+    { input: { name: collectionName, slug: collectionSlug } },
+  );
+  const createPayload = createData.collectionCreate as
+    | { collection?: { id: string; slug: string }; errors?: Array<Record<string, unknown>> }
+    | undefined;
+  const createErrors = createPayload?.errors ?? [];
+  if (createErrors.length > 0 || !createPayload?.collection) {
+    throw new CloudApiError(
+      `Failed to create recipe collection "${collectionSlug}": ${JSON.stringify(createErrors)}`,
+      "COLLECTION_CREATE_FAILED",
+    );
+  }
+  const collection = createPayload.collection;
+
+  const chanData = await graphqlFetch(
+    graphqlUrl,
+    token,
+    `query { channels { id slug } }`,
+  );
+  const channels = (chanData.channels ?? []) as Array<{ id: string; slug: string }>;
+  const channel = channels.find((c) => c.slug === channelSlug);
+  if (channel) {
+    const listData = await graphqlFetch(
+      graphqlUrl,
+      token,
+      `mutation PublishCollection($id: ID!, $input: CollectionChannelListingUpdateInput!) {
+        collectionChannelListingUpdate(id: $id, input: $input) {
+          errors { code field message }
+        }
+      }`,
+      {
+        id: collection.id,
+        input: { addChannels: [{ channelId: channel.id, isPublished: true }] },
+      },
+    );
+    const listPayload = listData.collectionChannelListingUpdate as
+      | { errors?: Array<Record<string, unknown>> }
+      | undefined;
+    const listErrors = listPayload?.errors ?? [];
+    if (listErrors.length > 0) {
+      throw new CloudApiError(
+        `Failed to publish recipe collection "${collectionSlug}" on channel "${channelSlug}": ${JSON.stringify(listErrors)}`,
+        "COLLECTION_CREATE_FAILED",
+      );
+    }
+  }
+
+  return collection;
+}
+
+/**
  * Assign a recipe collection's declared products to it by slug, via GraphQL.
  * The `@saleor/configurator` deploy CANNOT populate a collection's membership in
  * one pass: its pipeline processes Collections (stage 7) BEFORE Products (stage
  * 10) and the product schema has no `collections` field, so a collection's
  * `products:` slugs reference products that do not exist yet and the collection
- * is created empty. Jolly fills it in after the deploy — the same reason it seeds
- * stock the configurator cannot set. Resolves the collection and product ids by
- * slug, then `collectionAddProducts` (idempotent — re-adding a member is a
- * no-op, so a re-run reconciles cleanly). Returns how many products were
- * assigned; throws COLLECTION_NOT_FOUND when the collection is absent (the
- * deploy did not create it) or COLLECTION_ASSIGN_FAILED on a payload error, so
- * the caller reports the stage honestly instead of a fabricated completion.
+ * is created empty. The deploy also does not reliably leave the collection
+ * itself behind, so Jolly reads the store back and CREATES the collection (with
+ * its published channel listing) when it is absent before assigning members —
+ * the same post-deploy fix-up reasoning Jolly applies to stock the configurator
+ * cannot set. Resolves the collection and product ids by slug, then
+ * `collectionAddProducts` (idempotent — re-adding a member is a no-op, and the
+ * create runs only when the slug is absent, so a re-run reconciles cleanly).
+ * Returns how many products were assigned; throws COLLECTION_ASSIGN_FAILED on a
+ * payload error so the caller reports the stage honestly instead of a fabricated
+ * completion.
  */
 export async function assignCollectionProducts(
   graphqlUrl: string,
   token: string,
   collectionSlug: string,
+  collectionName: string,
+  channelSlug: string,
   productSlugs: readonly string[],
 ): Promise<number> {
   const collData = await graphqlFetch(
@@ -900,13 +983,15 @@ export async function assignCollectionProducts(
   );
   const collEdges = ((collData.collections as { edges?: unknown } | undefined)?.edges ??
     []) as Array<{ node: { id: string; slug: string } }>;
-  const collection = collEdges.map((e) => e.node).find((n) => n.slug === collectionSlug);
-  if (!collection) {
-    throw new CloudApiError(
-      `Recipe collection "${collectionSlug}" not found; the starter recipe is not deployed`,
-      "COLLECTION_NOT_FOUND",
-    );
-  }
+  const collection =
+    collEdges.map((e) => e.node).find((n) => n.slug === collectionSlug) ??
+    (await createRecipeCollection(
+      graphqlUrl,
+      token,
+      collectionSlug,
+      collectionName,
+      channelSlug,
+    ));
 
   const prodData = await graphqlFetch(
     graphqlUrl,

@@ -1195,3 +1195,38 @@ Then(
     );
   },
 );
+
+Then(
+  'the `recipe-deployed` check should derive its status from that store read-back, so it cannot report "pass" while a sibling check reports a declared entity such as the `featured-products` collection is absent',
+  function (this: JollyWorld) {
+    if (this.notes.skipRecipe) return "skipped";
+    const checks = this.envelope.checks;
+    const recipeDeployed = checks.find((c) => String(c.id) === "recipe-deployed");
+    assert.ok(recipeDeployed, "the recipe stage must emit a recipe-deployed check");
+    // The invariant only binds when recipe-deployed claims success: a "pass"
+    // recipe-deployed must derive from the store read-back, so it cannot stand
+    // while a sibling check reports a declared recipe entity (the featured-products
+    // collection) absent. A non-pass recipe-deployed already reports the failure
+    // honestly and constrains nothing here.
+    if (recipeDeployed!.status !== "pass") return;
+    const absent =
+      /\b(absent|missing|not found|could not (?:populate|assign|find|read)|empty|does not exist|no .*(?:collection|product))\b/i;
+    const offending = checks.find((c) => {
+      if (String(c.id) === "recipe-deployed") return false;
+      if (c.status !== "fail" && c.status !== "warning") return false;
+      const text = `${String(c.id)} ${String(c.description ?? "")}`;
+      const namesDeclaredEntity =
+        new RegExp(`\\b${FEATURED_COLLECTION_SLUG}\\b`, "i").test(text) ||
+        /\bcollection\b/i.test(text);
+      return namesDeclaredEntity && absent.test(text);
+    });
+    assert.equal(
+      offending,
+      undefined,
+      `recipe-deployed reports "pass" while a sibling check reports a declared entity ` +
+        `(the "${FEATURED_COLLECTION_SLUG}" collection) absent; recipe-deployed must derive ` +
+        `its status from the store read-back, not the configurator's summary counts. Offending sibling:\n` +
+        `${JSON.stringify(offending)}`,
+    );
+  },
+);

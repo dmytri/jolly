@@ -26,6 +26,7 @@ import fcntl
 import json
 import os
 import pty
+import re
 import select
 import struct
 import subprocess
@@ -50,6 +51,51 @@ else:
 input_delay = cfg.get("inputDelayMs", 300) / 1000.0
 timeout = cfg.get("timeoutMs", 30000) / 1000.0
 
+# Optional prompt-aware (marker) feeding. A fixed input cadence assumes each
+# prompt has rendered by its scheduled time — true only when prompt timing is
+# deterministic (stand-in creds, mocked org resolution). A REAL `jolly start`
+# run has network gaps of unknown length BEFORE each prompt (org resolution,
+# store provisioning), so a fixed cadence sends keystrokes before the prompt
+# renders and they are lost. When `waitFor` is provided (one marker substring
+# per input chunk), each chunk is sent only AFTER its prompt marker appears in
+# the captured output — so a human-speed, prompt-synchronized walk-through drives
+# a genuinely-completing interactive run. A null/empty marker for a chunk falls
+# back to the fixed `inputDelayMs` cadence for that chunk.
+wait_for = cfg.get("waitFor")
+settle = cfg.get("settleMs", 250) / 1000.0
+per_chunk_timeout = cfg.get("perChunkTimeoutMs", 180000) / 1000.0
+
+# Shared, lock-guarded view of everything captured so far, so the feeder thread
+# can watch for prompt markers while the main thread reads the PTY. ANSI control
+# sequences are stripped before matching so a styled prompt still matches a plain
+# marker substring.
+_ANSI_RE = re.compile(rb"\x1b\[[0-9;?]*[ -/]*[@-~]")
+_captured = bytearray()
+_captured_lock = threading.Lock()
+
+
+def note_output(chunk):
+    if not wait_for:
+        return
+    with _captured_lock:
+        _captured.extend(chunk)
+
+
+def wait_for_marker(marker, search_from):
+    """Block until `marker` (bytes) appears in the captured output past
+    `search_from`; return the index just after it, or send anyway after the
+    per-chunk cap so a missing prompt cannot hang the run forever."""
+    start = time.time()
+    while True:
+        with _captured_lock:
+            text = _ANSI_RE.sub(b"", bytes(_captured))
+        idx = text.find(marker, search_from)
+        if idx != -1:
+            return idx + len(marker)
+        if time.time() - start > per_chunk_timeout:
+            return search_from
+        time.sleep(0.05)
+
 # A real window size for every PTY. Without it the terminal reports 0 columns and
 # full-screen renderers (Bombshell/@clack/prompts) wrap after every character,
 # shattering the prompt text in the captured stream.
@@ -59,8 +105,16 @@ WINSZ = struct.pack("HHHH", 24, 80, 0, 0)
 def feed_inputs(master_fd, sends_seq):
     # Drive the prompts as a human would: wait for each prompt to render, then
     # send the next scripted chunk. A write past child exit fails harmlessly.
-    for chunk in sends_seq:
-        time.sleep(input_delay)
+    # With `waitFor`, gate each chunk on its prompt marker (prompt-synchronized);
+    # otherwise use the fixed `inputDelayMs` cadence.
+    search_from = 0
+    for i, chunk in enumerate(sends_seq):
+        marker = wait_for[i] if wait_for and i < len(wait_for) else None
+        if marker:
+            search_from = wait_for_marker(marker.encode(), search_from)
+            time.sleep(settle)  # let the prompt finish rendering and enter raw mode
+        else:
+            time.sleep(input_delay)
         try:
             os.write(master_fd, chunk)
         except OSError:
@@ -123,6 +177,7 @@ if cfg.get("separateStreams"):
                 open_fds.discard(fd)
             else:
                 bufs[fd] += chunk
+                note_output(chunk)
     try:
         code = child.wait(timeout=2)
     except subprocess.TimeoutExpired:
@@ -179,6 +234,7 @@ while True:
         if not chunk:
             break
         out += chunk
+        note_output(chunk)
     if child.poll() is not None and not select.select([master], [], [], 0)[0]:
         break
 

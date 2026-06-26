@@ -2854,6 +2854,8 @@ async function assignRecipeCollections(
         endpoint,
         token,
         collection.slug,
+        collection.name,
+        collection.channelSlug,
         collection.productSlugs,
       );
     }
@@ -3607,7 +3609,7 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
   // stays reserved for the final result summary emit() prints (feature 020).
   const progress = stageProgress(plan.map((s) => s.stage));
   try {
-    return await runStartCore(
+    const core = await runStartCore(
       {
         ...args,
         yes: true,
@@ -3620,6 +3622,30 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
       },
       (stage, status) => progress.update(stage, status),
     );
+
+    // The completed interactive run closes with a concise human summary, not the
+    // machine check enumeration or the agent `next:` playbook (feature 027): a
+    // single prose line that names the live store's Saleor Dashboard URL and the
+    // human's remaining Stripe-keys step. The per-check and next-step detail
+    // stays on the --json/agent surface, which this human-only path never
+    // renders, so the run's status (success/warning) is preserved unchanged.
+    const storeData = (core.data as { store?: { dashboardUrl?: unknown } } | undefined)?.store;
+    const endpoint =
+      loadEnvValues(projectDir())["NEXT_PUBLIC_SALEOR_API_URL"] ??
+      process.env["NEXT_PUBLIC_SALEOR_API_URL"];
+    const dashboardUrl =
+      typeof storeData?.dashboardUrl === "string"
+        ? storeData.dashboardUrl
+        : endpoint
+          ? new URL("/dashboard/", endpoint).href
+          : undefined;
+    if (!dashboardUrl) return core;
+    return {
+      ...core,
+      summary: `Setup ran. Your live store's Saleor Dashboard is at ${dashboardUrl} — ${cliMessage("start.stripeFinal")}`,
+      checks: [],
+      nextSteps: [],
+    };
   } finally {
     progress.stop();
   }

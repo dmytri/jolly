@@ -57,6 +57,18 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   "The Jolly skill installs from the bundled copy with no network": [],
   // 001-agent-first-cli-and-onboarding
   "Jolly start completes successfully": FULL_END_TO_END,
+  // 027-interactive-cli-experience
+  // A full interactive `jolly start` run to completion. The harness pre-provisions
+  // one shared `jolly-test`-namespaced store (endpoint + app token, derivable from
+  // the Cloud token); the interactive run inherits it, so the store stage REUSES
+  // that namespaced live store (it never creates a default-named environment) and
+  // the close can name its Saleor Dashboard URL. The shared env is torn down by the
+  // run-end hook. The deploy stage's real Vercel deploy additionally needs an
+  // authenticated Vercel CLI session, gated as a capability via VERCEL_CLI_SCENARIOS.
+  "A completed interactive start closes by naming the live store and the remaining human step": [
+    "saleorEndpoint",
+    "saleorAppToken",
+  ],
   // 002-v1-end-to-end-saleor-cloud-storefront
   "Jolly registers a new Saleor Cloud store via the Cloud API": ["saleorCloud"],
   "Jolly connects an existing Saleor store and verifies connectivity": [
@@ -226,6 +238,7 @@ export function requiredGroups(scenarioName: string): CredentialGroup[] {
  * from the JOLLY_* credential groups.
  */
 export const VERCEL_CLI_SCENARIOS: ReadonlySet<string> = new Set([
+  "A completed interactive start closes by naming the live store and the remaining human step",
   "Jolly start completes successfully",
   "Jolly start deploys to Vercel by spawning the official Vercel CLI",
   "Agent verifies checkout readiness",

@@ -35,6 +35,18 @@ async function cloudFetchRetry(
   throw lastError;
 }
 
+/** Organization slugs the token can access (read-only GET). */
+export async function listOrganizations(token: string): Promise<string[]> {
+  const orgsResponse = await cloudFetchRetry(`${CLOUD_API}/organizations/`, {
+    headers: { Authorization: `Token ${token}` },
+  });
+  if (!orgsResponse.ok) {
+    throw new Error(`GET organizations returned HTTP ${orgsResponse.status}`);
+  }
+  const orgs = (await orgsResponse.json()) as Array<{ slug: string }>;
+  return orgs.map((org) => String(org.slug));
+}
+
 /** Every environment visible to the token, across all organizations. */
 export async function listAllEnvironments(
   token: string,

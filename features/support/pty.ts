@@ -42,6 +42,19 @@ export interface PtyRunOptions {
    */
   inputs?: string[];
   inputDelayMs?: number;
+  /**
+   * Prompt-aware feeding: one marker substring per `inputs` chunk. Each chunk is
+   * sent only AFTER its marker appears in the captured output, so a genuinely
+   * completing interactive run — whose prompts arrive after network gaps of
+   * unknown length — is driven reliably instead of on a fixed (and easily
+   * mistimed) cadence. A null/empty marker falls back to the `inputDelayMs`
+   * cadence for that chunk.
+   */
+  waitFor?: Array<string | null>;
+  /** Settle delay after a marker is seen before sending its chunk (default 250ms). */
+  settleMs?: number;
+  /** Per-chunk cap waiting for a marker before sending anyway (default 180000ms). */
+  perChunkTimeoutMs?: number;
   timeoutMs?: number;
   /**
    * Allocate distinct PTYs for stdin, stdout, and stderr so stdout and stderr
