@@ -31,6 +31,7 @@ Feature: Jolly auth commands
       And the Saleor auth host approves the device grant on the first poll
       When the agent runs `jolly login --json`
       Then it should print the returned user code and the verification URL `https://auth.saleor.io/realms/saleor-cloud/device?user_code=` followed by that user code to stderr so the agent can relay them to its human
+      And the relayed verification URL should appear on stderr as the plain URL, with no OSC 8 hyperlink escape
       And the envelope status should be "success"
       And it should store the device-grant access token in .env as JOLLY_SALEOR_ACCESS_TOKEN
       And it should store the device-grant refresh token in .env as JOLLY_SALEOR_REFRESH_TOKEN

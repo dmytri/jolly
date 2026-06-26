@@ -310,6 +310,25 @@ Then(
   },
 );
 
+// Agent path (`jolly login --json`): the relay is plain text so escape bytes
+// never pollute agent logs. Clickable OSC 8 hyperlinks are an interactive-TTY
+// affordance only (feature 027 Rule); the skill nudges the agent to render its
+// own clickable links from the envelope URL.
+Then(
+  "the relayed verification URL should appear on stderr as the plain URL, with no OSC 8 hyperlink escape",
+  function (this: JollyWorld) {
+    const stderr = this.lastRun!.stderr;
+    assert.ok(
+      stderr.includes(AUTH_VERIFICATION_URL),
+      `the plain verification URL must be relayed on stderr; got: ${stderr}`,
+    );
+    assert.ok(
+      !/\x1b\]8;;/.test(stderr),
+      `the agent (--json) relay must carry no OSC 8 hyperlink escape on stderr; got: ${JSON.stringify(stderr)}`,
+    );
+  },
+);
+
 Then("stdout should carry no token value", function (this: JollyWorld) {
   const stdout = this.lastRun!.stdout;
   assert.ok(

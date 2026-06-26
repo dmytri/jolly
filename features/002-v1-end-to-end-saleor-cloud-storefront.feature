@@ -110,7 +110,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And the Vercel CLI is pointed at an isolated config with no signed-in session
     When `jolly start` reaches the deploy stage without `--dry-run`
     Then Jolly should itself spawn `npx vercel login` and surface its device-authorization URL on stderr before attempting any deploy
-    And Jolly should render the surfaced Vercel sign-in URL as a clickable terminal hyperlink where the terminal supports it
+    And on this `--json` agent run Jolly should surface the Vercel sign-in URL as the plain URL on stderr, with no OSC 8 hyperlink escape
     And the deploy stage should report a pending Vercel sign-in gate that states Jolly runs the Vercel sign-in together with the human, not a deploy `failed`
     And no deploy or vercel check should report `fail` when the only obstacle is the missing Vercel sign-in
     And Jolly's own code should send no request to api.vercel.com and hold no Vercel token while doing so

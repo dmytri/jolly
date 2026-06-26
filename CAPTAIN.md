@@ -31,9 +31,13 @@ The suite runs against **real services** in a production-shaped test env (the `J
 
 ## Shipped
 
-Latest **0.10.4** (`main` + tag `v0.10.4`, `@dk/jolly` npm `latest`): clickable sign-in URLs — `jolly login`'s Saleor device-grant verification URL (027) and the Vercel sign-in URL (002) are OSC 8 terminal hyperlinks on Jolly's interactive path; the Jolly skill nudges agents to render the envelope URLs clickably on their own surface. Agent/relay surfaces — `deviceGrantLoginAgent` (`src/index.ts:694`) and the `--json` paths — stay free of OSC 8 bytes by design; the skill nudge covers them.
+Latest **0.10.5** (`main` + tag `v0.10.5`, `@dk/jolly` npm `latest`): **agent-path OSC 8 leak fixed.** `runDeployStage` (`src/index.ts:3277`) wrapped the Vercel sign-in URL in OSC 8 unconditionally — so `jolly start --json` (agent path) emitted escape bytes into agent logs, violating 027's Rule ("clickable where the terminal supports it, plain otherwise"). Now gated on `process.stderr.isTTY`: clickable on an interactive TTY, plain on the agent/`--json` path — mirroring the Saleor interactive-grant vs. agent-relay split. Made falsifiable: `002:113` (`@sandbox`) now asserts the agent run carries no OSC 8 escape, and `018:25` (`@logic`) asserts the Saleor relay is plain (closing the prior substring-only gap that an OSC 8 wrap would have passed).
+
+Prior **0.10.4** (`v0.10.4`): clickable sign-in URLs — `jolly login`'s Saleor device-grant verification URL (027) and the Vercel sign-in URL (002) are OSC 8 terminal hyperlinks on Jolly's interactive path; the Jolly skill nudges agents to render the envelope URLs clickably on their own surface.
 
 Prior **0.10.3** (`v0.10.3`): honest interactive close (surfaces failures + storefront URL, never fabricated success) + recipe `featured-products` read-back gate (027:113, 004:93, 027 human-UX set). Full history in git.
+
+**Bombshell has no clickable-URL primitive** (verified: full `@bomb.sh` scope — args/tab/tty/tools — plus `@clack/prompts` and its `sisteransi` ANSI dep expose no OSC 8/link helper; `ansi-escapes`, which does, is not a dep). Jolly emits the standard BEL-terminated OSC 8 sequence itself via `osc8Hyperlink` (`src/index.ts:3443`).
 
 ## Open / watch
 

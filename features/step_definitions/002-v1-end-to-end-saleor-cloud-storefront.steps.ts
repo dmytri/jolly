@@ -817,18 +817,21 @@ Then(
 );
 
 Then(
-  "Jolly should render the surfaced Vercel sign-in URL as a clickable terminal hyperlink where the terminal supports it",
+  "on this `--json` agent run Jolly should surface the Vercel sign-in URL as the plain URL on stderr, with no OSC 8 hyperlink escape",
   function (this: JollyWorld) {
     const stderr = this.lastRun!.stderr;
-    // OSC 8 terminal hyperlink: ESC ] 8 ; ; <uri> BEL <visible text> ESC ] 8 ; ;
-    // BEL. Terminals that support OSC 8 render it as a clickable link; terminals
-    // without it show the visible text (the URL itself) — so the link is clickable
-    // "where the terminal supports it". Assert the surfaced Vercel device URL is
-    // wrapped in an OSC 8 open sequence on stderr.
-    const m = stderr.match(/\x1b\]8;;(https:\/\/vercel\.com\/oauth\/device[^\x07]*)\x07/i);
+    // Agent path (--json / non-TTY): the URL is surfaced for the agent to relay
+    // as plain text — clickable OSC 8 hyperlinks are emitted only where the
+    // terminal supports it (an interactive TTY), so escape bytes never pollute
+    // agent logs (feature 027 Rule; mirrors the Saleor interactive/relay split).
+    assert.match(
+      stderr,
+      /https:\/\/vercel\.com\/oauth\/device/i,
+      `the plain Vercel device URL must appear on stderr:\n${JSON.stringify(stderr)}`,
+    );
     assert.ok(
-      m,
-      `Jolly must render the surfaced Vercel sign-in URL as an OSC 8 clickable hyperlink on stderr:\n${JSON.stringify(stderr)}`,
+      !/\x1b\]8;;/.test(stderr),
+      `the agent (--json) run must carry no OSC 8 hyperlink escape on stderr:\n${JSON.stringify(stderr)}`,
     );
   },
 );

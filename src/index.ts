@@ -3274,9 +3274,14 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
   if (!session.signedIn) {
     const { deviceUrl } = await spawnVercelSignIn();
     if (deviceUrl) {
+      // Render a clickable OSC 8 hyperlink only where the terminal supports it
+      // (an interactive TTY); on the agent/--json path emit the plain URL so
+      // escape bytes never pollute agent logs (feature 027 Rule; mirrors the
+      // Saleor interactive-grant vs. agent-relay split).
+      const shownUrl = process.stderr.isTTY ? osc8Hyperlink(deviceUrl) : deviceUrl;
       process.stderr.write(
         `Vercel sign-in needed — Jolly runs the Vercel sign-in together with you. ` +
-          `Visit ${osc8Hyperlink(deviceUrl)} to authorize.\n`,
+          `Visit ${shownUrl} to authorize.\n`,
       );
     }
     checks.push({
