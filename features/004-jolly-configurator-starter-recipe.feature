@@ -95,6 +95,7 @@ Feature: Jolly Configurator starter recipe
     When Jolly start runs the configurator-deploy stage with approval
     Then the recipe's `featured-products` collection should exist in the store holding its declared products
     And the recipe stage should be reported "completed" only after Jolly reads the store back and confirms the recipe's declared catalog entities exist there, not from the configurator's summary counts alone
+    And the `recipe-deployed` check should derive its status from that store read-back, so it cannot report "pass" while a sibling check reports a declared entity such as the `featured-products` collection is absent
 
   Rule: Starter recipe goals
     - Make a freshly created Saleor Cloud environment immediately useful with Paper.

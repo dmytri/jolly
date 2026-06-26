@@ -38,6 +38,80 @@ double" so a green suite carrying a fake fails there.
 
 ## Current product design
 
+### IN FLIGHT — human `jolly start` completion + live progress (cycle specced 2026-06-26)
+
+dk ran the published `npx @dk/jolly start` by hand and surfaced four human-UX defects; this cycle
+specs all of them ("everything together"), ordered in `cycle.json` (progress first — dk's loudest
+pain). Decisions (dk: "do whatever will work best"):
+
+1. **Live per-stage progress (027 + 020).** Production wraps the WHOLE stage run in ONE static
+   `clackSpinner("Running setup stages")` (`src/index.ts:3539`) and never updates it — after the
+   proceed confirm there is no output until everything finishes and the checks dump. **The
+   verification was a FALSE-GREEN** (`features/step_definitions/020-cli-output-contract.steps.ts:458`,
+   `:484`): it asserts only that the substrings `store`/`storefront`/`deploy` appear *somewhere* on
+   stderr (they sit in the static "Planned stages" box, printed before the spinner) and that *any*
+   carriage-return exists (the spinner emits one) — so the broken single-spinner passes. This is why
+   in-place progress is "still not done despite asking many times": green ≠ correct (Article 10,
+   [[skip-mask-sandbox-unverified]]). Fix: strengthened the 027 progress scenario to demand each
+   stage *advance from running to its own terminal status* with >1 stage resolving distinctly — a
+   single static spinner can no longer pass. The changed scenario text orphans the false-green step
+   defs, forcing QM to re-implement them genuinely and Crew to emit real per-stage updates. Verifiable
+   at @logic: under the stand-in token the stages still run-and-fail-fast (the existing separated-PTY
+   harness reaches them), so a genuine per-stage display IS observable without sandbox.
+2. **Friendly completion, not an envelope dump (027).** The human close prints the machine envelope
+   rendered as text (the `command: [status] / - [check]: / next:` block) — on a real run that is 35+
+   lines, most of them stale bootstrap `doctor-*` checks (no-endpoint/app-token/storefront,
+   not-logged-into-vercel) contradicted by the same run's later stage successes, plus a misleading
+   `⚠️ Bootstrap complete; proceeding through the orchestrated stages` headline. Contract: the human
+   close is a concise prose summary naming the live store URLs (the Dashboard + deployed storefront
+   URLs feature 002 already carries in envelope `data`) and the one remaining Stripe Dashboard step;
+   it does NOT render the `checks[]` enumeration or `nextSteps[]` command lines (those stay
+   `--json`-only, 020); a pre-flight readiness check the run then resolves is never reported as a
+   failure of the completed run. @logic scenario pins the FORM (dry-run close = prose, no check
+   enumeration); the URL CONTENT rides feature 002's @sandbox end-to-end. The curated summary is what
+   makes the stale-doctor cruft disappear from the human view.
+3. **Planned-stages box lists `init`/`auth` (027).** The plan note renders all `startPlan()` stages
+   including the internal bootstrap `init`/`auth` — already done by the time it prints, after the
+   Saleor sign-in (dk: "says 'auth login' as a planned stage … not sure we need this at all, at least
+   not for humans"). Contract: the human plan names only the side-effecting creation stages (store,
+   storefront, recipe, deploy, stripe), never `init`/`auth`; and once the human proceeds, no separate
+   static plan list is re-printed — the live per-stage progress carries the run.
+4. **Real bugs surfaced (specs already existed).** (a) **pnpm** — a missing global `pnpm` surfaced as
+   a raw `storefront-prepared: fail … spawnSync pnpm ENOENT`. pnpm stays a prerequisite, NOT npx-driven
+   ([[clis-via-npx]] lists only configurator/vercel/stripe); fix is a clean `pnpm-available` fail
+   check with a remediation, surfaced early by `jolly doctor` (new @logic scenario, pnpm hidden from
+   PATH), never a raw ENOENT (002 clause strengthened). (b) **recipe** — `recipe-deployed: pass` (from
+   configurator's optimistic exit) co-existed with `recipe-collections: fail "… the starter recipe is
+   not deployed"`. This violates the EXISTING 004:93-97 / 004:217 store-back-confirmation rule; added a
+   consistency clause (the recipe checks tell one story, never deployed-and-not-deployed at once). The
+   recipe stage status must be store-confirmed, collapsing the contradiction. @sandbox (real store).
+
+5. **Clickable sign-in URLs, no browser takeover (027 + 002).** dk: `vercel login` opens a browser;
+   prefer a clickable URL, for both the Vercel and the Saleor device-auth URLs. Findings: Bombshell
+   has NO clickable-URL primitive (checked `@clack/prompts` exports) — clickable URLs are OSC 8
+   terminal hyperlinks Jolly emits itself (no dep, dependency-averse). `vercel login --help` shows no
+   browser-suppress flag. So: render BOTH device-auth URLs (Saleor + Vercel) as OSC 8 hyperlinks
+   where the terminal supports it (027 @logic for Saleor front-half; 002 clause for Vercel); Jolly's
+   OWN code opens no browser (true today for Saleor). **Honest limitation flagged to dk:** the
+   delegated Vercel CLI still auto-opens its own browser, and Jolly cannot cleanly stop that without
+   reimplementing the Vercel device flow (002 forbids) or a fragile env hack — so the clickable URL
+   is the achievable win; full Vercel-browser suppression is dk's call (left as "prefer a no-open
+   CLI mode where one exists").
+
+**Spec-quality corrections (after dk pushed back "is this specced well?").** Re-audited my own
+scenarios; two were weak and got fixed: (a) the completion contract was only a dry-run @logic FORM
+check that an empty "Done." would pass and left the real URL/genuine-failure content in Rule prose
+only — added an @sandbox scenario pinning the completed run's content (names the store Dashboard URL,
+the remaining Stripe step, no stale resolved-readiness failures, no check enumeration); (b) the recipe
+"consistency" line was vacuous on the green path — reworded to bind `recipe-deployed`'s status to the
+store read-back so it structurally cannot pass while a declared entity is absent. Progress wording
+tightened to "list every stage, update each in place" so it is unambiguously @logic-observable (the
+display renders all stages up front, not one fixed spinner).
+
+Nothing deferred this cycle. [[mvp-then-iterate]] applies within each item (smallest falsifiable
+scenario). Outbound (push + a republish, since copy/behaviour ships in the tarball) waits until the
+cycle lands and is green. [[outbound-check-npm-publish-not-just-git]]
+
 ### IN FLIGHT — interactive `jolly start` overhaul (cycle being specced 2026-06-25)
 
 dk-directed overhaul of the interactive experience. **Device grant verified live with dk this session**

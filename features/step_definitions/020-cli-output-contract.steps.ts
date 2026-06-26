@@ -456,32 +456,6 @@ Then(
 );
 
 Then(
-  "the setup-stage progress on stderr should show each setup stage with its own status",
-  { timeout: 160_000 },
-  function (this: JollyWorld) {
-    // The shared When ("`jolly start` runs in an interactive terminal") only
-    // records the argv; perform the separated-stream run here so stdout and
-    // stderr are captured distinctly.
-    if (!runStartSeparated(this)) return "skipped";
-    const stderr = this.lastRun!.stderr;
-    assert.ok(
-      stderr.trim().length > 0,
-      `interactive start must write setup-stage progress to stderr; it was empty. stdout:\n${this.lastRun!.stdout}`,
-    );
-    // Each named setup stage (feature 027) appears in the live progress display,
-    // each carrying its own status — not one undifferentiated line.
-    for (const stage of ["store", "storefront", "deploy"]) {
-      assert.match(
-        stderr,
-        new RegExp(stage, "i"),
-        `the setup-stage progress must show the "${stage}" stage; got:\n${JSON.stringify(stderr)}`,
-      );
-    }
-    return undefined;
-  },
-);
-
-Then(
   "the progress should update in place rather than appending one line per update",
   function (this: JollyWorld) {
     assert.match(

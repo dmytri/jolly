@@ -33,17 +33,25 @@ Feature: Human-facing interactive CLI experience
       app it configures only exists after the store stages run (feature 005).
     - Because the interactive layer serves a human, it surfaces its resolved decisions in the
       terminal output, not in a machine envelope: it names the organization it will target, lists
-      the mechanical setup stages it will run, and on a decline reports that setup stopped with
-      nothing created. The machine-readable plan and resolved configuration remain available only
+      the side-effecting setup stages it will create, and on a decline reports that setup stopped
+      with nothing created. The plan it lists for the human names only the stages that create
+      something the human is approving — the store, storefront, recipe, deployment, and Stripe
+      stages — not the internal bootstrap stages (`init`, `auth`) that are plumbing, not human
+      decisions, and have already run by the time the human sees the plan. Once the human proceeds,
+      Jolly does not re-print a separate static plan list; the live per-stage progress display
+      carries the run. The machine-readable plan and resolved configuration remain available only
       on the `--json` path (feature 020).
     - Before the unattended stages run, a single proceed confirmation is shown — the human analogue
       of feature 021's per-stage riskContext approval. It names what it will create (the store,
       storefront, and deployment); the default is to proceed, so Enter advances; declining stops
       honestly and never fabricates later-stage success.
     - The interactive layer shows live, in-place progress for the unattended stages — a Bombshell
-      (`@clack/prompts`) display on stderr that shows each setup stage's status and updates in place
-      rather than appending one log line per tick (feature 020). The machine path (`--json`, or no
-      terminal) shows no progress at all.
+      (`@clack/prompts`) display on stderr that names each setup stage and advances it through its
+      own status (running, then done, failed, or skipped) as the stage actually runs, redrawing the
+      same region in place rather than appending one log line per tick (feature 020). It is not a
+      single undifferentiated spinner that sits on one fixed label for the whole run and only
+      reveals what happened at the end: each stage's status is visible as it resolves. The machine
+      path (`--json`, or no terminal) shows no progress at all.
     - The interactive layer and its Bombshell dependencies are bundled into the published
       `dist/index.js`, so `npx @dk/jolly` runs self-contained (feature 006's published-launcher
       scenario guards this).
@@ -54,7 +62,8 @@ Feature: Human-facing interactive CLI experience
     And `jolly start --dry-run` runs in an interactive terminal with no flag beyond `--dry-run`
     When the user presses Enter at every prompt
     Then Jolly should present interactive setup prompts
-    And the interactive output should list the mechanical setup stages, including the store, storefront, and deployment stages
+    And the interactive output should list the side-effecting setup stages it will create, including the store, storefront, and deployment stages
+    And the interactive output should not list the internal bootstrap stages `init` or `auth`, which are not human decisions
     And no file should be created or modified in the project directory
 
   @logic
@@ -92,6 +101,25 @@ Feature: Human-facing interactive CLI experience
     And the trailing Stripe-step note should be the `start.stripeFinal` message from `assets/messages/cli.json`
 
   @logic
+  Scenario: Interactive start closes with a concise human summary, not the machine check list
+    Given a fresh empty project directory
+    And `jolly start --dry-run` runs in an interactive terminal
+    When the user presses Enter at every prompt
+    Then the human result on stdout should state in prose that the plan was previewed and nothing was created
+    And the human result on stdout should carry no per-check `[status] check-id` enumeration line
+    And the human result on stdout should carry no `next:` command line
+
+  @sandbox
+  Scenario: A completed interactive start closes by naming the live store and the remaining human step
+    Given a Saleor Cloud token is configured
+    And a fresh empty project directory
+    When `jolly start` runs to completion in an interactive terminal
+    Then the closing summary on stdout should name the store's Saleor Dashboard URL
+    And the closing summary on stdout should name the Stripe Dashboard key entry as the human's remaining step
+    And the closing summary on stdout should not enumerate per-check results as `[status] check-id` lines
+    And the closing summary on stdout should not present the Saleor endpoint or app-token readiness check, which the store stage resolved, as a failure of the completed run
+
+  @logic
   Scenario: Interactive start renders the proceed confirmation and decline from the message catalog
     Given a fresh project directory with no real service credentials
     And `jolly start` runs in an interactive terminal
@@ -117,11 +145,12 @@ Feature: Human-facing interactive CLI experience
     And Jolly must not print a fabricated store URL or verification result
 
   @logic
-  Scenario: Setup-stage progress updates in place, showing each stage's status
+  Scenario: Setup-stage progress shows each stage as its own live status, not one fixed spinner
     Given a fresh empty project directory
     When `jolly start` runs in an interactive terminal
-    Then the setup-stage progress on stderr should show each setup stage with its own status
-    And the progress should update in place rather than appending one line per update
+    Then the setup-stage progress on stderr should list every setup stage by name, each carrying its own status
+    And it should update a stage's status in place as the run reaches that stage, so each stage's progress is visible during the run rather than only after it ends
+    And the progress should redraw the same region in place rather than appending one line per update
     And stdout should carry no progress or spinner text
 
   @logic @property
@@ -200,10 +229,28 @@ Feature: Human-facing interactive CLI experience
     - Before the unattended stages, when there is no Vercel session, Jolly runs `npx vercel login`
       inline in the same terminal so the human completes the sign-in there and lets the CLI's
       device grant complete; the Vercel session then exists for the unattended deploy stage.
+    - Jolly presents every sign-in by its URL, not by taking over the screen: the device-
+      authorization URLs it surfaces — the Saleor `auth.saleor.io` verification URL and the Vercel
+      sign-in URL — are rendered as clickable terminal hyperlinks (an OSC 8 escape wrapping the URL)
+      when the terminal supports it, and as the plain URL otherwise. Bombshell has no clickable-URL
+      primitive, so Jolly emits the OSC 8 sequence itself rather than taking a dependency. Jolly's
+      own code never auto-opens a web browser for a sign-in; it shows the clickable URL and lets the
+      human open it. The delegated Vercel CLI may still open a browser of its own (Jolly does not
+      reimplement that CLI, feature 002); where the CLI offers a mode that surfaces the URL without
+      opening a browser, Jolly prefers it.
     - The run ends at the one step Jolly cannot perform for the human: pasting the Stripe keys and
       mapping the `us` channel in the Saleor Dashboard. By then the storefront is deployed and live,
       so the closing output names that Dashboard step as the remaining task, never a re-run of
       `jolly start`.
+    - The closing output on the human path is a concise prose summary, not the machine envelope: it
+      presents the run's outcome and the remaining Stripe Dashboard step as readable sentences,
+      surfacing the live store URLs (the Saleor Dashboard and deployed storefront URLs feature 002
+      already carries in the envelope `data`) and any genuine outstanding gate or failure. It does
+      NOT render the envelope's per-check `checks[]` results as a `[status] check-id` enumeration,
+      nor the `nextSteps[]` as `next:` command lines, on the human result stream — those stay on the
+      `--json` path (feature 020). A pre-flight bootstrap readiness check the run itself then
+      resolves — no Saleor endpoint, app token, or local storefront before the stages create them —
+      is never presented as a failure of the completed run.
     - A genuine stage failure — not a human gate — still stops honestly and reports the error;
       Jolly never fabricates success to keep going. The agent path (`--json`, `--yes`/`-y`, or no
       interactive terminal) shows no interactive prompts and never blocks on `@clack/prompts`
@@ -218,3 +265,10 @@ Feature: Human-facing interactive CLI experience
     When the user starts interactive setup with no Cloud token configured
     Then the interactive output should show the device user code and the auth.saleor.io verification URL with that code appended as its `user_code` query parameter
     And the interactive output should not prompt the user to paste a token
+
+  @logic
+  Scenario: The Saleor sign-in URL is shown as a clickable terminal hyperlink
+    Given a fresh project directory with no real service credentials
+    And `jolly start` runs in an interactive terminal
+    When the user starts interactive setup with no Cloud token configured
+    Then the auth.saleor.io verification URL should be wrapped in an OSC 8 terminal hyperlink escape pointing at that URL

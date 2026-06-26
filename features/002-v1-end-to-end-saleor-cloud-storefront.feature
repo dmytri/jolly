@@ -78,7 +78,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And it should clone Saleor's official `saleor/storefront` Paper template from `main` by spawning `git`, remove the upstream `.git` history, and initialize a fresh repository
     And it should install Paper's dependencies by spawning `pnpm`
     And on a too-old Node.js version a `node-version` check should report status "fail" naming the required version, and Jolly should not install or switch Node.js itself
-    And when `pnpm` is missing a `pnpm-available` check should report status "fail", and Jolly should not install Node.js itself
+    And when `pnpm` is missing the stage should report a `pnpm-available` check with status "fail" and a remediation to install pnpm — a clean prerequisite check, never a raw `spawnSync` ENOENT error surfaced to the user — and Jolly should not install Node.js itself
     And `jolly doctor storefront --full-validation` should run Paper's generate, typecheck, and build steps and report each as a check
     And it should leave Paper's source and theme files unmodified after the clone and install
 
@@ -110,9 +110,19 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And the Vercel CLI is pointed at an isolated config with no signed-in session
     When `jolly start` reaches the deploy stage without `--dry-run`
     Then Jolly should itself spawn `npx vercel login` and surface its device-authorization URL on stderr before attempting any deploy
+    And Jolly should render the surfaced Vercel sign-in URL as a clickable terminal hyperlink where the terminal supports it
     And the deploy stage should report a pending Vercel sign-in gate that states Jolly runs the Vercel sign-in together with the human, not a deploy `failed`
     And no deploy or vercel check should report `fail` when the only obstacle is the missing Vercel sign-in
     And Jolly's own code should send no request to api.vercel.com and hold no Vercel token while doing so
+
+  @logic
+  Scenario: A missing pnpm prerequisite is reported as a clean check, not a raw spawn error
+    Given a Saleor Cloud token is configured
+    And `pnpm` is not resolvable on PATH
+    When the agent runs `jolly doctor --json`
+    Then a `pnpm-available` check should report status "fail"
+    And the check should carry a remediation that names installing pnpm
+    And no check or error should contain a raw `spawnSync` ENOENT string
 
   @logic
   Scenario: Jolly start previews the storefront clone and install
