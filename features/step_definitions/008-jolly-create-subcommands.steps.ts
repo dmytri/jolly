@@ -190,6 +190,10 @@ Then(
  *  request. Records writes; a --dry-run must issue none. */
 async function startCloudApiStandIn(world: JollyWorld): Promise<{ baseUrl: string; writes: Array<{ method: string; url: string }> }> {
   const writes: Array<{ method: string; url: string }> = [];
+  // @exceptional-double: verifying that a create-environment --dry-run issues NO
+  // write request cannot be done against the real mutating Cloud API — a regressed
+  // dry-run guard would create a real environment. This request-recording stand-in
+  // observes the would-be writes safely; the real create is the @sandbox scenario.
   const server: Server = createServer((req, res) => {
     const method = req.method ?? "GET";
     const url = req.url ?? "/";
@@ -222,6 +226,10 @@ async function startCloudApiStandIn(world: JollyWorld): Promise<{ baseUrl: strin
  *  is returned but never exercised — the value app-token stores without
  *  verifying. */
 async function startGraphqlStandIn(world: JollyWorld): Promise<string> {
+  // @exceptional-double: exercising the app-token mint path requires an instance
+  // GraphQL where a "Jolly Setup" app already exists; minting a real app token on a
+  // real store is a side effect that can't be produced on demand here. The real
+  // app-token acquisition is covered by the @sandbox scenario.
   const server: Server = createServer((req, res) => {
     let raw = "";
     req.on("data", (c: Buffer) => (raw += c));

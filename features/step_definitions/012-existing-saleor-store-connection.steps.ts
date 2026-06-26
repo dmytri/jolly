@@ -69,6 +69,10 @@ async function startHarnessCloudApi(
 ): Promise<HarnessServer> {
   const requests: Array<{ method: string; url: string }> = [];
   const writes: Array<{ method: string; url: string }> = [];
+  // @exceptional-double: injecting a chosen organization set and verifying that a
+  // --dry-run issues NO write cannot be done against the real mutating Cloud API
+  // without risking a real environment if the dry-run guard regressed. This
+  // request-recording stand-in observes it safely; the real create is @sandbox.
   const server = createServer((req, res) => {
     const method = req.method ?? "GET";
     const url = req.url ?? "/";
@@ -581,6 +585,10 @@ When(
   "the agent runs `jolly create store --create-environment` without `--organization`",
   function (this: JollyWorld) {
     const mock = String(this.notes.mockOrgs ?? "org-one,org-two");
+    // @exceptional-double: a Cloud token that resolves MORE THAN ONE organization
+    // cannot be produced on demand from the single-org test account, so the
+    // multi-org selection warning is driven by an injected org list. The real
+    // single-org resolution is exercised against the live Cloud API elsewhere.
     this.runCli(
       ["create", "store", "--create-environment", `--mock-organizations=${mock}`, "--json"],
       { env: absentCredentialsEnv({ JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN }) },

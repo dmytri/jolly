@@ -48,7 +48,9 @@ const SELF = join("features", "step_definitions", "026-live-by-design-verificati
 type DoubleKind =
   | "fake-cli"
   | "dummy-or-forced-safe-credential"
-  | "unroutable-endpoint";
+  | "unroutable-endpoint"
+  | "in-process-loopback"
+  | "simulated-response";
 
 interface DoubleHit {
   file: string; // repo-relative
@@ -73,6 +75,12 @@ const SIGNALS: Array<{ kind: DoubleKind; re: RegExp }> = [
   },
   // An unroutable stand-in endpoint substituting for a real service.
   { kind: "unroutable-endpoint", re: /\.invalid\b/ },
+  // An in-process loopback HTTP server standing in for a real service (a Cloud
+  // API / GraphQL / auth fixture answering the CLI's real request locally). Match
+  // the call, not the bare `import { createServer }`.
+  { kind: "in-process-loopback", re: /createServer\s*[(<]/ },
+  // A simulated response injected in place of the real network resolution.
+  { kind: "simulated-response", re: /mock-organizations/ },
 ];
 
 function listTsFiles(dir: string): string[] {
@@ -87,11 +95,12 @@ function listTsFiles(dir: string): string[] {
 
 /**
  * The condition named by an `@exceptional-double` annotation at the given line
- * or in the three lines above it, or undefined when the site is not annotated.
- * The text after the marker is the named unproducible condition.
+ * or in the six lines just above it (a multi-line justification comment names the
+ * unproducible condition), or undefined when the site is not annotated. The text
+ * after the marker is the named unproducible condition.
  */
 function justificationAt(lines: string[], idx: number): string | undefined {
-  for (let i = idx; i >= Math.max(0, idx - 3); i--) {
+  for (let i = idx; i >= Math.max(0, idx - 6); i--) {
     const m = lines[i]?.match(/@exceptional-double:?\s*(.*)$/);
     if (m) return m[1]!.trim();
   }

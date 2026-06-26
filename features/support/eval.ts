@@ -548,6 +548,9 @@ const LOCAL_SETUP_SERVER_SRC = `
 const http = require("node:http");
 const fs = require("node:fs");
 const [mdPath, portFile] = process.argv.slice(1);
+// @exceptional-double: the published homepage (jolly.cool) is not the unit under test;
+// this server returns the REAL shipped setup.md locally so the @eval agent reads the
+// actual published instructions without a network dependency on the live site.
 const server = http.createServer((req, res) => {
   let body = "";
   try { body = fs.readFileSync(mdPath, "utf8"); } catch (e) { body = String(e); }

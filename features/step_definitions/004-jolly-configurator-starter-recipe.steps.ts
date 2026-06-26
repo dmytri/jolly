@@ -1054,6 +1054,9 @@ Given(
       res.setHeader("Content-Type", "application/json");
       res.end(JSON.stringify(payload));
     };
+    // @exceptional-double: a transient HTTP 429 rate-limit from the real Cloud API
+    // cannot be produced on demand; this loopback serves one 429 then succeeds. The
+    // real stock seeding is covered by the @sandbox recipe scenario.
     const server = createServer((req, res) => {
       let body = "";
       req.on("data", (chunk: Buffer) => (body += chunk));

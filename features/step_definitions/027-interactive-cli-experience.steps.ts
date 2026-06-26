@@ -406,6 +406,9 @@ Given("`jolly start` runs in an interactive terminal", function (this: JollyWorl
 function startArgvWithMock(world: JollyWorld): string[] {
   const base = (world.notes.startArgv as string[]) ?? ["start"];
   if (!world.notes.noMock && world.notes.mockOrgs) {
+    // @exceptional-double: a Cloud token resolving more than one organization
+    // cannot be produced on demand from the single-org test account; the
+    // interactive multi-org selection prompt is driven by an injected org list.
     return [...base, `--mock-organizations=${String(world.notes.mockOrgs)}`];
   }
   return base;

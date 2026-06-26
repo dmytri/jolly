@@ -1,6 +1,6 @@
 {
   "name": "@dk/jolly",
-  "version": "0.10.7",
+  "version": "0.10.8",
   "description": "Ahoy, agent. Go build a Saleor storefront.",
   "type": "module",
   "bin": {

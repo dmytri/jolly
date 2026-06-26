@@ -27,6 +27,10 @@ export async function startLimitRejectingCloudApi(
   world: JollyWorld,
 ): Promise<LimitHarness> {
   const writes: Array<{ method: string; url: string }> = [];
+  // @exceptional-double: a Cloud organization already AT its environment limit
+  // (so the create request is rejected with ENVIRONMENT_LIMIT_REACHED) cannot be
+  // produced on demand without deleting real environments; this loopback injects
+  // that rejection. The real provisioning path is covered by the @sandbox tier.
   const server = createServer((req, res) => {
     const method = req.method ?? "GET";
     const url = req.url ?? "/";

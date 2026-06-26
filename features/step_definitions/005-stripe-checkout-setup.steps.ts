@@ -437,6 +437,9 @@ Given(
     // rate-limit is retried rather than degrading an already-installed stage to
     // a false blocked.
     const state: RateLimitState = { appsQueries: 0, served429: false };
+    // @exceptional-double: a transient HTTP 429 rate-limit from the real Saleor
+    // GraphQL cannot be produced on demand; this loopback serves one 429 then
+    // succeeds. The real Stripe app install is covered by the @sandbox scenario.
     const server = createServer((req, res) => {
       let body = "";
       req.on("data", (chunk: Buffer) => (body += chunk));
