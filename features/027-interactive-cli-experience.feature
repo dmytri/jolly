@@ -273,3 +273,10 @@ Feature: Human-facing interactive CLI experience
     And `jolly start` runs in an interactive terminal
     When the user starts interactive setup with no Cloud token configured
     Then the auth.saleor.io verification URL should be wrapped in an OSC 8 terminal hyperlink escape pointing at that URL
+
+  @logic
+  Scenario: The jolly login sign-in URL is shown as a clickable terminal hyperlink
+    Given an interactive terminal with no JOLLY_SALEOR_CLOUD_TOKEN set
+    And the Saleor auth host approves the device grant on the first poll
+    When the user runs `jolly login`
+    Then the auth.saleor.io verification URL should be wrapped in an OSC 8 terminal hyperlink escape pointing at that URL

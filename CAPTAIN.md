@@ -19,24 +19,24 @@ Captain-only, **non-binding** working memory. Binding behaviour lives in `featur
 
 The suite runs against **real services** in a production-shaped test env (the `JOLLY_*` `.env` credentials), every tier including `@logic`. Never mock/fake (no fake CLIs, dummy creds, `.invalid` endpoints). Creating real resources is expected; safety is **harmless-by-design** — namespace every created resource + idempotent teardown + never touch what the run did not create (AGENTS.md). Produce failures from real bad input. The only doubles are inline `@exceptional-double`s for conditions the real env can't produce on demand (current set: `ENVIRONMENT_LIMIT_REACHED`, the unverifiable-endpoint "stored, not verified" path, and the device-grant human-approve via the local fake auth host). Enforced by 026's `@property` "no forbidden double". A persistently-skipping `@sandbox` scenario is un-verified, not done ([[skip-mask-sandbox-unverified]]).
 
-## In flight — `jolly start` human-UX cycle
+## In flight — clickable sign-in URLs
 
-Five human-UX defects dk surfaced from the published `npx @dk/jolly start`, specced as one cycle (ordered in `cycle.json`). **5/7 `@logic` targets landed and committed (`184e1dd`, this session); 2 `@sandbox` targets remain.**
+The five-defect `jolly start` human-UX cycle (027:148/104/60/270, 002:119, plus 027:113 + 004:93) **shipped in v0.10.3** (`main` + tag, npm `latest`); its `cycle.json` was consumed and removed (`2e02653`). New cycle, opened from dk's feedback that sign-in URLs should be clickable.
 
-**Done (`@logic`, green):**
-- `027:148` — live per-stage progress: each setup stage is its own status row, redrawn in place (not one fixed spinner). Replaced the old false-green 020 check.
-- `027:104` — interactive close is concise prose, no `[status] check-id` enumeration, no `next:` line.
-- `027:60` — plan preview lists only side-effecting stages; omits internal `init`/`auth`.
-- `027:270` — Saleor sign-in URL wrapped in an OSC 8 clickable hyperlink.
-- `002:119` — missing pnpm → clean `pnpm-available` fail check with install remediation, never a raw spawn ENOENT.
+**Design (dk, this session).** Jolly emits an OSC 8 clickable hyperlink **itself only on its own interactive (TTY) path** — there it knows the surface is a terminal. On the **agent path** it emits **no** OSC 8 (escape bytes pollute agent logs); instead the **Jolly skill nudges the agent** to render the sign-in/setup URLs — which it already holds from the envelope `data` — as clickable links suited to its own surface ("empower, don't replace, the agent"). dk's reasoning: the agent knows its env better than Jolly, and already has the URL from the envelope.
 
-**Remaining (`@sandbox`, undefined — next QM pass):**
-- `027:113` — the **completed** interactive close names the live store's Saleor Dashboard URL (carried in envelope `data` from feature 002) + the remaining Stripe Dashboard key step; carries no per-check enumeration; a pre-flight readiness check the run later resolves is not reported as a failure of the completed run. (The dry-run FORM is the `027:104` `@logic` piece; this pins the completed-run CONTENT.) **Readiness gap:** not in `SANDBOX_REQUIREMENTS` → would gate on all groups and skip; QM must add an entry (`saleorEndpoint`/`saleorAppToken`; no Vercel needed) so it runs, not skip-masks.
-- `004:93` — recipe stage reported `completed` **only after** Jolly reads the store back and confirms the recipe's declared catalog entities exist (the `featured-products` collection holding its declared products); `recipe-deployed` derives its status from that read-back, so it cannot `pass` while a sibling check reports a declared entity absent. Crew must gate `recipe-deployed` on the read-back, not the configurator's optimistic exit/report.
+**Landed (committed `20d1c24`, local — NOT pushed, held to bundle):**
+- `002:113` — the Vercel sign-in URL Jolly surfaces on stderr is wrapped in `osc8Hyperlink` (`@sandbox`, real-run green). Plus the `002:81` pnpm step repurposed to the feature's current text.
+
+**Captain artifacts this session (durable, uncommitted — QM pre-cleans via Bosun):**
+- `027` new scenario "The jolly login sign-in URL is shown as a clickable terminal hyperlink" — interactive `jolly login` Saleor URL wrapped in OSC 8, parallel to `027:271` for `jolly start`. Reuses 018's interactive-login Given/When + the existing OSC 8 Then. Crew target: wrap the URL at `src/index.ts:659` (`deviceGrantLogin`). **Note for QM:** the existing OSC 8 Then (`027` step:1048) reads `lastRun.stdout` and is worded "interactive start"; generalize it if `jolly login` surfaces the URL on a different stream.
+- `assets/skills/jolly/SKILL.md` — added the agent nudge bullet ("Make the URLs clickable for your human"). Pure asset; ships in the tarball, no test.
+
+**Deliberately left plain:** the agent/relay surfaces — `jolly login --json` / `deviceGrantLoginAgent` (`src/index.ts:694`) and the `--json` start path — stay free of OSC 8 bytes; the skill nudge covers them.
 
 **Vercel-browser limitation (flagged to dk):** the delegated `npx vercel login` still auto-opens its own browser; Jolly can't cleanly suppress that without reimplementing the device flow (002 forbids). Clickable OSC 8 URLs are the achievable win; full Vercel no-open is dk's call (left as "prefer a no-open CLI mode where one exists").
 
-**Outbound:** the `@logic` work is pushed to `main` (git). An npm **republish** is still pending — behaviour ships in the tarball — and waits until the full cycle lands green ([[outbound-check-npm-publish-not-just-git]]).
+**Outbound plan (dk chose "bundle"):** push `main` once the `jolly login` clickable target lands green — Vercel + Saleor + skill together; npm **republish** after the bundle is green ([[outbound-check-npm-publish-not-just-git]]).
 
 ## Current design pointers (binding detail in the specs)
 
@@ -50,7 +50,7 @@ Five human-UX defects dk surfaced from the published `npx @dk/jolly start`, spec
 
 ## Shipped
 
-Latest **0.10.2** (`main` + tag `v0.10.2`, `@dk/jolly` npm `latest`, 2026-06-25): interactive copy renders from the `assets/messages/cli.json` catalog, guarded by `006:14`. Full history in git.
+Latest **0.10.3** (`main` + tag `v0.10.3`, `@dk/jolly` npm `latest`): honest interactive close (surfaces failures + storefront URL, never fabricated success) + recipe `featured-products` read-back gate (027:113, 004:93, 027 human-UX set). Full history in git.
 
 ## Open / watch
 

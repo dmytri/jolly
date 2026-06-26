@@ -58,6 +58,13 @@ Output is human-friendly by default; add `--json` to any command for the machine
   account, the **Saleor Dashboard Stripe app** (configure with the keys + map to the `us`
   channel), and pasting a secret no CLI hands over. `start` prints the exact step (in the
   envelope, so you can relay it) and waits, then resumes.
+- **Make the URLs clickable for your human** — every sign-in or setup link Jolly surfaces (the
+  Saleor and Vercel sign-in URLs, the deployed storefront, the Saleor Dashboard) arrives in the
+  envelope `data`, so you already hold the exact URL. You know your surface better than Jolly does,
+  so render it as a clickable link in whatever form your environment supports — a terminal
+  hyperlink, a Markdown link, an opened panel — rather than relaying a bare string. Jolly emits a
+  clickable terminal hyperlink itself only on its own interactive (TTY) path; on the agent path it
+  leaves the rendering to you.
 - **Never make the human paste a secret to you if they would rather not.** Whenever the token must
   come from the human, offer the private path: they can write it into the gitignored `.env`
   themselves under the variable name you give them (the Saleor Cloud token is
