@@ -19,25 +19,6 @@ Captain-only, **non-binding** working memory. Binding behaviour lives in `featur
 
 The suite runs against **real services** in a production-shaped test env (the `JOLLY_*` `.env` credentials), every tier including `@logic`. Never mock/fake (no fake CLIs, dummy creds, `.invalid` endpoints). Creating real resources is expected; safety is **harmless-by-design** — namespace every created resource + idempotent teardown + never touch what the run did not create (AGENTS.md). Produce failures from real bad input. The only doubles are inline `@exceptional-double`s for conditions the real env can't produce on demand (current set: `ENVIRONMENT_LIMIT_REACHED`, the unverifiable-endpoint "stored, not verified" path, and the device-grant human-approve via the local fake auth host). Enforced by 026's `@property` "no forbidden double". A persistently-skipping `@sandbox` scenario is un-verified, not done ([[skip-mask-sandbox-unverified]]).
 
-## In flight — clickable sign-in URLs
-
-The five-defect `jolly start` human-UX cycle (027:148/104/60/270, 002:119, plus 027:113 + 004:93) **shipped in v0.10.3** (`main` + tag, npm `latest`); its `cycle.json` was consumed and removed (`2e02653`). New cycle, opened from dk's feedback that sign-in URLs should be clickable.
-
-**Design (dk, this session).** Jolly emits an OSC 8 clickable hyperlink **itself only on its own interactive (TTY) path** — there it knows the surface is a terminal. On the **agent path** it emits **no** OSC 8 (escape bytes pollute agent logs); instead the **Jolly skill nudges the agent** to render the sign-in/setup URLs — which it already holds from the envelope `data` — as clickable links suited to its own surface ("empower, don't replace, the agent"). dk's reasoning: the agent knows its env better than Jolly, and already has the URL from the envelope.
-
-**Landed (committed `20d1c24`, local — NOT pushed, held to bundle):**
-- `002:113` — the Vercel sign-in URL Jolly surfaces on stderr is wrapped in `osc8Hyperlink` (`@sandbox`, real-run green). Plus the `002:81` pnpm step repurposed to the feature's current text.
-
-**Captain artifacts this session (durable, uncommitted — QM pre-cleans via Bosun):**
-- `027` new scenario "The jolly login sign-in URL is shown as a clickable terminal hyperlink" — interactive `jolly login` Saleor URL wrapped in OSC 8, parallel to `027:271` for `jolly start`. Reuses 018's interactive-login Given/When + the existing OSC 8 Then. Crew target: wrap the URL at `src/index.ts:659` (`deviceGrantLogin`). **Note for QM:** the existing OSC 8 Then (`027` step:1048) reads `lastRun.stdout` and is worded "interactive start"; generalize it if `jolly login` surfaces the URL on a different stream.
-- `assets/skills/jolly/SKILL.md` — added the agent nudge bullet ("Make the URLs clickable for your human"). Pure asset; ships in the tarball, no test.
-
-**Deliberately left plain:** the agent/relay surfaces — `jolly login --json` / `deviceGrantLoginAgent` (`src/index.ts:694`) and the `--json` start path — stay free of OSC 8 bytes; the skill nudge covers them.
-
-**Vercel-browser limitation (flagged to dk):** the delegated `npx vercel login` still auto-opens its own browser; Jolly can't cleanly suppress that without reimplementing the device flow (002 forbids). Clickable OSC 8 URLs are the achievable win; full Vercel no-open is dk's call (left as "prefer a no-open CLI mode where one exists").
-
-**Outbound plan (dk chose "bundle"):** push `main` once the `jolly login` clickable target lands green — Vercel + Saleor + skill together; npm **republish** after the bundle is green ([[outbound-check-npm-publish-not-just-git]]).
-
 ## Current design pointers (binding detail in the specs)
 
 - **Auth (018/014/020):** device authorization grant is the only interactive flow (Saleor: Jolly drives it, realm `saleor-cloud`, client `jolly`, JWT sent `Authorization: Bearer`, 300s access + ~12h refresh; Vercel: `npx vercel login`, CLI-driven). Raw staff token only via `JOLLY_SALEOR_CLOUD_TOKEN` (sent `Token`) for env/.env/CI. Scheme chosen by which variable holds the token (`JOLLY_SALEOR_ACCESS_TOKEN`→Bearer, staff→Token); device grant never clobbers the staff token. Allowlist (020) includes `auth.saleor.io`. Fast `@logic` login verified against a local fake auth host via `JOLLY_SALEOR_AUTH_URL` (the `@exceptional-double`).
@@ -50,7 +31,9 @@ The five-defect `jolly start` human-UX cycle (027:148/104/60/270, 002:119, plus 
 
 ## Shipped
 
-Latest **0.10.3** (`main` + tag `v0.10.3`, `@dk/jolly` npm `latest`): honest interactive close (surfaces failures + storefront URL, never fabricated success) + recipe `featured-products` read-back gate (027:113, 004:93, 027 human-UX set). Full history in git.
+Latest **0.10.4** (`main` + tag `v0.10.4`, `@dk/jolly` npm `latest`): clickable sign-in URLs — `jolly login`'s Saleor device-grant verification URL (027) and the Vercel sign-in URL (002) are OSC 8 terminal hyperlinks on Jolly's interactive path; the Jolly skill nudges agents to render the envelope URLs clickably on their own surface. Agent/relay surfaces — `deviceGrantLoginAgent` (`src/index.ts:694`) and the `--json` paths — stay free of OSC 8 bytes by design; the skill nudge covers them.
+
+Prior **0.10.3** (`v0.10.3`): honest interactive close (surfaces failures + storefront URL, never fabricated success) + recipe `featured-products` read-back gate (027:113, 004:93, 027 human-UX set). Full history in git.
 
 ## Open / watch
 
@@ -58,6 +41,7 @@ Latest **0.10.3** (`main` + tag `v0.10.3`, `@dk/jolly` npm `latest`): honest int
 - **Sandbox capacity flakiness:** a busy run can exhaust the test org's environment limit mid-run (env-create `error`); confirmed transient.
 - **027 interactive-PTY `@logic` flakiness:** PTY-driven `jolly start` scenarios fail non-deterministically under parallel `-p logic` (moving target = harness/PTY timing, not a product defect). Re-run serially to confirm before treating as a defect; harden/serialize if it persists ([[logic-parallel-loopback-flakiness]]).
 - **Bun report (resolved our side):** published `@dk/jolly` is bun-free; a user's `env: 'bun'` on Alpine distrobox is environmental. 006 guards Bun-independence.
+- **Vercel browser auto-open (dk's call):** the delegated `npx vercel login` still auto-opens its own browser; Jolly can't suppress that without reimplementing the device flow (002 forbids). Clickable OSC 8 URLs are the shipped win; full Vercel no-open stays "prefer a no-open CLI mode where one exists."
 
 ## Goals & identity
 
