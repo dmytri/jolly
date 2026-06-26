@@ -3669,12 +3669,36 @@ function stageProgress(
   stageNames: string[],
 ): { update: (stage: string, status: StageStatus) => void; stop: () => void } {
   const out = process.stderr;
+  const colour = Boolean(out.isTTY) && !process.env["NO_COLOR"];
+  const paint = (code: string, s: string): string => (colour ? `${code}${s}${SGR.reset}` : s);
   const statuses = new Map<string, StageStatus>(
     stageNames.map((s) => [s, "pending" as StageStatus]),
   );
-  const glyph = (status: StageStatus): string =>
-    status === "completed" ? "✓" : status === "pending" ? "○" : status === "skipped" ? "○" : "✗";
-  const row = (s: string): string => `${glyph(statuses.get(s)!)} ${s} — ${statuses.get(s)!}`;
+  const glyph = (status: StageStatus): string => {
+    switch (status) {
+      case "completed":
+        return paint(SGR.green, "✓");
+      case "awaiting-approval":
+        return paint(SGR.yellow, "◌");
+      case "skipped":
+        return paint(SGR.dim, "·");
+      case "pending":
+        return paint(SGR.dim, "○");
+      default:
+        return paint(SGR.red, "✗"); // blocked / error
+    }
+  };
+  // The glyph already conveys completed/pending/skipped; only a wait or a
+  // problem names itself, so the list reads as a clean checklist.
+  const label = (status: StageStatus): string => {
+    if (status === "awaiting-approval") return paint(SGR.yellow, " — awaiting approval");
+    if (status === "blocked" || status === "error") return paint(SGR.red, ` — ${status}`);
+    return "";
+  };
+  const row = (s: string): string => {
+    const status = statuses.get(s)!;
+    return `${glyph(status)} ${status === "pending" ? paint(SGR.dim, s) : s}${label(status)}`;
+  };
   // Initial frame: the full list, every stage pending.
   out.write(stageNames.map(row).join("\n") + "\n");
   const redraw = (): void => {
