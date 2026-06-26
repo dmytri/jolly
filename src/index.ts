@@ -1990,8 +1990,8 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
       });
     } else if (platform.source === "staff" && !cloudToken.includes(".")) {
       // A separator-free staff token is the per-store app-token shape, not a
-      // Cloud staff token (minted with a dot separator at the tokens page). Flag
-      // the likely mix-up before the network probe. (A device-grant access JWT
+      // Cloud staff token (which carries a dot separator). Flag the likely
+      // mix-up before the network probe. (A device-grant access JWT
       // always carries dots, so this heuristic applies only to the staff token.)
       checks.push({
         id: "saleor-cloud-token",
