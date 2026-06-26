@@ -160,16 +160,11 @@ When(
 When(
   "the agent runs `jolly create store --url https:\\/\\/my-shop.saleor.cloud\\/graphql\\/ --json`",
   function (this: JollyWorld) {
-    // Shared by the @logic normalize outline (graphql form) and the @sandbox
-    // infer-org scenario. Record the pasted URL for the normalize Then (a pure
-    // transform that does not read the envelope); drive the create-environment
-    // dry-run for the infer Then (org resolution). The infer-org scenario, set
-    // up by its @sandbox Given (inferOrgSandbox), must resolve a real org from
-    // the live Cloud token, so it runs against the real runtime credentials;
-    // the @logic normalize outline stays harmless with the credentials unset.
+    // @logic normalize outline (graphql form): the normalize Then is a pure
+    // transform over the pasted URL and does not read the envelope, so just
+    // record it. (The @sandbox infer-org scenario has its own When that runs the
+    // real `--url` against the verified endpoint.)
     this.notes.pastedUrl = "https://my-shop.saleor.cloud/graphql/";
-    const env = this.notes.inferOrgSandbox ? undefined : absentCredentialsEnv();
-    this.runCli(["create", "store", "--create-environment", "--dry-run", "--json"], { env });
   },
 );
 
@@ -294,19 +289,53 @@ Given(
   },
 );
 
+When(
+  "the agent runs `jolly create store --url` on the verified Saleor endpoint with `--json`",
+  function (this: JollyWorld) {
+    // Run the REAL `--url` path against the provisioned endpoint so Jolly
+    // resolves the organization + environment it belongs to from the live Cloud
+    // token (feature 012). Real credentials (not unset) — this is @sandbox.
+    const endpoint = process.env["NEXT_PUBLIC_SALEOR_API_URL"]!;
+    this.notes.inferEndpointHost = new URL(endpoint).host;
+    this.runCli(["create", "store", "--url", endpoint, "--json"]);
+  },
+);
+
 Then(
   "the envelope `data` should report the resolved organization slug",
   function (this: JollyWorld) {
     assert.notEqual(this.envelope.status, "error");
-    assert.ok(typeof envData(this)["organization"] === "string");
+    assert.equal(
+      typeof envData(this)["organization"],
+      "string",
+      "the endpoint's organization slug must be resolved",
+    );
+    assert.ok(
+      String(envData(this)["organization"]).length > 0,
+      "the resolved organization slug must be non-empty",
+    );
   },
 );
 
 Then(
   "the envelope `data` should report the resolved environment matching the GraphQL endpoint host",
   function (this: JollyWorld) {
-    // The resolved request target references the real org from the token.
-    assert.ok(envData(this)["organization"], "an organization must be resolved");
+    const env = envData(this)["environment"] as
+      | { domain?: string; domain_label?: string }
+      | undefined;
+    assert.ok(env, "the resolved environment must be reported in data");
+    const host = String(this.notes.inferEndpointHost);
+    const envHost =
+      typeof env.domain === "string" && env.domain
+        ? env.domain.replace(/^https?:\/\//, "").replace(/\/.*$/, "")
+        : env.domain_label
+          ? `${env.domain_label}.saleor.cloud`
+          : undefined;
+    assert.equal(
+      envHost,
+      host,
+      "the resolved environment's host must match the pasted GraphQL endpoint host",
+    );
   },
 );
 
@@ -456,73 +485,50 @@ When(
   { timeout: 540_000 },
   async function (this: JollyWorld) {
     const label = String(this.notes.collisionLabel);
-    await this.runCliAsync(
+    const second = await this.runCliAsync(
       ["create", "store", "--create-environment", "--name", label, "--domain-label", label, "--json"],
       { timeoutMs: 540_000 },
+    );
+    this.notes.reuseEnvelope = second.envelope;
+  },
+);
+
+Then(
+  "Jolly should reuse the existing environment rather than create a duplicate",
+  { timeout: 60_000 },
+  async function (this: JollyWorld) {
+    // The same-label re-request succeeds by REUSING the existing environment —
+    // never a fabricated duplicate, never a failure (feature 022 idempotency:
+    // re-running a stage recognizes the work it already did). The cross-org
+    // global DOMAIN_LABEL_TAKEN rejection cannot be produced on demand from one
+    // test org, so it is not exercised here.
+    const reuse = this.notes.reuseEnvelope as { status?: string } | undefined;
+    assert.equal(reuse?.status, "success", "the same-label re-request must succeed by reuse");
+    const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"]!;
+    const label = String(this.notes.collisionLabel);
+    const matching = (await listAllEnvironments(token)).filter((e) => e.name === label);
+    assert.equal(
+      matching.length,
+      1,
+      `exactly one environment must carry the label "${label}" (reused, not duplicated); found ${matching.length}`,
     );
   },
 );
 
-Then("the Cloud API should reject the duplicate domain label", function (this: JollyWorld) {
-  // Jolly surfaces the rejection as a stable error (or retries to a corrected
-  // domain) — never a fabricated success on the duplicate label.
-  const errored = this.envelope.status === "error" &&
-    this.envelope.errors.some((e) => e.code === "DOMAIN_LABEL_TAKEN");
-  const retried = this.envelope.status === "success";
-  assert.ok(errored || retried, "duplicate domain must be rejected or retried, never silently duplicated");
-});
-
-Then("Jolly should suggest an alternative domain label", function (this: JollyWorld) {
-  if (this.envelope.status === "error") {
-    const text = JSON.stringify(this.envelope.errors);
-    assert.match(text, /domain/i, "the error should guide toward a different domain label");
-  }
-});
-
-Then("it should allow the agent to provide a new domain", function (this: JollyWorld) {
-  // The --domain-label override is the documented mechanism; its presence is
-  // proven by the first creation having honored it.
-  assert.ok(this.notes.collisionLabel, "a domain label override was used");
-});
-
-Then("it should retry the request with the corrected domain", { timeout: 540_000 }, async function (this: JollyWorld) {
-  const corrected = `${this.namespace}-collide-2`;
-  const retry = await this.runCliAsync(
-    ["create", "store", "--create-environment", "--name", corrected, "--domain-label", corrected, "--json"],
-    { timeoutMs: 540_000 },
-  );
-  // Capacity is an environmental skip, not a Jolly failure (AGENTS.md Testing
-  // Strategy): the org's sandbox limit may be reached after the shared env +
-  // the first collision env. The collision behavior under test (reject the
-  // duplicate, allow a corrected domain) was already proven by the earlier
-  // steps; if the corrected retry cannot be provisioned for capacity reasons,
-  // skip rather than fail.
-  if (
-    retry.envelope?.status === "error" &&
-    retry.envelope.errors.some((e) => e.code === "ENVIRONMENT_LIMIT_REACHED")
-  ) {
-    this.notes.retrySkipped = true;
-    this.attach(
-      "Skipped the corrected-domain retry: the organization's sandbox " +
-        "environment limit is reached (ENVIRONMENT_LIMIT_REACHED) — a capacity " +
-        "condition, not a Jolly failure.",
-      "text/plain",
-    );
-    return "skipped" as const;
-  }
-  assert.equal(retry.envelope?.status, "success", "the corrected-domain retry must succeed");
-});
-
 Then(
-  "every environment created by the retry should carry the run's jolly-test namespace and registered teardown",
+  "exactly one environment should carry that domain label, with the run's jolly-test namespace and registered teardown",
   { timeout: 60_000 },
   async function (this: JollyWorld) {
     const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"]!;
-    const envs = await listAllEnvironments(token);
-    const mine = envs.filter((e) => e.name.startsWith(this.namespace));
-    assert.ok(mine.length > 0, "the run's environments must carry the namespace");
+    const label = String(this.notes.collisionLabel);
+    const matching = (await listAllEnvironments(token)).filter((e) => e.name === label);
+    assert.equal(matching.length, 1, "exactly one environment must carry the label");
+    assert.ok(
+      matching[0]!.name.startsWith(this.namespace),
+      "the environment must carry the run's jolly-test namespace",
+    );
     // Teardown for all namespace-prefixed environments was registered in the
-    // Given before any creation; nothing more to register here.
+    // Given before any creation.
   },
 );
 

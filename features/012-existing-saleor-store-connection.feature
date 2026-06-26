@@ -37,7 +37,7 @@ Feature: Existing Saleor store connection
   Scenario: Jolly infers Saleor Cloud organization and environment
     Given the agent has a Saleor Cloud token authenticated via JOLLY_SALEOR_CLOUD_TOKEN
     And a verified Saleor GraphQL endpoint whose host matches one Cloud environment domain
-    When the agent runs `jolly create store --url https://my-shop.saleor.cloud/graphql/ --json`
+    When the agent runs `jolly create store --url` on the verified Saleor endpoint with `--json`
     Then the envelope `data` should report the resolved organization slug
     And the envelope `data` should report the resolved environment matching the GraphQL endpoint host
 
@@ -62,14 +62,11 @@ Feature: Existing Saleor store connection
     # the @sandbox scenario "Jolly creates a Saleor Cloud environment" below.
 
   @sandbox
-  Scenario: Jolly create store handles domain name collision
+  Scenario: Jolly create store reuses an existing same-label environment instead of duplicating it
     Given this run has already created an environment with a jolly-test-namespaced domain label
     When the agent requests another environment with the same domain label
-    Then the Cloud API should reject the duplicate domain label
-    And Jolly should suggest an alternative domain label
-    And it should allow the agent to provide a new domain
-    And it should retry the request with the corrected domain
-    And every environment created by the retry should carry the run's jolly-test namespace and registered teardown
+    Then Jolly should reuse the existing environment rather than create a duplicate
+    And exactly one environment should carry that domain label, with the run's jolly-test namespace and registered teardown
 
   @logic
   Scenario: Jolly create store honors --region and --organization overrides

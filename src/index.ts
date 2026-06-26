@@ -31,6 +31,7 @@ import {
   listProjectServices,
   pickService,
   listEnvironments,
+  type CloudEnvironment,
   createEnvironment,
   pollTaskStatus,
   getEnvironment,
@@ -891,6 +892,48 @@ function createStoreRiskContext(target: unknown, dryRunAvailable = true): RiskCo
   };
 }
 
+// The GraphQL host an environment serves, from its `domain` or `domain_label`.
+function environmentHost(env: CloudEnvironment): string | undefined {
+  if (typeof env.domain === "string" && env.domain) {
+    return env.domain.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+  }
+  if (typeof env.domain_label === "string" && env.domain_label) {
+    return `${env.domain_label}.saleor.cloud`;
+  }
+  return undefined;
+}
+
+// Resolve the Cloud organization + environment a pasted GraphQL endpoint belongs
+// to (feature 012): match the endpoint host against the caller's Cloud
+// environments and return the resolved organization slug + environment.
+// Best-effort — no configured token or no match just omits the inference; it
+// never fails the endpoint-store path.
+async function inferStoreLocation(
+  endpoint: string,
+): Promise<{ organization: string; environment: CloudEnvironment } | undefined> {
+  const token = cloudPlatformToken(loadEnvValues(projectDir()));
+  if (!token) return undefined;
+  let host: string;
+  try {
+    host = new URL(endpoint).host;
+  } catch {
+    return undefined;
+  }
+  try {
+    for (const org of await listOrganizations(token)) {
+      const slug = String(org.slug ?? "");
+      if (!slug) continue;
+      const match = (await listEnvironments(token, slug)).find(
+        (env) => environmentHost(env) === host,
+      );
+      if (match) return { organization: slug, environment: match };
+    }
+  } catch {
+    // Best-effort; a Cloud API hiccup must not fail the endpoint-store path.
+  }
+  return undefined;
+}
+
 async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
   const command = "create store";
   const url = args.options["url"];
@@ -982,15 +1025,23 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
       });
     }
 
+    // Resolve which Cloud organization + environment this endpoint belongs to,
+    // when a Cloud token is configured (feature 012). Best-effort: a missing
+    // token or no match just stores the endpoint as before.
+    const location = await inferStoreLocation(normalized.endpoint);
     writeEnvValues(projectDir(), { NEXT_PUBLIC_SALEOR_API_URL: normalized.endpoint });
     return envelope({
       command,
       status: "success",
-      summary:
-        "Wrote NEXT_PUBLIC_SALEOR_API_URL to .env; the endpoint is stored, not verified.",
+      summary: location
+        ? `Wrote NEXT_PUBLIC_SALEOR_API_URL to .env; resolved organization "${location.organization}" from the endpoint host.`
+        : "Wrote NEXT_PUBLIC_SALEOR_API_URL to .env; the endpoint is stored, not verified.",
       data: {
         stored: true,
         envVar: "NEXT_PUBLIC_SALEOR_API_URL",
+        ...(location
+          ? { organization: location.organization, environment: location.environment }
+          : {}),
         riskContext: createStoreRiskContext(normalized.endpoint),
       },
       checks: [
