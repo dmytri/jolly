@@ -2640,12 +2640,29 @@ interface StartStage {
  * single hook the test harness uses to make provisioned stores `jolly-test`
  * cannon fodder; Jolly bakes no test knowledge into production.
  */
-function configuredStoreName(): { name: string; domainLabel: string } {
+function configuredStoreName(override?: {
+  name?: string;
+  domainLabel?: string;
+}): { name: string; domainLabel: string } {
   const values = loadEnvValues(projectDir());
+  // The name the human typed (interactive prompt) or passed via --name takes
+  // precedence over JOLLY_STORE_NAME and the default — otherwise the store
+  // stage would ignore the requested name and reuse whatever existing
+  // "jolly-store"-named environment the org already holds.
+  const cleaned = (v?: string): string | undefined => {
+    const t = v?.trim();
+    return t && t.length > 0 ? t : undefined;
+  };
   const name =
-    values["JOLLY_STORE_NAME"] ?? process.env["JOLLY_STORE_NAME"] ?? "jolly-store";
+    cleaned(override?.name) ??
+    values["JOLLY_STORE_NAME"] ??
+    process.env["JOLLY_STORE_NAME"] ??
+    "jolly-store";
   const domainLabel =
-    values["JOLLY_STORE_DOMAIN_LABEL"] ?? process.env["JOLLY_STORE_DOMAIN_LABEL"] ?? name;
+    cleaned(override?.domainLabel) ??
+    values["JOLLY_STORE_DOMAIN_LABEL"] ??
+    process.env["JOLLY_STORE_DOMAIN_LABEL"] ??
+    name;
   return { name, domainLabel };
 }
 
@@ -2668,7 +2685,10 @@ interface StageOutcome {
  * explaining check) when no Cloud token is configured or provisioning failed —
  * never a fabricated completion.
  */
-async function runStoreStage(checks: Check[]): Promise<StageOutcome> {
+async function runStoreStage(
+  checks: Check[],
+  nameOverride?: { name?: string; domainLabel?: string },
+): Promise<StageOutcome> {
   const values = loadEnvValues(projectDir());
   const endpoint =
     process.env["NEXT_PUBLIC_SALEOR_API_URL"] ?? values["NEXT_PUBLIC_SALEOR_API_URL"] ?? "";
@@ -2703,7 +2723,7 @@ async function runStoreStage(checks: Check[]): Promise<StageOutcome> {
       return { status: "blocked" };
     }
     const selectedOrg = orgs[0].slug;
-    const { name, domainLabel } = configuredStoreName();
+    const { name, domainLabel } = configuredStoreName(nameOverride);
     const result = await provisionStore(token, selectedOrg, {
       name,
       domainLabel,
@@ -3857,6 +3877,9 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
     return interactiveCloseSummary(core, {
       endpoint,
       stripeStep: cliMessage("start.stripeFinal"),
+      // The interactive close is a TTY; make the store URLs clickable (OSC 8),
+      // matching the sign-in link. Plain text when not a TTY or NO_COLOR is set.
+      link: process.stderr.isTTY && !process.env["NO_COLOR"] ? osc8Hyperlink : undefined,
     });
   } finally {
     progress.stop();
@@ -3964,6 +3987,10 @@ async function runStartCore(
           JOLLY_SALEOR_ACCESS_TOKEN: tokens.accessToken,
           JOLLY_SALEOR_REFRESH_TOKEN: tokens.refreshToken,
         });
+        // Mirror into process.env so the downstream store/recipe/deploy stages
+        // of THIS run read the fresh session (matching the interactive path).
+        process.env["JOLLY_SALEOR_ACCESS_TOKEN"] = tokens.accessToken;
+        process.env["JOLLY_SALEOR_REFRESH_TOKEN"] = tokens.refreshToken;
         needsToken = false;
         status = "completed";
       } else {
@@ -4002,7 +4029,12 @@ async function runStartCore(
         // recipe stage spawns `npx @saleor/configurator deploy` of the bundled
         // starter recipe, and the deploy stage spawns `npx vercel`.
         if (planStage.stage === "store") {
-          const outcome = await runStoreStage(checks);
+          const nameOpt = args.options["name"];
+          const domainOpt = args.options["domain-label"];
+          const outcome = await runStoreStage(checks, {
+            name: typeof nameOpt === "string" ? nameOpt : undefined,
+            domainLabel: typeof domainOpt === "string" ? domainOpt : undefined,
+          });
           status = outcome.status;
           storeData = outcome.data;
         } else if (planStage.stage === "recipe") {

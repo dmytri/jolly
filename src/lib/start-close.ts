@@ -92,9 +92,10 @@ function failureReasons(core: CloseEnvelope): string[] {
 
 export function interactiveCloseSummary<E extends CloseEnvelope>(
   core: E,
-  opts: { endpoint?: string; stripeStep: string },
+  opts: { endpoint?: string; stripeStep: string; link?: (url: string) => string },
 ): E {
   const incomplete = incompleteStages(core);
+  const link = opts.link ?? ((url: string) => url);
   const dashboardUrl = dashboardUrlFrom(core, opts.endpoint);
   const storefrontUrl = storefrontUrlFrom(core);
 
@@ -111,16 +112,16 @@ export function interactiveCloseSummary<E extends CloseEnvelope>(
         (reasons.length > 0 ? `: ${reasons.join("; ")}` : "") +
         ".",
     ];
-    if (storefrontUrl) lines.push(`  Storefront:       ${storefrontUrl}`);
-    if (dashboardUrl) lines.push(`  Saleor Dashboard: ${dashboardUrl}`);
+    if (storefrontUrl) lines.push(`  Storefront:       ${link(storefrontUrl)}`);
+    if (dashboardUrl) lines.push(`  Saleor Dashboard: ${link(dashboardUrl)}`);
     lines.push("  Re-run `jolly start` to finish the remaining stages.");
     summary = lines.join("\n");
   } else {
     // Every side-effecting stage completed — the store really is live. The
     // remaining Stripe step is a calm final note, each line on its own (027).
     const lines = ["Your store is live! 🎉"];
-    if (storefrontUrl) lines.push(`  Storefront:       ${storefrontUrl}`);
-    if (dashboardUrl) lines.push(`  Saleor Dashboard: ${dashboardUrl}`);
+    if (storefrontUrl) lines.push(`  Storefront:       ${link(storefrontUrl)}`);
+    if (dashboardUrl) lines.push(`  Saleor Dashboard: ${link(dashboardUrl)}`);
     lines.push(`  ${opts.stripeStep}`);
     summary = lines.join("\n");
   }

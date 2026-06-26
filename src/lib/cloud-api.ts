@@ -96,11 +96,18 @@ export class CloudApiError extends Error {
  * authenticates as `Bearer`, everything else as `Token`.
  */
 export function platformAuthScheme(token: string): "Bearer" | "Token" {
-  const access = process.env["JOLLY_SALEOR_ACCESS_TOKEN"];
-  if (access !== undefined && access.trim() !== "" && token === access.trim()) {
-    return "Bearer";
-  }
-  return "Token";
+  // Decide by the token's SHAPE, not by whether it happens to be mirrored in
+  // process.env. A device-grant access token is a JWT (three non-empty
+  // dot-separated base64url segments) and the Cloud platform API accepts it as
+  // Bearer; a Cloud staff token is opaque (uuid.base58, no dots) and
+  // authenticates as Token. The old process.env identity check only held when
+  // the token was loaded into process.env (the interactive same-process path),
+  // so the agent path — which reads the token back from .env — sent a device
+  // JWT as `Token` and the platform API rejected it (401 "Invalid token
+  // header"), pushing the agent toward a staff token it should never need.
+  const segments = token.split(".");
+  const looksLikeJwt = segments.length === 3 && segments.every((s) => s.length > 0);
+  return looksLikeJwt ? "Bearer" : "Token";
 }
 
 async function cloudFetch(
