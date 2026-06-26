@@ -656,7 +656,7 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
 async function deviceGrantLogin(command: string): Promise<Envelope> {
   const auth = await requestDeviceCode();
   clackNote(
-    `Open ${auth.verificationUri}?user_code=${auth.userCode}\nand enter the code: ${auth.userCode}`,
+    `Open ${osc8Hyperlink(`${auth.verificationUri}?user_code=${auth.userCode}`)}\nand enter the code: ${auth.userCode}`,
     "Sign in to Saleor Cloud",
     CLACK_STDERR,
   );
