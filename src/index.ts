@@ -460,8 +460,6 @@ function skillInstalledOnDisk(skill: SkillSpec): boolean {
 
 // ─── login / token verification (feature 018) ─────────────────────────────
 
-const TOKEN_PAGE = "https://cloud.saleor.io/tokens";
-
 function loginRiskContext(dryRunAvailable = true): RiskContext {
   return {
     action: "login",
@@ -497,15 +495,16 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
             code: "EMPTY_TOKEN",
             message:
               "JOLLY_SALEOR_CLOUD_TOKEN is set to an empty value; no token was read.",
-            remediation: `Set JOLLY_SALEOR_CLOUD_TOKEN to a staff token from ${TOKEN_PAGE}, or run \`jolly login\` interactively to sign in.`,
+            remediation:
+              "JOLLY_SALEOR_CLOUD_TOKEN is empty. Unset it, then run `jolly login` to sign in through the Saleor device authorization grant.",
           },
         ],
         {
           data: { riskContext: loginRiskContext() },
           nextSteps: [
             {
-              description: `Set JOLLY_SALEOR_CLOUD_TOKEN to a staff token from ${TOKEN_PAGE}.`,
-              command: "export JOLLY_SALEOR_CLOUD_TOKEN=<staff-token>",
+              description: "Run `jolly login` to sign in through the Saleor device authorization grant.",
+              command: "jolly login",
             },
           ],
         },
@@ -568,7 +567,8 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
         {
           code: "INVALID_TOKEN",
           message: "Saleor Cloud rejected the token (HTTP 401/403). It was not stored.",
-          remediation: `Create a new token at ${TOKEN_PAGE} and try again.`,
+          remediation:
+            "Run `jolly login` to sign in through the Saleor device authorization grant.",
         },
       ],
       {
@@ -581,7 +581,11 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
         ],
         data: { riskContext: loginRiskContext() },
         nextSteps: [
-          { description: `Create a new token at ${TOKEN_PAGE}.`, command: `open ${TOKEN_PAGE}` },
+          {
+            description:
+              "Run `jolly login` to sign in through the Saleor device authorization grant.",
+            command: "jolly login",
+          },
         ],
       },
     );
@@ -1079,7 +1083,8 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
         {
           code: "NO_ORGANIZATIONS",
           message: "No organizations are accessible with this Cloud token.",
-          remediation: "Confirm the token's permissions at https://cloud.saleor.io/tokens.",
+          remediation:
+            "Run `jolly login` to sign in through the Saleor device authorization grant, then retry.",
         },
       ],
       { data: { riskContext: createStoreRiskContext(cloudApiBase()) } },
@@ -1936,8 +1941,8 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
         status: "warning",
         description:
           "JOLLY_SALEOR_CLOUD_TOKEN looks like a per-store app token, not a " +
-          "Cloud staff token. Create a Cloud staff token at " +
-          "https://cloud.saleor.io/tokens.",
+          "Cloud staff token. Run `jolly login` to sign in through the Saleor " +
+          "device authorization grant.",
         command: "jolly login",
       });
     } else {
@@ -1956,7 +1961,7 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
           checks.push({
             id: "saleor-cloud-token",
             status: "warning",
-            description: `Cloud token authenticated ${orgEndpoint} but it returned no organizations. Create a token at https://cloud.saleor.io/tokens.`,
+            description: `Cloud token authenticated ${orgEndpoint} but it returned no organizations. Run \`jolly login\` to sign in through the Saleor device authorization grant.`,
             command: "jolly login",
           });
         }
@@ -1965,7 +1970,7 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
           checks.push({
             id: "saleor-cloud-token",
             status: "warning",
-            description: `Cloud token was rejected: the read-only GET of ${orgEndpoint} returned HTTP ${error.httpStatus}. Create a new token at https://cloud.saleor.io/tokens.`,
+            description: `Cloud token was rejected: the read-only GET of ${orgEndpoint} returned HTTP ${error.httpStatus}. Run \`jolly login\` to sign in through the Saleor device authorization grant.`,
             command: "jolly login",
           });
         } else {

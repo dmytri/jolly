@@ -55,14 +55,14 @@ Feature: Jolly auth commands
     Jolly keeps the two Cloud credentials in separate variables so a device sign-in never clobbers a
     configured staff token. A device-grant access token (a Keycloak JWT) is stored in
     `JOLLY_SALEOR_ACCESS_TOKEN` and sent as `Authorization: Bearer <jwt>`, refreshed from
-    `JOLLY_SALEOR_REFRESH_TOKEN` when it expires. A staff token from `https://cloud.saleor.io/tokens`
-    is stored in `JOLLY_SALEOR_CLOUD_TOKEN` and sent as `Authorization: Token <token>`. The
+    `JOLLY_SALEOR_REFRESH_TOKEN` when it expires. A staff token supplied via the environment for
+    tests and CI is stored in `JOLLY_SALEOR_CLOUD_TOKEN` and sent as `Authorization: Token <token>`. The
     interactive device grant writes only the access and refresh variables and never overwrites
     `JOLLY_SALEOR_CLOUD_TOKEN`. When both are stored, the device-grant access token is used.
 
     @sandbox
     Scenario: jolly login verifies and stores the env/.env staff token as Token
-      Given JOLLY_SALEOR_CLOUD_TOKEN is a valid staff token from https://cloud.saleor.io/tokens
+      Given JOLLY_SALEOR_CLOUD_TOKEN is a valid staff token supplied via the environment
       When the agent runs `jolly login` in a non-interactive shell
       Then it should verify the token with an authenticated `Authorization: Token` read of `https://cloud.saleor.io/platform/api/organizations/`
       And it should store the token in .env as JOLLY_SALEOR_CLOUD_TOKEN

@@ -70,7 +70,7 @@ Feature: Saleor source repositories and integration boundaries
     - Published package historically exposed the `saleor` binary from `@saleor/cli`, `saleor-cli`, and `saleor` packages.
     - Treat this repo as deprecated source material only.
     - `register` currently points users to `https://cloud.saleor.io/signup` and may open it in the browser.
-    - `login` uses browser OAuth/PKCE against `auth.saleor.io`; headless login accepts a token from `https://cloud.saleor.io/tokens`.
+    - `login` uses browser OAuth/PKCE against `auth.saleor.io`; its headless mode accepted a pasted Cloud token.
     - Legacy Cloud API default URL observed in source: `https://cloud.saleor.io/platform/api`.
     - Legacy Cloud auth domain observed in source: `auth.saleor.io`.
     - Legacy config file observed in source: `~/.config/saleor.json`; Jolly should not rely on it.

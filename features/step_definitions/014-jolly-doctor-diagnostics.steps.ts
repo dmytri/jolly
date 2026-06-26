@@ -753,8 +753,6 @@ Then(
 // JOLLY_SALEOR_CLOUD_TOKEN; the invalid/wrong-shape cases (@logic) produced from
 // real bad input aimed at the real endpoint (real rejection, never doubled).
 
-const CLOUD_TOKEN_PAGE = "https://cloud.saleor.io/tokens";
-
 /** The organization slugs the real Cloud token resolves, fetched live once and
  * cached on the world. Used to prove a `pass` came from the real response. */
 async function realOrgSlugs(world: JollyWorld): Promise<string[]> {
@@ -781,7 +779,7 @@ function cloudTokenCheck(world: JollyWorld): Record<string, unknown> {
 // Scenario: Doctor validates the Saleor Cloud token, not just its presence (@sandbox)
 
 Given(
-  ".env contains a valid JOLLY_SALEOR_CLOUD_TOKEN from https:\\/\\/cloud.saleor.io\\/tokens",
+  ".env contains a valid JOLLY_SALEOR_CLOUD_TOKEN supplied via the environment for tests and CI",
   function (this: JollyWorld) {
     // @sandbox gate guarantees the real Cloud token is in the environment; let
     // doctor read the real credentials (no stripping) so it probes for real.
@@ -934,13 +932,18 @@ Then(
 );
 
 Then(
-  "its next step should direct the customer to create a new token at https:\\/\\/cloud.saleor.io\\/tokens",
+  "its next step should direct the customer to run `jolly login` to sign in through the Saleor device authorization grant",
   function (this: JollyWorld) {
     const check = cloudTokenCheck(this);
     const text = `${String(check.command ?? "")} ${JSON.stringify(this.envelope.nextSteps)} ${JSON.stringify(check)}`;
+    assert.match(
+      text,
+      /jolly login/,
+      "the rejected-token check must direct the customer to run `jolly login` (device authorization grant)",
+    );
     assert.ok(
-      text.includes(CLOUD_TOKEN_PAGE),
-      `the rejected-token check must direct the customer to ${CLOUD_TOKEN_PAGE}`,
+      !text.includes("cloud.saleor.io/tokens"),
+      "the rejected-token check must not direct the customer to the tokens page",
     );
   },
 );
@@ -960,15 +963,20 @@ Given(
 );
 
 Then(
-  "the check message should state the value looks like a per-store app token rather than a Cloud staff token and name https:\\/\\/cloud.saleor.io\\/tokens",
+  "the check message should state the value looks like a per-store app token rather than a Cloud staff token and direct the customer to run `jolly login` to sign in through the Saleor device authorization grant",
   function (this: JollyWorld) {
     const check = cloudTokenCheck(this);
     const text = JSON.stringify(check);
     assert.match(text, /per-store|app token/i, "the warning must name the per-store app-token mix-up");
     assert.match(text, /staff/i, "the warning must contrast with a Cloud staff token");
+    assert.match(
+      text,
+      /jolly login/,
+      "the warning must direct the customer to run `jolly login` (device authorization grant)",
+    );
     assert.ok(
-      text.includes(CLOUD_TOKEN_PAGE),
-      `the warning must name ${CLOUD_TOKEN_PAGE}`,
+      !text.includes("cloud.saleor.io/tokens"),
+      "the warning must not name the tokens page",
     );
   },
 );

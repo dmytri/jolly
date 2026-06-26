@@ -38,7 +38,6 @@ import { FAKE_AUTH_MARKER, startFakeAuthHost } from "../support/fake-auth-host.t
 import { loadEnvValues } from "../../src/lib/env-file.ts";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
 
-const TOKEN_PAGE = "https://cloud.saleor.io/tokens";
 const CLI_ENTRY = join(REPO_ROOT, "src", "index.ts");
 
 function envData(world: JollyWorld): Record<string, unknown> {
@@ -571,7 +570,7 @@ Then(
 // the Token-scheme read of cloud.saleor.io really happened.
 
 Given(
-  "JOLLY_SALEOR_CLOUD_TOKEN is a valid staff token from https:\\/\\/cloud.saleor.io\\/tokens",
+  "JOLLY_SALEOR_CLOUD_TOKEN is a valid staff token supplied via the environment",
   function (this: JollyWorld) {
     const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
     assert.ok(token, "the @sandbox staff-token scenario requires JOLLY_SALEOR_CLOUD_TOKEN");

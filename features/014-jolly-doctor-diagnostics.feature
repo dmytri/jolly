@@ -120,7 +120,7 @@ Feature: Jolly doctor diagnostics
 
   @sandbox
   Scenario: Doctor validates the Saleor Cloud token, not just its presence
-    Given .env contains a valid JOLLY_SALEOR_CLOUD_TOKEN from https://cloud.saleor.io/tokens
+    Given .env contains a valid JOLLY_SALEOR_CLOUD_TOKEN supplied via the environment for tests and CI
     When the agent runs `jolly doctor saleor --json`
     Then a "saleor-cloud-token" check should authenticate a read-only GET of the Cloud API organizations endpoint
     And the "saleor-cloud-token" check should be "pass" naming the authenticated organization slug from the real response
@@ -132,14 +132,14 @@ Feature: Jolly doctor diagnostics
     When the agent runs `jolly doctor saleor --json`
     Then the "saleor-cloud-token" check should really send the authenticated organizations request and have it rejected
     And the "saleor-cloud-token" check should be "warning" or "fail", reporting the HTTP rejection status, never "pass"
-    And its next step should direct the customer to create a new token at https://cloud.saleor.io/tokens
+    And its next step should direct the customer to run `jolly login` to sign in through the Saleor device authorization grant
 
   @logic
   Scenario: Doctor warns when a per-store token is in the Cloud token slot
     Given .env contains JOLLY_SALEOR_CLOUD_TOKEN set to the per-store-app-token shape "abcdef0123456789abcdef0123" with no dot separator
     When the agent runs `jolly doctor saleor --json`
     Then the "saleor-cloud-token" check should be "warning"
-    And the check message should state the value looks like a per-store app token rather than a Cloud staff token and name https://cloud.saleor.io/tokens
+    And the check message should state the value looks like a per-store app token rather than a Cloud staff token and direct the customer to run `jolly login` to sign in through the Saleor device authorization grant
 
   @sandbox @exceptional-double
   Scenario: Doctor validates stored device-grant credentials with Bearer
@@ -193,7 +193,7 @@ Feature: Jolly doctor diagnostics
       check reflects whether the device-grant session still works, not merely that a refresh token
       is present.
     - Before the network probe, doctor inspects the value in the `JOLLY_SALEOR_CLOUD_TOKEN` staff
-      slot: a Cloud staff token (minted at `https://cloud.saleor.io/tokens`) carries a single dot
+      slot: a Cloud staff token carries a single dot
       separator and is probed as `Token`; a per-store app token is a short separator-free string.
       A separator-free value in the `JOLLY_SALEOR_CLOUD_TOKEN` slot is a `warning` naming the
       likely mix-up — this is the common confusion because both Saleor token kinds look alike.
