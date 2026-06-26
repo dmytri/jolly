@@ -26,6 +26,13 @@ On any role takeover (QM→Captain, Crew→QM, Bosun→Captain, and so on), the 
 
 *(Local addition pending upstream into the canonical Shipshape role prompts — see CAPTAIN.md "Lessons learned → Shipshape upstream".)*
 
+### Working discipline
+
+- **Move faster, fewer passes.** Finish the runnable work of a pass before stopping. Do not bank the easy `@logic` wins and defer the `@sandbox` ones by default — if a target is runnable now (its needed credentials/capability are present), run it. Batch verification/regression runs instead of one-at-a-time round-trips; escalate effort only when something is genuinely unclear.
+- **Commit granularity is never a reason to stop.** Do not break flow mid-pass to commit just to keep commits distinct; work through and commit at a natural completion. Distinct history can be reconstructed later with `git cherry-pick`.
+- **Deferral is not safety.** Stopping short does not reduce real risk (teardown is registered before creation; flakiness is environmental) — it only adds latency. Reserve a real stop for an actual blocker (missing capability/credential, contradictory spec) and name it plainly, never a manufactured safety rationale. The one legitimate deferral is the Shipshape context-firewall: "clear and continue" via a fresh `/qm`, not "stop".
+- **Trunk-based.** Commit and push to `main`; never create feature branches.
+
 ## Project Configuration
 
 | Placeholder | Project value |
@@ -111,6 +118,12 @@ Sandbox harness mechanics (the machinery in `features/support/`):
 - **Eval transcript keeping (opt-in observability).** When `HARNESS_EVAL_TRANSCRIPT_DIR` is set (default unset → throwaway temp dir), the eval harness persists the run's evidence (agent stdout/stderr, the Jolly-invocation trace, the final workspace `.env`) under a per-run namespaced subdir before teardown, scrubbing `HARNESS_OPENROUTER_API_KEY`. Observability only — it never changes pass/fail.
 
 Prefer fast focused checks and isolated slow checks, and run independent checks in parallel for fast worklists/status. The logic tier runs in parallel: `cucumber-js -p logic` (configured in `cucumber.js`). Cached verification may be used only when project tooling defines it; reports must distinguish fresh results from cache-backed results.
+
+Before treating a verification failure as a product defect, rule out the known false-failure modes first:
+
+- A `-p logic` (parallel) failure may be a PTY/loopback timing race, not a defect — re-run the target **serially** to confirm before acting (the failing scenario moving between runs is the tell).
+- A `@sandbox` failure may be a stale `.env` pointing at a deleted `jolly-test` store (404) — probe store reachability before treating it as a defect.
+- After an outbound publish, verify against the local clean tree, not the freshly-published registry tarball — CDN propagation can return an empty or stale tarball for minutes.
 
 ## Scenario writing
 
