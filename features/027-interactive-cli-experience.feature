@@ -115,6 +115,7 @@ Feature: Human-facing interactive CLI experience
     And a fresh empty project directory
     When `jolly start` runs to completion in an interactive terminal
     Then the closing summary on stdout should name the store's Saleor Dashboard URL
+    And the closing summary on stdout should name the deployed storefront URL
     And the closing summary on stdout should name the Stripe Dashboard key entry as the human's remaining step
     And the closing summary on stdout should not enumerate per-check results as `[status] check-id` lines
     And the closing summary on stdout should not present the Saleor endpoint or app-token readiness check, which the store stage resolved, as a failure of the completed run

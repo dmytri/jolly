@@ -1177,6 +1177,18 @@ Then(
 );
 
 Then(
+  "the closing summary on stdout should name the deployed storefront URL",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.match(
+      out,
+      /https:\/\/[a-z0-9.-]+\.vercel\.app/i,
+      `the closing summary must name the deployed storefront URL (…​.vercel.app); got:\n${out}`,
+    );
+  },
+);
+
+Then(
   "the closing summary on stdout should name the Stripe Dashboard key entry as the human's remaining step",
   function (this: JollyWorld) {
     const out = stripAnsi(this.lastRun!.stdout);

@@ -1,9 +1,11 @@
-// Logic-tier units for the published-package rules of feature 006 (decision
-// 2026-06-12): the published Jolly CLI is a Node.js program. The `engines`
-// field must declare the Node.js >= 23 requirement and must not require Bun.
-// Dev/CI now also run on native Node >= 23 + npm (decision 2026-06-13, Bun
-// dropped for dev/prod parity), so Bun is not a requirement anywhere. The
-// launcher's Bun-less execution itself is covered by the feature 006 @logic
+// Logic-tier units for the published-package rules of feature 006: the
+// published Jolly CLI is a Node.js program. The `engines` field must declare
+// the published Node.js floor — Node.js >= 20.12.0, the floor its dependencies
+// require (`@clack/prompts`); the bundle is esbuild-targeted to node20.12 so it
+// runs there as plain JS (decision 2026-06-24, "published floor >=20.12.0 with
+// the dev/CI >=23 split"). Dev/CI run on native Node >= 23 + npm, but the
+// PUBLISHED package must accept the dependency floor and must not require Bun.
+// The launcher's Bun-less execution itself is covered by the feature 006 @logic
 // scenario "Npx execution does not require Bun".
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
@@ -18,12 +20,19 @@ const pkg = JSON.parse(
 ) as { engines?: Record<string, string>; bin?: Record<string, string> };
 
 describe("published package engines (feature 006 rules)", () => {
-  test("declares the Node.js requirement", () => {
+  test("declares the published Node.js floor (>=20.12.0, the dependency floor)", () => {
     assert.notStrictEqual(pkg.engines?.node, undefined);
-    // Minimum is Node >= 23 (native type stripping).
-    const match = /(\d+)/.exec(pkg.engines?.node ?? "");
-    assert.notStrictEqual(match, null);
-    assert.ok(Number(match![1]) >= 23);
+    // Published floor is Node >= 20.12.0 (the floor its dependencies require;
+    // the esbuild bundle targets node20.12). Dev/CI run on >=23, but the
+    // PUBLISHED package's engines must accept the dependency floor.
+    const match = /(\d+)\.(\d+)/.exec(pkg.engines?.node ?? "");
+    assert.notStrictEqual(match, null, `engines.node must declare a version floor; got ${pkg.engines?.node}`);
+    const major = Number(match![1]);
+    const minor = Number(match![2]);
+    assert.ok(
+      major > 20 || (major === 20 && minor >= 12),
+      `published engines.node must declare the >=20.12.0 floor; got ${pkg.engines?.node}`,
+    );
   });
 
   test("does not require Bun", () => {
