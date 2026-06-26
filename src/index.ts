@@ -3276,7 +3276,7 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
     if (deviceUrl) {
       process.stderr.write(
         `Vercel sign-in needed — Jolly runs the Vercel sign-in together with you. ` +
-          `Visit ${deviceUrl} to authorize.\n`,
+          `Visit ${osc8Hyperlink(deviceUrl)} to authorize.\n`,
       );
     }
     checks.push({

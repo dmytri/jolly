@@ -297,9 +297,14 @@ Then(
 );
 
 Then(
-  "when `pnpm` is missing a `pnpm-available` check should report status {string}, and Jolly should not install Node.js itself",
+  "when `pnpm` is missing the stage should report a `pnpm-available` check with status {string} and a remediation to install pnpm — a clean prerequisite check, never a raw `spawnSync` ENOENT error surfaced to the user — and Jolly should not install Node.js itself",
   function (_status: string) {
-    // pnpm-presence guidance is start's pre-spawn check — acceptance run.
+    // pnpm-presence guidance is start's pre-spawn check. In this real run pnpm is
+    // present (the storefront installs), so the missing-pnpm `fail` is produced
+    // for real where it can be: scenario "A missing pnpm prerequisite is reported
+    // as a clean check, not a raw spawn error" (@logic, this feature), which makes
+    // pnpm unresolvable on PATH and asserts the `pnpm-available` check = "fail",
+    // the install-pnpm remediation, and no raw `spawnSync` ENOENT string.
   },
 );
 
@@ -808,6 +813,23 @@ Then(
     // The envelope (stdout JSON) must stay clean: the device URL is surfaced on
     // stderr, never polluting the machine-readable envelope.
     assert.ok(this.envelope.command.startsWith("start"), "the run must be a `jolly start` run");
+  },
+);
+
+Then(
+  "Jolly should render the surfaced Vercel sign-in URL as a clickable terminal hyperlink where the terminal supports it",
+  function (this: JollyWorld) {
+    const stderr = this.lastRun!.stderr;
+    // OSC 8 terminal hyperlink: ESC ] 8 ; ; <uri> BEL <visible text> ESC ] 8 ; ;
+    // BEL. Terminals that support OSC 8 render it as a clickable link; terminals
+    // without it show the visible text (the URL itself) — so the link is clickable
+    // "where the terminal supports it". Assert the surfaced Vercel device URL is
+    // wrapped in an OSC 8 open sequence on stderr.
+    const m = stderr.match(/\x1b\]8;;(https:\/\/vercel\.com\/oauth\/device[^\x07]*)\x07/i);
+    assert.ok(
+      m,
+      `Jolly must render the surfaced Vercel sign-in URL as an OSC 8 clickable hyperlink on stderr:\n${JSON.stringify(stderr)}`,
+    );
   },
 );
 
