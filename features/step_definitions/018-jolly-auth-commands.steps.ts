@@ -40,6 +40,52 @@ import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
 
 const CLI_ENTRY = join(REPO_ROOT, "src", "index.ts");
 
+// Guard the SHIPPED Jolly skill text (the agent's playbook) so its Saleor
+// authentication guidance can never drift back to the removed token-page /
+// pasted-token flow that the Rule above forbids (feature 018).
+const BUNDLED_SKILL_PATH = join(REPO_ROOT, "assets", "skills", "jolly", "SKILL.md");
+
+Given("the bundled Jolly skill that ships beside the CLI", function (this: JollyWorld) {
+  assert.ok(existsSync(BUNDLED_SKILL_PATH), "the bundled Jolly skill SKILL.md must exist");
+  this.notes.skillText = readFileSync(BUNDLED_SKILL_PATH, "utf8");
+});
+
+When("its Saleor Cloud authentication guidance is read", function (this: JollyWorld) {
+  // The full skill text is the surface under test; nothing to do beyond loading
+  // it (done in the Given) — the assertions read it directly.
+  assert.ok(
+    typeof this.notes.skillText === "string" && this.notes.skillText.length > 0,
+    "the Jolly skill text must be loaded",
+  );
+});
+
+Then(
+  "it should name the Saleor device authorization grant as the sign-in",
+  function (this: JollyWorld) {
+    const text = String(this.notes.skillText);
+    assert.match(
+      text,
+      /device\s+authorization\s+grant/i,
+      "the Jolly skill must direct Saleor sign-in to the device authorization grant",
+    );
+  },
+);
+
+Then(
+  "it should carry no cloud.saleor.io tokens-page link and no `jolly login` token-paste flag",
+  function (this: JollyWorld) {
+    const text = String(this.notes.skillText);
+    assert.ok(
+      !text.includes("cloud.saleor.io/tokens"),
+      "the Jolly skill must not link the cloud.saleor.io tokens page",
+    );
+    assert.ok(
+      !/login\s+--token\b|--token-file\b|--token-stdin\b/.test(text),
+      "the Jolly skill must not advertise a `jolly login` token-paste flag",
+    );
+  },
+);
+
 function envData(world: JollyWorld): Record<string, unknown> {
   return world.envelope.data as Record<string, unknown>;
 }
@@ -765,8 +811,6 @@ Then(
   },
 );
 
-// ─── Scenario: login --token --dry-run does not write to .env ──────────────
-
 Then(
   "the output should include a nextSteps array with at least one step",
   function (this: JollyWorld) {
@@ -805,9 +849,6 @@ Then(
     assert.match(this.envelope.errors[0].code as string, /^[A-Z][A-Z0-9_]*$/);
   },
 );
-
-// ─── @sandbox: verify a --token-file token against the real Cloud API ──────
-// saleorCloud-gated; runs in CI with the real token, skips locally.
 
 // ─── @property: the .env Jolly writes is private to its owner (mode 600) ────
 // The shared .env writer must create the file owner-read/write only. Exercised
@@ -861,16 +902,6 @@ Then(
     assert.equal(result.stdout, expected);
   },
 );
-
-// ─── Scenario: interactive prompt pastes the token when no source is given ──
-// The lowest-precedence token source. With no --token-file/--token-stdin/--token
-// flag and no $JOLLY_SALEOR_CLOUD_TOKEN, an interactive `jolly login` (stdin a
-// TTY) prompts the user to paste the Cloud token and reads it from the terminal
-// with echo disabled. Exercised against a REAL kernel PTY (support/pty.ts) — the
-// CLI genuinely sees an interactive terminal; nothing about the terminal is
-// faked. @exceptional-double: the verify is short-circuited by pointing the
-// Cloud API at the unreachable host (stored-not-verified), so the contract under
-// test is the local terminal read, not the network verify.
 
 function resolvedChildEnv(
   overrides: Record<string, string | undefined>,

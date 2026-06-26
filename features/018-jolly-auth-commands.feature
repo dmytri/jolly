@@ -21,6 +21,13 @@ Feature: Jolly auth commands
     redirect (default the first-party realm) for proxy or self-routing — the same affordance as
     `JOLLY_SALEOR_CLOUD_API_URL` for the Cloud API.
 
+    @logic
+    Scenario: The bundled Jolly skill directs Saleor sign-in to the device authorization grant
+      Given the bundled Jolly skill that ships beside the CLI
+      When its Saleor Cloud authentication guidance is read
+      Then it should name the Saleor device authorization grant as the sign-in
+      And it should carry no cloud.saleor.io tokens-page link and no `jolly login` token-paste flag
+
     @logic @exceptional-double
     Scenario: Agent-driven jolly login signs in once the human approves the grant
       # @exceptional-double: the human approval cannot be produced on demand; the

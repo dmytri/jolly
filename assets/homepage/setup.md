@@ -33,9 +33,9 @@ Four moments. Stop and ask — one at a time:
   in a browser, and I continue
 - 🧑🏿 **Configure Saleor's Stripe app** — I install the app and the Stripe skill; the human adds the
   test-mode keys and maps it to the `us` channel in the Dashboard (Extensions → Stripe)
-- 👩🏼 **A secret to paste** — chiefly the **Saleor Cloud token** (mint one at
-  https://cloud.saleor.io/tokens and hand it to `jolly login`). Any key can go straight into the
-  gitignored `.env` yourself instead of pasting it to me
+- 👩🏼 **A sign-in to approve** — Saleor Cloud sign-in is a device-authorization grant: I print an
+  `auth.saleor.io` URL with the code pre-filled, you open it and approve, and I continue — no token
+  to paste. Any key (e.g. Stripe) can go straight into the gitignored `.env` yourself
 
 Everything else, I do.
 
@@ -131,22 +131,25 @@ The most common way to fool yourself into a false "dead token":
 Don't probe `https://cloud.saleor.io/graphql/` — that's the Cloud web app, and it returns `200`
 with an HTML sign-in page even unauthenticated.
 
-Two token shapes, easy to confuse: a **Cloud staff token** (~81 chars, `uuid.base58`, minted at
-`https://cloud.saleor.io/tokens`) is `JOLLY_SALEOR_CLOUD_TOKEN`; a **per-store app token**
-(~30 chars, separator-free) is `JOLLY_SALEOR_APP_TOKEN` and cannot call the Cloud API.
+Two token shapes, easy to confuse: a **Cloud staff token** (~81 chars, `uuid.base58`) lives in
+`JOLLY_SALEOR_CLOUD_TOKEN` (CI/automation only, set in the environment — never minted or pasted in
+the normal flow); a **per-store app token** (~30 chars, separator-free) is `JOLLY_SALEOR_APP_TOKEN`
+and cannot call the Cloud API.
 
-Don't hand-roll a probe — `jolly login --token <value>` and `jolly doctor` run the right check
-and report the real result. A `401` from a wrong-scheme `curl` is not evidence the token is dead.
+Don't hand-roll a probe — `jolly login` and `jolly doctor` run the right check and report the real
+result. A `401` from a wrong-scheme `curl` is not evidence the token is dead.
 
 ### Saleor auth
 
-Saleor auth is a Cloud token, so it works the same on a laptop, a CI runner, or a remote VM:
+Saleor sign-in is the device authorization grant, so it works the same on a laptop, a CI runner, or
+a remote VM:
 
-1. The human mints a Cloud staff token at `https://cloud.saleor.io/tokens`.
-2. Hand it over without putting the literal in a command argument: `jolly login --token-file <path>`
-   (a mode-600 file), `jolly login --token-stdin` (stdin), or
-   `JOLLY_SALEOR_CLOUD_TOKEN=<value> jolly login`. At an interactive terminal, plain `jolly login`
-   prompts you to paste it with echo off. I verify it before writing it to `.env`.
+1. Run `jolly login`. I print an `auth.saleor.io` verification URL (the user code pre-filled) and
+   the code, surfaced as a clickable link where the terminal supports it.
+2. The human opens the URL and approves. I poll, then store the session (`JOLLY_SALEOR_ACCESS_TOKEN`
+   + refresh) in `.env` and re-verify with `jolly doctor`. There is no token to paste and no token
+   page. For unattended CI only, set `JOLLY_SALEOR_CLOUD_TOKEN` in the environment and I use it
+   silently.
 
 `jolly start --yes` then runs the create/deploy stages; the Dashboard Stripe app stays a human gate.
 

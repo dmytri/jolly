@@ -203,11 +203,16 @@ Feature: Human-facing interactive CLI experience
   Rule: Bombshell is the single CLI plumbing — no redundant hand-rolled implementation
     - Bombshell is the single mechanism for every CLI concern it can serve: argument parsing
       (`@bomb.sh/args`), interactive prompts, confirmations, and masked secret entry
-      (`@clack/prompts`), any progress spinner shown (`@clack/prompts`), and shell completion
-      (`@bomb.sh/tab`). Jolly carries no redundant hand-rolled implementation of a capability one
-      of these Bombshell packages provides: there is exactly one implementation per concern, and
-      it is the Bombshell one. This is a cross-cutting conformance invariant, in the family of
-      feature 026's "no forbidden double".
+      (`@clack/prompts`), and shell completion (`@bomb.sh/tab`). Jolly carries no redundant
+      hand-rolled implementation of a capability one of these Bombshell packages provides: there is
+      exactly one implementation per concern, and it is the Bombshell one. This is a cross-cutting
+      conformance invariant, in the family of feature 026's "no forbidden double".
+    - Bombshell provides no live multi-stage progress primitive: its `@clack/prompts` spinner is a
+      single indeterminate line, not a pinned list of named stages updated in place. So — exactly as
+      with the OSC 8 hyperlink, which Bombshell also has no primitive for — Jolly renders the
+      multi-stage progress display itself on stderr rather than take a redundant dependency. This is
+      a sanctioned carve-out, not a forbidden hand-rolled duplicate of a capability Bombshell
+      provides.
 
   @logic @property
   Scenario: Every Bombshell-capable CLI concern is served by Bombshell, with no redundant implementation

@@ -159,8 +159,6 @@ const VALUE_FLAGS = [
   "region",
   "organization",
   "mock-organizations",
-  "publishable-key",
-  "secret-key",
 ] as const;
 // Short aliases resolve to their long flag name before classification.
 const FLAG_ALIASES: Record<string, string> = { y: "yes", h: "help" };
@@ -537,7 +535,7 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
   // code + URL through Bombshell's prompt UI; an agent-driven (non-interactive)
   // run relays the same user code + verification URL to its human on plain
   // stderr. Both then poll while the human authorizes.
-  if (token === undefined && process.stdin.isTTY) {
+  if (token === undefined && process.stdin.isTTY && !args.json && !args.yes) {
     return await deviceGrantLogin(command);
   }
 
@@ -1613,7 +1611,14 @@ function mergeMcpJson(): { merged: boolean; warning?: string } {
   const jollyEntry = {
     command: "npx",
     args: ["-y", "mcp-graphql"],
-    env: { ENDPOINT: endpoint },
+    env: {
+      ENDPOINT: endpoint,
+      // Live store access uses the stored app token (feature 019). Referenced by
+      // env expansion so the MCP client resolves JOLLY_SALEOR_APP_TOKEN at launch
+      // — never the literal secret written into the config (feature 007 keeps
+      // secrets out of the scaffolded files).
+      HEADERS: '{"Authorization":"Bearer ${JOLLY_SALEOR_APP_TOKEN}"}',
+    },
   };
 
   let config: Record<string, unknown> = { mcpServers: {} };
@@ -1681,8 +1686,9 @@ function commandInit(_args: ParsedArgs): Envelope {
 
   for (const skill of DEFAULT_SKILLS) {
     const already = skillInstalledOnDisk(skill);
+    let installStderr = "";
     if (!already) {
-      installSkill(skill);
+      installStderr = (installSkill(skill).stderr ?? "").trim();
     }
     // Verify on disk — never unconditionally claim success.
     const present = skillInstalledOnDisk(skill);
@@ -1691,7 +1697,7 @@ function commandInit(_args: ParsedArgs): Envelope {
       status: present ? "pass" : "fail",
       description: present
         ? `${skill.id} present on disk${already ? " (already installed)" : ""}.`
-        : `${skill.id} could not be verified on disk after npx skills add.`,
+        : `${skill.id} could not be verified on disk after npx skills add.${installStderr ? ` ${installStderr}` : ""}`,
     });
     if (!present) installFailures.push(skill.id);
   }
@@ -2261,13 +2267,24 @@ function commandUpgrade(_args: ParsedArgs): Envelope {
     };
   });
 
-  // Detect a cloned Paper storefront for plan-only baseline guidance.
-  const paperPresent = existsSync(join(projectDir(), "paper-version.json"));
+  // Detect a cloned Paper storefront for plan-only baseline guidance, reading
+  // the version from its paper-version.json marker (feature 017).
+  const paperVersionPath = join(projectDir(), "paper-version.json");
+  const paperPresent = existsSync(paperVersionPath);
+  let paperVersion: string | undefined;
+  if (paperPresent) {
+    try {
+      const parsed = JSON.parse(readFileSync(paperVersionPath, "utf8")) as { version?: unknown };
+      if (typeof parsed.version === "string") paperVersion = parsed.version;
+    } catch {
+      // Unreadable/malformed marker: detected, but the version stays unknown.
+    }
+  }
   checks.push({
     id: "paper-baseline",
     status: paperPresent ? "unknown" : "skipped",
     description: paperPresent
-      ? "Paper storefront detected; Jolly plans Paper migrations but does not auto-apply them in v1."
+      ? `Paper storefront detected (baseline version ${paperVersion ?? "unknown"}); Jolly plans Paper migrations but does not auto-apply them in v1.`
       : "No Paper storefront detected; nothing to plan.",
   });
 
@@ -2278,6 +2295,7 @@ function commandUpgrade(_args: ParsedArgs): Envelope {
     data: {
       skillsChecked: DEFAULT_SKILLS.map((s) => s.id),
       paperBaselineDetected: paperPresent,
+      paperBaselineVersion: paperVersion,
       paperAutoApply: false,
     },
     checks,
@@ -2802,18 +2820,32 @@ async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
   // deployment as a success (the catalog was applied; the exit-5 "partial" is the
   // spurious result of the protected-default deletions, not a real failure).
   if (result.status === 0 || reportStatus === "success") {
+    // The configurator reported the deploy succeeded, but `recipe-deployed`
+    // derives its final status from the store read-back below (feature 004
+    // Rule): it must not report `pass` while a declared entity — the featured
+    // collection's products — is absent from the store. The configurator cannot
+    // populate collection membership in one deploy (its pipeline creates
+    // Collections before Products, and the product schema has no `collections`
+    // field), so assignRecipeCollections fills it in via GraphQL and verifies
+    // every declared product was assigned. Idempotent, so a re-run reconciles.
+    const collectionsStatus = await assignRecipeCollections(endpoint, token, checks);
+    const collectionsFailed =
+      collectionsStatus !== "completed" ||
+      checks.find((c) => c.id === "recipe-collections")?.status === "fail";
     checks.push({
       id: "recipe-deployed",
-      status: "pass",
-      description: "Deployed the starter recipe via @saleor/configurator deploy.",
+      status: collectionsFailed ? "fail" : "pass",
+      description: collectionsFailed
+        ? "The configurator reported the recipe deploy succeeded, but the declared featured collection could not be confirmed populated in the store."
+        : "Deployed the starter recipe via @saleor/configurator deploy; the declared featured collection was confirmed populated in the store.",
+      ...(collectionsFailed
+        ? {
+            remediation:
+              "See the recipe-collections check; re-run jolly start --yes once the catalog deploy is complete so the declared products exist.",
+          }
+        : {}),
     });
-    // The configurator cannot populate a collection's membership in one deploy
-    // (its pipeline creates Collections before Products, and the product schema
-    // has no `collections` field), so the recipe's featured collection deploys
-    // empty. Assign its declared products via GraphQL now — the same post-deploy
-    // fix-up Jolly does for stock the configurator cannot set. Idempotent, so a
-    // re-run reconciles cleanly.
-    return await assignRecipeCollections(endpoint, token, checks);
+    return collectionsFailed ? "blocked" : "completed";
   }
 
   const stderr = (result.stderr ?? "").toString().slice(0, 2000);
@@ -2855,7 +2887,9 @@ async function assignRecipeCollections(
   if (RECIPE_COLLECTIONS.length === 0) return "completed";
   try {
     let assigned = 0;
+    let declared = 0;
     for (const collection of RECIPE_COLLECTIONS) {
+      declared += collection.productSlugs.length;
       assigned += await assignCollectionProducts(
         endpoint,
         token,
@@ -2865,10 +2899,23 @@ async function assignRecipeCollections(
         collection.productSlugs,
       );
     }
+    if (assigned < declared) {
+      // A declared product was reported created by the configurator but is
+      // absent from the store read-back, so the featured collection cannot be
+      // fully populated — never a fabricated completion (feature 004 Rule).
+      checks.push({
+        id: "recipe-collections",
+        status: "fail",
+        description: `Populated ${assigned} of ${declared} declared product(s) into the recipe's featured collection(s); ${declared - assigned} declared product(s) were absent from the store.`,
+        remediation:
+          "Re-run jolly start --yes once the catalog deploy is complete so every declared product exists to assign.",
+      });
+      return "blocked";
+    }
     checks.push({
       id: "recipe-collections",
       status: "pass",
-      description: `Assigned ${assigned} product(s) to the recipe's featured collection(s) via collectionAddProducts (the configurator cannot populate collection membership in a single deploy).`,
+      description: `Assigned ${assigned} of ${declared} declared product(s) to the recipe's featured collection(s) via collectionAddProducts (the configurator cannot populate collection membership in a single deploy).`,
     });
     return "completed";
   } catch (err) {
@@ -3232,6 +3279,23 @@ function extractVercelUrl(stdout: string | undefined): string | undefined {
   return m ? m[0] : undefined;
 }
 
+/**
+ * Run the Vercel sign-in (`npx vercel login`) inline with the terminal passed
+ * through, for the interactive human path (feature 027 Rule "Interactive start
+ * runs end-to-end in one session"): the human completes the device grant in this
+ * same terminal and the CLI establishes its session before the unattended deploy
+ * stage. Resolves when the CLI exits (success or not — a failed/abandoned sign-in
+ * just leaves the deploy stage to report the still-missing session honestly).
+ * Jolly holds no Vercel token; the CLI signs in under its own auth.
+ */
+async function runInteractiveVercelSignIn(): Promise<void> {
+  return new Promise((resolve) => {
+    const child = spawn("npx", ["vercel", "login"], { stdio: "inherit" });
+    child.on("error", () => resolve());
+    child.on("close", () => resolve());
+  });
+}
+
 async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
   const dir = join(projectDir(), "storefront");
 
@@ -3331,7 +3395,7 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
       status: "fail",
       description: `Did not deploy to Vercel: ${reason}.`,
       remediation:
-        "Verify the Vercel CLI is authenticated (`npx vercel login`, an interactive gate the agent/human runs), then re-run jolly start --yes.",
+        "Review the reported reason. Jolly runs the Vercel sign-in itself, so this is a deploy failure, not a sign-in step the agent must perform.",
     });
     return { status: "blocked" };
   }
@@ -3405,7 +3469,7 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
     status: "fail",
     description: `Did not deploy to Vercel: the Vercel CLI exited ${deploy.status}.${stderr ? ` ${stderr}` : ""}`,
     remediation:
-      "Run `npx vercel login` (an interactive gate the agent/human completes), then re-run jolly start --yes.",
+      "Review the Vercel CLI error above. Jolly runs the Vercel sign-in itself, so this is a deploy/build failure, not a sign-in step the agent must perform.",
   });
   return { status: "blocked" };
 }
@@ -3423,7 +3487,11 @@ const DEFAULT_ENV_NAME = "jolly-store";
 // blocking — so the agent path is unchanged.
 function shouldRunInteractive(args: ParsedArgs): boolean {
   return Boolean(
-    process.stdin.isTTY && process.stdout.isTTY && !args.json && !args.yes,
+    process.stdin.isTTY &&
+      process.stdout.isTTY &&
+      !args.json &&
+      !args.yes &&
+      !args.quiet,
   );
 }
 
@@ -3612,6 +3680,16 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
   if (clackIsCancel(proceed) || proceed === false) {
     clackOutro(cliMessage("start.declined"), CLACK_STDERR);
     return runStartCore({ ...args, yes: false });
+  }
+
+  // Vercel sign-in is a human gate Jolly gathers up front (feature 027 Rule
+  // "Interactive start runs end-to-end in one session"): with no Vercel CLI
+  // session, run `npx vercel login` inline with the terminal passed through so
+  // the human completes the device grant here and lets the CLI's session
+  // establish — then the deploy stage proceeds unattended.
+  const vercelSession = await probeVercelSession();
+  if (!vercelSession.signedIn) {
+    await runInteractiveVercelSignIn();
   }
 
   // Run the long setup stages behind a live, per-stage status list on stderr:

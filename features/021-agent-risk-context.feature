@@ -34,9 +34,9 @@ Feature: Structured agent risk context
     And the `riskContext` should not appear in a separate ad hoc format outside the feature 020 envelope
 
   @logic
-  Scenario: Jolly start pauses for agent approval before each high-risk stage
+  Scenario: Jolly start pauses for agent approval at the first high-risk stage
     Given the agent runs `jolly start` without a pre-authorization flag
-    When `jolly start` reaches a high-risk stage (`create store`, `@saleor/configurator deploy`, or the `npx vercel` deploy)
+    When `jolly start` reaches the first high-risk stage (`create store`, `@saleor/configurator deploy`, or the `npx vercel` deploy)
     Then it should emit that stage's `riskContext` in the feature 020 envelope before performing the action
     And Jolly should not perform the stage action until approval input is provided
     And the emitted `riskContext` should be identical to the one shown for that stage under `--dry-run`
@@ -52,15 +52,18 @@ Feature: Structured agent risk context
     - `riskContext` should be carried inside the feature 020 output envelope, not a separate format.
     - Risk context must never include secret values; reference credentials by name only.
 
-  Rule: `jolly start` pauses for approval at each high-risk stage
+  Rule: `jolly start` gates the high-risk stages behind agent approval
     - Under "Agent-supervised orchestration" (feature 002), `jolly start` runs the high-risk
       stages itself (`create store`, `@saleor/configurator deploy`, the `npx vercel` deploy).
-      Before EACH such stage it emits that stage's `riskContext` in the envelope and PAUSES for the
-      agent to approve, then resumes; it never self-approves.
-    - An agent pre-authorization flag (e.g. `--yes`) lets the agent approve the run up front and
-      have `start` proceed through the high-risk stages without per-stage pauses, when the agent's
-      policy allows. The `riskContext` is still emitted for each (for the record), identical to its
-      `--dry-run` form.
+      Without pre-authorization it PAUSES at the first such stage — emitting that stage's
+      `riskContext` in the envelope with status `awaiting-approval` and performing no high-risk
+      action — and holds the remaining high-risk stages `pending` behind that gate; it never
+      self-approves.
+    - An agent pre-authorization flag (`--yes`) approves the run up front and lets `start` proceed
+      through the high-risk stages without pausing, when the agent's policy allows. Each stage's
+      `riskContext` is still emitted (for the record), identical to its `--dry-run` form.
+    - For finer-grained, per-stage approval the agent drives the individual stage commands itself;
+      feature 010 leaves approval granularity to the agent, and Jolly does not hardcode it.
     - This is distinct from the human-interaction gates `start` waits at (OAuth/`vercel login`
       passthrough, account creation, the Dashboard Stripe app): those are completed by the human,
       not approval decisions, and are not governed by this rule.

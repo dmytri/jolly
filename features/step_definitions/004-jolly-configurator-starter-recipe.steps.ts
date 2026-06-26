@@ -53,11 +53,37 @@ Then(
 Then(
   "the plan should deploy it by spawning `npx @saleor\\/configurator deploy`",
   function (this: JollyWorld) {
-    // Jolly-observable boundary: Jolly exposes no command that runs the
-    // configurator. Confirm against the command surface.
-    this.runCli(["help", "--json"]);
-    const text = JSON.stringify(this.envelope).toLowerCase();
-    assert.ok(!text.includes("configurator deploy"), "Jolly must not run the configurator itself");
+    // Jolly performs the recipe deploy ITSELF by SPAWNING `npx @saleor/configurator
+    // deploy` (feature 004 Rule "Configurator deploy"; src/index.ts runRecipeStage
+    // / startPlan recipe stage). Drive the real dry-run preview and assert its
+    // configurator-deploy stage names the spawned command, Jolly's bundled recipe,
+    // the store URL + app token by name only, and the safe `--failOnDelete` guard.
+    this.runCli(["start", "--dry-run", "--json"], { env: absentCredentialsEnv() });
+    const plan = this.envelope.data.plan as PlanStage[];
+    assert.ok(Array.isArray(plan) && plan.length > 0, "start --dry-run must report data.plan");
+    const stage = plan.find(isConfiguratorDeployStage);
+    assert.ok(stage, "the plan must include the `@saleor/configurator` deploy stage");
+    const blob = JSON.stringify(stage);
+    assert.ok(
+      blob.includes("npx @saleor/configurator deploy"),
+      "the plan must name the spawned command `npx @saleor/configurator deploy`",
+    );
+    assert.ok(
+      /recipe\.yml/i.test(blob),
+      "the plan must name Jolly's bundled starter recipe (recipe.yml)",
+    );
+    assert.ok(
+      blob.includes("NEXT_PUBLIC_SALEOR_API_URL"),
+      "the plan must name the store URL by name (NEXT_PUBLIC_SALEOR_API_URL)",
+    );
+    assert.ok(
+      blob.includes("JOLLY_SALEOR_APP_TOKEN"),
+      "the plan must name the app token by name (JOLLY_SALEOR_APP_TOKEN)",
+    );
+    assert.ok(
+      blob.includes("--failOnDelete"),
+      "the plan must name the safe `--failOnDelete` guard for a re-deploy over a pre-existing store",
+    );
   },
 );
 
@@ -75,26 +101,95 @@ Given("a Saleor Cloud environment that already holds catalog data", function (th
   this.notes.recipeReady = true;
 });
 
-When("the agent runs `jolly start --yes` to apply the starter recipe to Saleor Cloud", function () {
-  // The agent runs `@saleor/configurator deploy` — not Jolly's code.
-});
-
-Then(
-  "the recipe stage should pass `--failOnDelete` to `npx @saleor\\/configurator deploy`",
-  function () {
-    // configurator validate is the agent's step — narrative no-op.
+When(
+  "the agent runs `jolly start --yes` to apply the starter recipe to Saleor Cloud",
+  { timeout: 900_000 },
+  function (this: JollyWorld) {
+    // Over a store that already holds customer catalog (the Given), Jolly's recipe
+    // deploy passes `--failOnDelete`, so the spawned `npx @saleor/configurator
+    // deploy` detects the destructive diff and exits 6; Jolly reports the recipe
+    // stage `blocked` (feature 004 Rule "Configurator deploy"; src/index.ts
+    // runRecipeStage exit-6 path). Run the real orchestrated apply and capture the
+    // envelope the Thens assert against.
+    this.runCli(["start", "--yes", "--json"], { timeoutMs: 840_000 });
+    // Narrow environmental escape ONLY (mirrors 004's other recipe scenarios): the
+    // @saleor/configurator binary could genuinely not be spawned here (npx
+    // fetch/network) — a condition the real test env cannot produce on demand — so
+    // the deploy premise was not reachable and the scenario skips. A recipe stage
+    // blocked for the destructive diff is exactly the behaviour under test and MUST
+    // fail the Then, never be masked as a skip.
+    const recipeCheck = this.findCheck("recipe-deployed");
+    const couldNotSpawn = /could not be spawned/i.test(
+      String(recipeCheck?.description ?? ""),
+    );
+    if (couldNotSpawn) {
+      this.attach(
+        `Skipped: the @saleor/configurator binary could not be spawned in this ` +
+          `environment — an environmental inability the real test env cannot ` +
+          `produce on demand, not the destructive-diff contract under test`,
+        "text/plain",
+      );
+      this.notes.skipDestructive = true;
+      return "skipped";
+    }
   },
 );
 
-Then("the configurator should exit {int} for deletions", function (_deleteExit: number) {
-  // configurator diff/--plan is the agent's step — narrative no-op.
+Then(
+  "the recipe stage should pass `--failOnDelete` to `npx @saleor\\/configurator deploy`",
+  function (this: JollyWorld) {
+    if (this.notes.skipDestructive) return "skipped";
+    // Observable proof Jolly passed `--failOnDelete`: the recipe-deployed check
+    // fails reporting the configurator was blocked by it over the pre-existing
+    // store (src/index.ts runRecipeStage: exit 6 → recipe-deployed fail naming
+    // `--failOnDelete`).
+    const recipeCheck = this.findCheck("recipe-deployed");
+    assert.ok(recipeCheck, "the recipe stage must emit a recipe-deployed check");
+    assert.equal(
+      recipeCheck!.status,
+      "fail",
+      "a destructive re-deploy must fail the recipe-deployed check, never report it passing",
+    );
+    assert.ok(
+      /--failOnDelete/.test(String(recipeCheck!.description ?? "")),
+      "the recipe-deployed check must name the `--failOnDelete` guard that blocked the destructive apply",
+    );
+  },
+);
+
+Then("the configurator should exit {int} for deletions", function (this: JollyWorld, deleteExit: number) {
+  if (this.notes.skipDestructive) return "skipped";
+  assert.equal(deleteExit, 6, "the configurator exits 6 when --failOnDelete blocks deletions");
+  // Observable of the exit-6 path: the recipe-deployed check names the destructive
+  // diff the configurator detected over the pre-existing store.
+  const recipeCheck = this.findCheck("recipe-deployed");
+  assert.ok(recipeCheck, "the recipe stage must emit a recipe-deployed check");
+  assert.ok(
+    /detected deletions over a pre-existing store/i.test(String(recipeCheck!.description ?? "")),
+    "the recipe-deployed check must report the configurator detected deletions over a pre-existing store (exit 6)",
+  );
 });
 
 Then(
   "Jolly should report the recipe stage as {string}, not {string}",
-  function (_blocked: string, _completed: string) {
-    // Fail-safe on destructive ops over a pre-existing store is the
-    // configurator's behavior (--failOnDelete), invoked by the agent — narrative.
+  function (this: JollyWorld, blocked: string, completed: string) {
+    if (this.notes.skipDestructive) return "skipped";
+    const stages = (this.envelope.data.stages ?? []) as Array<{
+      stage: string;
+      status: string;
+    }>;
+    const recipe = stages.find((s) => s.stage === "recipe");
+    assert.ok(recipe, "the orchestrated stages must include the recipe stage");
+    assert.equal(
+      recipe!.status,
+      blocked,
+      `the recipe stage must be reported "${blocked}" over a pre-existing store's destructive diff, not "${completed}"`,
+    );
+    assert.notEqual(
+      recipe!.status,
+      completed,
+      "a destructive re-deploy blocked by --failOnDelete must never be reported completed",
+    );
   },
 );
 

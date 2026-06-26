@@ -245,7 +245,7 @@ Given(
 );
 
 When(
-  "`jolly start` reaches a high-risk stage \\(`create store`, `@saleor\\/configurator deploy`, or the `npx vercel` deploy)",
+  "`jolly start` reaches the first high-risk stage \\(`create store`, `@saleor\\/configurator deploy`, or the `npx vercel` deploy)",
   function (this: JollyWorld) {
     // Real run with no --yes: pauses at the first high-risk approval gate.
     this.runCli(["start", "--json"], { env: absentCredentialsEnv() });

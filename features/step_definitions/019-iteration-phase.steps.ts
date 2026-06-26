@@ -67,8 +67,19 @@ Then(
 );
 
 Then("the config should use the stored app token", function (this: JollyWorld) {
-  // The app token is referenced for live access; the stored JOLLY_SALEOR_APP_TOKEN
-  // is what the agent's mcp-graphql session uses. Confirm it is configured.
+  // The saleor-graphql entry must authenticate live access with the stored app
+  // token, referenced via env expansion (${JOLLY_SALEOR_APP_TOKEN}) so the MCP
+  // client resolves it at launch — never the literal secret in the file
+  // (feature 007 keeps secrets out of the scaffolded config).
+  const config = this.notes.mcpConfig as {
+    mcpServers?: Record<string, { env?: Record<string, string> }>;
+  };
+  const headers = config.mcpServers?.["saleor-graphql"]?.env?.HEADERS ?? "";
+  assert.match(
+    headers,
+    /Authorization.*Bearer.*\$\{?JOLLY_SALEOR_APP_TOKEN\}?/i,
+    "the saleor-graphql entry must authenticate with the stored app token via HEADERS (by env reference, not the literal)",
+  );
   const appToken = process.env["JOLLY_SALEOR_APP_TOKEN"];
   assert.ok(appToken && appToken.trim() !== "", "a stored app token must be available for live access");
   this.notes.appToken = appToken;

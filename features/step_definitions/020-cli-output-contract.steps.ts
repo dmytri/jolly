@@ -634,10 +634,10 @@ function assertNoLeakAcrossModes(
   world: JollyWorld,
   baseArgs: string[],
 ): void {
-  // login now reads the staff token from JOLLY_SALEOR_CLOUD_TOKEN (the `--token`
-  // machinery is retired, feature 018). The probe is configured as that env
-  // secret — real bad input — so login genuinely processes it (verification is
-  // rejected or unreachable) and must reference it by name only, never echo it.
+  // login reads the staff token from JOLLY_SALEOR_CLOUD_TOKEN. The probe is
+  // configured as that env secret — real bad input — so login genuinely
+  // processes it (verification is rejected or unreachable) and must reference
+  // it by name only, never echo it.
   for (const mode of [[], ["--json"], ["--quiet"]]) {
     world.runCli([...baseArgs, ...mode], {
       env: absentCredentialsEnv({

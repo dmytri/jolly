@@ -2,8 +2,8 @@
 //
 // @logic scenarios pinning where and how Jolly installs the default skill set
 // and the agent-specific glue it writes alongside. Jolly installs skills via
-// `npx skills add <ref>` into the standard project-local skill location
-// (.claude/skills/<id>) — never a Jolly-only store — and writes agent glue
+// `npx skills add <ref>` into the universal project-local skill location
+// (.agents/skills/<id>) — never a Jolly-only store — and writes agent glue
 // (AGENTS.md) that points the agent at the installed skills without inlining
 // their contents, preserving any user-authored instructions.
 //
@@ -33,7 +33,7 @@ const DEFAULT_SKILL_IDS = [
 ];
 
 function skillsBaseDir(world: JollyWorld): string {
-  return join(world.projectDir, ".claude", "skills");
+  return join(world.projectDir, ".agents", "skills");
 }
 
 /** Pre-seed the standard project-local skill locations so the install/check
@@ -97,14 +97,14 @@ Then(
 Then(
   "each installed skill should land under `.agents\\/skills\\/<id>\\/`",
   function (this: JollyWorld) {
-    // Skills land under the standard project-local location (.claude/skills),
+    // Skills land under the universal project-local location (.agents/skills/<id>),
     // not a bespoke store.
     const base = skillsBaseDir(this);
-    assert.ok(existsSync(base), "skills must live under the standard project-local location");
+    assert.ok(existsSync(base), "skills must live under the universal .agents/skills location");
     for (const id of DEFAULT_SKILL_IDS) {
       assert.ok(
         existsSync(join(base, id)),
-        `skill "${id}" must live under the standard project-local location`,
+        `skill "${id}" must live under .agents/skills/${id}/`,
       );
     }
   },
