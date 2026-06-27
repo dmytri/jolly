@@ -16,7 +16,7 @@
 // announcements, and the presence/absence of clack prompt glyphs.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 import { ptyAvailable, runUnderPty } from "../support/pty.ts";
@@ -402,6 +402,42 @@ Given(
 Given("`jolly start` runs in an interactive terminal", function (this: JollyWorld) {
   this.notes.startArgv = ["start"];
 });
+
+// A re-run resuming the remaining stages: the store endpoint is already in .env,
+// so the store is reused and the environment-name prompt is skipped (feature 027
+// "the environment name when none is configured"). The org is mocked so the
+// dry-run preview resolves it without a network call.
+Given("a Saleor store is already configured in the project", function (this: JollyWorld) {
+  writeFileSync(
+    join(this.projectDir, ".env"),
+    "NEXT_PUBLIC_SALEOR_API_URL=https://configured-store.saleor.cloud/graphql/\n",
+  );
+  this.notes.mockOrgs = "org-solo";
+});
+
+Then(
+  "the interactive output should not prompt for an environment name",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.doesNotMatch(
+      out,
+      /Environment name/,
+      `with a store already configured, the env-name prompt must be skipped; got:\n${out}`,
+    );
+  },
+);
+
+Then(
+  "the interactive output should say it is reusing the already-configured store",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.match(
+      out,
+      /reusing your already-configured store/i,
+      `the run must announce it is reusing the configured store; got:\n${out}`,
+    );
+  },
+);
 
 function startArgvWithMock(world: JollyWorld): string[] {
   const base = (world.notes.startArgv as string[]) ?? ["start"];

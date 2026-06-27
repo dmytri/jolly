@@ -31,7 +31,18 @@ The suite runs against **real services** in a production-shaped test env (the `J
 
 ## Shipped
 
-Latest **0.10.15** (`main` + tag `v0.10.15`, npm `latest`): **B — agent device-sign-in returns the verification URL in the ENVELOPE (Saleor + Vercel) + app-token-acquisition diagnostics.**
+Latest **0.10.16** (`main` + tag `v0.10.16`, npm `latest`): **RESOLVED the app-token blocker — the reuse path re-acquires the app token at the LOOP store short-circuit.** 0.10.15 put the re-acquire in `runStoreStage`, but the start loop short-circuits `store` when an endpoint exists and never calls it. Now the loop's store-already-configured branch routes through `runStoreStage` when the app token is absent. **Verified live on dk's tempo-streetcar: a re-run acquired the app token + completed recipe/stock/deploy/stripe — store fully live with catalog.** Root cause: the original creation run's `acquireAppToken` failed (fresh instance/token not ready), the error was swallowed, and every re-run short-circuited → app token missing forever. The reuse re-acquire recovers it.
+
+### Shipped in 0.10.17
+- **First-run one-shot:** `acquireAppTokenWithRetry` — refresh the session token (`resolvePlatformToken`) + retry with backoff, so the FIRST run completes the app token instead of needing a re-run (the original failure was transient fresh-instance/stale-token). Used by both provision + reuse paths. Specced as a Rule in `002` ("Auto-provisioning a store"). @sandbox-verified only — not @logic.
+- **Env-name re-prompt skip:** interactive re-run with a configured store reuses it without re-prompting for the env name. **Specced + verified: new `027` @logic scenario (passing).**
+- **App-token reuse re-acquire:** specced as a Rule in `002`. A runnable @sandbox scenario for it is flagged for a QM cycle that can verify against a real store (not written blind).
+- **Still TODO:** progress polish (the "mysterious wait" — "preparing…" during bootstrap + descriptive per-stage labels). Not started.
+- **Un-swallowed app-token error** (surfaced in the `app-token-acquired` fail check) is in the shipped 0.10.16 already.
+
+Spec status for dk's "is this all specced": B (018/002) ✓; 001:7 ✓; re-prompt (027) ✓ verified; app-token first-run already specced (002:40); reuse re-acquire + retry resilience → Rule in 002 (durable intent), @sandbox scenario flagged for QM.
+
+Prior **0.10.15** (`main` + tag `v0.10.15`, npm `latest`): **B — agent device-sign-in returns the verification URL in the ENVELOPE (Saleor + Vercel) + app-token-acquisition diagnostics.**
 
 - **B (Saleor):** `jolly login`/`jolly start` agent path no longer blocks/relays on stderr. First call requests a code, persists it (`.jolly-pending-auth.json`), returns the verification URL in `nextSteps` (clickable `url`+prose), status `warning`. Re-run RESUMES the same persisted code, polls briefly, completes. `agentDeviceGrant()`; removed `relayDeviceCode`/block-poll. 018 scenarios rewritten (run-1-returns-URL+persists / re-run-resumes). Removed orphaned stderr-relay steps.
 - **B (Vercel):** `spawnVercelSignIn` now DETACHES `vercel login` (file-capture, no kill) so it survives + stores the token itself; URL persisted (`.jolly-pending-vercel.json`) + surfaced in `nextSteps`; re-run checks `vercel whoami`. (Fixes a latent bug: the old kill-after-capture orphaned the human's approval.) **Vercel slice is @sandbox-only — not @logic-verified; needs a real agent run.**

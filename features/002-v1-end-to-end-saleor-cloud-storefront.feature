@@ -283,7 +283,15 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
       already configured — the customer connected an existing store, or a previous run
       provisioned one — the store stage detects that configured store as already satisfied and
       skips provisioning rather than creating a second environment. A re-run never provisions a
-      duplicate store.
+      duplicate store. BUT when that configured store is missing its `JOLLY_SALEOR_APP_TOKEN`
+      (e.g. a first run whose app-token acquisition did not complete against the just-created
+      instance), the reuse path RE-ACQUIRES the app token, because recipe and stock cannot run
+      without it — a re-run thus recovers a store left without its app token rather than skipping
+      it forever.
+    - Acquiring the instance app token is resilient: a brand-new instance can reject the first
+      `appCreate`, and the device-grant access token can stale during the minute-long provision,
+      so Jolly refreshes the session token and retries with backoff — so the FIRST run completes
+      the app token rather than deferring it to a re-run.
 
   Rule: Git provider for optional source control
     - GitHub is the default Git provider for optional source-control setup; other providers are deferred to v2.

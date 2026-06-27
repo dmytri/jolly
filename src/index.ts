@@ -1370,6 +1370,34 @@ interface StoreProvisionResult {
   appTokenError?: string;
 }
 
+// Acquire the instance app token resiliently. Two real failure modes a single
+// attempt hits on a FRESH store: the device-grant access token can stale during
+// the minute-long environment provision, and a brand-new instance can reject
+// `appCreate` for a moment until it is fully ready. So refresh the session token
+// (`resolvePlatformToken`, which re-mints an expired access token from the
+// refresh grant) and retry with backoff before giving up — this is what lets the
+// FIRST run complete instead of needing a re-run. The harness shortens the window
+// via HARNESS_APP_TOKEN_RETRIES / _RETRY_DELAY_MS so scenarios never idle.
+async function acquireAppTokenWithRetry(
+  graphqlUrl: string,
+  fallbackToken: string,
+): Promise<{ appToken?: string; error?: string }> {
+  const retries = Math.max(1, Number(process.env["HARNESS_APP_TOKEN_RETRIES"] ?? 5));
+  const delayMs = Number(process.env["HARNESS_APP_TOKEN_RETRY_DELAY_MS"] ?? 4000);
+  let error: string | undefined;
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const resolved = await resolvePlatformToken(loadEnvValues(projectDir()));
+      const appToken = await acquireAppToken(graphqlUrl, resolved.token || fallbackToken, "Jolly Setup");
+      return { appToken };
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+      if (attempt < retries - 1) await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  return { error };
+}
+
 /**
  * Create-or-reuse a Saleor Cloud project + environment via the Cloud API, poll
  * until ready, acquire an app token, and write the resulting
@@ -1451,12 +1479,12 @@ async function provisionStore(
   // run mysteriously skipping them).
   let appTokenStored = false;
   let appTokenError: string | undefined;
-  try {
-    const appToken = await acquireAppToken(domainUrl, token, "Jolly Setup");
-    values["JOLLY_SALEOR_APP_TOKEN"] = appToken;
+  const acquired = await acquireAppTokenWithRetry(domainUrl, token);
+  if (acquired.appToken) {
+    values["JOLLY_SALEOR_APP_TOKEN"] = acquired.appToken;
     appTokenStored = true;
-  } catch (err) {
-    appTokenError = err instanceof Error ? err.message : String(err);
+  } else {
+    appTokenError = acquired.error;
   }
 
   writeEnvValues(projectDir(), values);
@@ -2776,22 +2804,22 @@ async function runStoreStage(
     );
     const platformToken = cloudPlatformToken(values);
     if (!haveAppToken && platformToken) {
-      try {
-        const appToken = await acquireAppToken(endpoint, platformToken, "Jolly Setup");
-        writeEnvValues(projectDir(), { JOLLY_SALEOR_APP_TOKEN: appToken });
-        process.env["JOLLY_SALEOR_APP_TOKEN"] = appToken;
+      const acquired = await acquireAppTokenWithRetry(endpoint, platformToken);
+      if (acquired.appToken) {
+        writeEnvValues(projectDir(), { JOLLY_SALEOR_APP_TOKEN: acquired.appToken });
+        process.env["JOLLY_SALEOR_APP_TOKEN"] = acquired.appToken;
         checks.push({
           id: "app-token-acquired",
           status: "pass",
           description: "Acquired the Saleor app token for the reused store.",
         });
-      } catch (err) {
+      } else {
         checks.push({
           id: "app-token-acquired",
           status: "fail",
           description:
             `Could not acquire the Saleor app token for the reused store (recipe + stock cannot run without it): ` +
-            `${err instanceof Error ? err.message : String(err)}.`,
+            `${acquired.error ?? "unknown error"}.`,
           remediation:
             "The app token is created on the store instance via appCreate. Re-run jolly start --yes to retry.",
         });
@@ -3412,7 +3440,7 @@ function extractDeviceUrl(text: string): string | undefined {
  */
 async function probeVercelSession(): Promise<{ signedIn: boolean; account: string }> {
   return new Promise((resolve) => {
-    const child = spawn("npx", ["vercel", "whoami"], { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn("npx", [VERCEL_PKG, "whoami"], { stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
     let settled = false;
     const done = (signedIn: boolean) => {
@@ -3450,6 +3478,10 @@ async function probeVercelSession(): Promise<{ signedIn: boolean; account: strin
  * no leaked waiting process. Returns the captured device URL, or undefined.
  * Jolly holds no Vercel token; the CLI signs in under its own auth.
  */
+// Pin the Vercel CLI version Jolly spawns: 54.16.0 installs cleanly, while later
+// builds pull a transitive dep that prints node-engine warnings on Node 26.
+const VERCEL_PKG = "vercel@54.16.0";
+
 const VERCEL_SIGNIN_URL_TIMEOUT_MS = 60_000;
 
 // Spawn the Vercel CLI's own device-login DETACHED so it OUTLIVES this run: it
@@ -3468,7 +3500,7 @@ async function spawnVercelSignIn(): Promise<{ deviceUrl?: string }> {
     return {};
   }
   try {
-    const child = spawn("npx", ["vercel", "login"], {
+    const child = spawn("npx", [VERCEL_PKG, "login"], {
       stdio: ["ignore", fd, fd],
       detached: true,
     });
@@ -3565,7 +3597,7 @@ function extractVercelUrl(stdout: string | undefined): string | undefined {
  */
 async function runInteractiveVercelSignIn(): Promise<void> {
   return new Promise((resolve) => {
-    const child = spawn("npx", ["vercel", "login"], { stdio: "inherit" });
+    const child = spawn("npx", [VERCEL_PKG, "login"], { stdio: "inherit" });
     child.on("error", () => resolve());
     child.on("close", () => resolve());
   });
@@ -3646,7 +3678,7 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
     "npx",
     [
       "--yes",
-      "vercel",
+      VERCEL_PKG,
       "deploy",
       "--prod",
       "--yes",
@@ -3694,7 +3726,7 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
       "npx",
       [
         "--yes",
-        "vercel",
+        VERCEL_PKG,
         "project",
         "protection",
         "disable",
@@ -3944,14 +3976,26 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
     }
   }
 
-  // Environment name and storefront project directory, each pre-filled.
-  const envName = await clackText({
-    message: "Environment name",
-    placeholder: DEFAULT_ENV_NAME,
-    defaultValue: DEFAULT_ENV_NAME,
-    ...CLACK_STDERR,
-  });
-  if (clackIsCancel(envName)) return runStartCore({ ...args, yes: false });
+  // Environment name and storefront project directory, each pre-filled. When a
+  // store is already configured (a re-run resuming the remaining stages), the
+  // store is reused — don't re-ask for an environment name that won't be used
+  // (feature 027); just announce the reuse.
+  const configuredStore = loadEnvValues(projectDir())["NEXT_PUBLIC_SALEOR_API_URL"];
+  let envName: string | symbol = DEFAULT_ENV_NAME;
+  if (configuredStore) {
+    clackLog.info(
+      `Reusing your already-configured store (${configuredStore}); resuming the remaining stages.`,
+      CLACK_STDERR,
+    );
+  } else {
+    envName = await clackText({
+      message: "Environment name",
+      placeholder: DEFAULT_ENV_NAME,
+      defaultValue: DEFAULT_ENV_NAME,
+      ...CLACK_STDERR,
+    });
+    if (clackIsCancel(envName)) return runStartCore({ ...args, yes: false });
+  }
   const projectDirectory = await clackText({
     message: "Storefront project directory",
     placeholder: DEFAULT_STOREFRONT_DIR,

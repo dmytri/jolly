@@ -93,6 +93,15 @@ Feature: Human-facing interactive CLI experience
     And the interactive output should name the Saleor Dashboard Stripe key entry as the final human step
 
   @logic
+  Scenario: Interactive start reuses an already-configured store without re-prompting for the environment name
+    Given a fresh empty project directory
+    And a Saleor store is already configured in the project
+    And `jolly start --dry-run` runs in an interactive terminal
+    When the user presses Enter at every prompt
+    Then the interactive output should not prompt for an environment name
+    And the interactive output should say it is reusing the already-configured store
+
+  @logic
   Scenario: Interactive start renders its up-front gate notes from the message catalog
     Given a fresh empty project directory
     And `jolly start --dry-run` runs in an interactive terminal
