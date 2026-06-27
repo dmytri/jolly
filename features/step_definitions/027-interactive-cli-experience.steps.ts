@@ -1018,6 +1018,22 @@ Then(
   },
 );
 
+// The CURRENTLY-RUNNING stage names what it is doing in plain language (not a
+// bare stage name) so the slow stages don't read as a mysterious wait.
+Then(
+  "the running stage's row should describe in plain language what that stage is doing",
+  function (this: JollyWorld) {
+    if (!ptyAvailable() || !this.lastRun?.stderr) return "skipped";
+    const stderr = stripAnsi(this.lastRun.stderr);
+    assert.match(
+      stderr,
+      /creating your Saleor store|cloning the storefront|deploying the starter catalog|seeding product stock|deploying to Vercel|installing the Stripe app|signing in to Saleor Cloud|setting up skills/i,
+      `the running stage must describe its action in plain language; got:\n${stderr}`,
+    );
+    return undefined;
+  },
+);
+
 Then(
   "it should update a stage's status in place as the run reaches that stage, so each stage's progress is visible during the run rather than only after it ends",
   function (this: JollyWorld) {

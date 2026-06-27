@@ -31,11 +31,17 @@ The suite runs against **real services** in a production-shaped test env (the `J
 
 ## Shipped
 
-**0.10.18** (npm `latest`): silenced npx EBADENGINE noise (`NPM_CONFIG_LOGLEVEL=error` in `main()`; reverted the fragile vercel pin — version-pinning didn't dodge the transitive-dep warning).
+### ✅ SESSION MILESTONE — BOTH FLOWS PROVEN (dk-confirmed, fresh creates)
+- **Agent flow:** empty-org fresh run completed all 8 stages — new store, app-token on a COLD instance via the device JWT (the path that broke on tempo-streetcar), recipe/stock/deploy/stripe. Clickable envelope URLs validated.
+- **Terminal flow:** fresh interactive run completed with the env-picker (1 env → create-new or reuse).
+- This proves: B (envelope-URL sign-in), the first-run app-token retry (0.10.17), and the device-grant fresh-CREATE path end to end. The previously-red "device-grant fresh create" row is GREEN.
+- Note: a fresh create is "slow" (the cold-instance app-token retry backoff + provisioning) — dk: "ok for now." Possible follow-up: exponential backoff (1/2/4/8s) instead of fixed 4s in `acquireAppTokenWithRetry` to catch a quickly-ready instance sooner.
 
-### Prepared + tested, HELD (not shipped — awaiting dk's fresh-VM device-grant test of the CREATE path + ship go)
-- **Env-picker (027):** interactive `jolly start` with no configured store + an org that holds environments now offers a clack select — "Create a new store" or reuse an existing one (named) — so the env limit means "pick an existing store," not a silent name-match or hard failure. `--mock-environments` affordance (mirrors `--mock-organizations`); `resolveInteractiveEnvironments`. 2 new `027` @logic scenarios (re-prompt-skip + reuse-or-create picker), `027` @logic 21/21. The 027 harness defaults `--mock-environments=` so the picker never makes a real listEnvironments call that desyncs PTY input.
-- **STILL UNPROVEN (dk testing now):** device-grant FRESH-create first-run app-token on a brand-new instance — the @sandbox proof used the staff token (different auth), so it does NOT cover the device JWT path that broke on tempo-streetcar. Reuse re-acquire is proven (re-run recovers). dk freed the org to test the true fresh-create path.
+**0.10.19** (npm `latest`): **env-picker** — interactive `jolly start` with no configured store + an org holding environments offers a clack select (Create new / reuse a named existing one), so the env limit means "pick a store," not a silent name-match or hard failure. `--mock-environments` affordance; `resolveInteractiveEnvironments`. 2 new `027` scenarios (re-prompt-skip + picker); 027 @logic 21/21.
+
+**0.10.20 (PENDING — building now, gate running):** progress-spinner descriptive labels — the running stage shows its plain-language action (`▸ store — creating your Saleor store (~1 min)`) so the slow stages aren't a mysterious wait. `STAGE_DESCRIPTIONS` map; new `027` assertion (027:167 passing). Will ship if the full gate is green.
+
+**0.10.18** (npm): silenced npx EBADENGINE noise (`NPM_CONFIG_LOGLEVEL=error` in `main()`; reverted the fragile vercel pin).
 
 Latest **0.10.16** (`main` + tag `v0.10.16`, npm `latest`): **RESOLVED the app-token blocker — the reuse path re-acquires the app token at the LOOP store short-circuit.** 0.10.15 put the re-acquire in `runStoreStage`, but the start loop short-circuits `store` when an endpoint exists and never calls it. Now the loop's store-already-configured branch routes through `runStoreStage` when the app token is absent. **Verified live on dk's tempo-streetcar: a re-run acquired the app token + completed recipe/stock/deploy/stripe — store fully live with catalog.** Root cause: the original creation run's `acquireAppToken` failed (fresh instance/token not ready), the error was swallowed, and every re-run short-circuited → app token missing forever. The reuse re-acquire recovers it.
 

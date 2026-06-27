@@ -169,6 +169,7 @@ Feature: Human-facing interactive CLI experience
     When `jolly start` runs in an interactive terminal
     Then the setup-stage progress on stderr should list every setup stage by name, each carrying its own status
     And it should update a stage's status in place as the run reaches that stage, so each stage's progress is visible during the run rather than only after it ends
+    And the running stage's row should describe in plain language what that stage is doing
     And the progress should redraw the same region in place rather than appending one line per update
     And stdout should carry no progress or spinner text
 

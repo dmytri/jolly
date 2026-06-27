@@ -3861,7 +3861,24 @@ function osc8Hyperlink(url: string): string {
 // update moves the cursor back over the rows and erase-reprints them, so the
 // same region is redrawn rather than appended. Only the interactive path renders
 // it (the agent/--json path passes no reporter), keeping machine output clean.
-function stageProgress(stageNames: string[]): {
+// Plain-language descriptions shown beside the CURRENTLY-RUNNING stage so the
+// progress says what it is doing (not a bare stage name), especially for the slow
+// store/recipe/deploy stages (feature 027).
+const STAGE_DESCRIPTIONS: Record<string, string> = {
+  init: "setting up skills + config",
+  auth: "signing in to Saleor Cloud",
+  store: "creating your Saleor store (~1 min)",
+  storefront: "cloning the storefront + installing dependencies",
+  recipe: "deploying the starter catalog",
+  stock: "seeding product stock",
+  deploy: "deploying to Vercel",
+  stripe: "installing the Stripe app",
+};
+
+function stageProgress(
+  stageNames: string[],
+  descriptions: Record<string, string> = STAGE_DESCRIPTIONS,
+): {
   start: (stage: string) => void;
   update: (stage: string, status: StageStatus) => void;
   stop: () => void;
@@ -3893,14 +3910,15 @@ function stageProgress(stageNames: string[]): {
   };
   // The glyph already conveys completed/running/pending/skipped; only a wait or
   // a problem names itself, so the list reads as a clean checklist.
-  const label = (status: StageVis): string => {
+  const label = (s: string, status: StageVis): string => {
+    if (status === "running" && descriptions[s]) return paint(SGR.dim, ` — ${descriptions[s]}`);
     if (status === "awaiting-approval") return paint(SGR.yellow, " — awaiting approval");
     if (status === "blocked" || status === "error") return paint(SGR.red, ` — ${status}`);
     return "";
   };
   const row = (s: string): string => {
     const status = statuses.get(s)!;
-    return `${glyph(status)} ${status === "pending" ? paint(SGR.dim, s) : s}${label(status)}`;
+    return `${glyph(status)} ${status === "pending" ? paint(SGR.dim, s) : s}${label(s, status)}`;
   };
   // Render lazily: write the initial frame on the FIRST update, not now. Any
   // bootstrap output (init/doctor) emitted before the first stage then PRECEDES
