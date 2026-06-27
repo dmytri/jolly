@@ -161,6 +161,7 @@ const VALUE_FLAGS = [
   "region",
   "organization",
   "mock-organizations",
+  "mock-environments",
 ] as const;
 // Short aliases resolve to their long flag name before classification.
 const FLAG_ALIASES: Record<string, string> = { y: "yes", h: "help" };
@@ -3824,6 +3825,29 @@ async function resolveInteractiveOrgs(
   }
 }
 
+// The organization's existing Saleor environments, for the interactive
+// reuse-or-create store choice (feature 027). --mock-environments injects a
+// deterministic comma-separated list for the @logic tier. Best-effort: no token
+// / no org / a network error just yields an empty list (no picker, plain create).
+async function resolveInteractiveEnvironments(
+  args: ParsedArgs,
+  organization: string | undefined,
+): Promise<CloudEnvironment[]> {
+  const mock = args.options["mock-environments"];
+  if (mock !== undefined) {
+    const names = mock.length > 0 ? mock.split(",") : [];
+    return names.map((n) => ({ name: n.trim(), domain_label: n.trim() }));
+  }
+  if (!organization) return [];
+  const token = cloudPlatformToken(loadEnvValues(projectDir()));
+  if (!token) return [];
+  try {
+    return await listEnvironments(token, organization);
+  } catch {
+    return [];
+  }
+}
+
 // Wrap a URL in an OSC 8 terminal hyperlink so terminals render it as a
 // clickable link (feature 027). The visible text is the URL itself; the string
 // terminator is BEL. Terminals without OSC 8 support show the visible text.
@@ -3989,13 +4013,46 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
       CLACK_STDERR,
     );
   } else {
-    envName = await clackText({
-      message: "Environment name",
-      placeholder: DEFAULT_ENV_NAME,
-      defaultValue: DEFAULT_ENV_NAME,
-      ...CLACK_STDERR,
-    });
-    if (clackIsCancel(envName)) return runStartCore({ ...args, yes: false });
+    // Offer to reuse an existing store or create a new one. When the org already
+    // holds environments — especially at the env limit, where a new one cannot be
+    // created — the human picks from a list rather than getting a silent
+    // name-match or a hard failure (feature 027).
+    const existingEnvs = (await resolveInteractiveEnvironments(args, organization)).filter((e) =>
+      environmentHost(e),
+    );
+    let reuseEndpoint: string | undefined;
+    if (existingEnvs.length > 0) {
+      const choice = await clackSelect({
+        message: "Create a new store, or reuse an existing one?",
+        options: [
+          { value: "__new__", label: "Create a new store" },
+          ...existingEnvs.map((e) => ({
+            value: environmentHost(e)!,
+            label: `Reuse ${e.name ?? e.domain_label} (${environmentHost(e)})`,
+          })),
+        ],
+        initialValue: "__new__",
+        ...CLACK_STDERR,
+      });
+      if (clackIsCancel(choice)) return runStartCore({ ...args, yes: false });
+      if (choice !== "__new__") reuseEndpoint = `https://${String(choice)}/graphql/`;
+    }
+    if (reuseEndpoint) {
+      // Record the reuse so the store stage reuses it (real runs only — a
+      // dry-run previews the choice but writes nothing, feature 027).
+      if (!args.dryRun) {
+        writeEnvValues(projectDir(), { NEXT_PUBLIC_SALEOR_API_URL: reuseEndpoint });
+      }
+      clackLog.info(`Reusing the existing store ${reuseEndpoint}.`, CLACK_STDERR);
+    } else {
+      envName = await clackText({
+        message: "Environment name",
+        placeholder: DEFAULT_ENV_NAME,
+        defaultValue: DEFAULT_ENV_NAME,
+        ...CLACK_STDERR,
+      });
+      if (clackIsCancel(envName)) return runStartCore({ ...args, yes: false });
+    }
   }
   const projectDirectory = await clackText({
     message: "Storefront project directory",

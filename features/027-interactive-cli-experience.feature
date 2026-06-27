@@ -102,6 +102,15 @@ Feature: Human-facing interactive CLI experience
     And the interactive output should say it is reusing the already-configured store
 
   @logic
+  Scenario: Interactive start offers to reuse an existing store or create a new one when the org has environments
+    Given a fresh empty project directory
+    And the org already has the environments "road-panther-store" and "jolly-cool-store"
+    And `jolly start --dry-run` runs in an interactive terminal
+    When the user presses Enter at every prompt
+    Then the interactive output should offer to create a new store or reuse an existing one
+    And the interactive output should name "road-panther-store" as a store the human can reuse
+
+  @logic
   Scenario: Interactive start renders its up-front gate notes from the message catalog
     Given a fresh empty project directory
     And `jolly start --dry-run` runs in an interactive terminal

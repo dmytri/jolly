@@ -31,6 +31,12 @@ The suite runs against **real services** in a production-shaped test env (the `J
 
 ## Shipped
 
+**0.10.18** (npm `latest`): silenced npx EBADENGINE noise (`NPM_CONFIG_LOGLEVEL=error` in `main()`; reverted the fragile vercel pin — version-pinning didn't dodge the transitive-dep warning).
+
+### Prepared + tested, HELD (not shipped — awaiting dk's fresh-VM device-grant test of the CREATE path + ship go)
+- **Env-picker (027):** interactive `jolly start` with no configured store + an org that holds environments now offers a clack select — "Create a new store" or reuse an existing one (named) — so the env limit means "pick an existing store," not a silent name-match or hard failure. `--mock-environments` affordance (mirrors `--mock-organizations`); `resolveInteractiveEnvironments`. 2 new `027` @logic scenarios (re-prompt-skip + reuse-or-create picker), `027` @logic 21/21. The 027 harness defaults `--mock-environments=` so the picker never makes a real listEnvironments call that desyncs PTY input.
+- **STILL UNPROVEN (dk testing now):** device-grant FRESH-create first-run app-token on a brand-new instance — the @sandbox proof used the staff token (different auth), so it does NOT cover the device JWT path that broke on tempo-streetcar. Reuse re-acquire is proven (re-run recovers). dk freed the org to test the true fresh-create path.
+
 Latest **0.10.16** (`main` + tag `v0.10.16`, npm `latest`): **RESOLVED the app-token blocker — the reuse path re-acquires the app token at the LOOP store short-circuit.** 0.10.15 put the re-acquire in `runStoreStage`, but the start loop short-circuits `store` when an endpoint exists and never calls it. Now the loop's store-already-configured branch routes through `runStoreStage` when the app token is absent. **Verified live on dk's tempo-streetcar: a re-run acquired the app token + completed recipe/stock/deploy/stripe — store fully live with catalog.** Root cause: the original creation run's `acquireAppToken` failed (fresh instance/token not ready), the error was swallowed, and every re-run short-circuited → app token missing forever. The reuse re-acquire recovers it.
 
 ### Shipped in 0.10.17

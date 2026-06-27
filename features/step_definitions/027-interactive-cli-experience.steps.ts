@@ -439,15 +439,56 @@ Then(
   },
 );
 
+// The org already holds environments, so the interactive flow offers a
+// reuse-or-create store picker (feature 027). The list is injected
+// deterministically via --mock-environments (a single org keeps the org prompt
+// silent).
+Given(
+  "the org already has the environments {string} and {string}",
+  function (this: JollyWorld, a: string, b: string) {
+    this.notes.mockOrgs = "org-solo";
+    this.notes.mockEnvs = `${a},${b}`;
+  },
+);
+
+Then(
+  "the interactive output should offer to create a new store or reuse an existing one",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.match(out, /create a new store/i, `must offer "create a new store"; got:\n${out}`);
+    assert.match(out, /reuse/i, `must offer to reuse an existing store; got:\n${out}`);
+  },
+);
+
+Then(
+  "the interactive output should name {string} as a store the human can reuse",
+  function (this: JollyWorld, name: string) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.ok(
+      out.includes(name),
+      `the picker must list "${name}" as a reuse option; got:\n${out}`,
+    );
+  },
+);
+
 function startArgvWithMock(world: JollyWorld): string[] {
-  const base = (world.notes.startArgv as string[]) ?? ["start"];
+  let argv = (world.notes.startArgv as string[]) ?? ["start"];
   if (!world.notes.noMock && world.notes.mockOrgs) {
     // @exceptional-double: a Cloud token resolving more than one organization
     // cannot be produced on demand from the single-org test account; the
     // interactive multi-org selection prompt is driven by an injected org list.
-    return [...base, `--mock-organizations=${String(world.notes.mockOrgs)}`];
+    argv = [...argv, `--mock-organizations=${String(world.notes.mockOrgs)}`];
   }
-  return base;
+  if (world.notes.mockEnvs !== undefined) {
+    // Deterministic existing-environment list drives the reuse-or-create store
+    // picker without depending on the test account's live environments.
+    argv = [...argv, `--mock-environments=${String(world.notes.mockEnvs)}`];
+  } else if (!world.notes.noMock) {
+    // Default the env picker to an empty list in @logic so it never makes a real
+    // listEnvironments network call — that latency desyncs PTY-scripted input.
+    argv = [...argv, "--mock-environments="];
+  }
+  return argv;
 }
 
 When(
