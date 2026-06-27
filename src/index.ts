@@ -4187,22 +4187,35 @@ async function runStartCore(
       status = "completed";
     } else if (planStage.stage === "store" && storeEndpoint) {
       // Already satisfied: a store endpoint is configured, so no store would be
-      // created this run. Announced as satisfied (feature 022 Rule), never a
-      // pending approval gate — the riskContext drops to the no-category skip
-      // preview the dry-run shows (src/index.ts commandStartDryRun), and no gate
-      // is set. Mirrors runStoreStage's own configured-endpoint short-circuit.
-      status = "completed";
-      stageRiskContext = {
-        action: "skip store provisioning",
-        target: `already-configured store ${storeEndpoint}`,
-        riskLevel: "low",
-        categories: [],
-        reversible: true,
-        sideEffects: [
-          `A store endpoint is already configured (NEXT_PUBLIC_SALEOR_API_URL=${storeEndpoint}); the store stage is already satisfied and provisioning is skipped`,
-        ],
-        dryRunAvailable: true,
-      };
+      // created this run. BUT the instance app token may still be missing (e.g.
+      // a first run whose acquireAppToken failed) — recipe + stock cannot run
+      // without it — so when it is absent, run the store stage's reuse path,
+      // which re-acquires the app token (and surfaces the real failure). When the
+      // app token is already present, keep the lightweight skip preview.
+      const haveAppToken = Boolean(
+        loadEnvValues(projectDir())["JOLLY_SALEOR_APP_TOKEN"] ??
+          process.env["JOLLY_SALEOR_APP_TOKEN"],
+      );
+      if (!haveAppToken) {
+        const outcome = await runStoreStage(checks);
+        status = outcome.status;
+      } else {
+        // Announced as satisfied (feature 022 Rule), never a pending approval
+        // gate — the riskContext drops to the no-category skip preview the
+        // dry-run shows (commandStartDryRun), and no gate is set.
+        status = "completed";
+        stageRiskContext = {
+          action: "skip store provisioning",
+          target: `already-configured store ${storeEndpoint}`,
+          riskLevel: "low",
+          categories: [],
+          reversible: true,
+          sideEffects: [
+            `A store endpoint is already configured (NEXT_PUBLIC_SALEOR_API_URL=${storeEndpoint}); the store stage is already satisfied and provisioning is skipped`,
+          ],
+          dryRunAvailable: true,
+        };
+      }
     } else if (isHighRisk && !gate) {
       // First high-risk stage reached: without --yes we PAUSE for the agent's
       // approval (emitting the riskContext, never self-approving). With --yes
