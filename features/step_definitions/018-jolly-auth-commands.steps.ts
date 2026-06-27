@@ -171,6 +171,83 @@ Given(
   },
 );
 
+// B (feature 018): the first agent invocation only needs the host to serve the
+// device-code request; it does not poll (the /token approval is exercised by the
+// re-run scenario). Same host, neutral phrasing.
+Given("the Saleor auth host issues device codes", async function (this: JollyWorld) {
+  await startFakeAuthHost(this);
+});
+
+// The verification URL the human opens is carried in the result envelope (a
+// nextStep) — structured `url` and/or prose — so the agent renders it clickable,
+// never buried on stdout/stderr.
+Then(
+  "a nextStep should carry the Saleor device verification URL for the human to open and approve",
+  function (this: JollyWorld) {
+    const steps = (this.envelope.nextSteps ?? []) as Array<Record<string, unknown>>;
+    const carries = steps.some((s) => {
+      const blob = `${String(s.url ?? "")} ${String(s.description ?? "")}`;
+      return /https:\/\/auth\.saleor\.io\/realms\/saleor-cloud\/device\?user_code=\S+/.test(blob);
+    });
+    assert.ok(
+      carries,
+      `a nextStep must carry the verification URL for the human; got: ${JSON.stringify(steps)}`,
+    );
+  },
+);
+
+// The agent (--json) envelope is plain JSON: no OSC 8 hyperlink escapes (those are
+// the interactive-TTY affordance only).
+Then("stdout should carry no OSC 8 hyperlink escape", function (this: JollyWorld) {
+  const stdout = this.lastRun!.stdout;
+  assert.ok(
+    // eslint-disable-next-line no-control-regex
+    !/\x1b\]8;;/.test(stdout),
+    `the agent (--json) stdout must carry no OSC 8 hyperlink escape; got: ${JSON.stringify(stdout)}`,
+  );
+});
+
+// The pending code is persisted so the re-run resumes the SAME code.
+Then(
+  "it should persist the pending device authorization for the re-run",
+  function (this: JollyWorld) {
+    assert.ok(
+      existsSync(join(this.lastRun!.cwd, ".jolly-pending-auth.json")),
+      "the pending device authorization must be persisted so the re-run resumes the same code",
+    );
+  },
+);
+
+// Seed a persisted pending authorization so the re-run RESUMES this exact code
+// (the fake host, started by the sibling Given, approves it on the next poll)
+// rather than orphaning it by requesting a new one.
+Given(
+  "a pending device authorization was persisted by a prior run",
+  function (this: JollyWorld) {
+    writeFileSync(
+      join(this.projectDir, ".jolly-pending-auth.json"),
+      JSON.stringify({
+        deviceCode: "resume-test-device-code",
+        userCode: FAKE_AUTH_USER_CODE,
+        verificationUri: FAKE_AUTH_VERIFICATION_URI,
+        interval: 1,
+        expiresIn: 600,
+        savedAt: Date.now(),
+      }),
+    );
+  },
+);
+
+Then(
+  "the persisted pending device authorization should be cleared",
+  function (this: JollyWorld) {
+    assert.ok(
+      !existsSync(join(this.lastRun!.cwd, ".jolly-pending-auth.json")),
+      "the persisted pending device authorization must be cleared after a completed sign-in",
+    );
+  },
+);
+
 /** Decode a stored device-grant JWT and assert it carries the fake host's
  * marker — proof the value in .env is exactly the token THIS grant issued, not a
  * staff token or some other source. */
@@ -332,52 +409,6 @@ Then("it should not print any token value", function (this: JollyWorld) {
     "no token value may be printed to the terminal",
   );
 });
-
-// ─── Scenario: Agent-driven jolly login signs in once the human approves ────
-// A non-interactive `jolly login --json` with no JOLLY_SALEOR_CLOUD_TOKEN runs
-// the Saleor device authorization grant: it requests a device code, relays the
-// user code + verification URL to its human on plain STDERR (stdout stays clean
-// for the single result envelope), and polls the token endpoint. The shared
-// @exceptional-double Given points the grant at the local fake auth host through
-// JOLLY_SALEOR_AUTH_URL, which approves on the first poll, so the run stores the
-// access + refresh tokens and emits a success envelope without a human.
-
-// Shared by the agent-driven `jolly login --json` (018) and `jolly start --json`
-// (002) relay scenarios — both relay the same complete URL + user code on stderr.
-Then(
-  "it should print the returned user code and the verification URL `https:\\/\\/auth.saleor.io\\/realms\\/saleor-cloud\\/device?user_code=` followed by that user code to stderr so the agent can relay them to its human",
-  function (this: JollyWorld) {
-    const stderr = this.lastRun!.stderr;
-    const code = stderr.match(USER_CODE_RE);
-    assert.ok(code, `the returned user code must be relayed on stderr; got: ${stderr}`);
-    // The relayed verification URL carries the returned user code as its
-    // `user_code` query parameter (feature 018 Rule) so the human opens it
-    // pre-filled.
-    assert.ok(
-      stderr.includes(`${AUTH_VERIFICATION_URL}?user_code=${code![0]}`),
-      `the verification URL ${AUTH_VERIFICATION_URL}?user_code=${code?.[0]} must be relayed on stderr; got: ${stderr}`,
-    );
-  },
-);
-
-// Agent path (`jolly login --json`): the relay is plain text so escape bytes
-// never pollute agent logs. Clickable OSC 8 hyperlinks are an interactive-TTY
-// affordance only (feature 027 Rule); the skill nudges the agent to render its
-// own clickable links from the envelope URL.
-Then(
-  "the relayed verification URL should appear on stderr as the plain URL, with no OSC 8 hyperlink escape",
-  function (this: JollyWorld) {
-    const stderr = this.lastRun!.stderr;
-    assert.ok(
-      stderr.includes(AUTH_VERIFICATION_URL),
-      `the plain verification URL must be relayed on stderr; got: ${stderr}`,
-    );
-    assert.ok(
-      !/\x1b\]8;;/.test(stderr),
-      `the agent (--json) relay must carry no OSC 8 hyperlink escape on stderr; got: ${JSON.stringify(stderr)}`,
-    );
-  },
-);
 
 Then("stdout should carry no token value", function (this: JollyWorld) {
   const stdout = this.lastRun!.stdout;

@@ -18,7 +18,8 @@
 // strips types) in dev/test, and as a pre-built JS bundle via bin/jolly in
 // production. Only Node built-ins and the project's own src/lib/ helpers are used.
 
-import { existsSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, rmSync, openSync, closeSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
@@ -680,73 +681,137 @@ async function deviceGrantLogin(command: string): Promise<Envelope> {
   });
 }
 
-// Seconds an agent-driven sign-in polls for the human to authorize. A real run
-// blocks for the device code's FULL lifetime — the agent streams the URL to its
-// human and waits, exactly like an interactive run, so one invocation completes
-// the sign-in (no bounded window, no re-run dance). The test harness caps it via
-// HARNESS_AGENT_POLL_WINDOW_SECONDS so device-grant scenarios never wait on a
-// human; 0/unset means "the code's full lifetime".
-function agentPollWindowSeconds(codeLifetime: number): number {
+// Seconds the agent RE-RUN polls the persisted device code for the human's
+// approval. The first agent invocation does NOT poll — it returns the
+// verification URL in its envelope (so the agent renders a clickable link) and
+// persists the code; the human approves in their browser, then the agent re-runs
+// and THIS window polls the SAME code (the approval already happened, so it
+// lands quickly). Short by default so a re-run the human has not yet approved
+// returns the URL again promptly rather than hanging. The test harness overrides
+// it via HARNESS_AGENT_POLL_WINDOW_SECONDS.
+const AGENT_RESUME_POLL_DEFAULT_SECONDS = 12;
+function agentResumePollSeconds(): number {
   const override = process.env.HARNESS_AGENT_POLL_WINDOW_SECONDS;
-  return override ? Number(override) : codeLifetime;
+  return override ? Number(override) : AGENT_RESUME_POLL_DEFAULT_SECONDS;
 }
 
-// Relay a device authorization's user code + verification URL to STDERR in plain
-// text so an agent-driven (non-interactive) run can forward them to its human
-// (feature 018, Rule "Interactive authentication is the Saleor device
-// authorization grant"). Plain stderr, never the Bombshell prompt UI — the
-// interactive path keeps the prompt UI; the agent path keeps stdout clean for
-// the envelope. No token value is ever printed.
-function relayDeviceCode(auth: DeviceAuthorization): void {
-  process.stderr.write(
-    `Sign in to Saleor Cloud: open ${auth.verificationUri}?user_code=${auth.userCode} and enter the code ${auth.userCode}\n`,
-  );
+// The pending device authorization is persisted between agent invocations so the
+// re-run RESUMES the same code the human approved out-of-band, instead of
+// requesting a new one each run (which would orphan the approval). Lives in the
+// project dir; cleared on success or genuine expiry. Feature 018.
+const PENDING_DEVICE_AUTH_FILE = ".jolly-pending-auth.json";
+
+function pendingDeviceAuthPath(): string {
+  return join(projectDir(), PENDING_DEVICE_AUTH_FILE);
 }
 
-// Drive the Saleor device authorization grant for an agent-driven run: request a
-// code, relay its URL to the human (plain STDERR), then BLOCK polling the token
-// endpoint until the human authorizes in their browser — the agent streams the
-// URL and waits, so one invocation completes the sign-in. Returns the tokens on
-// approval, or undefined if the code's lifetime elapses without approval (the
-// agent re-runs to retry with a fresh code). Feature 018.
-async function deviceGrantSignIn(
-  relay: (auth: DeviceAuthorization) => void,
-): Promise<{ accessToken: string; refreshToken: string } | undefined> {
-  const auth = await requestDeviceCode();
-  relay(auth);
+function loadPendingDeviceAuth(): DeviceAuthorization | undefined {
   try {
-    return await pollForDeviceTokens({
-      ...auth,
-      expiresIn: agentPollWindowSeconds(auth.expiresIn),
+    const saved = JSON.parse(readFileSync(pendingDeviceAuthPath(), "utf8")) as DeviceAuthorization & {
+      savedAt?: number;
+    };
+    if (!saved.deviceCode) return undefined;
+    if (typeof saved.savedAt === "number" && typeof saved.expiresIn === "number") {
+      const remaining = saved.expiresIn - (Date.now() - saved.savedAt) / 1000;
+      if (remaining <= 1) {
+        clearPendingDeviceAuth();
+        return undefined;
+      }
+      saved.expiresIn = Math.floor(remaining); // poll only the REMAINING lifetime
+    }
+    return saved;
+  } catch {
+    return undefined;
+  }
+}
+
+function savePendingDeviceAuth(auth: DeviceAuthorization): void {
+  try {
+    writeFileSync(pendingDeviceAuthPath(), JSON.stringify({ ...auth, savedAt: Date.now() }));
+  } catch {
+    /* best-effort: persistence only enables the re-run resume */
+  }
+}
+
+function clearPendingDeviceAuth(): void {
+  try {
+    rmSync(pendingDeviceAuthPath(), { force: true });
+  } catch {
+    /* best-effort */
+  }
+}
+
+// The verification URL the human opens to approve the sign-in. Carried in the
+// result envelope (a nextStep) so the agent renders it as a clickable link —
+// never buried in stdout/stderr noise (feature 018).
+function deviceVerificationUrl(auth: DeviceAuthorization): string {
+  return auth.verificationUriComplete ?? `${auth.verificationUri}?user_code=${auth.userCode}`;
+}
+
+// The nextStep that hands the human the clickable verification URL and tells the
+// agent to re-run once approved.
+function deviceAuthNextStep(auth: DeviceAuthorization, command: string): NextStep {
+  const url = deviceVerificationUrl(auth);
+  return {
+    description: `Open ${url} in your browser and approve the Saleor sign-in, then re-run \`${command}\` to finish.`,
+    url,
+    command,
+  };
+}
+
+type DeviceGrantOutcome =
+  | { status: "approved"; tokens: { accessToken: string; refreshToken: string } }
+  | { status: "pending"; auth: DeviceAuthorization };
+
+// Drive the agent-path Saleor device grant WITHOUT blocking on the human. First
+// call (no persisted code): request a code, persist it, return `pending` with the
+// verification URL for the envelope — no polling, since the human has not seen
+// the URL yet. Re-run (persisted code present): poll the SAME code for the
+// bounded re-run window; on approval return the tokens and clear the persisted
+// code, still unapproved return `pending` again with the same URL. Feature 018.
+async function agentDeviceGrant(): Promise<DeviceGrantOutcome> {
+  const persisted = loadPendingDeviceAuth();
+  if (!persisted) {
+    const auth = await requestDeviceCode();
+    savePendingDeviceAuth(auth);
+    return { status: "pending", auth };
+  }
+  try {
+    const tokens = await pollForDeviceTokens({
+      ...persisted,
+      expiresIn: Math.min(persisted.expiresIn, agentResumePollSeconds()),
     });
+    clearPendingDeviceAuth();
+    return { status: "approved", tokens };
   } catch (err) {
     if (err instanceof DeviceGrantError && err.code === "DEVICE_CODE_EXPIRED") {
-      return undefined;
+      // Not approved within the re-run window; keep the persisted code (if its
+      // real lifetime remains) so the next re-run resumes it, and hand back the
+      // URL again.
+      return { status: "pending", auth: loadPendingDeviceAuth() ?? persisted };
     }
     throw err;
   }
 }
 
-// Agent-driven sign-in through the Saleor device authorization grant. Request a
-// device code, relay the user code + verification URL to plain STDERR so the
-// agent can forward them to its human, emit the standard output envelope on
-// STDOUT announcing the grant started, then poll the token endpoint while the
-// human authorizes out-of-band. The envelope carries no token value; the
-// code + URL stay on STDERR only. On authorization, store the access + refresh
-// tokens (never the staff token) and exit successfully.
+// Agent-driven sign-in through the Saleor device authorization grant. The first
+// call returns the verification URL in the result envelope (a clickable nextStep,
+// never stdout/stderr noise) and persists the device code; the human approves in
+// their browser and the agent re-runs, which polls the SAME code and, on
+// approval, stores the access + refresh tokens (never the staff token) and exits
+// successfully. The envelope never carries a token value. Feature 018.
 async function deviceGrantLoginAgent(
   command: string,
   _args: ParsedArgs,
 ): Promise<Envelope> {
-  // Relay the URL to plain STDERR and block polling until the human authorizes
-  // (feature 018). stdout stays clean for the single result envelope, which
-  // carries no token value.
-  const tokens = await deviceGrantSignIn(relayDeviceCode);
-  if (tokens) {
+  const outcome = await agentDeviceGrant();
+  if (outcome.status === "approved") {
     writeEnvValues(projectDir(), {
-      JOLLY_SALEOR_ACCESS_TOKEN: tokens.accessToken,
-      JOLLY_SALEOR_REFRESH_TOKEN: tokens.refreshToken,
+      JOLLY_SALEOR_ACCESS_TOKEN: outcome.tokens.accessToken,
+      JOLLY_SALEOR_REFRESH_TOKEN: outcome.tokens.refreshToken,
     });
+    process.env["JOLLY_SALEOR_ACCESS_TOKEN"] = outcome.tokens.accessToken;
+    process.env["JOLLY_SALEOR_REFRESH_TOKEN"] = outcome.tokens.refreshToken;
     return envelope({
       command,
       status: "success",
@@ -754,21 +819,20 @@ async function deviceGrantLoginAgent(
       data: { cloudTokenStored: true, riskContext: loginRiskContext() },
     });
   }
-  // Still pending: the code is persisted, so re-running `jolly login` resumes the
-  // code's lifetime elapsed without approval; re-running requests a fresh code.
+  // Pending: hand the human the clickable verification URL in the envelope (the
+  // code is persisted). The human approves in their browser, then the agent
+  // re-runs `jolly login` to finish — the re-run resumes the SAME code.
   return envelope({
     command,
     status: "warning",
-    summary:
-      "The Saleor device authorization grant expired before it was approved. Re-run `jolly login` and authorize at the URL relayed on stderr.",
-    data: { authorizationPending: true, riskContext: loginRiskContext() },
-    nextSteps: [
-      {
-        description:
-          "Authorize the device sign-in at the verification URL relayed on stderr, then re-run jolly login to complete it.",
-        command: "jolly login",
-      },
-    ],
+    summary: "Approve the Saleor sign-in in your browser, then re-run `jolly login` to finish.",
+    data: {
+      authorizationPending: true,
+      verificationUrl: deviceVerificationUrl(outcome.auth),
+      userCode: outcome.auth.userCode,
+      riskContext: loginRiskContext(),
+    },
+    nextSteps: [deviceAuthNextStep(outcome.auth, "jolly login")],
   });
 }
 
@@ -1303,6 +1367,7 @@ interface StoreProvisionResult {
   projectCreated: boolean;
   environmentCreated: boolean;
   appTokenStored: boolean;
+  appTokenError?: string;
 }
 
 /**
@@ -1380,14 +1445,18 @@ async function provisionStore(
 
   const values: Record<string, string> = { NEXT_PUBLIC_SALEOR_API_URL: domainUrl };
 
-  // Acquire an app token against the new instance GraphQL endpoint.
+  // Acquire an app token against the new instance GraphQL endpoint. Non-fatal —
+  // the env exists either way — but the failure REASON is captured and surfaced
+  // (recipe + stock cannot run without this token, so a swallowed error left the
+  // run mysteriously skipping them).
   let appTokenStored = false;
+  let appTokenError: string | undefined;
   try {
     const appToken = await acquireAppToken(domainUrl, token, "Jolly Setup");
     values["JOLLY_SALEOR_APP_TOKEN"] = appToken;
     appTokenStored = true;
-  } catch {
-    // Non-fatal: the env exists; the agent can run create app-token later.
+  } catch (err) {
+    appTokenError = err instanceof Error ? err.message : String(err);
   }
 
   writeEnvValues(projectDir(), values);
@@ -1404,6 +1473,7 @@ async function provisionStore(
     projectCreated,
     environmentCreated,
     appTokenStored,
+    appTokenError,
   };
 }
 
@@ -2698,6 +2768,35 @@ async function runStoreStage(
       status: "pass",
       description: "A Saleor endpoint is already configured; reusing it.",
     });
+    // Reuse must still ensure the instance app token exists — recipe + stock
+    // cannot run without it. The first-time provision acquires it; a reused store
+    // (re-run) previously short-circuited here and left it missing forever.
+    const haveAppToken = Boolean(
+      values["JOLLY_SALEOR_APP_TOKEN"] ?? process.env["JOLLY_SALEOR_APP_TOKEN"],
+    );
+    const platformToken = cloudPlatformToken(values);
+    if (!haveAppToken && platformToken) {
+      try {
+        const appToken = await acquireAppToken(endpoint, platformToken, "Jolly Setup");
+        writeEnvValues(projectDir(), { JOLLY_SALEOR_APP_TOKEN: appToken });
+        process.env["JOLLY_SALEOR_APP_TOKEN"] = appToken;
+        checks.push({
+          id: "app-token-acquired",
+          status: "pass",
+          description: "Acquired the Saleor app token for the reused store.",
+        });
+      } catch (err) {
+        checks.push({
+          id: "app-token-acquired",
+          status: "fail",
+          description:
+            `Could not acquire the Saleor app token for the reused store (recipe + stock cannot run without it): ` +
+            `${err instanceof Error ? err.message : String(err)}.`,
+          remediation:
+            "The app token is created on the store instance via appCreate. Re-run jolly start --yes to retry.",
+        });
+      }
+    }
     return { status: "completed" };
   }
 
@@ -2739,8 +2838,13 @@ async function runStoreStage(
     if (!result.appTokenStored) {
       checks.push({
         id: "app-token-acquired",
-        status: "unknown",
-        description: "App token not acquired; run jolly create app-token.",
+        status: "fail",
+        description:
+          `Could not acquire the Saleor app token (recipe + stock cannot run without it)` +
+          (result.appTokenError ? `: ${result.appTokenError}` : ".") +
+          ".",
+        remediation:
+          "The app token is created on the store instance via appCreate. Re-run jolly start --yes to retry.",
       });
     }
     return {
@@ -3346,32 +3450,102 @@ async function probeVercelSession(): Promise<{ signedIn: boolean; account: strin
  * no leaked waiting process. Returns the captured device URL, or undefined.
  * Jolly holds no Vercel token; the CLI signs in under its own auth.
  */
+const VERCEL_SIGNIN_URL_TIMEOUT_MS = 60_000;
+
+// Spawn the Vercel CLI's own device-login DETACHED so it OUTLIVES this run: it
+// keeps polling and stores the Vercel token itself when the human approves, so a
+// later `jolly start` re-run sees a signed-in session via `vercel whoami`. We
+// capture the device URL by tailing the login's output FILE — a piped stdio
+// would break with EPIPE the moment this process exits, killing the login before
+// the human approves (the bug the old kill-after-capture version had). Returns
+// the captured device URL, or undefined. Jolly holds no Vercel token.
 async function spawnVercelSignIn(): Promise<{ deviceUrl?: string }> {
-  return new Promise((resolve) => {
-    const child = spawn("npx", ["vercel", "login"], { stdio: ["ignore", "pipe", "pipe"] });
-    let buf = "";
-    let settled = false;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
+  const logPath = join(tmpdir(), `jolly-vercel-login-${process.pid}-${Date.now()}.log`);
+  let fd: number;
+  try {
+    fd = openSync(logPath, "a+");
+  } catch {
+    return {};
+  }
+  try {
+    const child = spawn("npx", ["vercel", "login"], {
+      stdio: ["ignore", fd, fd],
+      detached: true,
+    });
+    child.unref(); // do not keep this process alive on the detached login
+    closeSync(fd); // the child holds its own dup of the fd and keeps writing
+    const deadline = Date.now() + VERCEL_SIGNIN_URL_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 250));
+      let buf = "";
       try {
-        child.kill("SIGKILL");
+        buf = readFileSync(logPath, "utf8");
       } catch {
-        /* best-effort */
+        /* the login has not written yet */
       }
-      clearTimeout(timer);
-      resolve({ deviceUrl: extractDeviceUrl(buf) });
+      const deviceUrl = extractDeviceUrl(buf);
+      if (deviceUrl) return { deviceUrl };
+    }
+    return {};
+  } catch {
+    return {};
+  }
+}
+
+// The pending Vercel device URL is persisted between agent invocations so a
+// re-run that is still unapproved shows the SAME URL (the detached login spawned
+// earlier is still polling) instead of spawning another login with a fresh URL.
+const PENDING_VERCEL_FILE = ".jolly-pending-vercel.json";
+const VERCEL_SIGNIN_LIFETIME_SECONDS = 600;
+
+function pendingVercelPath(): string {
+  return join(projectDir(), PENDING_VERCEL_FILE);
+}
+
+function loadPendingVercelUrl(): string | undefined {
+  try {
+    const saved = JSON.parse(readFileSync(pendingVercelPath(), "utf8")) as {
+      deviceUrl?: string;
+      savedAt?: number;
     };
-    const timer = setTimeout(finish, 60_000);
-    const scan = (chunk: Buffer) => {
-      buf += String(chunk);
-      if (extractDeviceUrl(buf)) finish();
-    };
-    child.stdout?.on("data", scan);
-    child.stderr?.on("data", scan);
-    child.on("error", finish);
-    child.on("close", finish);
-  });
+    if (typeof saved.deviceUrl !== "string" || saved.deviceUrl.length === 0) return undefined;
+    if (
+      typeof saved.savedAt === "number" &&
+      (Date.now() - saved.savedAt) / 1000 > VERCEL_SIGNIN_LIFETIME_SECONDS
+    ) {
+      clearPendingVercel(); // the device code is past its lifetime; spawn fresh
+      return undefined;
+    }
+    return saved.deviceUrl;
+  } catch {
+    return undefined;
+  }
+}
+
+function savePendingVercel(deviceUrl: string): void {
+  try {
+    writeFileSync(pendingVercelPath(), JSON.stringify({ deviceUrl, savedAt: Date.now() }));
+  } catch {
+    /* best-effort */
+  }
+}
+
+function clearPendingVercel(): void {
+  try {
+    rmSync(pendingVercelPath(), { force: true });
+  } catch {
+    /* best-effort */
+  }
+}
+
+// The nextStep that hands the human the clickable Vercel verification URL and
+// tells the agent to re-run once approved (feature 002).
+function vercelSignInNextStep(deviceUrl: string): NextStep {
+  return {
+    description: `Open ${deviceUrl} in your browser and approve the Vercel sign-in, then re-run \`jolly start --yes\` to deploy.`,
+    url: deviceUrl,
+    command: "jolly start --yes",
+  };
 }
 
 /** Extract the deployed `*.vercel.app` URL the Vercel CLI prints, or undefined. */
@@ -3442,27 +3616,28 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
   // for the missing sign-in, and never telling the agent to run `vercel login`.
   const session = await probeVercelSession();
   if (!session.signedIn) {
-    const { deviceUrl } = await spawnVercelSignIn();
-    if (deviceUrl) {
-      // Render a clickable OSC 8 hyperlink only where the terminal supports it
-      // (an interactive TTY); on the agent/--json path emit the plain URL so
-      // escape bytes never pollute agent logs (feature 027 Rule; mirrors the
-      // Saleor interactive-grant vs. agent-relay split).
-      const shownUrl = process.stderr.isTTY ? osc8Hyperlink(deviceUrl) : deviceUrl;
-      process.stderr.write(
-        `Vercel sign-in needed — Jolly runs the Vercel sign-in together with you. ` +
-          `Visit ${shownUrl} to authorize.\n`,
-      );
+    // No Vercel session. Reuse the URL of a detached login already spawned by a
+    // prior run if one is still within its lifetime (it is still polling);
+    // otherwise spawn a fresh DETACHED `vercel login` that keeps polling and
+    // stores the token itself, and persist its URL. The verification URL is
+    // carried in the run's nextSteps (a clickable envelope link), never on
+    // stdout/stderr — the human approves then re-runs `jolly start --yes`.
+    let deviceUrl = loadPendingVercelUrl();
+    if (!deviceUrl) {
+      deviceUrl = (await spawnVercelSignIn()).deviceUrl;
+      if (deviceUrl) savePendingVercel(deviceUrl);
     }
     checks.push({
       id: "vercel-sign-in",
       status: "warning",
       description: deviceUrl
-        ? `Vercel sign-in pending: Jolly runs the Vercel sign-in together with you. Visit ${deviceUrl} to authorize; Jolly spawned the official Vercel CLI sign-in under its own session and holds no Vercel token.`
+        ? `Vercel sign-in pending: Jolly runs the Vercel sign-in together with you via the official Vercel CLI under its own session (it holds no Vercel token). Approve the sign-in at the verification URL in nextSteps, then re-run jolly start --yes.`
         : "Vercel sign-in pending: Jolly runs the Vercel sign-in together with you via the official Vercel CLI under its own session, and holds no Vercel token.",
     });
-    return { status: "pending" };
+    return { status: "pending", data: deviceUrl ? { vercelSignInUrl: deviceUrl } : {} };
   }
+  // Signed in: a prior run's pending sign-in (if any) completed.
+  clearPendingVercel();
 
   // Deploy to production via the official Vercel CLI under its own session,
   // configuring the required build env vars through the CLI (feature 002 Rule).
@@ -3949,6 +4124,12 @@ async function runStartCore(
   const startEnvValues = loadEnvValues(projectDir());
   const hasCloudToken = Boolean(cloudPlatformToken(startEnvValues));
   let needsToken = !hasCloudToken;
+  // When the agent device grant is pending, the clickable verification URL the
+  // human must approve, surfaced in the run's nextSteps (feature 018).
+  let authPendingStep: NextStep | undefined;
+  // When the Vercel sign-in is pending, the clickable verification URL the human
+  // must approve, surfaced in the run's nextSteps (feature 002).
+  let deployPendingStep: NextStep | undefined;
 
   // A store endpoint already configured (a prior `jolly create store` or earlier
   // run) means the store stage is already satisfied: no store would be created
@@ -3981,20 +4162,26 @@ async function runStartCore(
       //   - lifetime elapsed without approval → `blocked` (re-run jolly start) —
       //     never a fabricated `completed`, and never the high-risk approval gate.
       // A device-code request failure leaves the stage `blocked` just the same.
-      const tokens = await deviceGrantSignIn(relayDeviceCode).catch(() => undefined);
-      if (tokens) {
+      const outcome = await agentDeviceGrant().catch(() => undefined);
+      if (outcome?.status === "approved") {
         writeEnvValues(projectDir(), {
-          JOLLY_SALEOR_ACCESS_TOKEN: tokens.accessToken,
-          JOLLY_SALEOR_REFRESH_TOKEN: tokens.refreshToken,
+          JOLLY_SALEOR_ACCESS_TOKEN: outcome.tokens.accessToken,
+          JOLLY_SALEOR_REFRESH_TOKEN: outcome.tokens.refreshToken,
         });
         // Mirror into process.env so the downstream store/recipe/deploy stages
         // of THIS run read the fresh session (matching the interactive path).
-        process.env["JOLLY_SALEOR_ACCESS_TOKEN"] = tokens.accessToken;
-        process.env["JOLLY_SALEOR_REFRESH_TOKEN"] = tokens.refreshToken;
+        process.env["JOLLY_SALEOR_ACCESS_TOKEN"] = outcome.tokens.accessToken;
+        process.env["JOLLY_SALEOR_REFRESH_TOKEN"] = outcome.tokens.refreshToken;
         needsToken = false;
         status = "completed";
       } else {
+        // Pending (or a device-code request failure): the stage is blocked. When
+        // pending, carry the clickable verification URL to the run's nextSteps so
+        // the agent can hand it to the human, who approves then re-runs.
         status = "blocked";
+        if (outcome?.status === "pending") {
+          authPendingStep = deviceAuthNextStep(outcome.auth, "jolly start");
+        }
       }
     } else if (isBootstrap) {
       status = "completed";
@@ -4046,6 +4233,10 @@ async function runStartCore(
           const outcome = await runDeployStage(checks);
           status = outcome.status;
           deployData = outcome.data;
+          const vercelUrl = outcome.data?.["vercelSignInUrl"];
+          if (typeof vercelUrl === "string" && vercelUrl.length > 0) {
+            deployPendingStep = vercelSignInNextStep(vercelUrl);
+          }
         } else {
           status = "pending";
         }
@@ -4131,6 +4322,15 @@ async function runStartCore(
       : "warning";
 
   const nextSteps: NextStep[] = [];
+  if (authPendingStep) {
+    // Lead with the clickable sign-in URL (the real blocker the human clears
+    // first); the gate/resume step below is still added so the run's gate stays
+    // named.
+    nextSteps.push(authPendingStep);
+  } else if (deployPendingStep) {
+    // Vercel sign-in is the blocker: lead with the clickable Vercel URL.
+    nextSteps.push(deployPendingStep);
+  }
   if (bootstrapFailed) {
     nextSteps.push({
       description: "Resolve the bootstrap failure (see errors), then re-run jolly start.",
@@ -4141,7 +4341,7 @@ async function runStartCore(
       description: `Approve the "${gate.stage}" stage, then re-run jolly start to proceed.`,
       command: "jolly start --yes",
     });
-  } else {
+  } else if (nextSteps.length === 0) {
     nextSteps.push({
       description: "Re-run jolly start to resume the remaining stages.",
       command: "jolly start",
@@ -4152,7 +4352,7 @@ async function runStartCore(
   // `jolly login` through the Saleor device authorization grant (feature 018), or
   // to set JOLLY_SALEOR_CLOUD_TOKEN for non-interactive use, then re-run. An auth
   // gate Jolly cannot self-clear, never fabricated as done.
-  if (needsToken) {
+  if (needsToken && !authPendingStep) {
     nextSteps.push({
       description:
         "Run `jolly login` to sign in through the Saleor device authorization grant, " +

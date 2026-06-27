@@ -87,12 +87,14 @@ and mediate it yourself. The order and the load-bearing specifics:
 1. **Bootstrap** — `jolly init` (skills + `.mcp.json` + scaffold); `start`'s bootstrap then also
    runs `jolly doctor` (standalone `jolly init` does not). Never overwrite Jolly's marked
    `AGENTS.md` section.
-2. **Authenticate Saleor Cloud** — `jolly login` signs in through the Saleor **device authorization
-   grant**. Jolly relays an `auth.saleor.io` verification URL (with the user code pre-filled) and
-   the user code on stderr; surface that URL to your human as a clickable link, they open it and
-   approve, and Jolly stores the session (`JOLLY_SALEOR_ACCESS_TOKEN` + refresh) in `.env`
-   (`jolly doctor` re-verifies). There is no token to paste and no token page — never ask the human
-   for a pasted token. (For unattended CI only, a `JOLLY_SALEOR_CLOUD_TOKEN` set in the environment
+2. **Authenticate Saleor Cloud** — `jolly login` (and the `start` auth stage) sign in through the
+   Saleor **device authorization grant**. The first call returns an `auth.saleor.io` verification
+   URL (user code pre-filled) in the envelope's `nextSteps` (status `warning`, `authorizationPending`)
+   and persists the device code — it does NOT block. Surface that URL to your human as a clickable
+   link; once they approve in the browser, **re-run the same command** (`jolly login`, or
+   `jolly start`) — Jolly resumes the SAME persisted code and stores the session
+   (`JOLLY_SALEOR_ACCESS_TOKEN` + refresh) in `.env` (`jolly doctor` re-verifies). There is no token
+   to paste and no token page — never ask the human for a pasted token. (For unattended CI only, a `JOLLY_SALEOR_CLOUD_TOKEN` set in the environment
    is used silently; you never request or paste one.) For a brand-new account, send the human to
    cloud.saleor.io to sign up, then resume.
 3. **Provision the store** — `jolly create store` (creates/reuses the Cloud organization,
@@ -129,9 +131,11 @@ and mediate it yourself. The order and the load-bearing specifics:
    cannot set stock or `trackInventory` (it hardcodes `trackInventory: true`). Without this the
    catalog has zero stock and checkout fails with `INSUFFICIENT_STOCK` before reaching payment.
 7. **Deploy to Vercel** — `start` spawns the official Vercel CLI (`npx vercel`) and performs the
-   Vercel sign-in itself: when there is no session it runs Vercel's device flow and prints a
-   verification URL for the human to approve in a browser, then resumes when the CLI exits. It
-   deploys to production (`npx vercel deploy --prod`), injecting the required Vercel build env vars
+   Vercel sign-in itself: when there is no session it starts Vercel's device flow and returns the
+   verification URL in the envelope's `nextSteps` (a clickable link for your human) while a detached
+   `vercel login` keeps polling in the background. Once your human approves in the browser, **re-run
+   `jolly start --yes`** — the Vercel session is now established and `start` deploys to production
+   (`npx vercel deploy --prod`), injecting the required Vercel build env vars
    (`--build-env NEXT_PUBLIC_SALEOR_API_URL`, `--build-env NEXT_PUBLIC_DEFAULT_CHANNEL=us`), and
    captures the URL. As part of this stage it also wires the deployed URL into Saleor's
    allowed/trusted origins (the deploy updates Saleor trusted origins where APIs allow). High-risk →

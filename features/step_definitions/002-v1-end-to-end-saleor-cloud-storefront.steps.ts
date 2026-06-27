@@ -804,37 +804,40 @@ When(
 
 // --- Scenario: Jolly start spawns the Vercel sign-in itself (@sandbox) -------
 
+// The agent run surfaces the Vercel device URL in the result ENVELOPE (a
+// nextStep, with a structured `url` so the agent renders it clickable), never on
+// stdout/stderr noise — mirroring the Saleor device-grant envelope flow.
+function vercelSignInUrlInNextSteps(world: JollyWorld): boolean {
+  const steps = (world.envelope.nextSteps ?? []) as Array<Record<string, unknown>>;
+  return steps.some((s) => {
+    const blob = `${String(s.url ?? "")} ${String(s.description ?? "")}`;
+    return /https:\/\/vercel\.com\/oauth\/device/i.test(blob);
+  });
+}
+
 Then(
-  "Jolly should itself spawn `npx vercel login` and surface its device-authorization URL on stderr before attempting any deploy",
+  "Jolly should itself spawn `npx vercel login` and surface its device-authorization URL before attempting any deploy",
   function (this: JollyWorld) {
-    const stderr = this.lastRun!.stderr;
-    assert.match(
-      stderr,
-      /https:\/\/vercel\.com\/oauth\/device/i,
-      `Jolly must itself spawn the Vercel sign-in and surface its device-authorization URL on stderr:\n${stderr}`,
-    );
-    // The envelope (stdout JSON) must stay clean: the device URL is surfaced on
-    // stderr, never polluting the machine-readable envelope.
     assert.ok(this.envelope.command.startsWith("start"), "the run must be a `jolly start` run");
+    assert.ok(
+      vercelSignInUrlInNextSteps(this),
+      `Jolly must itself spawn the Vercel sign-in and surface its device URL in a nextStep; got: ${JSON.stringify(this.envelope.nextSteps)}`,
+    );
+    // stdout stays clean machine JSON — no OSC 8 escapes on the agent path.
+    assert.ok(
+      // eslint-disable-next-line no-control-regex
+      !/\x1b\]8;;/.test(this.lastRun!.stdout),
+      `the agent (--json) stdout must carry no OSC 8 hyperlink escape:\n${JSON.stringify(this.lastRun!.stdout)}`,
+    );
   },
 );
 
 Then(
-  "on this `--json` agent run Jolly should surface the Vercel sign-in URL as the plain URL on stderr, with no OSC 8 hyperlink escape",
+  "a nextStep should carry the Vercel sign-in URL for the human to open and approve",
   function (this: JollyWorld) {
-    const stderr = this.lastRun!.stderr;
-    // Agent path (--json / non-TTY): the URL is surfaced for the agent to relay
-    // as plain text — clickable OSC 8 hyperlinks are emitted only where the
-    // terminal supports it (an interactive TTY), so escape bytes never pollute
-    // agent logs (feature 027 Rule; mirrors the Saleor interactive/relay split).
-    assert.match(
-      stderr,
-      /https:\/\/vercel\.com\/oauth\/device/i,
-      `the plain Vercel device URL must appear on stderr:\n${JSON.stringify(stderr)}`,
-    );
     assert.ok(
-      !/\x1b\]8;;/.test(stderr),
-      `the agent (--json) run must carry no OSC 8 hyperlink escape on stderr:\n${JSON.stringify(stderr)}`,
+      vercelSignInUrlInNextSteps(this),
+      `a nextStep must carry the Vercel sign-in URL; got: ${JSON.stringify(this.envelope.nextSteps)}`,
     );
   },
 );

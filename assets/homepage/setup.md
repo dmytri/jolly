@@ -145,19 +145,20 @@ result. A `401` from a wrong-scheme `curl` is not evidence the token is dead.
 Saleor sign-in is the device authorization grant, so it works the same on a laptop, a CI runner, or
 a remote VM:
 
-1. Run `jolly login`. I print an `auth.saleor.io` verification URL (the user code pre-filled) and
-   the code, surfaced as a clickable link where the terminal supports it.
-2. The human opens the URL and approves. I poll, then store the session (`JOLLY_SALEOR_ACCESS_TOKEN`
-   + refresh) in `.env` and re-verify with `jolly doctor`. There is no token to paste and no token
-   page. For unattended CI only, set `JOLLY_SALEOR_CLOUD_TOKEN` in the environment and I use it
-   silently.
+1. Run `jolly login` (or `jolly start`). I return an `auth.saleor.io` verification URL (user code
+   pre-filled) in the envelope's `nextSteps` — surface it to the human as a clickable link.
+2. The human opens the URL and approves. **Re-run the same command** — I resume the same code, store
+   the session (`JOLLY_SALEOR_ACCESS_TOKEN` + refresh) in `.env`, and re-verify with `jolly doctor`.
+   There is no token to paste and no token page. For unattended CI only, set
+   `JOLLY_SALEOR_CLOUD_TOKEN` in the environment and I use it silently.
 
 `jolly start --yes` then runs the create/deploy stages; the Dashboard Stripe app stays a human gate.
 
 ### Vercel sign-in
 
-I drive Vercel sign-in for you during `start`: I run Vercel's device flow and print a verification
-URL; the human approves it in a browser, and I continue and deploy.
+I drive Vercel sign-in for you during `start`: I start Vercel's device flow and return its
+verification URL in the envelope's `nextSteps` (a clickable link) while a background `vercel login`
+keeps polling. The human approves it in a browser, then **re-run `jolly start --yes`** and I deploy.
 
 ### Stripe
 

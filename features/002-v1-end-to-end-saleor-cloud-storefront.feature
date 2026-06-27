@@ -24,7 +24,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     Given a fresh project directory with no `JOLLY_SALEOR_CLOUD_TOKEN` configured
     When the agent runs `jolly start --json` in a non-interactive shell
     Then Jolly should request a device code from `https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/auth/device` with `client_id=jolly`
-    And it should print the returned user code and the verification URL `https://auth.saleor.io/realms/saleor-cloud/device?user_code=` followed by that user code to stderr so the agent can relay them to its human
+    And a nextStep should carry the Saleor device verification URL for the human to open and approve
     And it should not fabricate that authentication succeeded
 
   @sandbox
@@ -109,8 +109,8 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     Given the storefront is ready for deployment
     And the Vercel CLI is pointed at an isolated config with no signed-in session
     When `jolly start` reaches the deploy stage without `--dry-run`
-    Then Jolly should itself spawn `npx vercel login` and surface its device-authorization URL on stderr before attempting any deploy
-    And on this `--json` agent run Jolly should surface the Vercel sign-in URL as the plain URL on stderr, with no OSC 8 hyperlink escape
+    Then Jolly should itself spawn `npx vercel login` and surface its device-authorization URL before attempting any deploy
+    And a nextStep should carry the Vercel sign-in URL for the human to open and approve
     And the deploy stage should report a pending Vercel sign-in gate that states Jolly runs the Vercel sign-in together with the human, not a deploy `failed`
     And no deploy or vercel check should report `fail` when the only obstacle is the missing Vercel sign-in
     And Jolly's own code should send no request to api.vercel.com and hold no Vercel token while doing so

@@ -28,21 +28,37 @@ Feature: Jolly auth commands
       Then it should name the Saleor device authorization grant as the sign-in
       And it should carry no cloud.saleor.io tokens-page link and no `jolly login` token-paste flag
 
+    @logic
+    Scenario: Agent jolly login returns the verification URL in the envelope and persists the grant
+      # The first agent invocation does not block polling: it requests a device
+      # code, persists it, and hands the human the verification URL in the result
+      # envelope (a clickable nextStep) — never buried on stdout/stderr — then the
+      # human approves and the agent re-runs to finish (next scenario).
+      Given a non-interactive shell with no JOLLY_SALEOR_CLOUD_TOKEN set
+      And the Saleor auth host issues device codes
+      When the agent runs `jolly login --json`
+      Then the envelope status should be "warning"
+      And a nextStep should carry the Saleor device verification URL for the human to open and approve
+      And stdout should carry no OSC 8 hyperlink escape
+      And stdout should carry no token value
+      And it should persist the pending device authorization for the re-run
+
     @logic @exceptional-double
-    Scenario: Agent-driven jolly login signs in once the human approves the grant
+    Scenario: The agent re-runs after approval and the persisted grant completes the sign-in
       # @exceptional-double: the human approval cannot be produced on demand; the
-      # local fake auth host (reached via JOLLY_SALEOR_AUTH_URL) approves on the
-      # first poll, so Jolly's real relay, poll, and token-store code completes
-      # without waiting on a human.
+      # local fake auth host approves the persisted code on the re-run's first
+      # poll, so Jolly's real resume-poll-and-store path completes without waiting.
+      # Pins that the re-run RESUMES the SAME persisted code rather than orphaning
+      # the approval with a fresh one.
       Given a non-interactive shell with no JOLLY_SALEOR_CLOUD_TOKEN set
       And the Saleor auth host approves the device grant on the first poll
+      And a pending device authorization was persisted by a prior run
       When the agent runs `jolly login --json`
-      Then it should print the returned user code and the verification URL `https://auth.saleor.io/realms/saleor-cloud/device?user_code=` followed by that user code to stderr so the agent can relay them to its human
-      And the relayed verification URL should appear on stderr as the plain URL, with no OSC 8 hyperlink escape
-      And the envelope status should be "success"
+      Then the envelope status should be "success"
       And it should store the device-grant access token in .env as JOLLY_SALEOR_ACCESS_TOKEN
       And it should store the device-grant refresh token in .env as JOLLY_SALEOR_REFRESH_TOKEN
       And it should not write JOLLY_SALEOR_CLOUD_TOKEN to .env
+      And the persisted pending device authorization should be cleared
       And stdout should carry no token value
 
     @logic @exceptional-double
