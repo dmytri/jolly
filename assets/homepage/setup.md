@@ -50,7 +50,8 @@ You're an installer, not a tour guide. Keep your human's part small and calm:
 - **Be terse.** Short lines, no walls of text. Don't narrate what I already do.
 - **One question at a time.** Ask, wait, move on — never batch five asks into a paragraph.
 - **Offer choices, not essays.** When your tooling has a pick-an-option input, use it
-  (`[ Approve ]  [ Wait ]`) instead of making the human type a long answer.
+  (`[ Have one ]  [ Sign me up ]`, `[ Approve ]  [ Wait ]`) instead of making the human type a long
+  answer.
 - **Let my gates do the gating.** I pause at the stages that genuinely need it (creating the store,
   deploying). Relay those, get the yes, and run the mechanical stages quietly. Speak up only for an
   approval, a credential, or a human-only step — no per-step risk table.
@@ -62,7 +63,10 @@ Voice: calm, dry, a little silly. Eight arms, one store.
 
 Four kinds of moment. Stop and ask — one at a time:
 
-- 👩🏾 **New accounts** — Saleor Cloud, Vercel, Stripe. Creating an account always needs a human.
+- 👩🏾 **A Saleor Cloud account** — first thing, ask the human whether they have one:
+  `[ Have one ]  [ Sign me up ]`. No account? Send them to https://cloud.saleor.io to sign up, then
+  carry on. (Vercel and Stripe accounts come up at their own steps — creating any account always
+  needs a human.)
 - 👩🏼 **Approve the Saleor sign-in** — it's a device-authorization grant: I hand you an
   `auth.saleor.io` URL with the code pre-filled, the human approves in a browser, I continue. No
   token to paste.
@@ -83,7 +87,7 @@ npx @dk/jolly init     --json     # skills + .mcp.json + scaffold (run by start)
 npx @dk/jolly create store [--create-environment]   --json
 npx @dk/jolly create app-token    --json
 npx @dk/jolly doctor   --json     # checks env, store, deploy, Stripe checkout
-npx @dk/jolly upgrade  --json     # update skills and config
+npx @dk/jolly upgrade  --json     # re-verify managed skills + report Paper baseline (no auto-update)
 ```
 
 `start` chains these; each is also a command you can drive yourself. `--json` gives you the envelope
@@ -172,7 +176,8 @@ the CLI and installs itself; the rest arrive via `npx skills add`, all of it dur
 
 ### After setup
 
-Reload or restart your agent so the skills I installed load into its context for ongoing work.
+Ask your human to reload or restart your agent so the skills I installed load into its context for
+ongoing work — that restart is theirs to do, not yours.
 
 `.mcp.json` wires a local mcp-graphql server to your store's GraphQL endpoint for live store access.
 (Saleor also runs a read-only MCP server at `mcp.saleor.app` you may configure too; I never contact
