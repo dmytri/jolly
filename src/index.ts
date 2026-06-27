@@ -3478,9 +3478,10 @@ async function probeVercelSession(): Promise<{ signedIn: boolean; account: strin
  * no leaked waiting process. Returns the captured device URL, or undefined.
  * Jolly holds no Vercel token; the CLI signs in under its own auth.
  */
-// Pin the Vercel CLI version Jolly spawns: 54.16.0 installs cleanly, while later
-// builds pull a transitive dep that prints node-engine warnings on Node 26.
-const VERCEL_PKG = "vercel@54.16.0";
+// The Vercel CLI package Jolly spawns via npx. Unpinned (latest) — version
+// pinning to dodge a transitive dep's node-engine warning proved fragile; the
+// warning is instead silenced at the npm level (NPM_CONFIG_LOGLEVEL in main()).
+const VERCEL_PKG = "vercel";
 
 const VERCEL_SIGNIN_URL_TIMEOUT_MS = 60_000;
 
@@ -4589,6 +4590,13 @@ async function dispatch(args: ParsedArgs): Promise<Envelope> {
 }
 
 async function main(): Promise<void> {
+  // Quiet npm's install-time warnings (e.g. EBADENGINE from a transitive dep of
+  // the Vercel CLI on Node 26) for every `npx` Jolly spawns — they are noise, not
+  // a Jolly problem, and chasing CLI versions to dodge them is fragile. Errors
+  // still surface (this only hides the `warn` level). Respects an explicit override.
+  if (!process.env["NPM_CONFIG_LOGLEVEL"] && !process.env["npm_config_loglevel"]) {
+    process.env["NPM_CONFIG_LOGLEVEL"] = "error";
+  }
   const argv = process.argv.slice(2);
 
   // `completion`/`complete` are exempt from the feature 020 envelope and from
