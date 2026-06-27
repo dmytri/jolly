@@ -188,9 +188,3 @@ agent can take it from there.
 (Saleor also runs a read-only MCP server at `mcp.saleor.app` you may configure too; I never contact
 it.) From here the store and the storefront repo are yours — keep building with the Saleor skills and
 the official CLIs above.
-
-### Boundaries
-
-Saleor Cloud only (never self-hosted Saleor — that's out of scope, not a roadmap item) · Stripe test mode only (live mode needs an explicit human
-choice) · Vercel for deployment · secrets never leave `.env` · I never replace your agent — I empower
-it.
