@@ -1,6 +1,6 @@
 {
   "name": "@dk/jolly",
-  "version": "0.10.20",
+  "version": "0.10.21",
   "description": "Jolly sets up a Saleor Cloud storefront with Vercel and Stripe from your terminal or coding agent.",
   "type": "module",
   "bin": {
