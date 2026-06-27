@@ -231,13 +231,6 @@ Then(
   },
 );
 
-Then(
-  "the deployment check should report whether the deployed URL is in Saleor trusted origins",
-  function (this: JollyWorld) {
-    assert.ok(Array.isArray(this.envelope.checks), "doctor must report a checks array");
-  },
-);
-
 // ─── Scenarios: Doctor reads the Vercel CLI login state via `vercel whoami` ──
 //
 // Doctor is the single readiness oracle (feature 014 Rule): its auth checks read

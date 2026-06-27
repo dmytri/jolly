@@ -166,7 +166,6 @@ Feature: Existing Saleor store connection
     - Acquire or create the app token automatically where Saleor APIs allow; otherwise guide the customer through Saleor Dashboard token creation.
     - The deprecated CLI shows useful example flows for Saleor Cloud OAuth/headless token acquisition, local app selection/creation, permission updates, and app token creation through Saleor GraphQL.
     - Use `saleor/configurator introspect` with the app token to discover channels, catalog structure, menus, and configuration.
-    - After deployment, automatically update Saleor allowed/trusted origins for the deployed storefront URL where APIs allow.
 
   Rule: Open questions
     - Which pasted URL forms should Jolly normalize in v1?

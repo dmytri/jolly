@@ -414,15 +414,6 @@ Then(
 );
 
 Then(
-  "it should register the deployed storefront URL as a Saleor trusted origin where a first-party Cloud API allows, otherwise surfacing it as a guided Dashboard step",
-  function () {
-    // No first-party Cloud API registers a storefront trusted origin in v1, so
-    // start surfaces it as a guided Dashboard step (the `saleor-trusted-origin`
-    // check) after a real deploy — acceptance run.
-  },
-);
-
-Then(
   "`jolly doctor` should verify that the deployed storefront can reach Saleor Cloud",
   function (this: JollyWorld) {
     // Jolly-observable: a full doctor run reports the Saleor connectivity check.

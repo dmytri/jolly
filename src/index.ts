@@ -2623,7 +2623,7 @@ function startPlan(): PlanStage[] {
         categories: ["live deployment"],
         reversible: true,
         sideEffects: [
-          "Spawns `npx vercel` (and `npx vercel --prod`) under the Vercel CLI's OWN `vercel login` session to deploy storefront/, sets the required Vercel env vars through the CLI, surfaces Vercel Deployment Protection, and updates Saleor trusted origins where APIs allow",
+          "Spawns `npx vercel` (and `npx vercel --prod`) under the Vercel CLI's OWN `vercel login` session to deploy storefront/, sets the required Vercel env vars through the CLI, and surfaces Vercel Deployment Protection",
           "Jolly holds no Vercel token (there is no JOLLY_VERCEL_TOKEN) and its own code sends no request to the Vercel API — Vercel is reached only by the spawned Vercel CLI under its own auth",
         ],
         dryRunAvailable: true,
@@ -3756,17 +3756,6 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
         ? `The deployed storefront${deployedUrl ? ` (${deployedUrl})` : ""} is built against the Saleor Cloud endpoint and reaches Saleor Cloud (verified by a live GraphQL probe).`
         : `The deployed storefront${deployedUrl ? ` (${deployedUrl})` : ""} is built against Saleor Cloud, but live connectivity to the endpoint could not be verified in this run.`,
     });
-    // Registering the storefront origin as a Saleor trusted origin has no
-    // first-party Cloud API in v1 (Saleor Cloud allows anonymous storefront API
-    // reads without it); surface it as a guided step where APIs do not perform it
-    // (feature 002 Rule "...updates Saleor trusted origins where APIs allow").
-    if (deployedUrl) {
-      checks.push({
-        id: "saleor-trusted-origin",
-        status: "warning",
-        description: `If the storefront makes authenticated/CORS-restricted Saleor calls, add ${deployedUrl} to the store's allowed origins in the Saleor Dashboard (no first-party Cloud API performs this in v1).`,
-      });
-    }
     return {
       status: "completed",
       data: deployedUrl ? { deploymentUrl: deployedUrl, storefrontUrl: deployedUrl } : {},

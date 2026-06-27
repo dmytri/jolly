@@ -99,7 +99,6 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And it should not fall back to any other deployment mechanism such as a guided Git import flow
     And it should configure the required environment variables on the Vercel project through the Vercel CLI
     And it should disable Vercel Deployment Protection via the Vercel CLI so the store is publicly reachable, falling back to a guided step where the plan or permissions disallow it
-    And it should register the deployed storefront URL as a Saleor trusted origin where a first-party Cloud API allows, otherwise surfacing it as a guided Dashboard step
     And `jolly doctor` should verify that the deployed storefront can reach Saleor Cloud
     And the envelope `data` should report the deployed storefront URL captured from the Vercel CLI's deploy output, not a fabricated or guessed value
     And `nextSteps` should list the remaining human gates
@@ -189,8 +188,8 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
       `vercel login` session to deploy `storefront/`, sets the required Vercel env vars through the
       CLI, disables Vercel Deployment Protection (on by default — SSO/"Vercel Authentication") via
       `vercel project protection disable --sso` so the store is publicly reachable (a guided fallback
-      where the plan/permissions disallow it; still the CLI, never api.vercel.com), and
-      updates Saleor trusted origins where APIs allow. The deployed Vercel project name comes from an
+      where the plan/permissions disallow it; still the CLI, never api.vercel.com). The deployed
+      Vercel project name comes from an
       OPTIONAL configured name (`JOLLY_VERCEL_PROJECT`, passed to the CLI as `--project`) when set, and
       the CLI-inferred default otherwise — the same affordance the test harness uses to make the
       project `jolly-test`-namespaced cannon fodder it tears down (mirrors the store name). The durable Vercel invariants hold: official
@@ -312,12 +311,11 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     - Checkout must progress to the Stripe test payment step.
     - Stripe is the v1 payment provider target.
     - Auth, account dashboard, address book, order history, deeper caching, and webhook behavior may be verified opportunistically but are not the minimum v1 acceptance bar.
-    - Saleor allowed/trusted origins should be updated automatically after deployment where APIs allow.
 
   Rule: Fast path principles
     - The end-to-end setup should require only the minimum human actions that cannot be automated.
     - Unavoidable human steps: new account creation (Saleor Cloud, Vercel, Stripe if needed), the Vercel sign-in, and providing secret values such as the Saleor Cloud token and the Stripe keys in the Dashboard.
-    - All other steps should be automated: cloning, env configuration, Configurator recipe application, Vercel project setup, and trusted-origin updates.
+    - All other steps should be automated: cloning, env configuration, Configurator recipe application, and Vercel project setup.
     - Jolly should use safe defaults and skip confirmation steps that do not protect against irreversible actions.
     - Jolly should never ask for information it can infer, detect, or safely default.
     - When a human step is required, Jolly should tell the agent exactly what to ask the customer for, then resume automatically once the value is provided.

@@ -137,10 +137,8 @@ and mediate it yourself. The order and the load-bearing specifics:
    `jolly start --yes`** — the Vercel session is now established and `start` deploys to production
    (`npx vercel deploy --prod`), injecting the required Vercel build env vars
    (`--build-env NEXT_PUBLIC_SALEOR_API_URL`, `--build-env NEXT_PUBLIC_DEFAULT_CHANNEL=us`), and
-   captures the URL. As part of this stage it also wires the deployed URL into Saleor's
-   allowed/trusted origins (the deploy updates Saleor trusted origins where APIs allow). High-risk →
-   approval gate. Vercel Deployment Protection is on by default; `start` surfaces it so the human can
-   turn it off and the store is reachable.
+   captures the URL. Vercel Deployment Protection is on by default; `start` surfaces it so the human
+   can turn it off and the store is reachable.
 8. **Stripe (test mode)** — `start` installs Saleor's Stripe app in the store via the Saleor GraphQL
    `appInstall` mutation (HANDLE_PAYMENTS) and installs the `stripe-best-practices` skill so your
    agent has the Stripe knowledge for the rest; the recipe sets the channel payment flow.

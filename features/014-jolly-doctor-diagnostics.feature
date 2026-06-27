@@ -39,7 +39,6 @@ Feature: Jolly doctor diagnostics
     When `jolly doctor` checks remote readiness
     Then the checks should include a "deployment" check with a concrete status
     And it should check whether required Vercel environment variables are configured
-    And the deployment check should report whether the deployed URL is in Saleor trusted origins
     And the checks should include a "stripe" check with a concrete status
 
   @sandbox
