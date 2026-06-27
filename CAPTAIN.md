@@ -39,7 +39,15 @@ The suite runs against **real services** in a production-shaped test env (the `J
 
 **0.10.19** (npm `latest`): **env-picker** — interactive `jolly start` with no configured store + an org holding environments offers a clack select (Create new / reuse a named existing one), so the env limit means "pick a store," not a silent name-match or hard failure. `--mock-environments` affordance; `resolveInteractiveEnvironments`. 2 new `027` scenarios (re-prompt-skip + picker); 027 @logic 21/21.
 
-**0.10.20 (PENDING — building now, gate running):** progress-spinner descriptive labels — the running stage shows its plain-language action (`▸ store — creating your Saleor store (~1 min)`) so the slow stages aren't a mysterious wait. `STAGE_DESCRIPTIONS` map; new `027` assertion (027:167 passing). Will ship if the full gate is green.
+### TO SHIP WHEN BACK — local commits, NO outbound yet (dk's instruction). `git log origin/main..HEAD`
+Three local commits on `main` (NOT pushed/published), version still `0.10.19` — bump + push + publish when ready:
+1. **progress-spinner descriptive labels** (intended `0.10.20`): running stage shows its plain-language action (`▸ store — creating your Saleor store (~1 min)`). `STAGE_DESCRIPTIONS`; new `027` assertion. Full @logic **164/164** green.
+2. **CORS/trusted-origin noise removed**: the `saleor-trusted-origin` deploy warning was speculative (Saleor serves anonymous reads without it). Removed the check + the trusted-origin language from `002`/`012`/`014` specs + steps + `SKILL.md`. @logic 002+014 24/24.
+3. **risk-column noise removed from `setup.md`**: reworded "confirm before each risky move / show the risk" → "let my gates do the gating"; dropped `riskContext` from the envelope-fields-to-parse lists. **`setup.md` deploys SEPARATELY (homepage) — needs `cd assets/homepage && npx vercel deploy --prod --yes` redeploy.** The envelope `riskContext` itself was KEPT (it IS the gate model — 010/021, 8 features, 60 src refs); slimming its SHAPE is a bigger respec to scope together if you want it.
+
+### Findings / open follow-ups (no code)
+- **Test parallelism (dk's "might as well"):** `@logic` at `parallel: 4` HANGS (10-min timeout) — confirms the PTY/loopback race the `parallel: 2` cap protects against. A `@pty` split won't cleanly fix it: the loopback fake-auth-host (018 agent-login etc.) contends too and lives in NON-PTY scenarios, so it's a harness-concurrency project (make the fake hosts + PTY allocation concurrency-safe), not a tagging job. Left undone — modest payoff, real effort; your call.
+- **Fresh-create slowness:** optional `acquireAppTokenWithRetry` exponential backoff (1/2/4/8s vs fixed 4s) — marginal, since the bulk is real provisioning. dk: "ok for now."
 
 **0.10.18** (npm): silenced npx EBADENGINE noise (`NPM_CONFIG_LOGLEVEL=error` in `main()`; reverted the fragile vercel pin).
 
