@@ -276,6 +276,12 @@ Feature: Human-facing interactive CLI experience
       `--json` path (feature 020). A pre-flight bootstrap readiness check the run itself then
       resolves — no Saleor endpoint, app token, or local storefront before the stages create them —
       is never presented as a failure of the completed run.
+    - On a completed run, after the live URLs and the Stripe step — separated by a blank line — the
+      close adds a minimal "keep building" orientation: the two artifacts setup leaves on disk
+      (`storefront/` and `recipe.yml`), the CLI that drives each (`npx vercel`,
+      `npx @saleor/configurator`), and reference links (the Paper and configurator repos and the
+      Saleor docs). It is success-only and stays concise — never a wall of text — and is absent from
+      an unfinished/failed close. The installed `jolly` skill carries the depth.
     - A genuine stage failure — not a human gate — still stops honestly and reports the error;
       Jolly never fabricates success to keep going. The agent path (`--json`, `--yes`/`-y`, or no
       interactive terminal) shows no interactive prompts and never blocks on `@clack/prompts`

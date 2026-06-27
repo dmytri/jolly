@@ -179,6 +179,11 @@ the CLI and installs itself; the rest arrive via `npx skills add`, all of it dur
 Ask your human to reload or restart your agent so the skills I installed load into its context for
 ongoing work — that restart is theirs to do, not yours.
 
+Setup leaves you two things to build on: the `storefront/` repo (your Paper storefront, now live on
+Vercel) and `recipe.yml` (your store's catalog, categories, and config as code). The installed
+`jolly` skill explains both — and which skill/CLI drives each, with worked examples — so your agent
+can take it from there.
+
 `.mcp.json` wires a local mcp-graphql server to your store's GraphQL endpoint for live store access.
 (Saleor also runs a read-only MCP server at `mcp.saleor.app` you may configure too; I never contact
 it.) From here the store and the storefront repo are yours — keep building with the Saleor skills and

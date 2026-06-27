@@ -162,6 +162,41 @@ only the stages it actually performed.
    remaining manual steps. Then remind the human to reload or restart their agent so the installed
    skills load into its context for the work ahead.
 
+## After setup — what's on disk, and how to keep building
+
+`jolly start` leaves a working store and the files to evolve it. At the close, orient your human:
+name each artifact, say what it's for, and point at the skill/CLI that drives it.
+
+| On disk | What it is | Drive it with |
+|---|---|---|
+| `storefront/` | The cloned Paper storefront (Next.js), a fresh git repo, now live on Vercel. Your code. | `storefront-builder` + `saleor-storefront` skills; `npx pnpm dev`, `git`, `npx vercel` |
+| `recipe.yml` | Your store's catalog, categories, channels, and settings as code — what was deployed to Saleor. | `saleor-configurator` skill; `npx @saleor/configurator diff` / `deploy` |
+| `.env` | Secrets (Saleor session + app token). Gitignored — never commit. | Jolly reads it; you add values |
+| `.mcp.json` | A local mcp-graphql server wired to your store, for live API access from your agent. | your agent's MCP client |
+| `.agents/skills/` | The installed skill toolkit (this skill + the Saleor/Stripe skills). | reload your agent to load them |
+
+References: Paper — https://github.com/saleor/storefront · Configurator —
+https://github.com/saleor/configurator · Vercel CLI — https://vercel.com/docs/cli · Saleor docs —
+https://docs.saleor.io
+
+The pattern for any change: find which artifact owns it, edit there, preview, then ship. A few
+worked examples to take from there:
+
+- **Rename the top-nav categories** (the recipe ships `Weapons`, `Navigation`, `Apparel`,
+  `Treasure`, `Ship Supplies`) — they live in the `categories:` block of `recipe.yml`. Edit the
+  names there, run `npx @saleor/configurator diff` to preview, then `deploy`; the storefront nav
+  reads categories from the store, so it updates once the store does (`saleor-configurator` skill).
+- **Change the storefront's default language / locale** — that's a storefront concern, in
+  `storefront/`, not a Saleor one. Ask the `storefront-builder` skill where Paper sets its locale,
+  edit, `npx pnpm dev` to preview, then `npx vercel --prod` to ship.
+- **Verify or tune caching / data freshness** — caching lives in the storefront's data-fetching
+  layer (Next.js); the `storefront-builder` skill covers Saleor's caching patterns. Change it in
+  `storefront/`, then verify against the deployed URL.
+- **Change the catalog, channels, or store settings** — edit `recipe.yml`, `diff` to preview, then
+  `deploy` (`saleor-configurator`).
+
+These are starting points — the skills and docs above carry the specifics.
+
 ## If a step fails or you're unsure
 
 Run `jolly doctor` — it names what is wrong and the concrete next action (a command, a CLI to

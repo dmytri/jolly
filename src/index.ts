@@ -4496,6 +4496,18 @@ async function runStartCore(
     });
   }
 
+  // On a fully completed run, orient the agent to what setup left on disk so it
+  // can hand the human a clear "keep building" map (feature 002): the
+  // `storefront/` repo and `recipe.yml`, each with the skill/CLI that drives it,
+  // and reference links. Success-only — these artifacts exist once every
+  // side-effecting stage actually ran, so it never fires on a paused/blocked run.
+  if (allStagesDone && !bootstrapFailed) {
+    nextSteps.push({
+      description:
+        "Your store is live. Orient the human on what's on disk to keep building: `storefront/` is the Paper storefront (Next.js), now live on Vercel — develop it with `npx pnpm dev` and redeploy with `npx vercel`; `recipe.yml` is the store's catalog and configuration as code — edit it, then re-apply with `npx @saleor/configurator deploy`. The `storefront-builder` and `saleor-configurator` skills carry the specifics. Guides: https://github.com/saleor/storefront, https://github.com/saleor/configurator, https://docs.saleor.io.",
+    });
+  }
+
   // Human-run FALLBACK (feature 002 Rule "Human-runnable `jolly start` is the
   // backup path"): whenever this run could not run to completion (status
   // `warning` — paused at a gate, or with blocked/failed downstream stages),

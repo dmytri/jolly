@@ -53,6 +53,21 @@ describe("interactiveCloseSummary — success close", () => {
     assert.match(r.summary, /stripe/i, "names the remaining Stripe step");
   });
 
+  test("orients to the on-disk artifacts (storefront/ and recipe.yml) after a blank line, with reference links", () => {
+    const r = interactiveCloseSummary(baseCore(), { stripeStep: STRIPE_STEP });
+    assert.match(r.summary, /storefront\//, "names the storefront/ repo");
+    assert.match(r.summary, /recipe\.yml/, "names recipe.yml");
+    assert.match(r.summary, /github\.com\/saleor\/storefront/, "links the Paper repo");
+    assert.match(r.summary, /github\.com\/saleor\/configurator/, "links the configurator repo");
+    assert.match(r.summary, /docs\.saleor\.io/, "links the Saleor docs");
+    // At least one blank line between the live URLs and the keep-building block.
+    assert.match(
+      r.summary,
+      /\n\n {2}Keep building:/,
+      "a blank line separates the live URLs from the keep-building orientation",
+    );
+  });
+
   test("renders no per-check or next-step machine detail on the human stream", () => {
     const r = interactiveCloseSummary(baseCore(), { stripeStep: STRIPE_STEP });
     assert.equal(r.checks.length, 0, "no checks[] enumeration");
@@ -118,6 +133,11 @@ describe("interactiveCloseSummary — genuine stage failure is honest, never fab
       "must not present pre-flight readiness checks (resolved by the stages) as failures",
     );
     assert.equal(r.checks.length, 0, "still concise — no check enumeration");
+    assert.doesNotMatch(
+      r.summary,
+      /Keep building|recipe\.yml/i,
+      "no keep-building artifacts orientation on an unfinished run",
+    );
   });
 
   test("a pending deploy stage (Vercel sign-in not approved, no failure reason) is never reported as live", () => {

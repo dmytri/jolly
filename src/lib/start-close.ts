@@ -123,6 +123,17 @@ export function interactiveCloseSummary<E extends CloseEnvelope>(
     if (storefrontUrl) lines.push(`  Storefront:       ${link(storefrontUrl)}`);
     if (dashboardUrl) lines.push(`  Saleor Dashboard: ${link(dashboardUrl)}`);
     lines.push(`  ${opts.stripeStep}`);
+    // A blank line, then a minimal "keep building" orientation: the two
+    // artifacts setup leaves on disk and the CLI that drives each, with
+    // reference links. Success-only — these files exist only once every stage
+    // completed; the installed jolly skill carries the how-to.
+    lines.push("");
+    lines.push("  Keep building:");
+    lines.push("  • storefront/ — your storefront, live on Vercel (pnpm dev, npx vercel)");
+    lines.push("  • recipe.yml — your catalog & store config as code (npx @saleor/configurator)");
+    lines.push(
+      "  Guides: github.com/saleor/storefront · github.com/saleor/configurator · docs.saleor.io",
+    );
     summary = lines.join("\n");
   }
 

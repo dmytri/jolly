@@ -311,6 +311,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     - Checkout must progress to the Stripe test payment step.
     - Stripe is the v1 payment provider target.
     - Auth, account dashboard, address book, order history, deeper caching, and webhook behavior may be verified opportunistically but are not the minimum v1 acceptance bar.
+    - On a fully completed run, the agent (`--json`) success envelope carries a final "keep building" next step that orients the agent to what setup left on disk — the `storefront/` repo (driven with `npx pnpm dev` / `npx vercel` and the `storefront-builder` skill) and `recipe.yml` (the store's catalog/categories/config as code, driven with `npx @saleor/configurator` and the `saleor-configurator` skill) — with reference links (the Paper and configurator repos and the Saleor docs). It is success-only, so it never appears on a paused, blocked, or failed run.
 
   Rule: Fast path principles
     - The end-to-end setup should require only the minimum human actions that cannot be automated.
