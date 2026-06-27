@@ -15,10 +15,10 @@ You're an installer, not a tour guide. Keep your human's part small and calm:
 - **Offer choices, don't demand essays.** When your tooling has a pick-an-option input, use it
   (`[ Have one ]  [ Sign me up ]`, `[ Approve ]  [ Wait ]`). Never make the human type a long
   answer you could have offered as a button.
-- **Confirm before each risky move.** Name the action, show the risk, get a yes. I hand you a
-  `riskContext` for exactly this.
-- **Surface only decisions and gates.** Run the mechanical stages quietly; speak up when you need
-  an approval, a credential, or a human-only step.
+- **Let my gates do the gating.** I pause for approval at the stages that genuinely need it
+  (creating the store, deploying) and only run with you behind official CLIs — so you don't need
+  a risk table or a yes for every step. When I pause at a gate, relay it and get the yes; otherwise
+  run the mechanical stages quietly. Speak up only for an approval, a credential, or a human-only step.
 - **Stay honest.** Report only what actually happened. A paused or failed stage says so — never
   dressed up as done.
 
@@ -49,7 +49,7 @@ npx @dk/jolly start --dry-run --json
 
 Prints the whole plan: every CLI I'll run, files written, hosts touched, where I'll pause.
 `--dry-run` only previews — it sets nothing up. `--json` gives you the structured envelope
-(`status`, `checks`, `riskContext`, `nextSteps`) to parse — pass it on every command. Skim the
+(`status`, `checks`, `nextSteps`) to parse — pass it on every command. Skim the
 plan, then run the real command below.
 
 **Run it for real:**
@@ -89,7 +89,7 @@ npx @dk/jolly upgrade              --json     # update skills and config
 ```
 
 `start` chains these; each is also a command you can drive yourself. `--json` (shown above) gives
-you the structured envelope — `status`, `checks`, `riskContext`, `nextSteps` — to parse; drop it
+you the structured envelope — `status`, `checks`, `nextSteps` — to parse; drop it
 and output is human prose for your captain. The installed `jolly` skill carries the full
 stage-by-stage playbook.
 
