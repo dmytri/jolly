@@ -180,7 +180,7 @@ https://github.com/saleor/configurator · Vercel CLI — https://vercel.com/docs
 https://docs.saleor.io
 
 The pattern for any change: find which artifact owns it, edit there, preview, then ship. A few
-worked examples to take from there:
+examples to take from there:
 
 - **Rename the top-nav categories** (the recipe ships `Weapons`, `Navigation`, `Apparel`,
   `Treasure`, `Ship Supplies`) — they live in the `categories:` block of `recipe.yml`. Edit the

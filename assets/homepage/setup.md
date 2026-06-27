@@ -179,10 +179,10 @@ the CLI and installs itself; the rest arrive via `npx skills add`, all of it dur
 Ask your human to reload or restart your agent so the skills I installed load into its context for
 ongoing work — that restart is theirs to do, not yours.
 
-Setup leaves you two things to build on: the `storefront/` repo (your Paper storefront, now live on
-Vercel) and `recipe.yml` (your store's catalog, categories, and config as code). The installed
-`jolly` skill explains both — and which skill/CLI drives each, with worked examples — so your agent
-can take it from there.
+`jolly start` leaves you two things to build on: the `storefront/` repo (your Paper storefront, now
+live on Vercel) and `recipe.yml` (your store's catalog, categories, and config as code). The
+installed `jolly` skill explains both — and which skill/CLI drives each, with examples — so your
+agent can take it from there.
 
 `.mcp.json` wires a local mcp-graphql server to your store's GraphQL endpoint for live store access.
 (Saleor also runs a read-only MCP server at `mcp.saleor.app` you may configure too; I never contact
@@ -191,6 +191,6 @@ the official CLIs above.
 
 ### Boundaries
 
-Saleor Cloud only (no self-hosted in v1) · Stripe test mode only (live mode needs an explicit human
+Saleor Cloud only (never self-hosted Saleor — that's out of scope, not a roadmap item) · Stripe test mode only (live mode needs an explicit human
 choice) · Vercel for deployment · secrets never leave `.env` · I never replace your agent — I empower
 it.

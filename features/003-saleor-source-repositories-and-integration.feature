@@ -89,7 +89,7 @@ Feature: Saleor source repositories and integration boundaries
     - Legacy Vercel login used a Saleor CLI Vercel integration OAuth flow; Jolly should validate modern Vercel setup separately.
 
   Rule: Jolly integration principles
-    - V1 targets Saleor Cloud only — no self-hosted Saleor. Jolly assumes a Saleor Cloud environment for store creation, configuration, and app-token acquisition; self-hosted Saleor is out of v1 scope.
+    - Jolly targets Saleor Cloud only — never self-hosted Saleor. Jolly assumes a Saleor Cloud environment for store creation, configuration, and app-token acquisition. Self-hosted Saleor is permanently out of scope, not a roadmap item: Jolly orchestrates Cloud setup, it is not an infrastructure/provisioning tool.
     - `jolly start` delegates mechanical setup to official tools — `git` (cloning `saleor/storefront` from `main` unless the customer chooses another ref), `@saleor/configurator`, `pnpm`, and the Vercel CLI — while never reimplementing them against raw provider APIs.
     - All skills (the Jolly skill and the Saleor agent-skills) are installed via `npx skills add <ref>`, falling back to a Git-based install only for a skill not available that way (such as Paper's embedded skill, which arrives with the cloned storefront).
     - Use the deprecated `saleor/cli` only as research evidence for flows that are not otherwise documented; never invoke it.
