@@ -29,6 +29,16 @@ The suite runs against **real services** in a production-shaped test env (the `J
 - **Published Node floor >=20.12.0 (006)**; dev/CI floor >=23. **Homepage (jolly.cool)** offers Agent + Terminal entry modes (Agent default); human-authored asset, not specced/tested. **Ships SEPARATELY from npm** — it is a Vercel deploy of `assets/homepage/` (project `homepage`, `.vercel/project.json`), NOT in the package `files`. **Any `assets/homepage/` change (esp. `setup.md`, the agent-entry guidance) MUST be redeployed** with `cd assets/homepage && npx vercel deploy --prod --yes` or it stays stale on the live site while the package is correct ([[homepage-deploy-separate-from-npm]]).
 - **Resumable stages (008/022):** a completed `create` subcommand's `nextSteps` point back to `jolly start` and recognize stored work; a resumable stage announces an already-satisfied stage as satisfied, never re-gates it.
 
+## Verification tiers + test env (READ before saying "@logic only")
+
+- **Creds live in the project `.env`, NOT the shell.** The harness loads `.env`; a `process.env` / `for v in …; echo ${!v}` check shows them "unset" and is MISLEADING. Check `.env` value lengths instead (never print the secret). This VM has had these populated across many runs.
+- **All THREE tiers run here — run the full suite, do not default to `@logic` only:**
+  - `npm run test:logic` — deterministic gate, no creds, `cucumber-js -p logic` (parallel:2, PTY-bound; ~5 min).
+  - `npm run test:sandbox` — LIVE. Needs `JOLLY_SALEOR_CLOUD_TOKEN` (≈81-char staff token; present in `.env`). Provisions disposable `jolly-test`-namespaced Saleor Cloud envs, deploys to Vercel (logged in as `dmytri`), installs the Saleor Stripe app. For an auth/token change this is the GOLD-STANDARD check — `@logic` uses doubles (loopback auth host) so a real device-grant→token regression can pass `@logic` and only show live.
+  - `npm run test:eval` — LIVE baseline agent over the shipped skill. Needs `HARNESS_OPENROUTER_API_KEY` + `HARNESS_EVAL_MODEL` (both present in `.env`). Non-deterministic, opt-in (`@eval` excluded from default profile).
+- **Stripe needs NO creds — stop conflating.** Jolly's entire payment role is installing the Saleor Stripe app via GraphQL `appInstall` (Cloud/staff token). There are no Stripe keys in the flow; the empty `JOLLY_STRIPE_*` in `.env` are irrelevant to `@sandbox`.
+- **"No outbound" (dk) = no `git push` / no `npm publish` / no homepage `vercel deploy` (i.e. don't SHIP the release).** It does NOT mean "don't run the live test tiers" — `@sandbox`/`@eval` are the normal disposable, namespaced harness and are fine to run under "no outbound".
+
 ## Shipped
 
 ### ✅ SESSION MILESTONE — BOTH FLOWS PROVEN (dk-confirmed, fresh creates)
