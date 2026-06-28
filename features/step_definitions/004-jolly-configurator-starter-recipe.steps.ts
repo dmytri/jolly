@@ -57,7 +57,7 @@ Then(
     // deploy` (feature 004 Rule "Configurator deploy"; src/index.ts runRecipeStage
     // / startPlan recipe stage). Drive the real dry-run preview and assert its
     // configurator-deploy stage names the spawned command, Jolly's bundled recipe,
-    // the store URL + app token by name only, and the safe `--failOnDelete` guard.
+    // the store URL + SALEOR_TOKEN by name only, and the safe `--failOnDelete` guard.
     this.runCli(["start", "--dry-run", "--json"], { env: absentCredentialsEnv() });
     const plan = this.envelope.data.plan as PlanStage[];
     assert.ok(Array.isArray(plan) && plan.length > 0, "start --dry-run must report data.plan");
@@ -73,12 +73,12 @@ Then(
       "the plan must name Jolly's bundled starter recipe (recipe.yml)",
     );
     assert.ok(
-      blob.includes("NEXT_PUBLIC_SALEOR_API_URL"),
-      "the plan must name the store URL by name (NEXT_PUBLIC_SALEOR_API_URL)",
+      blob.includes("SALEOR_URL"),
+      "the plan must name the store URL by name (SALEOR_URL)",
     );
     assert.ok(
-      blob.includes("JOLLY_SALEOR_APP_TOKEN"),
-      "the plan must name the app token by name (JOLLY_SALEOR_APP_TOKEN)",
+      blob.includes("SALEOR_TOKEN"),
+      "the plan must name the store token by name (SALEOR_TOKEN)",
     );
     assert.ok(
       blob.includes("--failOnDelete"),
@@ -88,10 +88,18 @@ Then(
 );
 
 Then(
-  "the plan should name the Saleor app token used for deployment as having all available permissions in v1",
-  function () {
-    // The app-token permission breadth is pinned by feature 024's step defs
-    // (jolly create app-token requests all permissions). Narrative cross-ref.
+  "the plan should name the deploy token as `SALEOR_TOKEN` \\(the resolved store token Jolly holds)",
+  function (this: JollyWorld) {
+    // The configurator deploy authenticates with SALEOR_TOKEN — the resolved
+    // store token Jolly projects into .env (CLOUD wins, else the device-grant
+    // access token). Named by name only, never a value.
+    const plan = this.envelope.data.plan as PlanStage[];
+    const stage = plan.find(isConfiguratorDeployStage);
+    assert.ok(stage, "the plan must include the `@saleor/configurator` deploy stage");
+    assert.ok(
+      JSON.stringify(stage).includes("SALEOR_TOKEN"),
+      "the plan must name the deploy token as SALEOR_TOKEN",
+    );
   },
 );
 
@@ -323,7 +331,7 @@ Then("the preview should not perform any mutation", function (this: JollyWorld) 
 function storeCreds(): { endpoint: string; token: string | undefined } {
   return {
     endpoint: process.env.NEXT_PUBLIC_SALEOR_API_URL ?? "",
-    token: process.env.JOLLY_SALEOR_APP_TOKEN,
+    token: process.env.SALEOR_TOKEN,
   };
 }
 
@@ -504,7 +512,7 @@ Then(
 // (feature 004 Rule "Configurator deploy is a genuinely-executing stage"). The
 // `jolly start --dry-run` plan must surface the configurator-deploy (recipe)
 // stage as a SPAWNED-CLI step that runs BEFORE the stock-seeding stage, naming
-// the spawned command, Jolly's bundled recipe, the store URL + app token (by
+// the spawned command, Jolly's bundled recipe, SALEOR_URL + SALEOR_TOKEN (by
 // name only — never a value), and the safe `--failOnDelete`
 // flag, carrying a feature-021 riskContext whose dry run maps to the configurator
 // `--plan` preview — all without spawning anything. The `Given`/`When` are shared
@@ -542,7 +550,7 @@ Then(
 );
 
 Then(
-  "the preview should name the spawned command `npx @saleor\\/configurator deploy`, Jolly's bundled starter recipe, and the store URL and app token by name only",
+  "the preview should name the spawned command `npx @saleor\\/configurator deploy`, Jolly's bundled starter recipe, and `SALEOR_URL` and `SALEOR_TOKEN` by name only",
   function (this: JollyWorld) {
     const stage = this.notes.deployStage as PlanStage;
     const blob = JSON.stringify(stage);
@@ -555,20 +563,20 @@ Then(
       "the preview must name Jolly's bundled starter recipe (recipe.yml)",
     );
     assert.ok(
-      blob.includes("NEXT_PUBLIC_SALEOR_API_URL"),
-      "the preview must name the store URL by name (NEXT_PUBLIC_SALEOR_API_URL)",
+      blob.includes("SALEOR_URL"),
+      "the preview must name the store URL by name (SALEOR_URL)",
     );
     assert.ok(
-      blob.includes("JOLLY_SALEOR_APP_TOKEN"),
-      "the preview must name the app token by name (JOLLY_SALEOR_APP_TOKEN)",
+      blob.includes("SALEOR_TOKEN"),
+      "the preview must name the store token by name (SALEOR_TOKEN)",
     );
-    // "By name only": the actual app-token VALUE must never appear in the
+    // "By name only": the actual store-token VALUE must never appear in the
     // preview. Guard against the real configured value when one is present.
-    const appTokenValue = process.env.JOLLY_SALEOR_APP_TOKEN;
-    if (appTokenValue) {
+    const storeTokenValue = process.env.SALEOR_TOKEN;
+    if (storeTokenValue) {
       assert.ok(
-        !blob.includes(appTokenValue),
-        "the app token must be referenced by name only — its value must never be printed",
+        !blob.includes(storeTokenValue),
+        "the store token must be referenced by name only — its value must never be printed",
       );
     }
   },
@@ -633,7 +641,7 @@ Then(
 // envelope must be `warning`, not `success`. `--yes` pre-approves the high-risk
 // gate so the run actually reaches the recipe stage instead of pausing before
 // it; the runtime credentials are genuinely UNSET (absentCredentialsEnv) — real
-// absence, so with no store URL or app token the recipe stage cannot deploy and
+// absence, so with no store URL or SALEOR_TOKEN the recipe stage cannot deploy and
 // must block, and nothing could reach a real account. Bootstrap still succeeds
 // (the local scaffold — .mcp.json + AGENTS.md — is written regardless), so the
 // run proceeds to and processes the recipe stage.
@@ -915,7 +923,7 @@ Given(
   function (this: JollyWorld) {
     // The @sandbox harness provisions the shared per-run environment THROUGH
     // `jolly create store --create-environment` (provision.ts) and records its
-    // NEXT_PUBLIC_SALEOR_API_URL / JOLLY_SALEOR_APP_TOKEN — exactly the blank,
+    // NEXT_PUBLIC_SALEOR_API_URL / SALEOR_TOKEN — exactly the blank,
     // create-store-bootstrapped environment this scenario starts from. Gating
     // skips locally when the Cloud token is absent.
     const creds = storeCreds();
@@ -1015,7 +1023,7 @@ Then(
 // retry a transient rate-limit").
 //
 // Targeting: the run points NEXT_PUBLIC_SALEOR_API_URL at the stand-in and
-// supplies the app token the stock stage authenticates with, so the single 429
+// supplies the SALEOR_TOKEN the stock stage authenticates with, so the single 429
 // is reserved for the stock stage's own GraphQL — keyed on the Jolly-specific
 // stock operation names (`Warehouses`/`VariantsForStock`), so neither the
 // bootstrap doctor probes nor the spawned configurator consume it.
@@ -1149,14 +1157,14 @@ When(
   async function (this: JollyWorld) {
     // In-process loopback stand-in ⇒ runCliAsync (spawnSync would block the
     // event loop and the server could never answer). Point the run's Saleor
-    // GraphQL endpoint at the stand-in and supply the app token the stock stage
+    // GraphQL endpoint at the stand-in and supply the SALEOR_TOKEN the stock stage
     // authenticates with (STAND_IN_TOKEN — the stand-in does not validate it).
     // Generous timeout: start clones Paper + pnpm-installs before reaching the
     // stock stage, plus the retry backoff.
     await this.runCliAsync(["start", "--yes", "--json"], {
       env: absentCredentialsEnv({
         NEXT_PUBLIC_SALEOR_API_URL: String(this.notes.stockRateLimitEndpoint),
-        JOLLY_SALEOR_APP_TOKEN: STAND_IN_TOKEN,
+        SALEOR_TOKEN: STAND_IN_TOKEN,
         // Loopback is reached via the documented JOLLY_SALEOR_CLOUD_API_URL
         // override, whose host Jolly treats as first-party (feature 018 Rule);
         // loopback is not a fixed first-party host (feature 020).

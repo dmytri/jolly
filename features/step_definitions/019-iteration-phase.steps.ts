@@ -9,7 +9,7 @@
 //     jolly init wrote a working mcp-graphql config AND that the agent can
 //     query/mutate the live store through it (read-only verification via
 //     saleor-graphql.ts). Gated by SANDBOX_REQUIREMENTS (saleorEndpoint +
-//     saleorAppToken) → skips locally.
+//     SALEOR_TOKEN) → skips locally.
 //   - The two @logic scenarios (doctor health checks, upgrade) run read-only
 //     Jolly commands under absentCredentialsEnv() in the scenario's temp project dir.
 import { Given, When, Then } from "@cucumber/cucumber";
@@ -28,9 +28,11 @@ Given("a deployed storefront URL in .env", function () {});
 // --- Scenario: Agent has live store access from day one (@sandbox) ----------
 //
 // Jolly-observable contributions: jolly init writes an .mcp.json mcp-graphql
-// entry pointing at the customer's Saleor GraphQL endpoint and using the stored
-// app token. The live query/mutation steps verify real access through that
-// endpoint (read-only), exercising the same env Jolly itself uses.
+// entry pointing at the customer's Saleor GraphQL endpoint and using the
+// resolved store token (SALEOR_TOKEN). The live query/mutation steps verify real
+// access through that endpoint (read-only), exercising the same env Jolly itself
+// uses. MCP is refresh-on-401: it captures ${SALEOR_TOKEN} at spawn, so a
+// 401 means re-auth and reload the MCP server.
 
 Given("jolly init has completed", function (this: JollyWorld) {
   // Run jolly init in the scenario's temp project so .mcp.json is produced from
@@ -66,32 +68,36 @@ Then(
   },
 );
 
-Then("the config should use the stored app token", function (this: JollyWorld) {
-  // The saleor-graphql entry must authenticate live access with the stored app
-  // token, referenced via env expansion (${JOLLY_SALEOR_APP_TOKEN}) so the MCP
-  // client resolves it at launch — never the literal secret in the file
-  // (feature 007 keeps secrets out of the scaffolded config).
-  const config = this.notes.mcpConfig as {
-    mcpServers?: Record<string, { env?: Record<string, string> }>;
-  };
-  const headers = config.mcpServers?.["saleor-graphql"]?.env?.HEADERS ?? "";
-  assert.match(
-    headers,
-    /Authorization.*Bearer.*\$\{?JOLLY_SALEOR_APP_TOKEN\}?/i,
-    "the saleor-graphql entry must authenticate with the stored app token via HEADERS (by env reference, not the literal)",
-  );
-  const appToken = process.env["JOLLY_SALEOR_APP_TOKEN"];
-  assert.ok(appToken && appToken.trim() !== "", "a stored app token must be available for live access");
-  this.notes.appToken = appToken;
-});
+Then(
+  /^the config should send the `Authorization: Bearer \$\{SALEOR_TOKEN\}` header$/,
+  function (this: JollyWorld) {
+    // The saleor-graphql entry must authenticate live access with the resolved
+    // store token, referenced via env expansion (${SALEOR_TOKEN}) so the MCP
+    // client resolves it at launch — never the literal secret in the file
+    // (feature 007 keeps secrets out of the scaffolded config). The token rides
+    // as Bearer (store GraphQL is always Bearer), never an "App" scheme.
+    const config = this.notes.mcpConfig as {
+      mcpServers?: Record<string, { env?: Record<string, string> }>;
+    };
+    const headers = config.mcpServers?.["saleor-graphql"]?.env?.HEADERS ?? "";
+    assert.match(
+      headers,
+      /Authorization.*Bearer.*\$\{?SALEOR_TOKEN\}?/i,
+      "the saleor-graphql entry must authenticate with the resolved store token via HEADERS (by env reference, not the literal)",
+    );
+    const storeToken = process.env["SALEOR_TOKEN"];
+    assert.ok(storeToken && storeToken.trim() !== "", "a resolved store token must be available for live access");
+    this.notes.storeToken = storeToken;
+  },
+);
 
 Then(
-  "the `.mcp.json` saleor-graphql entry should target the customer's Saleor GraphQL endpoint with the stored app token",
+  /^the `\.mcp\.json` saleor-graphql entry should target the customer's Saleor GraphQL endpoint with the `\$\{SALEOR_TOKEN\}` Bearer header$/,
   { timeout: 30_000 },
   async function (this: JollyWorld) {
-    // Read-only live verification through the configured endpoint + app token.
+    // Read-only live verification through the configured endpoint + SALEOR_TOKEN.
     const endpoint = String(this.notes.mcpEndpoint ?? process.env["NEXT_PUBLIC_SALEOR_API_URL"]);
-    const token = this.notes.appToken as string | undefined;
+    const token = this.notes.storeToken as string | undefined;
     const result = await saleorGraphql(
       endpoint,
       token,
@@ -99,6 +105,34 @@ Then(
     );
     assert.ok(!result.errors || result.errors.length === 0, `live query errored: ${JSON.stringify(result.errors)}`);
     assert.ok(result.data && "shop" in result.data, "the live store should answer a read-only query");
+  },
+);
+
+Then(
+  /^because the MCP server captures `SALEOR_TOKEN` at spawn, recovery from a `401` is to refresh the token and reload the MCP server$/,
+  function (this: JollyWorld) {
+    // Refresh-on-401 hinges on the entry referencing SALEOR_TOKEN by ENV
+    // EXPANSION (not the literal value baked in): the MCP server resolves
+    // ${SALEOR_TOKEN} from the environment when it spawns, so a refreshed token
+    // is picked up only on a reload. Confirm the captured config expresses that
+    // contract — the HEADERS carry the ${SALEOR_TOKEN} reference, never the
+    // resolved secret.
+    const config = this.notes.mcpConfig as {
+      mcpServers?: Record<string, { env?: Record<string, string> }>;
+    };
+    const headers = config.mcpServers?.["saleor-graphql"]?.env?.HEADERS ?? "";
+    assert.match(
+      headers,
+      /\$\{?SALEOR_TOKEN\}?/,
+      "HEADERS must reference SALEOR_TOKEN by env expansion so a reload picks up a refreshed token",
+    );
+    const token = this.notes.storeToken as string | undefined;
+    if (token) {
+      assert.ok(
+        !headers.includes(token),
+        "HEADERS must not bake the resolved token literal in — it must be captured from the env at spawn",
+      );
+    }
   },
 );
 

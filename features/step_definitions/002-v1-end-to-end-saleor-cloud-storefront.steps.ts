@@ -14,8 +14,8 @@
 //     readiness checks and the orchestration plan — never depending on a real
 //     destructive clone/deploy from within cucumber. The riskContext/approval
 //     pause behavior is pinned at @logic in features 001/021.
-// The deep auth/store/app-token/url-normalization behavior is pinned in
-// features 018/012/024; here it is asserted only at the Jolly surface.
+// The deep auth/store/SALEOR_TOKEN/url-normalization behavior is pinned in
+// features 018/012; here it is asserted only at the Jolly surface.
 //
 // Safety: @logic CLI runs use absentCredentialsEnv() in the scenario's temp dir. The
 // @sandbox scenarios are gated by SANDBOX_REQUIREMENTS (+ requiresVercelCli for
@@ -58,7 +58,7 @@ Given(
   function () {},
 );
 Given(
-  "Jolly's own plumbing covers auth, store\\/app-token via the Cloud API, secret writing, `.mcp.json`, skill install, and `jolly doctor` verification",
+  "Jolly's own plumbing covers auth, store via the Cloud API, secret writing, `.mcp.json`, skill install, and `jolly doctor` verification",
   function () {},
 );
 Given(
@@ -201,29 +201,29 @@ Then(
 
 // --- Scenario: Agent connects an existing Saleor store (@sandbox) -----------
 //
-// URL normalization, introspection validation, org/env inference, and app-token
-// acquisition are pinned in features 012/024. Asserted only at the Jolly
-// surface here. Gated (saleorEndpoint+saleorAppToken) → skips locally.
+// URL normalization, introspection validation, org/env inference, and
+// SALEOR_TOKEN projection are pinned in features 012/018. Asserted only at the
+// Jolly surface here. Gated (saleorEndpoint+SALEOR_TOKEN) → skips locally.
 
-Given("a store URL `https:\\/\\/example.saleor.cloud` and a valid app token", function (this: JollyWorld) {
+Given("a store URL `https:\\/\\/example.saleor.cloud` and a valid `SALEOR_TOKEN`", function (this: JollyWorld) {
   this.notes.connectBranch = true;
 });
 
 When("the agent runs `jolly init --json` with that store URL", function (this: JollyWorld) {
   // Jolly-observable: doctor's saleor group reports connectivity readiness for
-  // an existing store (endpoint/app-token presence + live check under creds).
+  // an existing store (endpoint + SALEOR_TOKEN presence + live check under creds).
   this.runCli(["doctor", "saleor", "--json"]);
 });
 
 Then(
   "`data` should report the normalized GraphQL endpoint `https:\\/\\/example.saleor.cloud\\/graphql\\/`",
   function (this: JollyWorld) {
-    // Jolly-observable: doctor's saleor group reports an endpoint check plus an
-    // app-token readiness check for the normalized GraphQL endpoint.
+    // Jolly-observable: doctor's saleor group reports an endpoint check plus a
+    // SALEOR_TOKEN readiness check for the normalized GraphQL endpoint.
     const endpoint = this.findCheck("saleor-endpoint");
     assert.ok(endpoint, "doctor saleor must report an endpoint/connectivity check");
-    const appToken = this.findCheck("saleor-app-token");
-    assert.ok(appToken, "doctor saleor must report an app-token readiness check");
+    const saleorToken = this.findCheck("saleor-token");
+    assert.ok(saleorToken, "doctor saleor must report a SALEOR_TOKEN readiness check");
   },
 );
 
@@ -1318,16 +1318,21 @@ Then(
 );
 
 Then(
-  "`jolly start` should write that `NEXT_PUBLIC_SALEOR_API_URL` and the acquired `JOLLY_SALEOR_APP_TOKEN` to `.env`",
+  "`jolly start` should write that `NEXT_PUBLIC_SALEOR_API_URL` \\(mirrored to `SALEOR_URL`) and the resolved `SALEOR_TOKEN` to `.env`",
   function (this: JollyWorld) {
     const values = loadEnvValues(this.lastRun!.cwd);
     assert.ok(
       values["NEXT_PUBLIC_SALEOR_API_URL"]?.includes(".saleor.cloud"),
       "start must write the provisioned NEXT_PUBLIC_SALEOR_API_URL to .env",
     );
+    assert.equal(
+      values["SALEOR_URL"],
+      values["NEXT_PUBLIC_SALEOR_API_URL"],
+      "start must mirror NEXT_PUBLIC_SALEOR_API_URL to SALEOR_URL in .env",
+    );
     assert.ok(
-      values["JOLLY_SALEOR_APP_TOKEN"] && values["JOLLY_SALEOR_APP_TOKEN"].length > 0,
-      "start must write the acquired JOLLY_SALEOR_APP_TOKEN to .env",
+      values["SALEOR_TOKEN"] && values["SALEOR_TOKEN"].length > 0,
+      "start must write the resolved SALEOR_TOKEN to .env",
     );
   },
 );

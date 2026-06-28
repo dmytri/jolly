@@ -99,8 +99,7 @@ Feature: Existing Saleor store connection
     And the envelope `data` should report the created store's `*.saleor.cloud` GraphQL API URL
     And the envelope `data` should report the created store's Saleor Dashboard URL ending in `.saleor.cloud/dashboard/`
     And it should write NEXT_PUBLIC_SALEOR_API_URL to .env from the resulting domain
-    And it should create an app token via the Saleor GraphQL API
-    And it should write JOLLY_SALEOR_APP_TOKEN to .env
+    And it should write SALEOR_URL and SALEOR_TOKEN to .env from the authenticated session
     And the created environment's name and domain label should carry the run's jolly-test namespace
     And teardown should delete the created environment right after the scenario
 
@@ -162,12 +161,12 @@ Feature: Existing Saleor store connection
     - Environments: POST /platform/api/organizations/{slug}/environments/ with body { name, project, domain_label, database_population: null, service: "saleor", region: "us-east-1" }. Returns a task_id. `database_population` is null (the Saleor Cloud "blank" template — no sample data or config), never "sample"; see the "Created environments are provisioned blank" rule.
     - Task status: GET /platform/api/service/task-status/{task_id} until status is "SUCCEEDED".
     - The environment task result contains the domain URL (https://{domain_label}.saleor.cloud/graphql/).
-    - Require an app token or equivalent credential for full existing-store setup.
-    - Acquire or create the app token automatically where Saleor APIs allow; otherwise guide the customer through Saleor Dashboard token creation.
-    - The deprecated CLI shows useful example flows for Saleor Cloud OAuth/headless token acquisition, local app selection/creation, permission updates, and app token creation through Saleor GraphQL.
-    - Use `saleor/configurator introspect` with the app token to discover channels, catalog structure, menus, and configuration.
+    - Require a usable store credential for full existing-store setup: Jolly projects SALEOR_TOKEN
+      to .env from the authenticated session (alongside SALEOR_URL), so configurator and curl read it
+      directly — no separate per-store app token is minted.
+    - The deprecated CLI shows useful example flows for Saleor Cloud OAuth/headless token acquisition, local app selection/creation, and permission updates.
+    - Use `saleor/configurator introspect` with SALEOR_TOKEN to discover channels, catalog structure, menus, and configuration.
 
   Rule: Open questions
     - Which pasted URL forms should Jolly normalize in v1?
-    - What exact Saleor API or Dashboard automation path can create an app token at implementation time?
     - The exact shape of the task status response and how to extract the domain URL from it needs verification against the live Cloud API at implementation time.

@@ -278,12 +278,12 @@ Then("stderr should be empty", function (this: JollyWorld) {
 // and its stable code go to stderr only, with no stdout and no envelope.
 
 When(
-  /^the agent runs `jolly create app-token --url https:\/\/evil\.example\.com\/graphql\/ --quiet`$/,
+  /^the agent runs `jolly create store --url https:\/\/evil\.example\.com\/graphql\/ --quiet`$/,
   function (this: JollyWorld) {
-    const env = (this.notes.appTokenEnv as Record<string, string | undefined>)
+    const env = (this.notes.urlGuardEnv as Record<string, string | undefined>)
       ?? absentCredentialsEnv();
     this.runCli(
-      ["create", "app-token", "--url", "https://evil.example.com/graphql/", "--quiet"],
+      ["create", "store", "--url", "https://evil.example.com/graphql/", "--quiet"],
       { env },
     );
   },
@@ -827,18 +827,18 @@ Then(
 Given("a Saleor Cloud token is configured", function (this: JollyWorld) {
   // A Cloud token is present (a stand-in value), so the refusal below fires
   // pre-flight on the --url host — not because auth is missing.
-  this.notes.appTokenEnv = absentCredentialsEnv({ JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN });
+  this.notes.urlGuardEnv = absentCredentialsEnv({ JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN });
 });
 
 When(
-  /^the agent runs `jolly create app-token --url https:\/\/evil\.example\.com\/graphql\/ --json`$/,
+  /^the agent runs `jolly create store --url https:\/\/evil\.example\.com\/graphql\/ --json`$/,
   function (this: JollyWorld) {
-    const env = (this.notes.appTokenEnv as Record<string, string | undefined>)
+    const env = (this.notes.urlGuardEnv as Record<string, string | undefined>)
       ?? absentCredentialsEnv();
     this.runCli(
       [
         "create",
-        "app-token",
+        "store",
         "--url",
         "https://evil.example.com/graphql/",
         "--json",

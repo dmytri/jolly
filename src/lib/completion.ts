@@ -17,7 +17,7 @@ const COMMANDS: ReadonlyArray<readonly [string, string]> = [
   ["doctor", "Diagnose the project setup"],
   ["upgrade", "Upgrade Jolly and the installed skills"],
   ["skills", "Install the Jolly and Saleor agent-skills"],
-  ["create", "Create a store or an app token"],
+  ["create", "Create a store"],
   ["completion", "Print a shell completion script"],
 ];
 

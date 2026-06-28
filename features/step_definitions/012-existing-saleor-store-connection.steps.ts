@@ -14,7 +14,7 @@
 //   - --region / --organization overrides reflected in the dry-run preview.
 //   - multi-org warning via --mock-organizations (no network).
 //
-// @sandbox scenarios (validate endpoint, infer org/env, acquire app token,
+// @sandbox scenarios (validate endpoint, infer org/env, project SALEOR_TOKEN,
 // create environment, domain collision) run against real accounts in CI and
 // skip locally. Their bodies namespace every created resource and register
 // teardown BEFORE creation.
@@ -338,9 +338,6 @@ Then(
     );
   },
 );
-
-// ─── @sandbox: acquire the required app token ──────────────────────────────
-// saleorEndpoint + saleorCloud gated.
 
 // ─── Scenario: create store --url --dry-run does not write to .env ─────────
 
@@ -828,16 +825,17 @@ Then(
   },
 );
 
-Then("it should create an app token via the Saleor GraphQL API", function (this: JollyWorld) {
-  const check = this.envelope.checks.find((c) => String(c.id).includes("app-token"));
-  assert.ok(check, "expected an app-token check");
-});
-
-Then("it should write JOLLY_SALEOR_APP_TOKEN to .env", function (this: JollyWorld) {
-  const values = loadEnvValues(this.lastRun!.cwd);
-  assert.ok(values["JOLLY_SALEOR_APP_TOKEN"], "app token must be written to .env");
-  this.trackSecret(values["JOLLY_SALEOR_APP_TOKEN"]);
-});
+Then(
+  "it should write SALEOR_URL and SALEOR_TOKEN to .env from the authenticated session",
+  function (this: JollyWorld) {
+    // The agent-facing store surface (feature 018 token model): SALEOR_URL mirrors
+    // the endpoint and SALEOR_TOKEN is projected from the authenticated session, so
+    // configurator/curl read them directly — no per-store app token is minted.
+    const values = loadEnvValues(this.lastRun!.cwd);
+    assert.ok(values["SALEOR_URL"], "SALEOR_URL must be written to .env");
+    assert.ok(values["SALEOR_TOKEN"], "SALEOR_TOKEN must be projected to .env");
+  },
+);
 
 Then(
   "the created environment's name and domain label should carry the run's jolly-test namespace",

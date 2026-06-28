@@ -115,7 +115,7 @@ Given(
     // Track the real secrets so the no-leak assertions cover them.
     for (const name of [
       "JOLLY_SALEOR_CLOUD_TOKEN",
-      "JOLLY_SALEOR_APP_TOKEN",
+      "SALEOR_TOKEN",
     ]) {
       const v = process.env[name];
       if (v && v.trim() !== "") this.trackSecret(v);

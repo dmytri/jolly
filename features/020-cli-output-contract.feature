@@ -41,7 +41,7 @@ Feature: Jolly CLI output contract
   @logic
   Scenario: --quiet reports only the problem on a failed run
     Given a Saleor Cloud token is configured
-    When the agent runs `jolly create app-token --url https://evil.example.com/graphql/ --quiet`
+    When the agent runs `jolly create store --url https://evil.example.com/graphql/ --quiet`
     Then stderr should name the failure and the stable code `NON_FIRST_PARTY_HOST`
     And stdout should be empty
     And no JSON envelope should be printed
@@ -109,7 +109,7 @@ Feature: Jolly CLI output contract
   @logic
   Scenario: Jolly refuses a request to a non-first-party host instead of sending it
     Given a Saleor Cloud token is configured
-    When the agent runs `jolly create app-token --url https://evil.example.com/graphql/ --json`
+    When the agent runs `jolly create store --url https://evil.example.com/graphql/ --json`
     Then the envelope status should be "error" with the stable code `NON_FIRST_PARTY_HOST`
     And the error message should name the refused host evil.example.com
     And nothing should be written to .env

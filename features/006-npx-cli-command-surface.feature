@@ -29,7 +29,7 @@ Feature: Npx-first Jolly CLI command surface
     Given the published Jolly CLI
     When the agent inspects `jolly --help`
     Then it should list exactly the commands `login`, `logout`, `auth status`, `init`, `start`, `doctor`, `upgrade`, `skills`, `create`, and `completion`
-    And `jolly create --help` should list only the subcommands `store` and `app-token`
+    And `jolly create --help` should list only the subcommand `store`
     And no `deployment`, `deploy`, `recipe`, or `storefront` subcommand should appear anywhere in the surface
 
   @logic
@@ -62,9 +62,6 @@ Feature: Npx-first Jolly CLI command surface
       | create store      | --json    |
       | create store      | --quiet   |
       | create store      | --yes     |
-      | create app-token  | --json    |
-      | create app-token  | --quiet   |
-      | create app-token  | --yes     |
 
   @logic
   Scenario: The launcher fails clearly on an unsupported Node version
@@ -103,11 +100,10 @@ Feature: Npx-first Jolly CLI command surface
       | doctor           |
       | upgrade          |
       | create store     |
-      | create app-token |
 
   Rule: Thin command surface
     - Jolly is a thin CLI: it provides deterministic plumbing, installs the Jolly skill, and uses `jolly start` to orchestrate official CLIs without reimplementing them against raw provider APIs.
-    - The full command surface is `login`, `logout`, `auth status`, `init`, `start`, `doctor`, `upgrade`, `skills`, `create`, and `completion`, with `create` subcommands `store` and `app-token` only.
+    - The full command surface is `login`, `logout`, `auth status`, `init`, `start`, `doctor`, `upgrade`, `skills`, `create`, and `completion`, with `create` subcommand `store` only.
     - `completion` is the human/shell-integration command (see feature 027): `jolly completion <shell>` prints a shell-completion script. It is the single command exempt from the feature 020 `--json` envelope, since its output is consumed by the shell via `source`; it still supports `--help`.
     - There are no separate `create deployment`, `deploy`, `create recipe`, or `create storefront` subcommands: the orchestration lives inside `jolly start`, and the official CLIs remain the delegated tools (see feature 008).
     - All skills (the Jolly skill and the Saleor agent-skills) are installed via `npx skills add <ref>`, falling back to a Git-based install only for a skill not available that way.

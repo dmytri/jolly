@@ -94,12 +94,11 @@ Feature: Stripe checkout setup for the Jolly starter storefront
       - **Saleor GraphQL API: installs the app, does not configure it.**
         `appInstall(manifestUrl, appName, permissions: [HANDLE_PAYMENTS])` installs the Stripe app
         programmatically against the customer's `*.saleor.cloud` endpoint. **It requires
-        `AUTHENTICATED_STAFF_USER` + `MANAGE_APPS` — an app token CANNOT call it** (returns
+        `AUTHENTICATED_STAFF_USER` + `MANAGE_APPS` — a plain app token CANNOT call it** (returns
         `PermissionDenied`, "authenticated as a staff member"). Jolly already has staff auth: the
-        **Cloud token (`JOLLY_SALEOR_CLOUD_TOKEN`) sent as `Authorization: Bearer` to the store
-        GraphQL authenticates as the environment's staff superuser** (`me.isStaff: true`) — the same
-        auth Jolly uses for `appCreate`/`appTokenCreate`. So `appInstall` MUST use the Cloud token,
-        not `JOLLY_SALEOR_APP_TOKEN`. The current manifest URL is
+        **Cloud staff token (`JOLLY_SALEOR_CLOUD_TOKEN`) sent as `Authorization: Bearer` to the store
+        GraphQL authenticates as the environment's staff superuser** (`me.isStaff: true`). So
+        `appInstall` MUST use the Cloud staff token. The current manifest URL is
         **`https://stripe-v2.saleor.app/api/manifest`** (re-verify the current URL at implementation
         time). There is **no** public GraphQL mutation to set the app's keys or assign a
         configuration to a channel — post-install GraphQL is limited to `appActivate`/`appTokenCreate`.

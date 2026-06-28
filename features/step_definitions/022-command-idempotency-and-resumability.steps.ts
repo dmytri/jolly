@@ -70,20 +70,6 @@ When("the agent runs `jolly create store` again", function (this: JollyWorld) {
   this.runCli(["create", "store", "--url", url, "--json"]);
 });
 
-Given(
-  "`jolly create app-token` has already completed its resource",
-  function (this: JollyWorld) {
-    // The completed resource is observable: the app token stored by a prior
-    // `create app-token`. Re-running must detect, not duplicate.
-    this.runCli(["create", "app-token", "--json"]);
-    assert.equal(this.envelope.status, "success", "first create app-token should succeed");
-  },
-);
-
-When("the agent runs `jolly create app-token` again", function (this: JollyWorld) {
-  this.runCli(["create", "app-token", "--json"]);
-});
-
 Then("Jolly should detect the already-completed work", function (this: JollyWorld) {
   // The endpoint is already stored; the re-run reports stored state, not a new
   // resource. A successful, non-error envelope is the observable proof.
@@ -107,8 +93,8 @@ Then(
 Then(
   "it should report the detected existing state through the standard output envelope",
   function (this: JollyWorld) {
-    // Scenario Outline over both `create store` and `create app-token`: the
-    // standard envelope names whichever create subcommand ran, not a fixed one.
+    // Scenario Outline over `create store`: the standard envelope names whichever
+    // create subcommand ran, not a fixed one.
     assert.ok(this.envelope.command.startsWith("create "), "must use the standard envelope");
     assert.ok(this.envelope.summary.length > 0, "must summarize the detected state");
   },

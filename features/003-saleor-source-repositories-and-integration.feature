@@ -77,8 +77,8 @@ Feature: Saleor source repositories and integration boundaries
     - Existing-instance examples validate a provided URL by sending a GraphQL introspection-style request to confirm it is a valid endpoint.
     - Existing-instance examples infer Saleor Cloud organization/environment by listing organizations and environments, then matching the instance host to an environment domain.
     - Cloud auth examples use browser OAuth/PKCE or headless token configuration to acquire a Saleor Cloud token.
-    - App token examples select or create a Saleor local app, manage permissions, and call Saleor GraphQL `appTokenCreate` to produce an app token.
-    - Jolly v1 should request all available permissions for its setup/configuration app token.
+    - App token examples select or create a Saleor local app, manage permissions, and call Saleor GraphQL `appTokenCreate` to produce an app token — an ecosystem capability the deprecated CLI exercised, not something Jolly v1 mints.
+    - Jolly v1 does not mint a per-store app token: its setup/configuration uses `SALEOR_TOKEN` (the staff session) against the store GraphQL API.
     - Trusted-origin examples patch `allowed_client_origins` for the Saleor Cloud environment.
     - Environment creation examples use organization, project, region, Saleor version, database template, domain label, and optional Basic Auth restriction.
     - Default region observed in source: `us-east-1`.
@@ -89,7 +89,7 @@ Feature: Saleor source repositories and integration boundaries
     - Legacy Vercel login used a Saleor CLI Vercel integration OAuth flow; Jolly should validate modern Vercel setup separately.
 
   Rule: Jolly integration principles
-    - Jolly targets Saleor Cloud only — never self-hosted Saleor. Jolly assumes a Saleor Cloud environment for store creation, configuration, and app-token acquisition. Self-hosted Saleor is permanently out of scope, not a roadmap item: Jolly orchestrates Cloud setup, it is not an infrastructure/provisioning tool.
+    - Jolly targets Saleor Cloud only — never self-hosted Saleor. Jolly assumes a Saleor Cloud environment for store creation and configuration. Self-hosted Saleor is permanently out of scope, not a roadmap item: Jolly orchestrates Cloud setup, it is not an infrastructure/provisioning tool.
     - `jolly start` delegates mechanical setup to official tools — `git` (cloning `saleor/storefront` from `main` unless the customer chooses another ref), `@saleor/configurator`, `pnpm`, and the Vercel CLI — while never reimplementing them against raw provider APIs.
     - All skills (the Jolly skill and the Saleor agent-skills) are installed via `npx skills add <ref>`, falling back to a Git-based install only for a skill not available that way (such as Paper's embedded skill, which arrives with the cloned storefront).
     - Use the deprecated `saleor/cli` only as research evidence for flows that are not otherwise documented; never invoke it.

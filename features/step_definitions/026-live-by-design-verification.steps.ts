@@ -217,7 +217,7 @@ Then(
 // Feature 026 — second @logic @property scenario: the eval seed carries only
 // AUTHENTICATION credentials, never a pre-provisioned store. Feature 025
 // requires `jolly start` to provision a fresh `jolly-test` store on the real
-// creation path; a seed that includes the store endpoint + app token makes
+// creation path; a seed that includes the store endpoint + SALEOR_TOKEN makes
 // `jolly start` treat the store as pre-existing, so the configurator's
 // `--failOnDelete` guard blocks the starter recipe and the live stages can
 // never complete. `@eval` never gates CI, so a harness that silently seeds a
@@ -237,7 +237,7 @@ const AUTHENTICATION_CREDENTIALS = new Set<string>([
 
 // The store-identifying variables that must NOT be seeded: their presence makes
 // `jolly start` reuse a pre-existing store instead of creating a fresh one.
-const STORE_SEED_VARS = ["NEXT_PUBLIC_SALEOR_API_URL", "JOLLY_SALEOR_APP_TOKEN"];
+const STORE_SEED_VARS = ["NEXT_PUBLIC_SALEOR_API_URL", "SALEOR_TOKEN"];
 
 Given("the eval harness's workspace `.env` seed", function (this: JollyWorld) {
   // The subject under conformance: the harness's declared seed variable list,
@@ -270,7 +270,7 @@ Then(
 );
 
 Then(
-  "it should omit the store endpoint `NEXT_PUBLIC_SALEOR_API_URL` and the `JOLLY_SALEOR_APP_TOKEN`, so a baseline agent's `jolly start` provisions a fresh `jolly-test` store on the real creation path instead of reusing a pre-seeded one",
+  "it should omit the store endpoint `NEXT_PUBLIC_SALEOR_API_URL` and the `SALEOR_TOKEN`, so a baseline agent's `jolly start` provisions a fresh `jolly-test` store on the real creation path instead of reusing a pre-seeded one",
   function (this: JollyWorld) {
     const seeded = new Set(this.notes.enumeratedSeedVars as string[]);
     for (const v of STORE_SEED_VARS) {

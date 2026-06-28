@@ -179,28 +179,3 @@ Then(
     );
   },
 );
-
-Then(
-  "it should write the token to .env as JOLLY_SALEOR_APP_TOKEN",
-  function (this: JollyWorld) {
-    // Shared by 024 scenarios 2 (logic mutation) and 5 (sandbox). For the
-    // @logic path the unroutable endpoint means nothing is written, so this
-    // step asserts the honest contract: either the token is stored on disk, or
-    // the command errored without fabricating storage. The dedicated 024 logic
-    // steps pin the error path; here we only verify no fabricated success.
-    const env = this.envelope;
-    if (env.status === "success") {
-      const path = join(this.lastRun!.cwd, ".env");
-      assert.ok(existsSync(path), "a successful app-token write must touch .env");
-      const values = readFileSync(path, "utf8");
-      assert.match(
-        values,
-        /JOLLY_SALEOR_APP_TOKEN=/,
-        ".env should contain JOLLY_SALEOR_APP_TOKEN after a successful write",
-      );
-    } else {
-      // Honest error: no fabricated app-token storage.
-      assert.notEqual(env.status, "success");
-    }
-  },
-);

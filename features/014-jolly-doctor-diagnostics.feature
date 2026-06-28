@@ -18,7 +18,7 @@ Feature: Jolly doctor diagnostics
     When `jolly doctor` checks Saleor
     Then it should validate GraphQL connectivity
     And it should check whether required environment variables are present
-    And it should check whether an app token is available when required
+    And it should check whether SALEOR_TOKEN is present for store GraphQL when required
     And the saleor check should name Configurator introspection as its next step
     And it should report missing permissions or authentication failures with next steps
 
@@ -135,10 +135,10 @@ Feature: Jolly doctor diagnostics
 
   @logic
   Scenario: Doctor warns when a per-store token is in the Cloud token slot
-    Given .env contains JOLLY_SALEOR_CLOUD_TOKEN set to the per-store-app-token shape "abcdef0123456789abcdef0123" with no dot separator
+    Given .env contains JOLLY_SALEOR_CLOUD_TOKEN set to the store-access-token shape "abcdef0123456789abcdef0123" with no dot separator
     When the agent runs `jolly doctor saleor --json`
     Then the "saleor-cloud-token" check should be "warning"
-    And the check message should state the value looks like a per-store app token rather than a Cloud staff token and direct the customer to run `jolly login` to sign in through the Saleor device authorization grant
+    And the check message should state the value looks like a store access token rather than a Cloud staff token and direct the customer to run `jolly login` to sign in through the Saleor device authorization grant
 
   @sandbox @exceptional-double
   Scenario: Doctor validates stored device-grant credentials with Bearer

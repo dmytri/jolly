@@ -22,11 +22,6 @@
 // - When the Cloud API rejects environment creation because the
 //   organization's sandbox environment limit is reached, surface the stable
 //   error code ENVIRONMENT_LIMIT_REACHED.
-//
-// App token acquisition follows the deprecated CLI's example flow (reference
-// material only, feature 012): authenticate to the instance's GraphQL API
-// with the Cloud token (Bearer), select an existing local app or create one,
-// and create an app token via the Saleor GraphQL API.
 
 import { isFirstPartyHost } from "./hosts.ts";
 
@@ -422,7 +417,7 @@ export function extractDomainUrl(
   return `https://${domainLabel}.saleor.cloud/graphql/`;
 }
 
-// ── Instance GraphQL: app token acquisition ──────────────────────────────
+// ── Instance GraphQL ──────────────────────────────────────────────────────
 
 // A transient HTTP 429 rate-limit must not fail an otherwise-successful backend
 // Saleor request (feature 004 Rule "Backend Saleor requests retry a transient
@@ -525,131 +520,12 @@ export async function storeHoldsForeignCatalog(
   return edges.some((edge) => !recipeSlugs.has(edge.node.slug));
 }
 
-/** All PermissionEnum values supported by the instance. */
-async function queryPermissionEnum(
-  graphqlUrl: string,
-  token: string,
-): Promise<string[]> {
-  const data = await graphqlFetch(
-    graphqlUrl,
-    token,
-    `query { __type(name: "PermissionEnum") { enumValues { name } } }`,
-  );
-  const type = data.__type as Record<string, unknown> | undefined;
-  const values = (type?.enumValues ?? []) as Array<Record<string, unknown>>;
-  return values.map((value) => String(value.name));
-}
-
-/** mutation appTokenCreate — create a token for an existing local app. */
-export async function createAppToken(
-  graphqlUrl: string,
-  token: string,
-  appId: string,
-): Promise<{ authToken: string }> {
-  const data = await graphqlFetch(
-    graphqlUrl,
-    token,
-    `mutation AppTokenCreate($app: ID!) {
-      appTokenCreate(input: { app: $app }) {
-        authToken
-        errors { field message }
-      }
-    }`,
-    { app: appId },
-  );
-  const result = data.appTokenCreate as Record<string, unknown> | undefined;
-  const errors = (result?.errors ?? []) as Array<Record<string, unknown>>;
-  if (errors.length > 0) {
-    throw new CloudApiError(
-      `appTokenCreate failed: ${errors.map((e) => e.message).join("; ")}`,
-      "APP_TOKEN_CREATE_FAILED",
-    );
-  }
-  const authToken = result?.authToken;
-  if (typeof authToken !== "string" || authToken.length === 0) {
-    throw new CloudApiError(
-      "appTokenCreate did not return an authToken",
-      "APP_TOKEN_CREATE_FAILED",
-    );
-  }
-  return { authToken };
-}
-
-/** mutation appCreate — create a local app; returns its auth token directly. */
-export async function createLocalApp(
-  graphqlUrl: string,
-  token: string,
-  name: string,
-  permissions: string[],
-): Promise<{ appId: string; authToken: string }> {
-  const data = await graphqlFetch(
-    graphqlUrl,
-    token,
-    `mutation AppCreate($input: AppInput!) {
-      appCreate(input: $input) {
-        authToken
-        app { id name }
-        errors { field message }
-      }
-    }`,
-    { input: { name, permissions } },
-  );
-  const result = data.appCreate as Record<string, unknown> | undefined;
-  const errors = (result?.errors ?? []) as Array<Record<string, unknown>>;
-  if (errors.length > 0) {
-    throw new CloudApiError(
-      `appCreate failed: ${errors.map((e) => e.message).join("; ")}`,
-      "APP_CREATE_FAILED",
-    );
-  }
-  const app = result?.app as Record<string, unknown> | undefined;
-  const authToken = result?.authToken;
-  if (typeof authToken !== "string" || authToken.length === 0) {
-    throw new CloudApiError(
-      "appCreate did not return an authToken",
-      "APP_CREATE_FAILED",
-    );
-  }
-  return { appId: String(app?.id ?? ""), authToken };
-}
-
-/**
- * Acquire the workflow app token from a dedicated app Jolly owns, named
- * `appName` (the caller passes "Jolly Setup"). Looks for an existing app whose
- * name exactly matches: if found, mints a fresh token for that app via
- * appTokenCreate (idempotent — no duplicate app); if absent, creates the
- * dedicated app with the full v1 permission set via appCreate, which returns
- * its token directly. Jolly never mints a token for an unrelated pre-existing
- * app. Retries the GetApps query on transient failures: a freshly provisioned
- * environment can take a moment to serve GraphQL.
- */
-export async function acquireAppToken(
-  graphqlUrl: string,
-  token: string,
-  appName: string,
-): Promise<string> {
-  const apps = await withRetries(() => queryGetApps(graphqlUrl, token));
-  const existing = apps.find((app) => app.name === appName);
-  if (existing) {
-    const { authToken } = await createAppToken(graphqlUrl, token, existing.id);
-    return authToken;
-  }
-  const permissions = await queryPermissionEnum(graphqlUrl, token);
-  const { authToken } = await createLocalApp(
-    graphqlUrl,
-    token,
-    appName,
-    permissions,
-  );
-  return authToken;
-}
-
 // ── Recipe stock seeding (feature 004 Rule "Recipe products need seeded stock")
 //
 // @saleor/configurator cannot make products buyable (its variant schema has no
 // `stocks`/`trackInventory`), so `jolly start`'s stock stage seeds real stock
-// itself via Saleor GraphQL — first-party host, the app token Jolly already
-// manages. For every product variant it sets a default quantity in the recipe
+// itself via Saleor GraphQL — first-party host, the resolved store token
+// (SALEOR_TOKEN). For every product variant it sets a default quantity in the recipe
 // warehouse (resolved by slug) with `productVariantStocksCreate`, falling back
 // to `productVariantStocksUpdate` when a stock entry already exists, so a
 // re-run updates in place rather than creating a duplicate (idempotent —
@@ -1070,8 +946,8 @@ export async function installStripeApp(
   appName: string = STRIPE_APP_NAME,
 ): Promise<InstallStripeAppResult> {
   // Retry the GetApps idempotency query on transient failures (e.g. a momentary
-  // HTTP 429 rate-limit), as acquireAppToken does: a transient rate-limit must
-  // not degrade an already-installed Stripe app to a false blocked stage.
+  // HTTP 429 rate-limit): a transient rate-limit must not degrade an
+  // already-installed Stripe app to a false blocked stage.
   const apps = await withRetries(() => queryGetApps(graphqlUrl, cloudToken));
   const existing = apps.find((app) => /stripe/i.test(app.name ?? ""));
   if (existing) {

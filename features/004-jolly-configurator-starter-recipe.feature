@@ -10,7 +10,7 @@ Feature: Jolly Configurator starter recipe
     Then the plan should name the bundled starter recipe Jolly ships (`recipe.yml`)
     And the plan should write the recipe to a file at a named path before deployment
     And the plan should deploy it by spawning `npx @saleor/configurator deploy`
-    And the plan should name the Saleor app token used for deployment as having all available permissions in v1
+    And the plan should name the deploy token as `SALEOR_TOKEN` (the resolved store token Jolly holds)
 
   @sandbox
   Scenario: Jolly blocks a recipe re-deploy over a pre-existing store's destructive diff
@@ -58,7 +58,7 @@ Feature: Jolly Configurator starter recipe
     Given a project with the recipe stage not yet applied
     When the agent runs `jolly start --dry-run --json`
     Then the plan should include a configurator-deploy step that runs before the stock-seeding step
-    And the preview should name the spawned command `npx @saleor/configurator deploy`, Jolly's bundled starter recipe, and the store URL and app token by name only
+    And the preview should name the spawned command `npx @saleor/configurator deploy`, Jolly's bundled starter recipe, and `SALEOR_URL` and `SALEOR_TOKEN` by name only
     And the preview should name the safe flag `--failOnDelete` used to guard a re-deploy over a pre-existing store
     And the configurator-deploy step should carry a riskContext for deploying store configuration
     And the riskContext should mark a dry run available via the configurator `--plan` preview
@@ -113,7 +113,7 @@ Feature: Jolly Configurator starter recipe
       `@saleor/configurator` config: shop settings, the `us` channel, a `Pirate Goods` product
       type, categories, a warehouse, a default US shipping zone, published USD-priced pirate
       products, a featured collection, and a navigation menu.
-    - `jolly start` applies the bundled recipe with the configurator safe workflow — `diff`/plan to preview, then `deploy` with safe flags — passing the store URL and app token through the official CLI.
+    - `jolly start` applies the bundled recipe with the configurator safe workflow — `diff`/plan to preview, then `deploy` with safe flags — passing `SALEOR_URL` and `SALEOR_TOKEN` through the official CLI.
     - The recipe's `us` channel slug is the storefront's `NEXT_PUBLIC_DEFAULT_CHANNEL`.
 
   Rule: Recipe targets a clean environment
@@ -152,8 +152,8 @@ Feature: Jolly Configurator starter recipe
       updating in place when a stock entry already exists) — leaving `trackInventory: true`, so the
       catalog shows finite stock that decrements with sales. Seeding stock, not flipping
       `trackInventory`, is the approach.
-    - This is Jolly plumbing against a first-party Saleor host using the app token Jolly already
-      manages — no new host, no new credential (Network Boundaries unchanged). It emits a feature
+    - This is Jolly plumbing against a first-party Saleor host using the resolved `SALEOR_TOKEN`
+      Jolly holds — no new host, no new credential (Network Boundaries unchanged). It emits a feature
       021 `riskContext` (catalog data modification) and is idempotent and resumable (feature 022):
       re-running updates the quantities rather than creating duplicate stock entries.
     - The default quantity is a v1 constant; a configurable quantity is a post-MVP iteration.
@@ -184,7 +184,7 @@ Feature: Jolly Configurator starter recipe
     - It deploys Jolly's own bundled starter recipe (`assets/skills/jolly/recipe.yml`, resolved
       relative to Jolly's module path — the same bundled-asset mechanism `init` uses to install the
       skill). The agent's reviewable in-repo copy (Rule "Recipe artifact") is for ongoing iteration.
-    - The deploy flags are `--url <store GraphQL>`, `--token <app token Jolly manages>`,
+    - The deploy flags are `--url <SALEOR_URL>`, `--token <SALEOR_TOKEN>`,
       `--config <recipe>`, `--quiet`, `--plan` (preview without changes), and — only when re-deploying
       over a pre-existing store — `--failOnDelete` (exit code 6); env `SALEOR_URL`/`SALEOR_TOKEN`. The
       configurator binary exposes only `--failOnDelete` (its docs mention a `--fail-on-breaking`
@@ -204,7 +204,7 @@ Feature: Jolly Configurator starter recipe
       deferred to CLI design.
     - High-risk → approval: the stage emits the feature 021 `riskContext` (deploy store configuration)
       and pauses for the agent to approve; `--yes` pre-approves. `--dry-run` previews the stage by
-      naming the spawned command, the bundled recipe, the store URL + app token (by name only), and
+      naming the spawned command, the bundled recipe, `SALEOR_URL` + `SALEOR_TOKEN` (by name only), and
       the `--failOnDelete` guard, with `dryRunAvailable` mapping to the configurator `--plan` preview —
       performing no deployment and spawning nothing.
     - Honest reporting (integrity rule): the stage is reported `completed` when the configurator

@@ -1,7 +1,7 @@
 // Shared per-run Saleor environment provisioning (features 023 + 012).
 //
 // When a @sandbox scenario needs NEXT_PUBLIC_SALEOR_API_URL /
-// JOLLY_SALEOR_APP_TOKEN and they are not configured but
+// SALEOR_TOKEN and they are not configured but
 // JOLLY_SALEOR_CLOUD_TOKEN is present, the harness provisions ONE shared
 // environment for the whole run — through Jolly's own
 // `create store --create-environment` with the `--name`/`--domain-label`
@@ -49,9 +49,9 @@ export function ensureSharedEnvironment(): Promise<ProvisionOutcome> {
   return provisioning;
 }
 
-/** The derived app-token value, for per-scenario secret tracking. */
+/** The derived SALEOR_TOKEN value, for per-scenario secret tracking. */
 export function derivedSecrets(): string[] {
-  const token = process.env["JOLLY_SALEOR_APP_TOKEN"];
+  const token = process.env["SALEOR_TOKEN"];
   return token && token.trim() !== "" ? [token] : [];
 }
 
@@ -193,14 +193,14 @@ export async function provisionSharedEnvironment(): Promise<ProvisionOutcome> {
   // Derive the runtime values for the whole run from the CLI's .env.
   const values = loadEnvValues(scratchDir);
   const url = values["NEXT_PUBLIC_SALEOR_API_URL"];
-  const appToken = values["JOLLY_SALEOR_APP_TOKEN"];
-  if (!url || !appToken) {
+  const saleorToken = values["SALEOR_TOKEN"];
+  if (!url || !saleorToken) {
     throw new Error(
       "shared-environment provisioning did not yield both " +
-        "NEXT_PUBLIC_SALEOR_API_URL and JOLLY_SALEOR_APP_TOKEN in .env",
+        "NEXT_PUBLIC_SALEOR_API_URL and SALEOR_TOKEN in .env",
     );
   }
   process.env["NEXT_PUBLIC_SALEOR_API_URL"] = url;
-  process.env["JOLLY_SALEOR_APP_TOKEN"] = appToken;
+  process.env["SALEOR_TOKEN"] = saleorToken;
   return { status: "ready" };
 }

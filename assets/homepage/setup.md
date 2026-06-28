@@ -85,7 +85,6 @@ npx @dk/jolly start    --json     # end-to-end setup (chains the stages below)
 npx @dk/jolly login | logout | auth status   --json
 npx @dk/jolly init     --json     # skills + .mcp.json + scaffold (run by start)
 npx @dk/jolly create store [--create-environment]   --json
-npx @dk/jolly create app-token    --json
 npx @dk/jolly doctor   --json     # checks env, store, deploy, Stripe checkout
 npx @dk/jolly upgrade  --json     # re-verify managed skills + report Paper baseline (no auto-update)
 ```
@@ -134,10 +133,12 @@ an HTML sign-in page even unauthenticated. And don't hand-roll a probe at all: `
 `jolly doctor` run the right check and report the real result. A `401` from a wrong-scheme `curl` is
 not evidence the token is dead.
 
-Two token shapes, easy to confuse: a **Cloud staff token** (~81 chars, `uuid.base58`) in
-`JOLLY_SALEOR_CLOUD_TOKEN` (CI/automation only, set in the environment — never minted or pasted in
-the normal flow); a **per-store app token** (~30 chars, separator-free) in `JOLLY_SALEOR_APP_TOKEN`
-(cannot call the Cloud API).
+After setup, the surface you use to talk to the store is just two values in `.env`: `SALEOR_URL`
+(your GraphQL endpoint) and `SALEOR_TOKEN` (the store access token, sent `Authorization: Bearer` —
+short-lived in the normal flow; refresh it with `jolly doctor saleor` or re-run `jolly login`). The
+`JOLLY_*` vars are my internal auth layer that `SALEOR_TOKEN` is projected from. For unattended CI
+only, a long-lived **Cloud staff token** (~81 chars, `uuid.base58`) set as `JOLLY_SALEOR_CLOUD_TOKEN`
+in the environment is used silently — never minted or pasted in the normal flow.
 
 ### Sign-ins — Saleor and Vercel
 

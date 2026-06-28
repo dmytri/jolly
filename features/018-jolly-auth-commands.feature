@@ -156,9 +156,9 @@ Feature: Jolly auth commands
 
     @logic
     Scenario: Jolly logout removes every Jolly-managed auth value from .env
-      Given .env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token and JOLLY_SALEOR_ACCESS_TOKEN=some-access and JOLLY_SALEOR_REFRESH_TOKEN=some-refresh and JOLLY_SALEOR_APP_TOKEN=some-app-token and JOLLY_SALEOR_ORGANIZATION=some-org and THIRD_PARTY_KEY=keep-me
+      Given .env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token and JOLLY_SALEOR_ACCESS_TOKEN=some-access and JOLLY_SALEOR_REFRESH_TOKEN=some-refresh and SALEOR_TOKEN=some-store-token and JOLLY_SALEOR_ORGANIZATION=some-org and THIRD_PARTY_KEY=keep-me
       When the agent runs `jolly logout`
-      Then Jolly should remove JOLLY_SALEOR_CLOUD_TOKEN, JOLLY_SALEOR_ACCESS_TOKEN, JOLLY_SALEOR_REFRESH_TOKEN, JOLLY_SALEOR_APP_TOKEN, and JOLLY_SALEOR_ORGANIZATION from .env
+      Then Jolly should remove JOLLY_SALEOR_CLOUD_TOKEN, JOLLY_SALEOR_ACCESS_TOKEN, JOLLY_SALEOR_REFRESH_TOKEN, SALEOR_TOKEN, and JOLLY_SALEOR_ORGANIZATION from .env
       And THIRD_PARTY_KEY should remain in .env unchanged
       And subsequent `jolly auth status` should report not authenticated
 
@@ -181,8 +181,9 @@ Feature: Jolly auth commands
       And the output should include a nextSteps array with at least one step
 
   Rule: The .env Jolly writes is private and shell-safe
-    - Every .env Jolly creates or updates (the Cloud token, refresh token, app token, organization
-      name, Stripe keys, storefront variables) is written with owner-only permissions (mode 600); a
+    - Every .env Jolly creates or updates (the Cloud token, refresh token, the projected store
+      SALEOR_TOKEN, organization name, Stripe keys, storefront variables — under a Jolly-managed
+      commented header block) is written with owner-only permissions (mode 600); a
       file holding credentials is never group- or world-readable.
     - Values are written so the file stays a valid POSIX shell env file: a value containing
       whitespace, an apostrophe, or another shell-significant character is quoted so

@@ -13,7 +13,7 @@
 //   - The workspace `.env` is seeded with ONLY the REAL runtime JOLLY_* Saleor
 //     Cloud / Stripe values a baseline agent needs to AUTHENTICATE — no dummy
 //     credentials, no `.invalid` endpoints, no fake CLIs. The store endpoint and
-//     app token are deliberately left unset so `jolly start` provisions a fresh
+//     SALEOR_TOKEN are deliberately left unset so `jolly start` provisions a fresh
 //     `jolly-test` store on the real creation path. The agent acts against real
 //     services exactly as a customer's agent would.
 //   - Every cloud resource the agent creates is `jolly-test`-namespaced and
@@ -329,7 +329,7 @@ export function setupEvalContext(
  * The runtime credentials the eval workspace `.env` is seeded with: ONLY the
  * ones a baseline agent needs to AUTHENTICATE to the real services (feature 025
  * / 026). The store endpoint `NEXT_PUBLIC_SALEOR_API_URL` and the
- * `JOLLY_SALEOR_APP_TOKEN` are deliberately left unset so `jolly start`
+ * `SALEOR_TOKEN` are deliberately left unset so `jolly start`
  * provisions a fresh `jolly-test` store on the real creation path instead of
  * reusing a pre-seeded one (a seeded endpoint makes `jolly start` treat the
  * store as pre-existing, so the configurator's `--failOnDelete` guard blocks

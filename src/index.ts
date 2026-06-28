@@ -1,7 +1,7 @@
 // Jolly — the thin, skill-driven CLI (decision 2026-06-13).
 //
 // Jolly does not replace the customer's agent. It does deterministic plumbing
-// (login/logout/auth status, create store/app-token/stripe, init, start,
+// (login/logout/auth status, create store/stripe, init, start,
 // doctor, upgrade, skills) and installs the Jolly skill plus the Saleor
 // agent-skills; the customer's agent runs the official CLIs (`npx vercel`,
 // `@saleor/configurator`, `git`, `pnpm`). Jolly never shells out to the Vercel
@@ -37,7 +37,6 @@ import {
   pollTaskStatus,
   getEnvironment,
   extractDomainUrl,
-  acquireAppToken,
   seedRecipeStock,
   assignCollectionProducts,
   storeHoldsForeignCatalog,
@@ -54,6 +53,7 @@ import {
 } from "./lib/cloud-api.ts";
 import { loadEnvValues, writeEnvValues } from "./lib/env-file.ts";
 import { normalizeSaleorUrl } from "./lib/saleor-url.ts";
+import { isFirstPartyHost } from "./lib/hosts.ts";
 import { interactiveCloseSummary } from "./lib/start-close.ts";
 import {
   requestDeviceCode,
@@ -594,7 +594,10 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
 
   if (verificationFailure) {
     // Unreachable / 5xx / timeout: store token, warn "stored, not verified".
-    writeEnvValues(projectDir(), { JOLLY_SALEOR_CLOUD_TOKEN: token });
+    writeEnvValues(projectDir(), { JOLLY_SALEOR_CLOUD_TOKEN: token }, SALEOR_ENV_HEADER);
+    // A manual CLOUD token is the agent-facing store token (CLOUD wins), so
+    // project it into SALEOR_TOKEN; it is long-lived, so no refresh rewrite.
+    projectSaleorAgentEnv();
     return envelope({
       command,
       status: "warning",
@@ -625,7 +628,8 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
   const orgName = resolveOrgName(orgs ?? []);
   const values: Record<string, string> = { JOLLY_SALEOR_CLOUD_TOKEN: token };
   if (orgName) values["JOLLY_SALEOR_ORGANIZATION"] = orgName;
-  writeEnvValues(projectDir(), values);
+  writeEnvValues(projectDir(), values, SALEOR_ENV_HEADER);
+  projectSaleorAgentEnv();
 
   return envelope({
     command,
@@ -673,7 +677,10 @@ async function deviceGrantLogin(command: string): Promise<Envelope> {
   writeEnvValues(projectDir(), {
     JOLLY_SALEOR_ACCESS_TOKEN: tokens.accessToken,
     JOLLY_SALEOR_REFRESH_TOKEN: tokens.refreshToken,
-  });
+  }, SALEOR_ENV_HEADER);
+  // Project the fresh access token into the agent-facing SALEOR_TOKEN so the
+  // .env never holds a stale store token after a sign-in.
+  projectSaleorAgentEnv();
   return envelope({
     command,
     status: "success",
@@ -810,9 +817,11 @@ async function deviceGrantLoginAgent(
     writeEnvValues(projectDir(), {
       JOLLY_SALEOR_ACCESS_TOKEN: outcome.tokens.accessToken,
       JOLLY_SALEOR_REFRESH_TOKEN: outcome.tokens.refreshToken,
-    });
+    }, SALEOR_ENV_HEADER);
     process.env["JOLLY_SALEOR_ACCESS_TOKEN"] = outcome.tokens.accessToken;
     process.env["JOLLY_SALEOR_REFRESH_TOKEN"] = outcome.tokens.refreshToken;
+    // Project the fresh access token into the agent-facing SALEOR_TOKEN.
+    projectSaleorAgentEnv();
     return envelope({
       command,
       status: "success",
@@ -850,7 +859,10 @@ const MANAGED_AUTH_VARS = [
   "JOLLY_SALEOR_CLOUD_TOKEN",
   "JOLLY_SALEOR_ACCESS_TOKEN",
   "JOLLY_SALEOR_REFRESH_TOKEN",
-  "JOLLY_SALEOR_APP_TOKEN",
+  // The agent-facing store token Jolly projects from the internal auth layer.
+  // SALEOR_URL / NEXT_PUBLIC_SALEOR_API_URL are non-secret Paper config and are
+  // NOT purged (feature 018) — only the secret SALEOR_TOKEN is.
+  "SALEOR_TOKEN",
   "JOLLY_SALEOR_ORGANIZATION",
 ];
 
@@ -912,7 +924,7 @@ function commandAuthStatus(_args: ParsedArgs): Envelope {
   const command = "auth status";
   const values = loadEnvValues(projectDir());
   const hasCloudToken = Boolean(values["JOLLY_SALEOR_CLOUD_TOKEN"]);
-  const hasAppToken = Boolean(values["JOLLY_SALEOR_APP_TOKEN"]);
+  const hasSaleorToken = Boolean(values["SALEOR_TOKEN"]);
   const org = values["JOLLY_SALEOR_ORGANIZATION"];
   const accountContext = org && org.length > 0 ? org : "unknown";
 
@@ -925,11 +937,11 @@ function commandAuthStatus(_args: ParsedArgs): Envelope {
         : "JOLLY_SALEOR_CLOUD_TOKEN is not configured.",
     },
     {
-      id: "app-token-configured",
-      status: hasAppToken ? "pass" : "skipped",
-      description: hasAppToken
-        ? "JOLLY_SALEOR_APP_TOKEN is configured in .env."
-        : "JOLLY_SALEOR_APP_TOKEN is not configured.",
+      id: "saleor-token-configured",
+      status: hasSaleorToken ? "pass" : "skipped",
+      description: hasSaleorToken
+        ? "SALEOR_TOKEN is configured in .env."
+        : "SALEOR_TOKEN is not configured.",
     },
   ];
 
@@ -941,7 +953,7 @@ function commandAuthStatus(_args: ParsedArgs): Envelope {
       : "Saleor Cloud authentication is not configured.",
     data: {
       hasCloudToken,
-      hasAppToken,
+      hasSaleorToken,
       accountContext,
     },
     checks,
@@ -956,7 +968,7 @@ function commandAuthStatus(_args: ParsedArgs): Envelope {
   });
 }
 
-// ─── create store (features 012/024) ──────────────────────────────────────
+// ─── create store (feature 012) ───────────────────────────────────────────
 
 function createStoreRiskContext(target: unknown, dryRunAvailable = true): RiskContext {
   return {
@@ -967,7 +979,7 @@ function createStoreRiskContext(target: unknown, dryRunAvailable = true): RiskCo
     reversible: false,
     sideEffects: [
       "Creates a Saleor Cloud project and/or environment",
-      "Writes NEXT_PUBLIC_SALEOR_API_URL and JOLLY_SALEOR_APP_TOKEN to .env",
+      "Writes NEXT_PUBLIC_SALEOR_API_URL + SALEOR_URL/SALEOR_TOKEN to .env",
     ],
     dryRunAvailable,
   };
@@ -1034,6 +1046,26 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
           },
         ],
         { data: { riskContext: createStoreRiskContext(url) } },
+      );
+    }
+
+    // First-party-host guard (feature 020): a store endpoint on a non-first-party
+    // host is refused up front, writing nothing. Jolly's request layer only ever
+    // contacts first-party Saleor hosts, so storing such a URL would only fail
+    // later — refuse here with the same stable code the request layer raises.
+    const pastedHost = new URL(normalized.endpoint).hostname;
+    if (!isFirstPartyHost(pastedHost)) {
+      return errorEnvelope(
+        command,
+        `Refusing to use a non-first-party host: ${pastedHost}.`,
+        [
+          {
+            code: "NON_FIRST_PARTY_HOST",
+            message: `Refusing to send a request to non-first-party host ${pastedHost}.`,
+            remediation: "Use your Saleor Cloud store URL (a *.saleor.cloud endpoint).",
+          },
+        ],
+        { data: { riskContext: createStoreRiskContext(normalized.endpoint) } },
       );
     }
 
@@ -1110,7 +1142,14 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
     // when a Cloud token is configured (feature 012). Best-effort: a missing
     // token or no match just stores the endpoint as before.
     const location = await inferStoreLocation(normalized.endpoint);
-    writeEnvValues(projectDir(), { NEXT_PUBLIC_SALEOR_API_URL: normalized.endpoint });
+    writeEnvValues(
+      projectDir(),
+      { NEXT_PUBLIC_SALEOR_API_URL: normalized.endpoint },
+      SALEOR_ENV_HEADER,
+    );
+    // Project the agent-facing store surface (SALEOR_URL + the resolved
+    // SALEOR_TOKEN) now that the endpoint is known.
+    projectSaleorAgentEnv();
     return envelope({
       command,
       status: "success",
@@ -1134,10 +1173,6 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
         },
       ],
       nextSteps: [
-        {
-          description: "Run jolly create app-token to acquire a Saleor app token.",
-          command: "jolly create app-token",
-        },
         {
           description:
             "Run jolly start to continue the end-to-end setup; it recognizes the " +
@@ -1325,7 +1360,6 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
         graphqlEndpointStored: true,
         graphqlApiUrl: result.graphqlApiUrl,
         dashboardUrl: result.dashboardUrl,
-        appTokenStored: result.appTokenStored,
         riskContext: createStoreRiskContext(resolvedTarget),
       },
       checks: [
@@ -1336,22 +1370,7 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
             ? "Environment created and verified via task status."
             : "Existing environment reused.",
         },
-        {
-          id: "app-token-acquired",
-          status: result.appTokenStored ? "pass" : "unknown",
-          description: result.appTokenStored
-            ? "App token acquired and stored."
-            : "App token not acquired; run jolly create app-token.",
-        },
       ],
-      nextSteps: result.appTokenStored
-        ? []
-        : [
-            {
-              description: "Run jolly create app-token to acquire an app token.",
-              command: "jolly create app-token",
-            },
-          ],
     });
   } catch (err) {
     return cloudErrorEnvelope(command, err, createStoreRiskContext(resolvedTarget));
@@ -1367,43 +1386,13 @@ interface StoreProvisionResult {
   environmentKey?: string;
   projectCreated: boolean;
   environmentCreated: boolean;
-  appTokenStored: boolean;
-  appTokenError?: string;
-}
-
-// Acquire the instance app token resiliently. Two real failure modes a single
-// attempt hits on a FRESH store: the device-grant access token can stale during
-// the minute-long environment provision, and a brand-new instance can reject
-// `appCreate` for a moment until it is fully ready. So refresh the session token
-// (`resolvePlatformToken`, which re-mints an expired access token from the
-// refresh grant) and retry with backoff before giving up — this is what lets the
-// FIRST run complete instead of needing a re-run. The harness shortens the window
-// via HARNESS_APP_TOKEN_RETRIES / _RETRY_DELAY_MS so scenarios never idle.
-async function acquireAppTokenWithRetry(
-  graphqlUrl: string,
-  fallbackToken: string,
-): Promise<{ appToken?: string; error?: string }> {
-  const retries = Math.max(1, Number(process.env["HARNESS_APP_TOKEN_RETRIES"] ?? 5));
-  const delayMs = Number(process.env["HARNESS_APP_TOKEN_RETRY_DELAY_MS"] ?? 4000);
-  let error: string | undefined;
-  for (let attempt = 0; attempt < retries; attempt++) {
-    try {
-      const resolved = await resolvePlatformToken(loadEnvValues(projectDir()));
-      const appToken = await acquireAppToken(graphqlUrl, resolved.token || fallbackToken, "Jolly Setup");
-      return { appToken };
-    } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
-      if (attempt < retries - 1) await new Promise((r) => setTimeout(r, delayMs));
-    }
-  }
-  return { error };
 }
 
 /**
  * Create-or-reuse a Saleor Cloud project + environment via the Cloud API, poll
- * until ready, acquire an app token, and write the resulting
- * NEXT_PUBLIC_SALEOR_API_URL + JOLLY_SALEOR_APP_TOKEN to `.env` (and into this
- * process so later in-process stages see them). The shared plumbing behind both
+ * until ready, and write the resulting NEXT_PUBLIC_SALEOR_API_URL + the
+ * agent-facing SALEOR_URL/SALEOR_TOKEN to `.env` (and into this process so
+ * later in-process stages see them). The shared plumbing behind both
  * `jolly create store --create-environment` and `jolly start`'s auto-provision
  * store stage (feature 002 "Auto-provisioning a store"). Idempotent (feature
  * 022): an existing project/environment matching the name/domain label is reused
@@ -1472,23 +1461,19 @@ async function provisionStore(
   const environmentName =
     typeof environment.name === "string" ? environment.name : effectiveName;
 
-  const values: Record<string, string> = { NEXT_PUBLIC_SALEOR_API_URL: domainUrl };
+  // The store endpoint is now knowable, so write the agent-facing surface:
+  // SALEOR_URL (= the store GraphQL endpoint) and SALEOR_TOKEN (the resolved
+  // store token — CLOUD wins, else the device-grant access token), alongside the
+  // kept NEXT_PUBLIC_SALEOR_API_URL Paper config. Configurator/curl/MCP read the
+  // agent surface; the JOLLY_* vars stay the internal auth layer.
+  const values: Record<string, string> = {
+    NEXT_PUBLIC_SALEOR_API_URL: domainUrl,
+    SALEOR_URL: domainUrl,
+  };
+  const saleorToken = resolveSaleorToken(loadEnvValues(projectDir()));
+  if (saleorToken) values["SALEOR_TOKEN"] = saleorToken;
 
-  // Acquire an app token against the new instance GraphQL endpoint. Non-fatal —
-  // the env exists either way — but the failure REASON is captured and surfaced
-  // (recipe + stock cannot run without this token, so a swallowed error left the
-  // run mysteriously skipping them).
-  let appTokenStored = false;
-  let appTokenError: string | undefined;
-  const acquired = await acquireAppTokenWithRetry(domainUrl, token);
-  if (acquired.appToken) {
-    values["JOLLY_SALEOR_APP_TOKEN"] = acquired.appToken;
-    appTokenStored = true;
-  } else {
-    appTokenError = acquired.error;
-  }
-
-  writeEnvValues(projectDir(), values);
+  writeEnvValues(projectDir(), values, SALEOR_ENV_HEADER);
   // Make the new endpoint/token visible to later in-process reads (the
   // downstream recipe/stock/deploy stages of the same `jolly start` run).
   for (const [k, v] of Object.entries(values)) process.env[k] = v;
@@ -1501,8 +1486,6 @@ async function provisionStore(
     environmentKey,
     projectCreated,
     environmentCreated,
-    appTokenStored,
-    appTokenError,
   };
 }
 
@@ -1543,152 +1526,21 @@ function cloudErrorEnvelope(command: string, err: unknown, riskContext: RiskCont
   );
 }
 
-// ─── create app-token (feature 024) ───────────────────────────────────────
-
-function appTokenRiskContext(target: unknown): RiskContext {
-  return {
-    action: "create app-token",
-    target,
-    riskLevel: "medium",
-    categories: ["credential handling"],
-    reversible: true,
-    sideEffects: [
-      "Creates a Saleor app token via GraphQL",
-      "Writes JOLLY_SALEOR_APP_TOKEN to .env",
-    ],
-    dryRunAvailable: true,
-  };
-}
-
-async function commandCreateAppToken(args: ParsedArgs): Promise<Envelope> {
-  const command = "create app-token";
-  const values = loadEnvValues(projectDir());
-  // `.env`-first (feature 008 Rule "Credentials are read from .env"): the Cloud
-  // token is read from the project `.env` FILE the agent left it in, with a
-  // fallback to the process environment.
-  const token = cloudPlatformToken(values);
-  // Report where the Cloud token was read from: the project `.env` FILE is the
-  // real-agent path (feature 008 Rule "Credentials are read from .env"); the
-  // process environment is only a fallback.
-  const cloudTokenSource = values["JOLLY_SALEOR_CLOUD_TOKEN"]
-    ? "project .env"
-    : process.env["JOLLY_SALEOR_CLOUD_TOKEN"]
-      ? "process environment"
-      : "unresolved";
-  const instanceUrl =
-    args.options["url"] ??
-    values["NEXT_PUBLIC_SALEOR_API_URL"] ??
-    process.env["NEXT_PUBLIC_SALEOR_API_URL"];
-
-  if (args.dryRun) {
-    return envelope({
-      command,
-      status: "success",
-      summary: "Previewed app token creation; no GraphQL mutation was sent.",
-      data: {
-        dryRun: true,
-        instanceUrl: instanceUrl ?? null,
-        cloudTokenSource,
-        riskContext: appTokenRiskContext(instanceUrl ?? "unresolved Saleor GraphQL endpoint"),
-      },
-      nextSteps: [
-        {
-          description: "Run the command without --dry-run to create and store the app token.",
-          command: "jolly create app-token",
-        },
-      ],
-    });
-  }
-
-  if (!token) {
-    return errorEnvelope(
-      command,
-      "No Saleor Cloud token is configured; cannot acquire an app token.",
-      [
-        {
-          code: "MISSING_CLOUD_TOKEN",
-          message: "JOLLY_SALEOR_CLOUD_TOKEN is required to acquire an app token.",
-          remediation: "Run `jolly login` first.",
-        },
-      ],
-      { data: { riskContext: appTokenRiskContext(instanceUrl ?? "unresolved") } },
-    );
-  }
-
-  if (!instanceUrl) {
-    return errorEnvelope(
-      command,
-      "No Saleor GraphQL instance URL is available.",
-      [
-        {
-          code: "MISSING_INSTANCE_URL",
-          message: "A Saleor GraphQL endpoint (NEXT_PUBLIC_SALEOR_API_URL) is required.",
-          remediation: "Run `jolly create store` first, or pass --url <graphql-endpoint>.",
-        },
-      ],
-      { data: { riskContext: appTokenRiskContext("unresolved") } },
-    );
-  }
-
-  try {
-    const appToken = await acquireAppToken(instanceUrl, token, "Jolly Setup");
-    writeEnvValues(projectDir(), { JOLLY_SALEOR_APP_TOKEN: appToken });
-    return envelope({
-      command,
-      status: "success",
-      summary:
-        "Wrote the app token to .env as JOLLY_SALEOR_APP_TOKEN; the token is stored, not verified.",
-      data: {
-        appTokenStored: true,
-        instanceUrl,
-        riskContext: appTokenRiskContext(instanceUrl),
-      },
-      checks: [
-        {
-          id: "app-token-acquired",
-          status: "pass",
-          description:
-            "App token written to .env as JOLLY_SALEOR_APP_TOKEN; the token is stored, not verified.",
-        },
-      ],
-    });
-  } catch (err) {
-    const code = err instanceof CloudApiError ? err.code : "APP_TOKEN_ACQUISITION_FAILED";
-    return errorEnvelope(
-      command,
-      "Could not acquire an app token. Nothing was stored.",
-      [
-        {
-          code,
-          message: err instanceof Error ? err.message : String(err),
-          remediation:
-            "Confirm the instance is reachable and the Cloud token has access; or create an app in the Saleor Dashboard.",
-        },
-      ],
-      { data: { riskContext: appTokenRiskContext(instanceUrl) } },
-    );
-  }
-}
-
 // ─── create dispatcher + help ─────────────────────────────────────────────
 
-const CREATE_SUBCOMMANDS = ["store", "app-token"] as const;
+const CREATE_SUBCOMMANDS = ["store"] as const;
 
 function commandCreateHelp(): Envelope {
   const command = "create --help";
   return envelope({
     command,
     status: "success",
-    summary: "jolly create exposes the plumbing subcommands store and app-token.",
+    summary: "jolly create exposes the plumbing subcommand store.",
     data: {
       subcommands: [
         {
           name: "store",
           description: "Provision a Saleor Cloud store/environment, or store a pasted Saleor URL.",
-        },
-        {
-          name: "app-token",
-          description: "Acquire a Saleor app token via GraphQL and write it to .env.",
         },
       ],
       note: "Other setup work is run by your agent via the official CLIs, guided by the Jolly skill.",
@@ -1714,8 +1566,6 @@ async function commandCreate(args: ParsedArgs): Promise<Envelope> {
   switch (sub) {
     case "store":
       return commandCreateStore(args);
-    case "app-token":
-      return commandCreateAppToken(args);
     default:
       return errorEnvelope("create", `Unknown create subcommand "${sub}".`, [
         {
@@ -1779,11 +1629,13 @@ function mergeMcpJson(): { merged: boolean; warning?: string } {
     args: ["-y", "mcp-graphql"],
     env: {
       ENDPOINT: endpoint,
-      // Live store access uses the stored app token (feature 019). Referenced by
-      // env expansion so the MCP client resolves JOLLY_SALEOR_APP_TOKEN at launch
-      // — never the literal secret written into the config (feature 007 keeps
-      // secrets out of the scaffolded files).
-      HEADERS: '{"Authorization":"Bearer ${JOLLY_SALEOR_APP_TOKEN}"}',
+      // Live store access uses the agent-facing SALEOR_TOKEN (feature 019).
+      // Referenced by env expansion so the MCP client resolves SALEOR_TOKEN at
+      // launch — never the literal secret written into the config (feature 007
+      // keeps secrets out of the scaffolded files). The store token is sent as a
+      // Bearer (never an "App" scheme); MCP is refresh-on-401 — the server
+      // captured SALEOR_TOKEN at spawn, so a 401 means re-auth and reload it.
+      HEADERS: '{"Authorization":"Bearer ${SALEOR_TOKEN}"}',
     },
   };
 
@@ -1974,6 +1826,80 @@ function cloudPlatformToken(values: Record<string, string>): string | undefined 
   return staff !== "" ? staff : undefined;
 }
 
+// The managed header block Jolly prepends to .env on its first write (login /
+// provision / refresh / CI). It documents the agent-facing surface (SALEOR_URL /
+// SALEOR_TOKEN, read by @saleor/configurator and curl) and the JOLLY_* internal
+// auth layer SALEOR_TOKEN is projected from. ensureEnvHeader keys idempotently
+// off the first line, so repeated writes never duplicate it.
+const SALEOR_ENV_HEADER = `# ==== Jolly / Saleor environment ====
+# Managed by Jolly. SALEOR_URL / SALEOR_TOKEN are the agent-facing surface that
+# @saleor/configurator (auto-loads .env/.env.local) and curl read. The JOLLY_*
+# vars are Jolly's internal auth layer and the source SALEOR_TOKEN is projected from.
+#
+# SALEOR_URL    Store GraphQL endpoint (same value as NEXT_PUBLIC_SALEOR_API_URL).
+# SALEOR_TOKEN  Store access token, sent "Authorization: Bearer <token>" (never an
+#               "App" scheme). SHORT-LIVED (~5 min) in the normal flow. Refresh it
+#               with \`jolly doctor saleor\` (or re-run \`jolly login\`); Jolly rewrites
+#               this line on every refresh. If a request 401s, re-auth and reload
+#               the MCP server (it captured SALEOR_TOKEN at spawn).
+# NEXT_PUBLIC_SALEOR_API_URL  Storefront (Paper) config; keep. Mirrors SALEOR_URL.
+#
+# JOLLY_SALEOR_ACCESS_TOKEN   Internal: staff-superuser JWT, ~5 min, Bearer. Refreshed automatically.
+# JOLLY_SALEOR_REFRESH_TOKEN  Internal: mints a fresh access token (rotated each refresh).
+# JOLLY_SALEOR_CLOUD_TOKEN    Internal: CI/dev MANUAL long-lived staff token, sent "Token"
+#                             to the Saleor Cloud platform API only. When set, it is SALEOR_TOKEN.
+# ====================================`;
+
+/**
+ * The agent-facing store token (`SALEOR_TOKEN`) source. CLOUD wins: a CI/dev
+ * MANUAL long-lived staff token (`JOLLY_SALEOR_CLOUD_TOKEN`) takes precedence so
+ * a device-grant refresh never clobbers the intended store token; otherwise the
+ * current device-grant access JWT (`JOLLY_SALEOR_ACCESS_TOKEN`). This is the
+ * OPPOSITE precedence of {@link cloudPlatformToken} (which prefers ACCESS for
+ * Cloud-platform-API scheme reasons), so it is its own dedicated resolver — do
+ * NOT reuse cloudPlatformToken here. Store GraphQL always sends Bearer, so the
+ * resolved token rides as Bearer, never an "App" scheme.
+ */
+function resolveSaleorToken(values: Record<string, string>): string | undefined {
+  const cloud = (
+    values["JOLLY_SALEOR_CLOUD_TOKEN"] ??
+    process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ??
+    ""
+  ).trim();
+  if (cloud !== "") return cloud;
+  const access = (
+    values["JOLLY_SALEOR_ACCESS_TOKEN"] ??
+    process.env["JOLLY_SALEOR_ACCESS_TOKEN"] ??
+    ""
+  ).trim();
+  return access !== "" ? access : undefined;
+}
+
+/**
+ * Project the agent-facing surface (`SALEOR_URL` and `SALEOR_TOKEN`) into .env
+ * and `process.env`, so configurator/curl/MCP never read a stale store token.
+ * SALEOR_URL is the store GraphQL endpoint (= NEXT_PUBLIC_SALEOR_API_URL) when
+ * one is known; SALEOR_TOKEN is {@link resolveSaleorToken}. Called at every
+ * device-grant / refresh / login-cloud / provision site. A no-op when neither is
+ * resolvable yet (e.g. login before any store endpoint exists still projects
+ * SALEOR_TOKEN alone). `extra` lets a caller fold in additional values written in
+ * the same pass.
+ */
+function projectSaleorAgentEnv(extra?: Record<string, string>): void {
+  const values = loadEnvValues(projectDir());
+  const out: Record<string, string> = { ...(extra ?? {}) };
+  const endpoint =
+    out["SALEOR_URL"] ??
+    values["NEXT_PUBLIC_SALEOR_API_URL"] ??
+    process.env["NEXT_PUBLIC_SALEOR_API_URL"];
+  if (endpoint) out["SALEOR_URL"] = endpoint;
+  const token = resolveSaleorToken(values);
+  if (token) out["SALEOR_TOKEN"] = token;
+  if (Object.keys(out).length === 0) return;
+  writeEnvValues(projectDir(), out, SALEOR_ENV_HEADER);
+  for (const [k, v] of Object.entries(out)) process.env[k] = v;
+}
+
 /**
  * Resolve the Cloud platform token, preferring a stored device-grant access
  * token (Bearer) over the staff token (Token), per the feature 018 scheme rule.
@@ -1997,10 +1923,14 @@ async function resolvePlatformToken(
         writeEnvValues(projectDir(), {
           JOLLY_SALEOR_ACCESS_TOKEN: fresh.accessToken,
           JOLLY_SALEOR_REFRESH_TOKEN: fresh.refreshToken,
-        });
+        }, SALEOR_ENV_HEADER);
         process.env["JOLLY_SALEOR_ACCESS_TOKEN"] = fresh.accessToken;
         process.env["JOLLY_SALEOR_REFRESH_TOKEN"] = fresh.refreshToken;
         access = fresh.accessToken;
+        // The store token rode on the old access JWT; reproject SALEOR_TOKEN from
+        // the fresh one (when no CLOUD token wins) so .env never keeps a 5-min
+        // expired store token that configurator/curl/MCP would 401 on.
+        projectSaleorAgentEnv();
       } catch {
         // Leave the stale token; the platform read reports it rejected.
       }
@@ -2086,8 +2016,8 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
     const hasEndpoint = Boolean(
       values["NEXT_PUBLIC_SALEOR_API_URL"] ?? process.env["NEXT_PUBLIC_SALEOR_API_URL"],
     );
-    const hasApp = Boolean(
-      values["JOLLY_SALEOR_APP_TOKEN"] ?? process.env["JOLLY_SALEOR_APP_TOKEN"],
+    const hasSaleorToken = Boolean(
+      values["SALEOR_TOKEN"] ?? process.env["SALEOR_TOKEN"],
     );
     // The Cloud token is validated, not just detected (feature 014 Rule
     // "Credential checks probe validity, not just presence"): a shape heuristic
@@ -2104,7 +2034,7 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
         command: "jolly login",
       });
     } else if (platform.source === "staff" && !cloudToken.includes(".")) {
-      // A separator-free staff token is the per-store app-token shape, not a
+      // A separator-free staff token has the per-store token shape, not a
       // Cloud staff token (which carries a dot separator). Flag the likely
       // mix-up before the network probe. (A device-grant access JWT
       // always carries dots, so this heuristic applies only to the staff token.)
@@ -2112,7 +2042,7 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
         id: "saleor-cloud-token",
         status: "warning",
         description:
-          "JOLLY_SALEOR_CLOUD_TOKEN looks like a per-store app token, not a " +
+          "JOLLY_SALEOR_CLOUD_TOKEN looks like a store access token, not a " +
           "Cloud staff token. Run `jolly login` to sign in through the Saleor " +
           "device authorization grant.",
         command: "jolly login",
@@ -2179,10 +2109,12 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
       });
     }
     checks.push({
-      id: "saleor-app-token",
-      status: hasApp ? "pass" : "fail",
-      description: hasApp ? "JOLLY_SALEOR_APP_TOKEN present." : "No Saleor app token configured.",
-      command: hasApp ? undefined : "jolly create app-token",
+      id: "saleor-token",
+      status: hasSaleorToken ? "pass" : "fail",
+      description: hasSaleorToken
+        ? "SALEOR_TOKEN is configured for store GraphQL (sent Bearer)."
+        : "No SALEOR_TOKEN configured for store GraphQL.",
+      command: hasSaleorToken ? undefined : "jolly login",
     });
   }
 
@@ -2257,11 +2189,7 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
     // when the store/creds are unavailable or the probe cannot run.
     const endpoint =
       values["NEXT_PUBLIC_SALEOR_API_URL"] ?? process.env["NEXT_PUBLIC_SALEOR_API_URL"];
-    const probeToken =
-      values["JOLLY_SALEOR_APP_TOKEN"] ??
-      process.env["JOLLY_SALEOR_APP_TOKEN"] ??
-      values["JOLLY_SALEOR_CLOUD_TOKEN"] ??
-      process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
+    const probeToken = resolveSaleorToken(values) ?? cloudPlatformToken(values);
     const gateStep =
       "Open the installed Stripe app's configuration in the Saleor Dashboard, " +
       "paste the publishable and restricted keys, and map the configuration to " +
@@ -2575,12 +2503,12 @@ function startPlan(): PlanStage[] {
       riskContext: {
         action: "spawn @saleor/configurator deploy",
         target:
-          "Saleor Cloud store configuration (config-as-code) from Jolly's bundled starter recipe assets/skills/jolly/recipe.yml, deployed to the store at NEXT_PUBLIC_SALEOR_API_URL with JOLLY_SALEOR_APP_TOKEN",
+          "Saleor Cloud store configuration (config-as-code) from Jolly's bundled starter recipe assets/skills/jolly/recipe.yml, deployed to the store at SALEOR_URL with SALEOR_TOKEN",
         riskLevel: "high",
         categories: ["production configuration changes"],
         reversible: false,
         sideEffects: [
-          "Spawns `npx @saleor/configurator deploy --config <bundled assets/skills/jolly/recipe.yml> --url <NEXT_PUBLIC_SALEOR_API_URL> --token <JOLLY_SALEOR_APP_TOKEN>` to apply the starter recipe to the store (store URL and app token referenced by name only; values never printed)",
+          "Spawns `npx @saleor/configurator deploy --config <bundled assets/skills/jolly/recipe.yml> --url <SALEOR_URL> --token <SALEOR_TOKEN>` to apply the starter recipe to the store (store URL and token referenced by name only; values never printed)",
           "A `--plan` preview shows the configurator diff without applying changes; a re-deploy over a pre-existing store passes `--failOnDelete` to block a destructive apply (the bootstrap deploy of the store Jolly just provisioned replaces Saleor's stock defaults)",
         ],
         dryRunAvailable: true,
@@ -2777,8 +2705,9 @@ interface StageOutcome {
  * exists — `completed`, nothing to provision. Otherwise, with a Cloud token
  * configured, Jolly provisions a Saleor Cloud environment itself via the same
  * Cloud API plumbing as `jolly create store --create-environment`, writes the
- * resulting NEXT_PUBLIC_SALEOR_API_URL + JOLLY_SALEOR_APP_TOKEN to `.env` so the
- * downstream recipe/stock/deploy stages have a reachable endpoint, and surfaces
+ * resulting NEXT_PUBLIC_SALEOR_API_URL + agent-facing SALEOR_URL/SALEOR_TOKEN to
+ * `.env` so the downstream recipe/stock/deploy stages have a reachable endpoint
+ * and the resolved store token, and surfaces
  * the new store's GraphQL + Dashboard URLs. Reported honestly: `completed` only
  * when an environment was actually created or reused; `blocked` (with an
  * explaining check) when no Cloud token is configured or provisioning failed —
@@ -2797,35 +2726,11 @@ async function runStoreStage(
       status: "pass",
       description: "A Saleor endpoint is already configured; reusing it.",
     });
-    // Reuse must still ensure the instance app token exists — recipe + stock
-    // cannot run without it. The first-time provision acquires it; a reused store
-    // (re-run) previously short-circuited here and left it missing forever.
-    const haveAppToken = Boolean(
-      values["JOLLY_SALEOR_APP_TOKEN"] ?? process.env["JOLLY_SALEOR_APP_TOKEN"],
-    );
-    const platformToken = cloudPlatformToken(values);
-    if (!haveAppToken && platformToken) {
-      const acquired = await acquireAppTokenWithRetry(endpoint, platformToken);
-      if (acquired.appToken) {
-        writeEnvValues(projectDir(), { JOLLY_SALEOR_APP_TOKEN: acquired.appToken });
-        process.env["JOLLY_SALEOR_APP_TOKEN"] = acquired.appToken;
-        checks.push({
-          id: "app-token-acquired",
-          status: "pass",
-          description: "Acquired the Saleor app token for the reused store.",
-        });
-      } else {
-        checks.push({
-          id: "app-token-acquired",
-          status: "fail",
-          description:
-            `Could not acquire the Saleor app token for the reused store (recipe + stock cannot run without it): ` +
-            `${acquired.error ?? "unknown error"}.`,
-          remediation:
-            "The app token is created on the store instance via appCreate. Re-run jolly start --yes to retry.",
-        });
-      }
-    }
+    // Reuse must keep the agent-facing surface current: ensure SALEOR_URL and a
+    // freshly-resolved SALEOR_TOKEN are projected from the existing endpoint +
+    // session, so the downstream recipe/stock/deploy stages (and configurator/
+    // curl/MCP) never read a stale or missing store token.
+    projectSaleorAgentEnv({ SALEOR_URL: endpoint });
     return { status: "completed" };
   }
 
@@ -2864,18 +2769,6 @@ async function runStoreStage(
         ? `Provisioned Saleor Cloud environment "${result.environmentName}" in "${selectedOrg}".`
         : `Reused Saleor Cloud environment "${result.environmentName}" in "${selectedOrg}".`,
     });
-    if (!result.appTokenStored) {
-      checks.push({
-        id: "app-token-acquired",
-        status: "fail",
-        description:
-          `Could not acquire the Saleor app token (recipe + stock cannot run without it)` +
-          (result.appTokenError ? `: ${result.appTokenError}` : ".") +
-          ".",
-        remediation:
-          "The app token is created on the store instance via appCreate. Re-run jolly start --yes to retry.",
-      });
-    }
     return {
       status: "completed",
       data: {
@@ -2883,7 +2776,6 @@ async function runStoreStage(
         environmentName: result.environmentName,
         graphqlApiUrl: result.graphqlApiUrl,
         dashboardUrl: result.dashboardUrl,
-        appTokenStored: result.appTokenStored,
       },
     };
   } catch (err) {
@@ -2911,7 +2803,7 @@ function bundledRecipePath(): string {
  * "Configurator deploy is a genuinely-executing stage"). This is the FIRST
  * spawned-CLI `jolly start` stage: Jolly SPAWNS `npx @saleor/configurator deploy`
  * of its bundled starter recipe against the store, never reimplementing it
- * against raw APIs. Resolves the store GraphQL endpoint and app token from
+ * against raw APIs. Resolves the store GraphQL endpoint and SALEOR_TOKEN from
  * .env/process.env (first-party Saleor host only — the same creds Jolly already
  * manages); if either is missing it pushes a skipped check and blocks rather
  * than fabricating. The bootstrap path is decided by the store's STATE, not by
@@ -2934,16 +2826,16 @@ async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
   const endpoint =
     process.env["NEXT_PUBLIC_SALEOR_API_URL"] ?? values["NEXT_PUBLIC_SALEOR_API_URL"] ?? "";
   const token =
-    process.env["JOLLY_SALEOR_APP_TOKEN"] ?? values["JOLLY_SALEOR_APP_TOKEN"] ?? "";
+    process.env["SALEOR_TOKEN"] ?? values["SALEOR_TOKEN"] ?? resolveSaleorToken(values) ?? "";
 
   if (!endpoint || !token) {
     checks.push({
       id: "recipe-deployed",
       status: "skipped",
       description:
-        "Cannot deploy the starter recipe: NEXT_PUBLIC_SALEOR_API_URL and/or JOLLY_SALEOR_APP_TOKEN are not configured.",
+        "Cannot deploy the starter recipe: NEXT_PUBLIC_SALEOR_API_URL and/or SALEOR_TOKEN are not configured.",
       remediation:
-        "Complete the store stage so the endpoint and app token are in .env, then re-run jolly start --yes.",
+        "Complete the store stage so the endpoint and SALEOR_TOKEN are in .env, then re-run jolly start --yes.",
     });
     return "blocked";
   }
@@ -3036,7 +2928,7 @@ async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
       status: "fail",
       description: `Did not deploy the starter recipe: ${reason}.`,
       remediation:
-        "Verify npx can reach @saleor/configurator and NEXT_PUBLIC_SALEOR_API_URL/JOLLY_SALEOR_APP_TOKEN reach the store, then re-run jolly start --yes.",
+        "Verify npx can reach @saleor/configurator and NEXT_PUBLIC_SALEOR_API_URL/SALEOR_TOKEN reach the store, then re-run jolly start --yes.",
     });
     return "blocked";
   }
@@ -3090,7 +2982,7 @@ async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
     status: "fail",
     description: `Did not deploy the starter recipe: @saleor/configurator deploy exited ${result.status}${reportStatus ? ` (report status: ${reportStatus})` : ""}.${stderr ? ` ${stderr}` : ""}`,
     remediation:
-      "Verify NEXT_PUBLIC_SALEOR_API_URL and JOLLY_SALEOR_APP_TOKEN reach the store, then re-run jolly start --yes.",
+      "Verify NEXT_PUBLIC_SALEOR_API_URL and SALEOR_TOKEN reach the store, then re-run jolly start --yes.",
   });
   return "blocked";
 }
@@ -3149,7 +3041,7 @@ async function assignRecipeCollections(
       status: "fail",
       description: `Deployed the starter recipe but could not populate its featured collection: ${err instanceof Error ? err.message : String(err)}.`,
       remediation:
-        "Verify NEXT_PUBLIC_SALEOR_API_URL and JOLLY_SALEOR_APP_TOKEN reach the store, then re-run jolly start --yes.",
+        "Verify NEXT_PUBLIC_SALEOR_API_URL and SALEOR_TOKEN reach the store, then re-run jolly start --yes.",
     });
     return "blocked";
   }
@@ -3177,9 +3069,9 @@ function readConfiguratorReportStatus(reportPath: string): string | undefined {
 
 /**
  * Genuinely perform the recipe stock-seeding stage (feature 004 Rule "Recipe
- * products need seeded stock"). Resolves the store GraphQL endpoint and app
- * token from .env/process.env (first-party Saleor host only — the same creds
- * Jolly already manages), seeds a default quantity into the recipe warehouse
+ * products need seeded stock"). Resolves the store GraphQL endpoint and
+ * SALEOR_TOKEN from .env/process.env (first-party Saleor host only — the same
+ * creds Jolly already manages), seeds a default quantity into the recipe warehouse
  * for every variant, and pushes an honest `stock-seeded` check. Returns
  * `completed` only when stock was actually seeded; `blocked` when there are no
  * recipe variants/warehouse yet or the store is unreachable — never a
@@ -3191,15 +3083,15 @@ async function runStockStage(checks: Check[]): Promise<StageStatus> {
   const endpoint =
     process.env["NEXT_PUBLIC_SALEOR_API_URL"] ?? values["NEXT_PUBLIC_SALEOR_API_URL"] ?? "";
   const token =
-    process.env["JOLLY_SALEOR_APP_TOKEN"] ?? values["JOLLY_SALEOR_APP_TOKEN"] ?? "";
+    process.env["SALEOR_TOKEN"] ?? values["SALEOR_TOKEN"] ?? resolveSaleorToken(values) ?? "";
 
   if (!endpoint || !token) {
     checks.push({
       id: "stock-seeded",
       status: "skipped",
       description:
-        "Cannot seed recipe stock: NEXT_PUBLIC_SALEOR_API_URL and/or JOLLY_SALEOR_APP_TOKEN are not configured.",
-      remediation: "Complete the store stage so the endpoint and app token are in .env, then re-run jolly start --yes.",
+        "Cannot seed recipe stock: NEXT_PUBLIC_SALEOR_API_URL and/or SALEOR_TOKEN are not configured.",
+      remediation: "Complete the store stage so the endpoint and SALEOR_TOKEN are in .env, then re-run jolly start --yes.",
     });
     return "blocked";
   }
@@ -3225,7 +3117,7 @@ async function runStockStage(checks: Check[]): Promise<StageStatus> {
       remediation:
         code === "RECIPE_WAREHOUSE_NOT_FOUND" || code === "NO_RECIPE_VARIANTS"
           ? "Deploy the starter recipe with @saleor/configurator first, then re-run jolly start --yes."
-          : "Verify NEXT_PUBLIC_SALEOR_API_URL and JOLLY_SALEOR_APP_TOKEN reach the store, then re-run jolly start --yes.",
+          : "Verify NEXT_PUBLIC_SALEOR_API_URL and SALEOR_TOKEN reach the store, then re-run jolly start --yes.",
     });
     return "blocked";
   }
@@ -3978,9 +3870,11 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
       writeEnvValues(projectDir(), {
         JOLLY_SALEOR_ACCESS_TOKEN: tokens.accessToken,
         JOLLY_SALEOR_REFRESH_TOKEN: tokens.refreshToken,
-      });
+      }, SALEOR_ENV_HEADER);
       process.env["JOLLY_SALEOR_ACCESS_TOKEN"] = tokens.accessToken;
       process.env["JOLLY_SALEOR_REFRESH_TOKEN"] = tokens.refreshToken;
+      // Project the fresh access token into the agent-facing SALEOR_TOKEN.
+      projectSaleorAgentEnv();
     }
   }
 
@@ -4048,7 +3942,13 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
       // Record the reuse so the store stage reuses it (real runs only — a
       // dry-run previews the choice but writes nothing, feature 027).
       if (!args.dryRun) {
-        writeEnvValues(projectDir(), { NEXT_PUBLIC_SALEOR_API_URL: reuseEndpoint });
+        writeEnvValues(
+          projectDir(),
+          { NEXT_PUBLIC_SALEOR_API_URL: reuseEndpoint },
+          SALEOR_ENV_HEADER,
+        );
+        // The store endpoint is now known: project the agent-facing surface.
+        projectSaleorAgentEnv({ SALEOR_URL: reuseEndpoint });
       }
       clackLog.info(`Reusing the existing store ${reuseEndpoint}.`, CLACK_STDERR);
     } else {
@@ -4276,11 +4176,13 @@ async function runStartCore(
         writeEnvValues(projectDir(), {
           JOLLY_SALEOR_ACCESS_TOKEN: outcome.tokens.accessToken,
           JOLLY_SALEOR_REFRESH_TOKEN: outcome.tokens.refreshToken,
-        });
+        }, SALEOR_ENV_HEADER);
         // Mirror into process.env so the downstream store/recipe/deploy stages
         // of THIS run read the fresh session (matching the interactive path).
         process.env["JOLLY_SALEOR_ACCESS_TOKEN"] = outcome.tokens.accessToken;
         process.env["JOLLY_SALEOR_REFRESH_TOKEN"] = outcome.tokens.refreshToken;
+        // Project the fresh access token into the agent-facing SALEOR_TOKEN.
+        projectSaleorAgentEnv();
         needsToken = false;
         status = "completed";
       } else {
@@ -4296,35 +4198,27 @@ async function runStartCore(
       status = "completed";
     } else if (planStage.stage === "store" && storeEndpoint) {
       // Already satisfied: a store endpoint is configured, so no store would be
-      // created this run. BUT the instance app token may still be missing (e.g.
-      // a first run whose acquireAppToken failed) — recipe + stock cannot run
-      // without it — so when it is absent, run the store stage's reuse path,
-      // which re-acquires the app token (and surfaces the real failure). When the
-      // app token is already present, keep the lightweight skip preview.
-      const haveAppToken = Boolean(
-        loadEnvValues(projectDir())["JOLLY_SALEOR_APP_TOKEN"] ??
-          process.env["JOLLY_SALEOR_APP_TOKEN"],
-      );
-      if (!haveAppToken) {
-        const outcome = await runStoreStage(checks);
-        status = outcome.status;
-      } else {
-        // Announced as satisfied (feature 022 Rule), never a pending approval
-        // gate — the riskContext drops to the no-category skip preview the
-        // dry-run shows (commandStartDryRun), and no gate is set.
-        status = "completed";
-        stageRiskContext = {
-          action: "skip store provisioning",
-          target: `already-configured store ${storeEndpoint}`,
-          riskLevel: "low",
-          categories: [],
-          reversible: true,
-          sideEffects: [
-            `A store endpoint is already configured (NEXT_PUBLIC_SALEOR_API_URL=${storeEndpoint}); the store stage is already satisfied and provisioning is skipped`,
-          ],
-          dryRunAvailable: true,
-        };
-      }
+      // created this run. The gate keys on the endpoint + a usable session, not
+      // on any per-store token — so this always takes the lightweight skip. It
+      // still reprojects the agent-facing surface (SALEOR_URL + a freshly
+      // resolved SALEOR_TOKEN) so the resume's downstream recipe/stock stages and
+      // configurator/curl/MCP never read a stale or missing store token.
+      projectSaleorAgentEnv({ SALEOR_URL: storeEndpoint });
+      // Announced as satisfied (feature 022 Rule), never a pending approval gate —
+      // the riskContext drops to the no-category skip preview the dry-run shows
+      // (commandStartDryRun), and no gate is set.
+      status = "completed";
+      stageRiskContext = {
+        action: "skip store provisioning",
+        target: `already-configured store ${storeEndpoint}`,
+        riskLevel: "low",
+        categories: [],
+        reversible: true,
+        sideEffects: [
+          `A store endpoint is already configured (NEXT_PUBLIC_SALEOR_API_URL=${storeEndpoint}); the store stage is already satisfied and provisioning is skipped`,
+        ],
+        dryRunAvailable: true,
+      };
     } else if (isHighRisk && !gate) {
       // First high-risk stage reached: without --yes we PAUSE for the agent's
       // approval (emitting the riskContext, never self-approving). With --yes
@@ -4581,7 +4475,6 @@ function commandHelp(): Envelope {
         "upgrade",
         "skills",
         "create store",
-        "create app-token",
         "completion",
       ],
       globalFlags: ["--json", "--quiet", "--yes/-y", "--dry-run"],

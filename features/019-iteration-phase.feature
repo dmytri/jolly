@@ -12,8 +12,9 @@ Feature: Jolly iteration phase support
     Given jolly init has completed
     When the agent runs a products query through mcp-graphql
     Then jolly init should have written an mcp-graphql config pointing to the customer's Saleor GraphQL endpoint
-    And the config should use the stored app token
-    And the `.mcp.json` saleor-graphql entry should target the customer's Saleor GraphQL endpoint with the stored app token
+    And the config should send the `Authorization: Bearer ${SALEOR_TOKEN}` header
+    And the `.mcp.json` saleor-graphql entry should target the customer's Saleor GraphQL endpoint with the `${SALEOR_TOKEN}` Bearer header
+    And because the MCP server captures `SALEOR_TOKEN` at spawn, recovery from a `401` is to refresh the token and reload the MCP server
 
   @logic
   Scenario: Agent runs ongoing health checks

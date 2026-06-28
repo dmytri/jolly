@@ -7,8 +7,11 @@
 # the project working dir and spawns the official Configurator to deploy it
 # directly, gated by Jolly's approval gate (which serves as the preview):
 #
-#   npx @saleor/configurator deploy --url "$NEXT_PUBLIC_SALEOR_API_URL" \
-#       --token "$JOLLY_SALEOR_APP_TOKEN" --config recipe.yml
+#   npx @saleor/configurator deploy --url "$SALEOR_URL" \
+#       --token "$SALEOR_TOKEN" --config recipe.yml
+#
+# (Configurator auto-loads .env and reads SALEOR_URL/SALEOR_TOKEN, so the bare
+# `npx @saleor/configurator deploy` also works once Jolly has written them.)
 #
 # `--failOnDelete` is added only when re-deploying over a pre-existing foreign
 # catalog; it is omitted on the blank-store bootstrap path so the recipe can

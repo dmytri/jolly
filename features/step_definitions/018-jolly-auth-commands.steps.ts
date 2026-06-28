@@ -110,19 +110,20 @@ Then(
 );
 
 // ─── Scenario: logout removes every Jolly-managed auth value from .env ──────
-// The managed set now includes the device-grant refresh token. Logout removes
-// JOLLY_SALEOR_CLOUD_TOKEN, JOLLY_SALEOR_REFRESH_TOKEN, JOLLY_SALEOR_APP_TOKEN,
-// and JOLLY_SALEOR_ORGANIZATION while preserving any non-Jolly variable.
+// The managed set now includes the device-grant refresh token and the
+// agent-facing SALEOR_TOKEN. Logout removes JOLLY_SALEOR_CLOUD_TOKEN,
+// JOLLY_SALEOR_REFRESH_TOKEN, SALEOR_TOKEN, and JOLLY_SALEOR_ORGANIZATION while
+// preserving any non-Jolly variable.
 
 Given(
-  ".env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token and JOLLY_SALEOR_ACCESS_TOKEN=some-access and JOLLY_SALEOR_REFRESH_TOKEN=some-refresh and JOLLY_SALEOR_APP_TOKEN=some-app-token and JOLLY_SALEOR_ORGANIZATION=some-org and THIRD_PARTY_KEY=keep-me",
+  ".env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token and JOLLY_SALEOR_ACCESS_TOKEN=some-access and JOLLY_SALEOR_REFRESH_TOKEN=some-refresh and SALEOR_TOKEN=some-store-token and JOLLY_SALEOR_ORGANIZATION=some-org and THIRD_PARTY_KEY=keep-me",
   function (this: JollyWorld) {
     writeFileSync(
       join(this.projectDir, ".env"),
       "JOLLY_SALEOR_CLOUD_TOKEN=some-token\n" +
         "JOLLY_SALEOR_ACCESS_TOKEN=some-access\n" +
         "JOLLY_SALEOR_REFRESH_TOKEN=some-refresh\n" +
-        "JOLLY_SALEOR_APP_TOKEN=some-app-token\n" +
+        "SALEOR_TOKEN=some-store-token\n" +
         "JOLLY_SALEOR_ORGANIZATION=some-org\n" +
         "THIRD_PARTY_KEY=keep-me\n",
     );
@@ -130,13 +131,13 @@ Given(
 );
 
 Then(
-  "Jolly should remove JOLLY_SALEOR_CLOUD_TOKEN, JOLLY_SALEOR_ACCESS_TOKEN, JOLLY_SALEOR_REFRESH_TOKEN, JOLLY_SALEOR_APP_TOKEN, and JOLLY_SALEOR_ORGANIZATION from .env",
+  "Jolly should remove JOLLY_SALEOR_CLOUD_TOKEN, JOLLY_SALEOR_ACCESS_TOKEN, JOLLY_SALEOR_REFRESH_TOKEN, SALEOR_TOKEN, and JOLLY_SALEOR_ORGANIZATION from .env",
   function (this: JollyWorld) {
     const values = loadEnvValues(this.lastRun!.cwd);
     assert.ok(!("JOLLY_SALEOR_CLOUD_TOKEN" in values));
     assert.ok(!("JOLLY_SALEOR_ACCESS_TOKEN" in values));
     assert.ok(!("JOLLY_SALEOR_REFRESH_TOKEN" in values));
-    assert.ok(!("JOLLY_SALEOR_APP_TOKEN" in values));
+    assert.ok(!("SALEOR_TOKEN" in values));
     assert.ok(!("JOLLY_SALEOR_ORGANIZATION" in values));
   },
 );

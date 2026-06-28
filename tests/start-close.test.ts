@@ -96,7 +96,7 @@ describe("interactiveCloseSummary — genuine stage failure is honest, never fab
       // Pre-flight bootstrap readiness checks that the run's own stages then
       // resolve (feature 027: never presented as a failure of the completed run).
       { id: "doctor-saleor-endpoint", status: "fail", description: "No Saleor GraphQL endpoint configured." },
-      { id: "doctor-saleor-app-token", status: "fail", description: "No Saleor app token configured." },
+      { id: "doctor-saleor-token", status: "fail", description: "No SALEOR_TOKEN configured for store GraphQL." },
       { id: "doctor-storefront-present", status: "fail", description: "No Paper storefront detected locally." },
       { id: "store-provisioned", status: "pass" },
       { id: checkId, status: "fail", description: reason },
@@ -107,7 +107,7 @@ describe("interactiveCloseSummary — genuine stage failure is honest, never fab
   const FAIL_WORDS = /fail|did not|could not|stopped|not finish|incomplete|blocked/i;
   const FABRICATED_SUCCESS = /store is live|storefront is (?:deployed|live)|setup ran/i;
   // Pre-flight readiness wording the run resolved — must never appear as a failure reason.
-  const PREFLIGHT_READINESS = /No Saleor GraphQL endpoint configured|No Saleor app token configured|No Paper storefront detected/i;
+  const PREFLIGHT_READINESS = /No Saleor GraphQL endpoint configured|No SALEOR_TOKEN configured for store GraphQL|No Paper storefront detected/i;
 
   test("a failed deploy stage is reported, not papered over as success", () => {
     const core = withFailedStage(

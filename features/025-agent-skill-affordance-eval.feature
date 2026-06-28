@@ -43,7 +43,7 @@ Feature: Agent skill affordance evaluation
     - The agent runs in a unique per-run temporary workspace seeded with only the
       REAL test-env credentials it needs to AUTHENTICATE — the runtime
       `JOLLY_SALEOR_CLOUD_TOKEN` — but NOT
-      the store endpoint (`NEXT_PUBLIC_SALEOR_API_URL`) or app token: those are
+      the store endpoint (`NEXT_PUBLIC_SALEOR_API_URL`) or `SALEOR_TOKEN`: those are
       left unset so `jolly start` provisions a fresh `jolly-test`-namespaced
       Saleor environment and derives them, exercising the real store-creation path
       rather than reusing a pre-seeded store. There are NO fakes: no dummy

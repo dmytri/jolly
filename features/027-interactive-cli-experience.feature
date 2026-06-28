@@ -136,7 +136,7 @@ Feature: Human-facing interactive CLI experience
     And the closing summary on stdout should name the deployed storefront URL
     And the closing summary on stdout should name the Stripe Dashboard key entry as the human's remaining step
     And the closing summary on stdout should not enumerate per-check results as `[status] check-id` lines
-    And the closing summary on stdout should not present the Saleor endpoint or app-token readiness check, which the store stage resolved, as a failure of the completed run
+    And the closing summary on stdout should not present the Saleor endpoint or SALEOR_TOKEN readiness check, which the store stage resolved, as a failure of the completed run
 
   @logic
   Scenario: Interactive start renders the proceed confirmation and decline from the message catalog
@@ -274,7 +274,7 @@ Feature: Human-facing interactive CLI experience
       NOT render the envelope's per-check `checks[]` results as a `[status] check-id` enumeration,
       nor the `nextSteps[]` as `next:` command lines, on the human result stream — those stay on the
       `--json` path (feature 020). A pre-flight bootstrap readiness check the run itself then
-      resolves — no Saleor endpoint, app token, or local storefront before the stages create them —
+      resolves — no Saleor endpoint, SALEOR_TOKEN, or local storefront before the stages create them —
       is never presented as a failure of the completed run.
     - On a completed run, after the live URLs and the Stripe step — separated by a blank line — the
       close adds a minimal "keep building" orientation: the two artifacts setup leaves on disk

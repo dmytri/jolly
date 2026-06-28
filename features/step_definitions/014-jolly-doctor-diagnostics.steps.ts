@@ -110,9 +110,9 @@ Then(
 );
 
 Then(
-  "it should check whether an app token is available when required",
+  "it should check whether SALEOR_TOKEN is present for store GraphQL when required",
   function (this: JollyWorld) {
-    assert.ok(this.findCheck("saleor-app-token"), "doctor saleor must check the app token");
+    assert.ok(this.findCheck("saleor-token"), "doctor saleor must check SALEOR_TOKEN");
   },
 );
 
@@ -944,11 +944,11 @@ Then(
 // Scenario: Doctor warns when a per-store token is in the Cloud token slot (@logic)
 
 Given(
-  ".env contains JOLLY_SALEOR_CLOUD_TOKEN set to the per-store-app-token shape {string} with no dot separator",
+  ".env contains JOLLY_SALEOR_CLOUD_TOKEN set to the store-access-token shape {string} with no dot separator",
   function (this: JollyWorld, value: string) {
-    // A separator-free value is the per-store app-token shape — the common
+    // A separator-free value is the store-access-token shape — the common
     // mix-up doctor flags before the network probe.
-    assert.ok(!value.includes("."), "the per-store-app-token-shaped value must have no dot separator");
+    assert.ok(!value.includes("."), "the store-access-token-shaped value must have no dot separator");
     this.notes.saleorDoctorEnv = absentCredentialsEnv({
       JOLLY_SALEOR_CLOUD_TOKEN: value,
     });
@@ -956,11 +956,11 @@ Given(
 );
 
 Then(
-  "the check message should state the value looks like a per-store app token rather than a Cloud staff token and direct the customer to run `jolly login` to sign in through the Saleor device authorization grant",
+  "the check message should state the value looks like a store access token rather than a Cloud staff token and direct the customer to run `jolly login` to sign in through the Saleor device authorization grant",
   function (this: JollyWorld) {
     const check = cloudTokenCheck(this);
     const text = JSON.stringify(check);
-    assert.match(text, /per-store|app token/i, "the warning must name the per-store app-token mix-up");
+    assert.match(text, /store access token/i, "the warning must name the store-access-token mix-up");
     assert.match(text, /staff/i, "the warning must contrast with a Cloud staff token");
     assert.match(
       text,

@@ -19,7 +19,6 @@ Feature: Command idempotency and resumability
     Examples:
       | command                 |
       | jolly create store      |
-      | jolly create app-token  |
 
   @sandbox
   Scenario: Jolly start resumes bootstrap and reflects stage progress

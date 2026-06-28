@@ -19,7 +19,7 @@ function tempProject(): string {
 describe("writeEnvValues", () => {
   test("ensures .env is Git-ignored before writing secrets", () => {
     const dir = tempProject();
-    writeEnvValues(dir, { JOLLY_SALEOR_APP_TOKEN: "tok_test_123" });
+    writeEnvValues(dir, { SALEOR_TOKEN: "tok_test_123" });
     assert.strictEqual(existsSync(join(dir, ".gitignore")), true);
     const ignored = readFileSync(join(dir, ".gitignore"), "utf8")
       .split("\n")
@@ -30,7 +30,7 @@ describe("writeEnvValues", () => {
   test("does not duplicate an existing .env ignore entry", () => {
     const dir = tempProject();
     writeFileSync(join(dir, ".gitignore"), "node_modules\n.env\n");
-    writeEnvValues(dir, { JOLLY_SALEOR_APP_TOKEN: "tok" });
+    writeEnvValues(dir, { SALEOR_TOKEN: "tok" });
     const content = readFileSync(join(dir, ".gitignore"), "utf8");
     assert.strictEqual(content.split("\n").filter((l) => l.trim() === ".env").length, 1);
     assert.ok(content.includes("node_modules"));
@@ -53,6 +53,27 @@ describe("writeEnvValues", () => {
     assert.ok(!content.includes("https://x/graphql/"));
     assert.strictEqual(loaded.JOLLY_VERCEL_TOKEN, "vt");
     assert.strictEqual(loaded.OTHER, "keep");
+  });
+
+  test("preserves a leading '# ====' header block across a write", () => {
+    const dir = tempProject();
+    const header =
+      "# ==== Jolly / Saleor environment ====\n" +
+      "# Managed by Jolly. SALEOR_URL / SALEOR_TOKEN are the agent-facing surface.\n" +
+      "# ====================================\n";
+    writeFileSync(join(dir, ".env"), `${header}SALEOR_URL=https://x/graphql/\n`);
+    writeEnvValues(dir, { SALEOR_TOKEN: "tok_test_123" });
+    const content = readFileSync(join(dir, ".env"), "utf8");
+    // The whole comment header block survives untouched (it is not an ENV_LINE).
+    assert.ok(content.includes("# ==== Jolly / Saleor environment ===="));
+    assert.ok(content.includes("# ===================================="));
+    assert.ok(content.includes("SALEOR_URL=https://x/graphql/"));
+    assert.ok(content.includes("SALEOR_TOKEN=tok_test_123"));
+    // The sentinel header line appears exactly once (no duplication on write).
+    assert.strictEqual(
+      content.split("\n").filter((l) => l === "# ==== Jolly / Saleor environment ====").length,
+      1,
+    );
   });
 
   test("returns the full post-update value map for the current command flow", () => {

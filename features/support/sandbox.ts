@@ -23,7 +23,7 @@ import { spawnSync } from "node:child_process";
  */
 export const CREDENTIAL_GROUPS = {
   saleorEndpoint: ["NEXT_PUBLIC_SALEOR_API_URL"],
-  saleorAppToken: ["JOLLY_SALEOR_APP_TOKEN"],
+  saleorAppToken: ["SALEOR_TOKEN"],
   saleorCloud: ["JOLLY_SALEOR_CLOUD_TOKEN"],
 } as const;
 
@@ -59,7 +59,7 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   "Jolly start completes successfully": FULL_END_TO_END,
   // 027-interactive-cli-experience
   // A full interactive `jolly start` run to completion. The harness pre-provisions
-  // one shared `jolly-test`-namespaced store (endpoint + app token, derivable from
+  // one shared `jolly-test`-namespaced store (endpoint + SALEOR_TOKEN, derivable from
   // the Cloud token); the interactive run inherits it, so the store stage REUSES
   // that namespaced live store (it never creates a default-named environment) and
   // the close can name its Saleor Dashboard URL. The shared env is torn down by the
@@ -79,7 +79,7 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   "Jolly start deploys to Vercel by spawning the official Vercel CLI": ["saleorEndpoint"],
   // The deploy-stage Vercel sign-in scenarios reach the deploy stage via a full
   // `jolly start --yes` auto-provision run: the Cloud token alone is needed (the
-  // store/endpoint/app token are provisioned and derived inside the run). They
+  // store/endpoint/SALEOR_TOKEN are provisioned and derived inside the run). They
   // deliberately need NO authenticated Vercel session — the isolated-config Given
   // supplies the no-session condition — so they are NOT in VERCEL_CLI_SCENARIOS.
   "Jolly start spawns the Vercel sign-in itself when there is no Vercel session": [
@@ -119,21 +119,21 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
     "saleorAppToken",
   ],
   // The configurator-deploy stage spawns `npx @saleor/configurator deploy` of
-  // Jolly's bundled recipe against the store URL + app token (derivable from the
-  // Cloud token via per-run provisioning). No CLI auth beyond the Saleor app
-  // token the configurator uses; no Vercel/Stripe credential.
+  // Jolly's bundled recipe against the store URL + SALEOR_TOKEN (derivable from the
+  // Cloud token via per-run provisioning). No CLI auth beyond the store
+  // SALEOR_TOKEN the configurator uses; no Vercel/Stripe credential.
   "Jolly start deploys the starter recipe with @saleor/configurator": [
     "saleorEndpoint",
     "saleorAppToken",
   ],
   // Read-back of the recipe's featured collection against the live store; the
-  // store endpoint + app token are derivable from the Cloud token.
+  // store endpoint + SALEOR_TOKEN are derivable from the Cloud token.
   "Jolly start confirms the recipe's featured collection exists before reporting the recipe stage completed":
     ["saleorEndpoint", "saleorAppToken"],
   // Bootstrap path: a blank environment created by a prior `create store`
   // (the harness provisions the shared env through exactly that command), then
   // `jolly start` deploys the recipe over the stock defaults. Read-back of the
-  // store's channels needs only the store endpoint + app token (derivable).
+  // store's channels needs only the store endpoint + SALEOR_TOKEN (derivable).
   "Jolly start deploys the recipe over the stock defaults of a store created by a prior create-store command":
     ["saleorEndpoint", "saleorAppToken"],
   // 005-stripe-checkout-setup
@@ -146,7 +146,7 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   ],
   // The checkout-readiness probe is Jolly's own Saleor GraphQL (create + revert a
   // `us` test checkout, read availablePaymentGateways) — no CLI spawn, no Vercel.
-  // It needs the store endpoint + a token that can create a checkout (app token,
+  // It needs the store endpoint + a token that can create a checkout (SALEOR_TOKEN,
   // derivable from the Cloud token); gateway availability is server-side, so no
   // Stripe credential is required.
   "Jolly doctor verifies the Stripe payment gateway is reachable for checkout": [
@@ -159,7 +159,6 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
     "saleorEndpoint",
     "saleorCloud",
   ],
-  "Jolly acquires the required app token": ["saleorEndpoint", "saleorCloud"],
   // 014-jolly-doctor-diagnostics
   // The Cloud-token validity probe authenticates a read-only GET of the Cloud
   // API organizations endpoint, so it needs only the Cloud staff token.
@@ -195,11 +194,6 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   // INDEPENDENT oracle for the expected organization slug (realOrgSlugs), so the
   // pass is checked against ground truth, not the device-grant response alone.
   "Doctor validates stored device-grant credentials with Bearer": ["saleorCloud"],
-  // 024-jolly-app-token-acquisition
-  "Jolly create app-token acquires a real, fully-permissioned token from Saleor": [
-    "saleorEndpoint",
-    "saleorCloud",
-  ],
   // 012-existing-saleor-store-connection
   "Jolly creates a Saleor Cloud environment": ["saleorCloud"],
   "Jolly create store handles domain name collision": ["saleorCloud"],
@@ -385,7 +379,7 @@ export function missingCredentials(
 /**
  * Groups whose variables the harness can DERIVE when they are not configured
  * but `JOLLY_SALEOR_CLOUD_TOKEN` is present: it provisions one shared
- * per-run `jolly-test` environment and reads the endpoint URL and app token
+ * per-run `jolly-test` environment and reads the endpoint URL and SALEOR_TOKEN
  * from it (features 023 + 012). Everything else — the Cloud token itself,
  * Vercel, Stripe — cannot be derived and stays a skip condition.
  */
@@ -404,7 +398,7 @@ export interface CredentialGate {
 /**
  * Split a scenario's absent credentials into underivable (skip) and
  * derivable (provision) sets. Derivation requires `JOLLY_SALEOR_CLOUD_TOKEN`;
- * without it the endpoint/app-token variables are plain skip conditions.
+ * without it the endpoint/SALEOR_TOKEN variables are plain skip conditions.
  */
 export function classifyCredentials(
   groups: readonly CredentialGroup[],

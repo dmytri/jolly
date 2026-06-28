@@ -1195,13 +1195,13 @@ When(
     if (!cloudToken) return "skipped";
 
     // The @sandbox gate pre-provisioned one shared `jolly-test`-namespaced store
-    // (endpoint + app token now in process.env) and torn-down at run end. Seed the
+    // (endpoint + SALEOR_TOKEN now in process.env) and torn-down at run end. Seed the
     // fresh project's .env with it so the interactive run REUSES that namespaced
     // live store (runStoreStage reuses a configured endpoint; it never creates a
     // default-named environment) — harmless, and the close can name its Dashboard URL.
     const endpoint = process.env["NEXT_PUBLIC_SALEOR_API_URL"];
-    const appToken = process.env["JOLLY_SALEOR_APP_TOKEN"];
-    if (!endpoint || !appToken) return "skipped";
+    const storeToken = process.env["SALEOR_TOKEN"];
+    if (!endpoint || !storeToken) return "skipped";
 
     // One `jolly-test` namespace for the Vercel project the deploy stage creates,
     // so it is attributable cannon fodder torn down after the run.
@@ -1235,7 +1235,7 @@ When(
       cwd: this.projectDir,
       env: realChildEnv({
         NEXT_PUBLIC_SALEOR_API_URL: endpoint,
-        JOLLY_SALEOR_APP_TOKEN: appToken,
+        SALEOR_TOKEN: storeToken,
         JOLLY_VERCEL_PROJECT: namespace,
       }),
       inputs: ["\r", "\r", "\r"],
@@ -1319,14 +1319,14 @@ Then(
 );
 
 Then(
-  "the closing summary on stdout should not present the Saleor endpoint or app-token readiness check, which the store stage resolved, as a failure of the completed run",
+  "the closing summary on stdout should not present the Saleor endpoint or SALEOR_TOKEN readiness check, which the store stage resolved, as a failure of the completed run",
   function (this: JollyWorld) {
     const out = stripAnsi(this.lastRun!.stdout);
-    // The store stage provisioned the endpoint and acquired the app token, so the
-    // endpoint/app-token readiness is satisfied. No close line may present that
+    // The store stage provisioned the endpoint and projected SALEOR_TOKEN, so the
+    // endpoint/SALEOR_TOKEN readiness is satisfied. No close line may present that
     // readiness as a failure (a stale doctor-style fail re-surfaced after the
     // store stage already resolved it).
-    const readiness = /\b(saleor-endpoint|saleor-app-token|app-token-configured|app token)\b/i;
+    const readiness = /\b(saleor-endpoint|saleor-token|SALEOR_TOKEN)\b/i;
     const failure = /\[fail\]|\berror\[|\bfailed\b|\bnot configured\b|\bmissing\b|\bunreachable\b/i;
     const offending = out
       .split(/\r?\n/)
@@ -1334,7 +1334,7 @@ Then(
     assert.equal(
       offending,
       undefined,
-      `the closing summary must not present the Saleor endpoint/app-token readiness (resolved by the store stage) as a failure; found:\n${offending}`,
+      `the closing summary must not present the Saleor endpoint/SALEOR_TOKEN readiness (resolved by the store stage) as a failure; found:\n${offending}`,
     );
   },
 );

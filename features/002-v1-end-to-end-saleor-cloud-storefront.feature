@@ -9,7 +9,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And Jolly should create the storefront by cloning or otherwise directly using `saleor/storefront` from the `main` branch by default
     And `jolly start` performs the mechanical CLI steps itself by spawning the official CLIs (`git` clone, `pnpm` install, `@saleor/configurator` deploy, `npx vercel` deploy), each under its own auth — never reimplementing them against raw APIs
     And the customer's agent supervises: it approves each high-risk stage's `riskContext`, provides credentials, and completes the human gates, and may run any stage as a composable command itself
-    And Jolly's own plumbing covers auth, store/app-token via the Cloud API, secret writing, `.mcp.json`, skill install, and `jolly doctor` verification
+    And Jolly's own plumbing covers auth, store via the Cloud API, secret writing, `.mcp.json`, skill install, and `jolly doctor` verification
     And the Saleor MCP server at mcp.saleor.app provides read-only access to live store data such as products, orders, and customers after setup is complete
     And the setup path must minimize human intervention to new account creation, the Vercel sign-in, and providing secret values
 
@@ -43,7 +43,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     When the agent runs `jolly start --yes --json`
     Then the `store` stage status should be "completed", not "pending"
     And the envelope `data` should include the new store's `*.saleor.cloud` GraphQL API URL and its Saleor Dashboard URL ending in `.saleor.cloud/dashboard/`
-    And `jolly start` should write that `NEXT_PUBLIC_SALEOR_API_URL` and the acquired `JOLLY_SALEOR_APP_TOKEN` to `.env`
+    And `jolly start` should write that `NEXT_PUBLIC_SALEOR_API_URL` (mirrored to `SALEOR_URL`) and the resolved `SALEOR_TOKEN` to `.env`
     And the `recipe` and `stock` stages should not report "blocked" for a missing Saleor endpoint
 
   @logic
@@ -64,7 +64,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
 
   @sandbox
   Scenario: Jolly connects an existing Saleor store and verifies connectivity
-    Given a store URL `https://example.saleor.cloud` and a valid app token
+    Given a store URL `https://example.saleor.cloud` and a valid `SALEOR_TOKEN`
     When the agent runs `jolly init --json` with that store URL
     Then `data` should report the normalized GraphQL endpoint `https://example.saleor.cloud/graphql/`
     And a `saleor-connectivity` check should report status "pass"
@@ -240,10 +240,10 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     - `jolly start` is a resumable end-to-end runner that performs the mechanical stages itself by
       SPAWNING the official CLIs: `git` clone of Paper (strip `.git`, fresh `git init`), `pnpm
       install`, `@saleor/configurator diff`/`deploy` of the starter recipe, and `npx vercel`
-      deploy + env-var setup — alongside its own plumbing (`login`, `create store`/`app-token`,
+      deploy + env-var setup — alongside its own plumbing (`login`, `create store`,
       the Saleor Stripe-app install, `init`, `doctor`).
     - It spawns official, current CLIs only — never reimplementing them against raw APIs. Each
-      spawned CLI uses its OWN auth (Vercel CLI session, the Saleor app token Jolly manages);
+      spawned CLI uses its OWN auth (Vercel CLI session, the resolved `SALEOR_TOKEN` Jolly holds);
       there is still no `JOLLY_VERCEL_TOKEN` and api.vercel.com is not in Jolly's own
       allowlist. The deprecated `saleor/cli` stays banned.
     - Interactive CLI gates are stdio passthrough: when the spawned Vercel CLI needs the user
@@ -265,8 +265,8 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     - When `jolly start` runs with a Saleor Cloud token configured but no
       `NEXT_PUBLIC_SALEOR_API_URL`, the store stage PROVISIONS a Saleor Cloud environment
       itself — the same Cloud API plumbing as `jolly create store --create-environment` —
-      then writes the resulting `NEXT_PUBLIC_SALEOR_API_URL` and the acquired
-      `JOLLY_SALEOR_APP_TOKEN` to `.env`, so the recipe/stock/deploy stages downstream have a
+      then writes the resulting `NEXT_PUBLIC_SALEOR_API_URL` (mirrored to `SALEOR_URL`) and the
+      resolved `SALEOR_TOKEN` to `.env`, so the recipe/stock/deploy stages downstream have a
       reachable endpoint. The store stage is `completed` only when an environment was actually
       created (or an existing matching one reused — idempotent, feature 022); `blocked`/`failed`
       honestly otherwise, never a fabricated completion.
@@ -282,15 +282,10 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
       already configured — the customer connected an existing store, or a previous run
       provisioned one — the store stage detects that configured store as already satisfied and
       skips provisioning rather than creating a second environment. A re-run never provisions a
-      duplicate store. BUT when that configured store is missing its `JOLLY_SALEOR_APP_TOKEN`
-      (e.g. a first run whose app-token acquisition did not complete against the just-created
-      instance), the reuse path RE-ACQUIRES the app token, because recipe and stock cannot run
-      without it — a re-run thus recovers a store left without its app token rather than skipping
-      it forever.
-    - Acquiring the instance app token is resilient: a brand-new instance can reject the first
-      `appCreate`, and the device-grant access token can stale during the minute-long provision,
-      so Jolly refreshes the session token and retries with backoff — so the FIRST run completes
-      the app token rather than deferring it to a re-run.
+      duplicate store. The store-stage gate keys on the configured endpoint plus a usable Saleor
+      session; the agent-facing `SALEOR_TOKEN` is projected from that session (short-lived on the
+      device-grant path, refreshed via `jolly doctor saleor`), so a re-run never needs to re-create
+      the store to restore a usable token.
 
   Rule: Git provider for optional source control
     - GitHub is the default Git provider for optional source-control setup; other providers are deferred to v2.

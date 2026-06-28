@@ -432,7 +432,7 @@ Then(
 );
 
 Then(
-  "`jolly create --help` should list only the subcommands `store` and `app-token`",
+  "`jolly create --help` should list only the subcommand `store`",
   function (this: JollyWorld) {
     // Subcommand surface is the machine-readable `data.subcommands`; read it via
     // --json (feature 020 — default --help is human usage with no envelope).
@@ -443,8 +443,8 @@ Then(
       .filter((n): n is string => typeof n === "string");
     assert.deepEqual(
       [...names].sort(),
-      ["app-token", "store"],
-      `\`jolly create --help\` must list only store and app-token; got ${names.join(", ")}`,
+      ["store"],
+      `\`jolly create --help\` must list only store; got ${names.join(", ")}`,
     );
   },
 );
@@ -485,7 +485,7 @@ Then(
 // account.
 
 When(
-  /^the agent runs `jolly (?!(?:start|doctor|upgrade) --json`)(login|init|start|doctor|upgrade|skills|create store|create app-token) (--json|--quiet|--yes)`$/,
+  /^the agent runs `jolly (?!(?:start|doctor|upgrade) --json`)(login|init|start|doctor|upgrade|skills|create store) (--json|--quiet|--yes)`$/,
   function (this: JollyWorld, command: string, flag: string) {
     this.runCli([...command.split(" "), flag], { env: absentCredentialsEnv() });
   },

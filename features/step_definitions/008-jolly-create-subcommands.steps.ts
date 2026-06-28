@@ -1,18 +1,16 @@
 // Feature 008 — Jolly create subcommands.
 //
 // These @logic scenarios pin the thin-CLI create surface (decision
-// 2026-06-13): `jolly create --help` lists exactly store/app-token/stripe and
-// NOT the retired tool-wrapping subcommands (deployment/deploy/recipe/
-// storefront); and a create subcommand with unmet preconditions errors with a
-// stable code and never fabricates a created/configured/stored resource or a
-// `pass` check.
+// 2026-06-13): `jolly create --help` lists exactly `store` and NOT the retired
+// tool-wrapping subcommands (deployment/deploy/recipe/storefront); and a create
+// subcommand with unmet preconditions errors with a stable code and never
+// fabricates a created/configured/stored resource or a `pass` check.
 //
 // Safety: every command runs with the runtime credentials genuinely UNSET
 // (absentCredentialsEnv) — real absence, never dummy values — so no side-effecting
-// path can reach a real account. The two network-touching previews resolve the
-// org / mint a token against LOCAL loopback stand-ins (below), driven with a
-// real-format token the stand-in does not validate; nothing reaches a real
-// account.
+// path can reach a real account. The network-touching preview resolves the org
+// against a LOCAL loopback stand-in (below), driven with a real-format token the
+// stand-in does not validate; nothing reaches a real account.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
@@ -20,7 +18,6 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadEnvValues, writeEnvValues } from "../../src/lib/env-file.ts";
 import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
-import { findRiskContexts } from "../support/envelope.ts";
 import { startLimitRejectingCloudApi } from "../support/limit-cloud-api.ts";
 import type { JollyWorld } from "../support/world.ts";
 
@@ -63,13 +60,13 @@ function helpSubcommandNames(world: JollyWorld): string[] {
 }
 
 Then(
-  "it should see only the plumbing subcommands `store` and `app-token`",
+  "it should see only the plumbing subcommand `store`",
   function (this: JollyWorld) {
     const names = helpSubcommandNames(this);
     assert.deepEqual(
       [...names].sort(),
-      ["app-token", "store"],
-      `create --help should list exactly store and app-token; got ${JSON.stringify(names)}`,
+      ["store"],
+      `create --help should list exactly store; got ${JSON.stringify(names)}`,
     );
   },
 );
@@ -175,15 +172,13 @@ Then(
   },
 );
 
-// ─── In-process stand-ins for the create paths ─────────────────────────────
+// ─── In-process stand-in for the create store path ─────────────────────────
 //
-// Two create subcommands reach the network on their store/preview path:
-//   - `store` (default --create-environment) resolves the organization via the
-//     Cloud API before previewing/issuing the environment-creation request;
-//   - `app-token` mints a token via the instance GraphQL API.
-// Both are driven against LOCAL loopback stand-ins so the @logic scenarios are
+// `create store` (default --create-environment) resolves the organization via
+// the Cloud API before previewing/issuing the environment-creation request. It
+// is driven against a LOCAL loopback stand-in so the @logic scenarios are
 // deterministic and touch no real account (the "012 incident" lesson); the CLI
-// reaches them over loopback, so runCliAsync (not spawnSync) must drive it.
+// reaches it over loopback, so runCliAsync (not spawnSync) must drive it.
 
 /** Minimal Cloud API stand-in: answers org/projects/envs/services GETs so the
  *  store create-environment path resolves an organization and previews a real
@@ -221,47 +216,6 @@ async function startCloudApiStandIn(world: JollyWorld): Promise<{ baseUrl: strin
   return { baseUrl, writes };
 }
 
-/** Minimal instance GraphQL stand-in: a "Jolly Setup" app already exists, so
- *  acquireAppToken mints a token via appTokenCreate (one mutation). The token
- *  is returned but never exercised — the value app-token stores without
- *  verifying. */
-async function startGraphqlStandIn(world: JollyWorld): Promise<string> {
-  // @exceptional-double: exercising the app-token mint path requires an instance
-  // GraphQL where a "Jolly Setup" app already exists; minting a real app token on a
-  // real store is a side effect that can't be produced on demand here. The real
-  // app-token acquisition is covered by the @sandbox scenario.
-  const server: Server = createServer((req, res) => {
-    let raw = "";
-    req.on("data", (c: Buffer) => (raw += c));
-    req.on("end", () => {
-      let body: { query?: string } = {};
-      try {
-        body = JSON.parse(raw || "{}");
-      } catch {
-        body = {};
-      }
-      const query = body.query ?? "";
-      res.setHeader("Content-Type", "application/json");
-      res.statusCode = 200;
-      if (query.includes("appTokenCreate")) {
-        res.end(JSON.stringify({ data: { appTokenCreate: { authToken: "stand-in-app-token", errors: [] } } }));
-        return;
-      }
-      if (query.includes("apps")) {
-        res.end(JSON.stringify({ data: { apps: { edges: [{ node: { id: "QXBwOmpvbGx5", name: "Jolly Setup" } }] } } }));
-        return;
-      }
-      res.end(JSON.stringify({ data: {} }));
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
-  const port = typeof address === "object" && address ? address.port : 0;
-  const endpoint = `http://127.0.0.1:${port}/graphql/`;
-  world.cleanup.register(`graphql stand-in :${port}`, () => new Promise<void>((r) => server.close(() => r())));
-  return endpoint;
-}
-
 /** Combined envelope text (summary + data sans riskContext + checks), lowercased. */
 function envelopeText(world: JollyWorld): string {
   const env = world.envelope;
@@ -279,31 +233,14 @@ function envelopeText(world: JollyWorld): string {
 
 Given(
   "`jolly create {word}` stores a value it cannot verify in this run",
-  async function (this: JollyWorld, subcommand: string) {
+  function (this: JollyWorld, subcommand: string) {
     this.notes.subcommand = subcommand;
-    if (subcommand === "store") {
-      // --url stores the Saleor endpoint to .env without verifying connectivity
-      // (no introspection in this mode) — a value stored but not verified.
-      this.runCli(
-        ["create", "store", "--url", "https://logic-store.saleor.cloud/graphql/", "--json"],
-        { env: absentCredentialsEnv() },
-      );
-    } else {
-      // app-token mints a token via GraphQL (the stand-in returns one) and
-      // stores it, but never exercises it — stored, not verified.
-      const endpoint = await startGraphqlStandIn(this);
-      // The loopback stand-in is reached through the documented
-      // JOLLY_SALEOR_CLOUD_API_URL override, whose host Jolly treats as
-      // first-party (feature 018 Rule — self-routing is the customer's explicit
-      // choice). Loopback is not a fixed first-party host (feature 020), so the
-      // override is the harness's legitimate route to a local stand-in.
-      await this.runCliAsync(["create", "app-token", "--url", endpoint, "--json"], {
-        env: absentCredentialsEnv({
-          JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN,
-          JOLLY_SALEOR_CLOUD_API_URL: endpoint,
-        }),
-      });
-    }
+    // --url stores the Saleor endpoint to .env without verifying connectivity
+    // (no introspection in this mode) — a value stored but not verified.
+    this.runCli(
+      ["create", "store", "--url", "https://logic-store.saleor.cloud/graphql/", "--json"],
+      { env: absentCredentialsEnv() },
+    );
   },
 );
 
@@ -346,10 +283,8 @@ Then(
 
 // ─── Scenario Outline: create --dry-run shows the real request ─────────────
 
-// store + stripe literals; the app-token example reuses 024's identical
-// `jolly create app-token --dry-run` step (it runs the dry-run with credentials
-// unset, resolving the instance URL the preview names). Defining a
-// {word} or app-token variant here would be ambiguous with that step.
+// The `store` literal drives the dry-run preview against the Cloud API
+// loopback stand-in below.
 Given(
   "the agent runs `jolly create store --dry-run`",
   async function (this: JollyWorld) {
@@ -376,21 +311,11 @@ Then(
   "it should name the real request it would send — host, path, and resolved identifiers",
   function (this: JollyWorld) {
     const data = this.envelope.data as Record<string, unknown>;
-    // Branch on the envelope's own command (robust whether the Given was 008's
-    // store step or 024's shared app-token --dry-run step).
-    const command = this.envelope.command;
-    if (command.includes("store")) {
-      // Cloud API request: host + path + resolved organization.
-      const requestUrl = String(data["requestUrl"] ?? "");
-      assert.match(requestUrl, /\/platform\/api\/organizations\/demo-org\/environments\/$/,
-        `store preview must name the real Cloud API request URL; got "${requestUrl}"`);
-      assert.equal(data["organization"], "demo-org", "store preview must name the resolved organization");
-    } else {
-      // app-token GraphQL request: the resolved instance endpoint (host + /graphql/ path).
-      const instanceUrl = String(data["instanceUrl"] ?? "");
-      assert.match(instanceUrl, /^https?:\/\/[^/]+\/graphql\/?$/,
-        `app-token preview must name the resolved instance GraphQL endpoint; got "${instanceUrl}"`);
-    }
+    // Cloud API request: host + path + resolved organization.
+    const requestUrl = String(data["requestUrl"] ?? "");
+    assert.match(requestUrl, /\/platform\/api\/organizations\/demo-org\/environments\/$/,
+      `store preview must name the real Cloud API request URL; got "${requestUrl}"`);
+    assert.equal(data["organization"], "demo-org", "store preview must name the resolved organization");
   },
 );
 
@@ -416,7 +341,7 @@ Then("it should not create, configure, or store anything", function (this: Jolly
     const values = loadEnvValues(this.lastRun!.cwd);
     for (const key of [
       "NEXT_PUBLIC_SALEOR_API_URL",
-      "JOLLY_SALEOR_APP_TOKEN",
+      "SALEOR_TOKEN",
     ]) {
       assert.ok(!(key in values), `a dry-run must not write ${key} to .env`);
     }
@@ -432,13 +357,12 @@ Then("it should not create, configure, or store anything", function (this: Jolly
 // `jolly login`/`jolly create store` write JOLLY_* credentials to the project
 // `.env`; a real agent does NOT export them into its shell. So every command
 // must read its credentials from the `.env` FILE, never depending on the value
-// being present in the spawned process environment. These two @logic scenarios
-// produce exactly that real-agent state: the cloud token is written to the
+// being present in the spawned process environment. This @logic scenario
+// produces exactly that real-agent state: the cloud token is written to the
 // project `.env` and is genuinely ABSENT from the child's process environment
 // (absentCredentialsEnv unsets it). For `create store`, the Cloud API is pointed
 // at the in-process loopback stand-in so the org resolves and the dry-run names
-// the real environments request without touching a real account; for
-// `app-token`, the dry-run names its real request without any network.
+// the real environments request without touching a real account.
 
 Given(
   "the real `JOLLY_SALEOR_CLOUD_TOKEN` is written to the project `.env` but is absent from the spawned process environment",
@@ -475,38 +399,6 @@ Then(
       /\/organizations\/[^/]+\/environments\/$/,
       `store preview must name the real Cloud API organizations/{organization}/environments/ ` +
         `request it would send to provision the store; got "${requestUrl}"`,
-    );
-  },
-);
-
-// --- Scenario: jolly create app-token reads the Saleor Cloud token from .env -
-
-When(
-  "the agent runs `jolly create app-token --dry-run --json`",
-  function (this: JollyWorld) {
-    // The cloud token is present only in the project `.env` (written by the
-    // Given); it is genuinely absent from the process environment. A successful
-    // preview therefore proves the command read the token from `.env`.
-    this.runCli(["create", "app-token", "--dry-run", "--json"], {
-      env: absentCredentialsEnv(),
-    });
-  },
-);
-
-Then(
-  "the preview should name the real request it would send to acquire the app token",
-  function (this: JollyWorld) {
-    assert.equal(this.envelope.data["dryRun"], true, "a --dry-run preview must mark dryRun: true");
-    const [risk] = findRiskContexts(this.envelope);
-    assert.ok(risk, "the app-token preview must carry a riskContext naming the action");
-    const blob = JSON.stringify(this.envelope.data).toLowerCase();
-    assert.ok(
-      blob.includes("app token") || blob.includes("app-token") || blob.includes("apptoken"),
-      "the preview must name the app-token acquisition it would perform",
-    );
-    assert.ok(
-      blob.includes("graphql"),
-      "the preview must name the real Saleor GraphQL request it would send to acquire the app token",
     );
   },
 );

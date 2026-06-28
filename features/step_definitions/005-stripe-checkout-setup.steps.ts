@@ -417,7 +417,7 @@ Then(
 // (so the idempotent install reuses it and the stage completes). It is the only
 // double in this feature — the real install is the @sandbox scenario above.
 //
-// Targeting: JOLLY_SALEOR_APP_TOKEN stays unset so the recipe/stock stages skip
+// Targeting: SALEOR_TOKEN stays unset so the recipe/stock stages skip
 // without touching the endpoint, and the bootstrap doctor probes use other
 // queries — so the single 429 is reserved for the Stripe stage's GetApps.
 
@@ -749,7 +749,7 @@ Given(
     // it is verified, not produced. Capture the live store creds for the
     // independent gateway cross-check below.
     this.notes.storeEndpoint = process.env.NEXT_PUBLIC_SALEOR_API_URL ?? "";
-    this.notes.storeToken = process.env.JOLLY_SALEOR_APP_TOKEN;
+    this.notes.storeToken = process.env.SALEOR_TOKEN;
     assert.ok(
       this.notes.storeEndpoint,
       "a Saleor GraphQL endpoint must be configured/derived",
