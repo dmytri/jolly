@@ -5,9 +5,10 @@
 // authorization and refresh grant), the customer's `*.saleor.cloud` store
 // domains, and GitHub — plus the host of any JOLLY_SALEOR_CLOUD_API_URL override (feature
 // 018 Rule — pointing the Cloud API elsewhere is the customer's explicit
-// choice). Vercel's and Stripe's API hosts are deliberately absent: each is
-// contacted only by its spawned CLI, never by Jolly's own request code. Retired
-// Saleor hosts are likewise excluded.
+// choice). Vercel's and Stripe's API hosts are deliberately absent, and never
+// contacted by Jolly's own request code: Vercel's API is reached only by the
+// spawned Vercel CLI, and Stripe's only by the Saleor Stripe app Jolly installs
+// (Jolly runs no Stripe CLI). Retired Saleor hosts are likewise excluded.
 
 /**
  * The fixed set of first-party hosts Jolly's request layer may contact. The

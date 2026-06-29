@@ -379,7 +379,7 @@ Then(
 );
 
 Then(
-  "it should report the stage honestly — installed where it installed, and blocked on the human gate for the keys and channel mapping",
+  "it should report the Stripe stage as completed \\(the app was installed) and name the keys-and-`us`-channel Dashboard mapping as the remaining human step in nextSteps, without claiming the keys are configured or checkout is ready",
   function (this: JollyWorld) {
     if (this.notes.skipStripe) return "skipped";
     const stages = (this.envelope.data.stages ?? []) as StartStage[];

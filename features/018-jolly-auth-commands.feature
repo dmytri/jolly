@@ -182,7 +182,7 @@ Feature: Jolly auth commands
 
   Rule: The .env Jolly writes is private and shell-safe
     - Every .env Jolly creates or updates (the Cloud token, refresh token, the projected store
-      SALEOR_TOKEN, organization name, Stripe keys, storefront variables — under a Jolly-managed
+      SALEOR_TOKEN, organization name, storefront variables — under a Jolly-managed
       commented header block) is written with owner-only permissions (mode 600); a
       file holding credentials is never group- or world-readable.
     - Values are written so the file stays a valid POSIX shell env file: a value containing
