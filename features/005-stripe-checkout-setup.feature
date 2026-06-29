@@ -34,7 +34,7 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     Then it should install the Saleor Stripe app via Saleor GraphQL `appInstall` using the Cloud staff token and the current Stripe app manifest
     And re-running the stage should reuse the existing installation rather than installing a duplicate
     And it should announce the guided gate to paste the keys and map the configuration to the `us` channel, referencing the keys by name only
-    And it should report the stage honestly — installed where it installed, and blocked on the human gate for the keys and channel mapping
+    And it should report the Stripe stage as completed (the app was installed) and name the keys-and-`us`-channel Dashboard mapping as the remaining human step in nextSteps, without claiming the keys are configured or checkout is ready
 
   @logic @exceptional-double
   Scenario: A transient Saleor rate-limit during the Stripe stage retries instead of reporting a false blocked
@@ -127,9 +127,12 @@ Feature: Stripe checkout setup for the Jolly starter storefront
       4. **Verify — `jolly doctor` probes** a checkout to confirm the Stripe test payment step is
          reachable (Rule "Checkout-readiness verify probe").
     - Honest reporting (integrity rule): Jolly reports the install `completed` only when `appInstall`
-      actually succeeded, and reports the keys/channel step as blocked on the human gate until it is
-      done — never a fabricated "Stripe configured" or "checkout ready". Final checkout readiness is
-      confirmed by `jolly doctor`, not asserted by the install alone.
+      actually succeeded, and surfaces the keys/channel mapping as a pending human-gate step in
+      `nextSteps` until it is done — never a fabricated "Stripe configured" or "checkout ready". The
+      keys/channel gate is a surfaced next step, NOT a run-status downgrade: once the app-install
+      stage and the other side-effecting stages complete, `jolly start` reports `success` (a live
+      store is the win — features 002/027), with the keys step named as the remaining human action.
+      Final checkout readiness is confirmed by `jolly doctor`, not asserted by the install alone.
     - The Stripe app registers and removes its own Stripe webhooks when a configuration is
       created or deleted — Jolly does not automate Stripe webhook endpoint registration.
 

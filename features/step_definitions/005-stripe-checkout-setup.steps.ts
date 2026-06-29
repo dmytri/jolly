@@ -390,17 +390,20 @@ Then(
       "completed",
       "the Stripe install stage must be reported completed (the app was installed)",
     );
-    // The overall run is never "success": the keys + channel mapping remain a
-    // pending human gate Jolly cannot pass (integrity rule). nextSteps name it.
-    assert.notEqual(
-      this.envelope.status,
-      "success",
-      "the run must not report success while the keys + channel gate is pending",
-    );
+    // The keys + channel mapping is a SURFACED pending human-gate next step, not a
+    // run-status downgrade (feature 005 Rule; the 0.10.11 model — a live store is
+    // the win, features 002/027). Honesty here = the gate is named in nextSteps so
+    // the run cannot hide it, and the run must NOT fabricate that the keys are
+    // configured or checkout is ready (the latter is confirmed only by jolly doctor).
     const next = JSON.stringify(this.envelope.nextSteps).toLowerCase();
     assert.ok(
       next.includes("key") && next.includes("channel"),
       "nextSteps must name the pending keys + channel-mapping human gate",
+    );
+    const haystack = `${this.envelope.summary} ${next}`.toLowerCase();
+    assert.ok(
+      !/keys (?:are )?configured|stripe configured|checkout is ready|checkout ready/.test(haystack),
+      "the run must not fabricate that the Stripe keys are configured or checkout is ready",
     );
   },
 );
