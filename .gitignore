@@ -9,3 +9,4 @@ bun.lockb
 .pi/
 skills-lock.json
 .vercel
+.sandbox-rerun.txt
