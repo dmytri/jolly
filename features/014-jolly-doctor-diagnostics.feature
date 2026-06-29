@@ -22,6 +22,21 @@ Feature: Jolly doctor diagnostics
     And the saleor check should name Configurator introspection as its next step
     And it should report missing permissions or authentication failures with next steps
 
+  @logic
+  Scenario: Doctor does not fabricate channel purchasability
+    Given Jolly cannot reach a real store in this run
+    When the agent runs `jolly doctor saleor --json` with no reachable store
+    Then a `us`-channel purchasability check should be reported in the saleor group
+    And with no reachable store that check should be "skipped", "unknown", or "fail", never "pass"
+    And the summary must not claim products are purchasable when it was not verified
+
+  @sandbox
+  Scenario: Doctor verifies us-channel purchasability against a real store
+    Given a reachable Saleor store with the Cloud token available
+    When `jolly doctor` checks the saleor group
+    Then it should report a `us`-channel purchasability check with a concrete status from a real store query
+    And the check must not report a fabricated "pass" — it passes only when the `us` channel actually offers at least one product available for purchase
+
   @sandbox
   Scenario: Doctor checks storefront readiness
     Given a Paper storefront directory exists locally
@@ -174,6 +189,7 @@ Feature: Jolly doctor diagnostics
     - Doctor should be diagnostics-only in v1.
     - Doctor should not make local or remote changes in v1.
     - Per feature 020's "No fabricated success", doctor reports `pass` only for a check it actually performed and confirmed; checks it could not run are `skipped` or `unknown`, never `pass`.
+    - Doctor's `saleor` group includes a `us`-channel purchasability check (`us-channel-purchasable`): it queries the recipe's `us` channel for products available for purchase and reports `pass` only when at least one is; `warning` — naming the missing channel listings, fixed by adding them with `@saleor/configurator` — when the store is reachable but no product is purchasable (a silent checkout failure otherwise); and `skipped`/`unknown` when the store endpoint or `SALEOR_TOKEN` is unavailable, never a fabricated `pass`. Jolly only reports the state and routes the fix to the configurator; it does not edit the catalog itself.
 
   Rule: Credential checks probe validity, not just presence
     - A credential present in `.env` is not a credential that works. Doctor's

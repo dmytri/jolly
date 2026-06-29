@@ -47,6 +47,7 @@ import {
   installStripeApp,
   STRIPE_APP_MANIFEST_URL,
   probeCheckoutPaymentGateway,
+  probeChannelPurchasability,
   probeEndpointConnectivity,
   CloudApiError,
   type CloudOrganization,
@@ -2116,6 +2117,51 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
         : "No SALEOR_TOKEN configured for store GraphQL.",
       command: hasSaleorToken ? undefined : "jolly login",
     });
+    // `us`-channel purchasability (feature 014): a channel whose products lack a
+    // channel listing / availability sells nothing — checkout fails silently
+    // before payment. Probe the recipe's `us` channel; pass only when ≥1 product
+    // is available for purchase, warning (routing the fix to configurator) when
+    // the store is reachable but none is, skipped/unknown when the endpoint or
+    // token is absent — never a fabricated pass.
+    const purchaseEndpoint = String(
+      values["NEXT_PUBLIC_SALEOR_API_URL"] ?? process.env["NEXT_PUBLIC_SALEOR_API_URL"] ?? "",
+    );
+    if (!purchaseEndpoint || !hasSaleorToken) {
+      checks.push({
+        id: "us-channel-purchasable",
+        status: "skipped",
+        description:
+          "Store endpoint or SALEOR_TOKEN not configured; `us`-channel purchasability was not checked.",
+      });
+    } else {
+      const purchasable = await probeChannelPurchasability(
+        purchaseEndpoint,
+        values["SALEOR_TOKEN"],
+        "us",
+      );
+      if (purchasable.kind === "purchasable") {
+        checks.push({
+          id: "us-channel-purchasable",
+          status: "pass",
+          description: `The \`us\` channel offers ${purchasable.count} product(s) available for purchase.`,
+        });
+      } else if (purchasable.kind === "none-purchasable") {
+        checks.push({
+          id: "us-channel-purchasable",
+          status: "warning",
+          description:
+            "The store is reachable but no product is available for purchase in the `us` channel — add channel listings (with price + availability) so products can sell; checkout otherwise fails before payment.",
+          command: "npx @saleor/configurator deploy --failOnDelete",
+        });
+      } else {
+        checks.push({
+          id: "us-channel-purchasable",
+          status: "unknown",
+          description:
+            "Could not reach the store GraphQL to verify `us`-channel purchasability in this run.",
+        });
+      }
+    }
   }
 
   if (wants("storefront")) {

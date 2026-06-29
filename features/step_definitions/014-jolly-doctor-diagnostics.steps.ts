@@ -973,3 +973,94 @@ Then(
     );
   },
 );
+
+// ── `us`-channel purchasability check (feature 014) ───────────────────────
+
+When(
+  "the agent runs `jolly doctor saleor --json` with no reachable store",
+  function (this: JollyWorld) {
+    // No credentials → no store endpoint, so the purchasability probe has no
+    // store to reach. Real probe, no fabrication; bounded so a hung probe fails.
+    this.runCli(["doctor", "saleor", "--json"], {
+      env: absentCredentialsEnv(),
+      timeoutMs: 60_000,
+    });
+  },
+);
+
+Then(
+  "a `us`-channel purchasability check should be reported in the saleor group",
+  function (this: JollyWorld) {
+    const check = this.envelope.checks.find((c) => c.id === "us-channel-purchasable");
+    assert.ok(check, "the saleor group must report a us-channel-purchasable check");
+  },
+);
+
+Then(
+  "with no reachable store that check should be {string}, {string}, or {string}, never {string}",
+  function (this: JollyWorld, a: string, b: string, c: string, never: string) {
+    const check = this.envelope.checks.find((ck) => ck.id === "us-channel-purchasable");
+    assert.ok(check, "us-channel-purchasable check must be present");
+    assert.ok(
+      [a, b, c].includes(check!.status),
+      `with no reachable store the purchasability check should be one of ${a}/${b}/${c}; got "${check!.status}"`,
+    );
+    assert.notEqual(
+      check!.status,
+      never,
+      `the purchasability check must never be "${never}" with no reachable store`,
+    );
+  },
+);
+
+Then(
+  "the summary must not claim products are purchasable when it was not verified",
+  function (this: JollyWorld) {
+    assert.doesNotMatch(
+      this.envelope.summary,
+      /products?\b[^.]*\bpurchasable|\bpurchasable\b[^.]*\bproducts?|ready to sell/i,
+      `the summary must not claim purchasability when unverified; got: ${this.envelope.summary}`,
+    );
+  },
+);
+
+Given(
+  "a reachable Saleor store with the Cloud token available",
+  function (this: JollyWorld) {
+    // @sandbox: the run's real test-env credentials provide a reachable store
+    // endpoint (provisioned per AGENTS.md when JOLLY_SALEOR_CLOUD_TOKEN is set).
+    // Nothing to set up beyond running under those credentials in the When.
+    this.notes.sandboxReachableStore = true;
+  },
+);
+
+When("`jolly doctor` checks the saleor group", function (this: JollyWorld) {
+  this.runCli(["doctor", "saleor", "--json"]);
+});
+
+Then(
+  "it should report a `us`-channel purchasability check with a concrete status from a real store query",
+  function (this: JollyWorld) {
+    const check = this.envelope.checks.find((c) => c.id === "us-channel-purchasable");
+    assert.ok(check, "the saleor group must report a us-channel-purchasable check");
+    assert.ok(
+      (CHECK_STATUSES as readonly string[]).includes(check!.status),
+      `the purchasability check must carry a concrete status; got "${check!.status}"`,
+    );
+  },
+);
+
+Then(
+  'the check must not report a fabricated "pass" — it passes only when the `us` channel actually offers at least one product available for purchase',
+  function (this: JollyWorld) {
+    const check = this.envelope.checks.find((c) => c.id === "us-channel-purchasable");
+    assert.ok(check, "us-channel-purchasable check must be present");
+    if (check!.status === "pass") {
+      assert.match(
+        String(check!.description),
+        /offers [1-9]\d* product/i,
+        "a purchasability pass must name at least one product available for purchase",
+      );
+    }
+  },
+);

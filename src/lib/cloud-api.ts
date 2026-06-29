@@ -1111,6 +1111,49 @@ export async function probeCheckoutPaymentGateway(
   }
 }
 
+export type ChannelPurchasabilityOutcome =
+  | { kind: "purchasable"; count: number }
+  | { kind: "none-purchasable" }
+  | { kind: "unreachable" };
+
+/**
+ * Probe whether a channel offers products available for purchase (feature 014 —
+ * the `us`-channel purchasability check). Read-only: queries the channel's
+ * products and counts those with `isAvailableForPurchase`. A channel whose
+ * products lack a channel listing / availability sells nothing — a silent
+ * checkout failure this surfaces so the agent can add the listings with the
+ * configurator. Returns `unreachable` (never a fabricated pass) on any
+ * network/GraphQL failure or when the query did not return a products list.
+ */
+export async function probeChannelPurchasability(
+  graphqlUrl: string,
+  token: string | undefined,
+  channelSlug: string,
+): Promise<ChannelPurchasabilityOutcome> {
+  try {
+    const result = await timedGraphql(
+      graphqlUrl,
+      token,
+      `query($channel: String!) {
+         products(first: 20, channel: $channel) {
+           edges { node { id isAvailableForPurchase } }
+         }
+       }`,
+      { channel: channelSlug },
+    );
+    const products = (result.data as Record<string, unknown> | undefined)?.products as
+      | { edges?: Array<{ node?: { isAvailableForPurchase?: boolean } }> }
+      | undefined;
+    // A failed query (bad token, GraphQL error) returns no products list — that is
+    // "could not verify" (unreachable), NOT a false "none-purchasable" warning.
+    if (!products || !Array.isArray(products.edges)) return { kind: "unreachable" };
+    const count = products.edges.filter((e) => e.node?.isAvailableForPurchase === true).length;
+    return count > 0 ? { kind: "purchasable", count } : { kind: "none-purchasable" };
+  } catch {
+    return { kind: "unreachable" };
+  }
+}
+
 // ── Endpoint connectivity probe (feature 002 — `jolly doctor saleor`) ──────
 //
 // `doctor`'s `saleor-endpoint` check must report a real, READ-ONLY live
