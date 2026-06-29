@@ -308,7 +308,17 @@ export function setupEvalContext(
   // (feature 025: live by design). This is the "scaffolded `.env`" artifact and
   // the file-form the agent reads (Jolly reads .env via loadEnvValues); the same
   // real values reach the agent process below. No dummy creds, no `.invalid`.
-  writeFileSync(join(workspace, ".env"), realEnvFileContents());
+  //
+  // Also default the store name to this run's `jolly-test`-namespace, so the
+  // autonomous agent's `jolly start`/`create store` provisions a
+  // `jolly-test`-namespaced environment (feature 025: every created resource
+  // jolly-test-namespaced and reclaimable). Without it Jolly falls through to its
+  // product default "jolly-store", which the jolly-test teardown cannot reclaim —
+  // leaking the env and failing the namespacing assertion.
+  writeFileSync(
+    join(workspace, ".env"),
+    `${realEnvFileContents()}JOLLY_STORE_NAME=${namespace}\nJOLLY_STORE_DOMAIN_LABEL=${namespace}\n`,
+  );
 
   const traceFile = join(root, "jolly-trace.jsonl");
   writeFileSync(traceFile, "");
