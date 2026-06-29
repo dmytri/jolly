@@ -118,6 +118,15 @@ Feature: Jolly doctor diagnostics
     And the envelope checks should include results from each group
 
   @logic
+  Scenario: Doctor rejects an unknown check group
+    Given a project directory with the Jolly CLI installed
+    When the agent runs `jolly doctor not-a-group --json`
+    Then the envelope status should be "error"
+    And the doctor error code should be "UNKNOWN_DOCTOR_GROUP"
+    And the doctor error should name the valid groups skills, init, saleor, storefront, deployment, stripe
+    And the doctor error remediation should point to running `jolly doctor` for all checks or naming a valid group
+
+  @logic
   Scenario: Doctor flags a missing or overwritten bootstrap so the agent need not assume
     Given a project directory whose `AGENTS.md` lacks Jolly's marker and which has no `.mcp.json`
     When the agent runs `jolly doctor init --json`

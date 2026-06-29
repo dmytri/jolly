@@ -8,6 +8,9 @@
 import t from "@bomb.sh/tab";
 
 // The top-level command surface offered for completion (feature 006).
+/**
+ * @planks("Then the error should name the supported commands login, logout, auth status, init, start, doctor, upgrade, skills, create, and completion")
+ */
 const COMMANDS: ReadonlyArray<readonly [string, string]> = [
   ["login", "Authenticate to Saleor Cloud"],
   ["logout", "Remove the stored Saleor Cloud token"],
@@ -22,6 +25,10 @@ const COMMANDS: ReadonlyArray<readonly [string, string]> = [
 ];
 
 let registered = false;
+/**
+ * @planks("When the agent runs `jolly completion bash`")
+ * @planks("When the agent runs `jolly complete -- lo`")
+ */
 function register(): void {
   if (registered) return;
   for (const [name, description] of COMMANDS) t.command(name, description);
@@ -32,6 +39,12 @@ function register(): void {
  * Handle `jolly completion <shell>` (prints the completion script) and
  * `jolly complete -- <words>` (prints candidate completions). Returns the
  * process exit code.
+ * @planks("When the agent runs `jolly completion bash`")
+ * @planks("Then stdout should contain a shell completion script for the `jolly` command")
+ * @planks("Then the script should reference the supported commands login, logout, init, start, doctor, upgrade, skills, and create")
+ * @planks("When the agent runs `jolly complete -- lo`")
+ * @planks("Then stdout should list the candidate completions `login` and `logout`")
+ * @planks("Then the error should name the supported commands login, logout, auth status, init, start, doctor, upgrade, skills, create, and completion")
  */
 export function runCompletion(argv: string[]): number {
   register();

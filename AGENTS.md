@@ -2,11 +2,13 @@
 
 This is the authoritative **agent/tooling configuration** for this repository, shared by every agent. It is not product intent, a roadmap, or a worklist. Product intent lives in `features/*.feature` and referenced `assets/**`.
 
+Machine-read tooling values for the Shipshape roles live in `RIGGING.md`. Those values are the stack, directories, commands, and tiers. This file holds the longer tooling prose.
+
 This repo is **spec-driven**: `src/` (CLI entry `src/index.ts`) is disposable — built by Crew Mates, driven by failing tests, and regenerated whenever specs change. `assets/**` is human-authored durable material, not specified in `.feature` files, not covered by tests, and never edited by QM or Crew.
 
 ## Shipshape Workflow
 
-This repository uses Shipshape for agent workflow. Shipshape owns the generic `/captain`, `/qm`, `/crew`, `/bosun`, and `/clearrole` role prompts; do not recreate them locally.
+This repository uses Shipshape for agent workflow. Shipshape owns the generic `/captain`, `/qm`, `/crew`, `/bosun`, `/shipwright`, and `/clearrole` role prompts; do not recreate them locally.
 
 Install or update Shipshape for the active runtime before substantive work:
 

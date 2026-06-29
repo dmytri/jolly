@@ -15,6 +15,9 @@ const CLARIFICATION =
   "That doesn't look like a Saleor URL I can use. Could you paste your Saleor Dashboard URL, " +
   "GraphQL API URL, or root Saleor Cloud URL (for example https://your-store.eu.saleor.cloud)?";
 
+/**
+ * @planks("Then the envelope `data` should report the normalized endpoint `https://my-shop.saleor.cloud/graphql/`")
+ */
 export function normalizeSaleorUrl(input: string): NormalizedSaleorUrl {
   let url: URL;
   try {

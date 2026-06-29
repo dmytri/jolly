@@ -26,6 +26,11 @@ const deviceTokenUrl = (): string => `${realmBase()}/protocol/openid-connect/tok
 export const DEVICE_CLIENT_ID = "jolly";
 const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
 
+/**
+ * @planks("When the agent runs `jolly login --json`")
+ * @planks("When the user runs `jolly login`")
+ * @planks("When the agent runs `jolly doctor saleor --json`")
+ */
 export class DeviceGrantError extends Error {
   readonly code: string;
   constructor(message: string, code: string) {
@@ -65,7 +70,12 @@ export interface DeviceAuthorization {
   expiresIn: number;
 }
 
-/** Start the grant: request a device code with client_id=jolly. */
+/**
+ * Start the grant: request a device code with client_id=jolly.
+ * @planks("When the agent runs `jolly login --json`")
+ * @planks("When the user runs `jolly login`")
+ * @planks("When the agent runs `jolly start --json` in a non-interactive shell")
+ */
 export async function requestDeviceCode(): Promise<DeviceAuthorization> {
   const url = deviceAuthUrl();
   assertFirstParty(url);
@@ -113,6 +123,7 @@ const REFRESH_GRANT_TYPE = "refresh_token";
  * long run refreshes the short-lived access token"). Returns the new access
  * token and the (possibly rotated) refresh token. Targets the first-party host
  * auth.saleor.io (feature 020 allowlist).
+ * @planks("When the agent runs `jolly doctor saleor --json`")
  */
 export async function refreshAccessToken(
   refreshToken: string,
@@ -151,6 +162,7 @@ export async function refreshAccessToken(
  * the payload without verifying the signature — enough to decide a proactive
  * refresh. A token that cannot be parsed is treated as expired so the caller
  * refreshes rather than sending a stale credential.
+ * @planks("When the agent runs `jolly doctor saleor --json`")
  */
 export function isJwtExpired(token: string, skewSeconds = 30): boolean {
   const parts = token.split(".");
@@ -174,6 +186,8 @@ const sleep = (ms: number): Promise<void> =>
  * `interval`, backs off on `slow_down`, and keeps waiting on
  * `authorization_pending` until the device code expires. Returns the access and
  * refresh tokens once the grant completes.
+ * @planks("When the agent runs `jolly login --json`")
+ * @planks("When the user runs `jolly login`")
  */
 export async function pollForDeviceTokens(
   auth: DeviceAuthorization,

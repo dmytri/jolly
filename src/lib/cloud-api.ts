@@ -33,6 +33,8 @@ const DEFAULT_CLOUD_API_BASE = "https://cloud.saleor.io/platform/api";
  * host is not first-party (the customer-supplied `--url` is the injection point
  * this guards). Throws CloudApiError with the stable code NON_FIRST_PARTY_HOST,
  * naming the refused host. Reuses the canonical allowlist in hosts.ts.
+ * @planks("When the agent runs `jolly doctor saleor --json` with no reachable store")
+ * @planks("Then it should validate GraphQL connectivity")
  */
 function assertFirstPartyUrl(url: string): void {
   let host: string;
@@ -56,6 +58,7 @@ function assertFirstPartyUrl(url: string): void {
  * The Cloud API base URL for this request: the JOLLY_SALEOR_CLOUD_API_URL
  * override when set (feature 018 Rule — pointing it elsewhere is the
  * customer's explicit choice), otherwise the first-party default.
+ * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier")
  */
 export function cloudApiBase(): string {
   const override = process.env["JOLLY_SALEOR_CLOUD_API_URL"];
@@ -68,7 +71,10 @@ export function cloudApiBase(): string {
 const POLL_INTERVAL_MS = 5_000;
 const POLL_TIMEOUT_MS = 480_000; // stay under the harness's CLI timeout
 
-/** Error from the Cloud API with a stable, branchable code. */
+/** Error from the Cloud API with a stable, branchable code.
+ * @planks(`Then the envelope status should be "error" with the stable code `ENVIRONMENT_LIMIT_REACHED``)
+ * @planks("When the agent runs `jolly create store --create-environment --json` with no reachable store")
+ */
 export class CloudApiError extends Error {
   readonly code: string;
   readonly httpStatus?: number;
@@ -89,6 +95,7 @@ export class CloudApiError extends Error {
  * (`JOLLY_SALEOR_CLOUD_TOKEN`) as `Authorization: Token`. The access token, when
  * stored, takes precedence — so a value equal to `JOLLY_SALEOR_ACCESS_TOKEN`
  * authenticates as `Bearer`, everything else as `Token`.
+ * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier")
  */
 export function platformAuthScheme(token: string): "Bearer" | "Token" {
   // Decide by the token's SHAPE, not by whether it happens to be mirrored in
@@ -128,7 +135,10 @@ export interface CloudOrganization {
   [key: string]: unknown;
 }
 
-/** GET /platform/api/organizations/ */
+/** GET /platform/api/organizations/
+ * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier")
+ * @planks("When the agent runs `jolly doctor saleor --json`")
+ */
 export async function listOrganizations(
   token: string,
 ): Promise<CloudOrganization[]> {
@@ -153,7 +163,9 @@ export interface CloudProject {
   [key: string]: unknown;
 }
 
-/** GET /platform/api/organizations/{slug}/projects/ */
+/** GET /platform/api/organizations/{slug}/projects/
+ * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier")
+ */
 export async function listProjects(
   token: string,
   organizationSlug: string,
@@ -172,7 +184,9 @@ export async function listProjects(
   return (await response.json()) as CloudProject[];
 }
 
-/** POST /platform/api/organizations/{slug}/projects/ with { name, plan, region }. */
+/** POST /platform/api/organizations/{slug}/projects/ with { name, plan, region }.
+ * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier")
+ */
 export async function createProject(
   token: string,
   organizationSlug: string,
@@ -202,7 +216,9 @@ export interface CloudService {
   [key: string]: unknown;
 }
 
-/** GET /platform/api/organizations/{org}/projects/{project}/services/ */
+/** GET /platform/api/organizations/{org}/projects/{project}/services/
+ * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier")
+ */
 export async function listProjectServices(
   token: string,
   organizationSlug: string,
@@ -250,6 +266,10 @@ export interface CloudEnvironment {
  * environment (with task_id for async provisioning). A rejection caused by
  * the organization's sandbox environment limit surfaces as a CloudApiError
  * with the stable code ENVIRONMENT_LIMIT_REACHED (feature 012 Rule).
+ * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier")
+ * @planks("Then Jolly should create an environment via POST /platform/api/organizations/{organization}/environments/")
+ * @planks("When the agent runs `jolly create store --create-environment --json`")
+ * @planks(`Then the envelope status should be "error" with the stable code `ENVIRONMENT_LIMIT_REACHED``)
  */
 export async function createEnvironment(
   token: string,
@@ -305,7 +325,9 @@ export async function createEnvironment(
   return (await response.json()) as CloudEnvironment;
 }
 
-/** GET /platform/api/organizations/{slug}/environments/ */
+/** GET /platform/api/organizations/{slug}/environments/
+ * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier")
+ */
 export async function listEnvironments(
   token: string,
   organizationSlug: string,
@@ -339,7 +361,9 @@ export interface TaskStatus {
   [key: string]: unknown;
 }
 
-/** The poll URL for a task: GET /platform/api/service/task-status/{task_id}. */
+/** The poll URL for a task: GET /platform/api/service/task-status/{task_id}.
+ * @planks(`Then Jolly should poll GET /platform/api/service/task-status/{task_id} until status is "SUCCEEDED"`)
+ */
 export function taskStatusUrl(taskId: string): string {
   return `${cloudApiBase()}/service/task-status/${taskId}/`;
 }
@@ -353,6 +377,8 @@ export function taskStatusUrl(taskId: string): string {
  * from the creation response, and the endpoint is anonymous — sending the
  * Cloud `Authorization: Token` header makes the service try (and fail) to
  * decode it as a JWT, returning 401 "Error decoding signature".
+ * @planks(`Then Jolly should poll GET /platform/api/service/task-status/{task_id} until status is "SUCCEEDED"`)
+ * @planks("Then the environment creation should return a task_id for async job polling")
  */
 export async function pollTaskStatus(
   taskId: string,
@@ -395,6 +421,8 @@ export async function pollTaskStatus(
  * (https://{domain_label}.saleor.cloud/graphql/) from the task result,
  * falling back to the environment object when the task body does not carry
  * it (the exact task-status shape is verified against the live API).
+ * @planks("Then Jolly should extract the resulting domain from the task result")
+ * @planks("Then the envelope `data` should report the created store's `*.saleor.cloud` GraphQL API URL")
  */
 export function extractDomainUrl(
   task: TaskStatus | undefined,
@@ -428,6 +456,10 @@ export function extractDomainUrl(
 const RATE_LIMIT_RETRIES = 4;
 const RATE_LIMIT_RETRY_DELAY_MS = 1_000;
 
+/**
+ * @planks("When the agent runs `jolly start --yes --json` and the stock stage runs against that endpoint")
+ * @planks("Then the stock stage should be reported completed, having retried the rate-limited request")
+ */
 async function graphqlFetch(
   graphqlUrl: string,
   token: string,
@@ -469,7 +501,9 @@ async function graphqlFetch(
   return (body.data ?? {}) as Record<string, unknown>;
 }
 
-/** query GetApps { apps(first: 100) { edges { node { id name } } } } */
+/** query GetApps { apps(first: 100) { edges { node { id name } } } }
+ * @planks("When Jolly start reaches the Stripe stage")
+ */
 export async function queryGetApps(
   graphqlUrl: string,
   token: string,
@@ -722,6 +756,8 @@ async function setVariantStock(
  * when the warehouse is absent and NO_RECIPE_VARIANTS when the store holds no
  * variants — so the caller can report the stage honestly (blocked, not a
  * fabricated completion) instead of claiming success.
+ * @planks("When Jolly start completes the recipe stage")
+ * @planks("Then every recipe product variant should have stock in the recipe warehouse")
  */
 export async function seedRecipeStock(
   graphqlUrl: string,
@@ -938,6 +974,8 @@ export interface InstallStripeAppResult {
  * name matches /stripe/i instead of installing a duplicate. Surfaces GraphQL/
  * payload errors as CloudApiError with a stable code. Fails fast against an
  * unroutable endpoint (the underlying fetch rejects rather than hanging).
+ * @planks("When Jolly start reaches the Stripe stage")
+ * @planks("Then it should install the Saleor Stripe app via Saleor GraphQL `appInstall` using the Cloud staff token and the current Stripe app manifest")
  */
 export async function installStripeApp(
   graphqlUrl: string,
@@ -1048,6 +1086,8 @@ async function timedGraphql(
  * availablePaymentGateways, then deletes the checkout (harmless, reverted). Maps
  * every failure mode (no variants, no checkout, unreachable/timed-out endpoint)
  * to a non-throwing outcome so the caller never reports a fabricated pass.
+ * @planks("When `jolly doctor` probes checkout payment readiness")
+ * @planks("Then the checkout-readiness check should pass only when the Stripe gateway is offered for that checkout")
  */
 export async function probeCheckoutPaymentGateway(
   graphqlUrl: string,
@@ -1124,6 +1164,8 @@ export type ChannelPurchasabilityOutcome =
  * checkout failure this surfaces so the agent can add the listings with the
  * configurator. Returns `unreachable` (never a fabricated pass) on any
  * network/GraphQL failure or when the query did not return a products list.
+ * @planks("When `jolly doctor` checks the saleor group")
+ * @planks("Then it should report a `us`-channel purchasability check with a concrete status from a real store query")
  */
 export async function probeChannelPurchasability(
   graphqlUrl: string,
@@ -1172,6 +1214,8 @@ export type EndpointProbeOutcome =
  * `reachable` when the endpoint answers as GraphQL, `unreachable` for any other
  * outcome (non-first-party host, unparseable URL, network error, timeout, or a
  * non-GraphQL response). Never throws and never mutates.
+ * @planks("When `jolly doctor` checks Saleor")
+ * @planks("Then it should validate GraphQL connectivity")
  */
 export async function probeEndpointConnectivity(
   graphqlUrl: string,

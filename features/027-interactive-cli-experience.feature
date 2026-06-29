@@ -310,3 +310,10 @@ Feature: Human-facing interactive CLI experience
     And the Saleor auth host approves the device grant on the first poll
     When the user runs `jolly login`
     Then the auth.saleor.io verification URL should be wrapped in an OSC 8 terminal hyperlink escape pointing at that URL
+
+  @captain
+  Scenario: Stage progress descriptions come from the message catalog
+    Given the interactive progress reporter renders a running stage
+    When the store-create stage is in progress
+    Then the stage description shown to the human should be drawn from the catalog asset assets/messages/cli.json
+    And every interactive stage description should resolve through the same catalog binding as start.vercelSignin and start.stripeFinal

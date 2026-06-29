@@ -19,13 +19,18 @@ const ENV_LINE = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/;
 const SHELL_SAFE = /^[A-Za-z0-9_./:=@%+,-]+$/;
 
 /** Quote a value for a POSIX env file: bare when safe, else single-quoted with
- * embedded single quotes escaped as '\'' so `set -a; . ./.env` round-trips it. */
+ * embedded single quotes escaped as '\'' so `set -a; . ./.env` round-trips it.
+ * @planks("Then it should write SALEOR_URL and SALEOR_TOKEN to .env from the authenticated session")
+ */
 function quoteEnvValue(value: string): string {
   if (value !== "" && SHELL_SAFE.test(value)) return value;
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
-/** Reverse quoteEnvValue: unwrap a single-quoted value back to its raw form. */
+/** Reverse quoteEnvValue: unwrap a single-quoted value back to its raw form.
+ * @planks("Then Jolly should load the updated .env values for the current command flow")
+ * @planks("Then Jolly should write the URL to .env as NEXT_PUBLIC_SALEOR_API_URL")
+ */
 function unquoteEnvValue(raw: string): string {
   if (raw.length >= 2 && raw.startsWith("'") && raw.endsWith("'")) {
     return raw.slice(1, -1).replace(/'\\''/g, "'");
@@ -33,7 +38,13 @@ function unquoteEnvValue(raw: string): string {
   return raw;
 }
 
-/** Parse the project's .env into a name → value record (empty when absent). */
+/** Parse the project's .env into a name → value record (empty when absent).
+ * @planks("Then Jolly should write the URL to .env as NEXT_PUBLIC_SALEOR_API_URL")
+ * @planks("Then Jolly should load the updated .env values for the current command flow")
+ * @planks("Then it should write NEXT_PUBLIC_SALEOR_API_URL to .env from the resulting domain")
+ * @planks("Then it should write SALEOR_URL and SALEOR_TOKEN to .env from the authenticated session")
+ * @planks("Then `jolly start` should write that `NEXT_PUBLIC_SALEOR_API_URL` (mirrored to `SALEOR_URL`) and the resolved `SALEOR_TOKEN` to `.env`")
+ */
 export function loadEnvValues(projectDir: string): Record<string, string> {
   const path = join(projectDir, ".env");
   if (!existsSync(path)) return {};
@@ -53,6 +64,9 @@ export function loadEnvValues(projectDir: string): Record<string, string> {
  * file's opening lines. Header lines are comments (`#…`), so they pass through
  * ENV_LINE untouched on the subsequent read/merge. The caller supplies the
  * text so this module stays generic about what the header says.
+ * @planks("Then Jolly should write the URL to .env as NEXT_PUBLIC_SALEOR_API_URL")
+ * @planks("Then it should write SALEOR_URL and SALEOR_TOKEN to .env from the authenticated session")
+ * @planks("Then `jolly start` should write that `NEXT_PUBLIC_SALEOR_API_URL` (mirrored to `SALEOR_URL`) and the resolved `SALEOR_TOKEN` to `.env`")
  */
 export function ensureEnvHeader(projectDir: string, headerText: string): void {
   const path = join(projectDir, ".env");
@@ -63,7 +77,10 @@ export function ensureEnvHeader(projectDir: string, headerText: string): void {
   writeFileSync(path, existing.length > 0 ? `${block}${existing}` : block);
 }
 
-/** Make sure .gitignore exists and lists `.env` so secrets are never committed. */
+/** Make sure .gitignore exists and lists `.env` so secrets are never committed.
+ * @planks("Then Jolly should write the URL to .env as NEXT_PUBLIC_SALEOR_API_URL")
+ * @planks("Then it should write SALEOR_URL and SALEOR_TOKEN to .env from the authenticated session")
+ */
 function ensureEnvIgnored(projectDir: string): void {
   const path = join(projectDir, ".gitignore");
   const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
@@ -78,6 +95,15 @@ function ensureEnvIgnored(projectDir: string): void {
  * any secret touches disk. Existing variables are updated in place, new ones
  * appended, and unrelated lines (comments, other variables) are preserved.
  * Returns the full post-update value map for the current command flow.
+ * @planks("Given the real `JOLLY_SALEOR_CLOUD_TOKEN` is written to the project `.env` but is absent from the spawned process environment")
+ * @planks("Then Jolly should write the URL to .env as NEXT_PUBLIC_SALEOR_API_URL")
+ * @planks("Then it should write NEXT_PUBLIC_SALEOR_API_URL to .env from the resulting domain")
+ * @planks("Then it should write SALEOR_URL and SALEOR_TOKEN to .env from the authenticated session")
+ * @planks("Then it should store the device-grant access token in .env as JOLLY_SALEOR_ACCESS_TOKEN")
+ * @planks("Then it should store the device-grant refresh token in .env as JOLLY_SALEOR_REFRESH_TOKEN")
+ * @planks("Then it should store the token in .env as JOLLY_SALEOR_CLOUD_TOKEN")
+ * @planks("Then it should store the organization name returned by the Cloud API in .env as JOLLY_SALEOR_ORGANIZATION")
+ * @planks("Then `jolly start` should write that `NEXT_PUBLIC_SALEOR_API_URL` (mirrored to `SALEOR_URL`) and the resolved `SALEOR_TOKEN` to `.env`")
  */
 export function writeEnvValues(
   projectDir: string,

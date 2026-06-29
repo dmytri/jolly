@@ -612,6 +612,59 @@ Then(
   },
 );
 
+// ─── Scenario: Doctor rejects an unknown check group (@logic) ───────────────
+//
+// Naming a group that is not in DOCTOR_GROUPS is a usage error: doctor runs
+// nothing and returns a stable UNKNOWN_DOCTOR_GROUP error that names the valid
+// groups and points back at the all-checks run, so the agent can self-correct.
+
+When(
+  "the agent runs `jolly doctor not-a-group --json`",
+  function (this: JollyWorld) {
+    this.runCli(["doctor", "not-a-group", "--json"], {
+      env: absentCredentialsEnv(),
+    });
+  },
+);
+
+Then(
+  'the doctor error code should be "UNKNOWN_DOCTOR_GROUP"',
+  function (this: JollyWorld) {
+    assert.ok(
+      this.envelope.errors.some((e) => e.code === "UNKNOWN_DOCTOR_GROUP"),
+      "an unknown group must yield a stable UNKNOWN_DOCTOR_GROUP error",
+    );
+  },
+);
+
+Then(
+  "the doctor error should name the valid groups skills, init, saleor, storefront, deployment, stripe",
+  function (this: JollyWorld) {
+    const error = this.envelope.errors.find(
+      (e) => e.code === "UNKNOWN_DOCTOR_GROUP",
+    );
+    assert.match(
+      String(error?.message ?? ""),
+      /skills, init, saleor, storefront, deployment, stripe/,
+      "the error must list the valid groups so the agent can pick one",
+    );
+  },
+);
+
+Then(
+  "the doctor error remediation should point to running `jolly doctor` for all checks or naming a valid group",
+  function (this: JollyWorld) {
+    const error = this.envelope.errors.find(
+      (e) => e.code === "UNKNOWN_DOCTOR_GROUP",
+    );
+    assert.match(
+      String(error?.remediation ?? ""),
+      /jolly doctor.*valid group/i,
+      "the remediation must direct the agent to the all-checks run or a valid group",
+    );
+  },
+);
+
 // ─── Scenario: Doctor flags a missing or overwritten bootstrap (@logic) ─────
 //
 // Doctor's `init` group verifies the feature-007 bootstrap artifacts so the
