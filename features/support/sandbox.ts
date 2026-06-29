@@ -120,8 +120,8 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   ],
   // The configurator-deploy stage spawns `npx @saleor/configurator deploy` of
   // Jolly's bundled recipe against the store URL + SALEOR_TOKEN (derivable from the
-  // Cloud token via per-run provisioning). No CLI auth beyond the store
-  // SALEOR_TOKEN the configurator uses; no Vercel/Stripe credential.
+  // Cloud token via per-run provisioning). The configurator authenticates with
+  // the store SALEOR_TOKEN.
   "Jolly start deploys the starter recipe with @saleor/configurator": [
     "saleorEndpoint",
     "saleorAppToken",
@@ -147,8 +147,7 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   // The checkout-readiness probe is Jolly's own Saleor GraphQL (create + revert a
   // `us` test checkout, read availablePaymentGateways) — no CLI spawn, no Vercel.
   // It needs the store endpoint + a token that can create a checkout (SALEOR_TOKEN,
-  // derivable from the Cloud token); gateway availability is server-side, so no
-  // Stripe credential is required.
+  // derivable from the Cloud token); gateway availability is read server-side.
   "Jolly doctor verifies the Stripe payment gateway is reachable for checkout": [
     "saleorEndpoint",
     "saleorAppToken",
@@ -380,8 +379,8 @@ export function missingCredentials(
  * Groups whose variables the harness can DERIVE when they are not configured
  * but `JOLLY_SALEOR_CLOUD_TOKEN` is present: it provisions one shared
  * per-run `jolly-test` environment and reads the endpoint URL and SALEOR_TOKEN
- * from it (features 023 + 012). Everything else — the Cloud token itself,
- * Vercel, Stripe — cannot be derived and stays a skip condition.
+ * from it (features 023 + 012). Everything else — the Cloud token itself and
+ * Vercel — cannot be derived and stays a skip condition.
  */
 export const DERIVABLE_GROUPS: readonly CredentialGroup[] = [
   "saleorEndpoint",

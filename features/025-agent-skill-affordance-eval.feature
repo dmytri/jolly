@@ -47,7 +47,7 @@ Feature: Agent skill affordance evaluation
       left unset so `jolly start` provisions a fresh `jolly-test`-namespaced
       Saleor environment and derives them, exercising the real store-creation path
       rather than reusing a pre-seeded store. There are NO fakes: no dummy
-      credentials, no `.invalid` endpoints, no fake Stripe/configurator CLIs. The
+      credentials, no `.invalid` endpoints, no fake configurator CLIs. The
       agent acts against the real services exactly as a customer's agent would.
     - The task is the REAL entry point, not a hand-held script: the agent is
       given exactly the string the homepage copy box hands a customer's agent —

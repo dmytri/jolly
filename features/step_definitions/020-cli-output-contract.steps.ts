@@ -683,8 +683,9 @@ Then(
 // assertable, Jolly declares the allowlist in one canonical module
 // (src/lib/hosts.ts) that the request layer honors — the enumeration reads that
 // declaration. Neither api.vercel.com nor api.stripe.com is first-party: Vercel
-// is reached only by the spawned Vercel CLI and Stripe only by the spawned
-// Stripe CLI, so neither host appears in Jolly's own request code; this and the
+// is reached only by the spawned Vercel CLI, and api.stripe.com only by the
+// Saleor Stripe app Jolly installs, so neither host appears in Jolly's own
+// request code; this and the
 // retired id.saleor.online / api.saleor.cloud are checked by scanning the whole
 // of src (Jolly's code). Long Then patterns use RegExp so Cucumber Expressions
 // don't mis-parse a dotted host literal as a {float}.{float} param.

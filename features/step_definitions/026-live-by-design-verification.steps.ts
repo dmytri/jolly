@@ -165,7 +165,7 @@ When("the test doubles they use are enumerated", function (this: JollyWorld) {
 });
 
 Then(
-  /^there should be no forbidden double — no fake CLI standing in for a real one \(Stripe, Vercel, @saleor\/configurator, the storefront CLI\), no dummy or forced-safe credential, and no unroutable stand-in endpoint substituting for a real service$/,
+  /^there should be no forbidden double — no fake CLI standing in for a real one \(Vercel, @saleor\/configurator, the storefront CLI\), no dummy or forced-safe credential, and no unroutable stand-in endpoint substituting for a real service$/,
   function (this: JollyWorld) {
     const hits = this.notes.doubleHits as DoubleHit[];
     // A double is forbidden unless its site is annotated @exceptional-double.

@@ -29,7 +29,7 @@ import type { JollyWorld } from "./world.ts";
 
 // 1 — @sandbox credential gate (feature 023): skip (never fail) only when
 // credentials are absent AND cannot be derived — the Cloud token itself, or
-// Vercel/Stripe. A missing Saleor endpoint/SALEOR_TOKEN with the Cloud token
+// Vercel. A missing Saleor endpoint/SALEOR_TOKEN with the Cloud token
 // present is DERIVED instead: the harness provisions one shared per-run
 // jolly-test environment on first need and exports the values for the whole
 // run. Provisioning creates a real environment, so the timeout is generous.

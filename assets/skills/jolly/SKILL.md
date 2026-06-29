@@ -9,7 +9,7 @@ description: How to drive Jolly and where it fits among the Saleor skills and of
 (`@dk/jolly`, by Dmytri Kleiner) that brings a Saleor Cloud storefront into existence by **spawning
 the official CLIs** — `git`, `pnpm`, `@saleor/configurator`, `vercel` — and doing the small plumbing
 between them (auth, store provisioning, secret/`.env` writing, `.mcp.json`, diagnostics).
-It never reimplements a CLI against raw APIs, holds no Vercel or Stripe token, and never fabricates a
+It never reimplements a CLI against raw APIs and never fabricates a
 step it didn't perform. **You stay in charge:** you approve the risky steps, provide credentials, and
 own everything after setup.
 
@@ -155,8 +155,8 @@ only the stages it actually performed.
    can turn it off and the store is reachable.
 7. **Stripe (test mode)** — `start` installs Saleor's Stripe app via the store's Saleor GraphQL
    `appInstall` mutation (`HANDLE_PAYMENTS`, authenticating with the Cloud staff token — `appInstall`
-   is a staff-only mutation) and installs the `stripe-best-practices` skill. **That is Jolly's entire payment
-   role:** it runs no Stripe CLI, contacts no Stripe host, and holds no keys. Configuring the app is a
+   is a staff-only mutation) and installs the `stripe-best-practices` skill — **that is Jolly's entire
+   payment role.** Configuring the app is a
    human Dashboard gate `start` waits at: in the Saleor Dashboard → Extensions → the Stripe app, add a
    configuration with the account's test-mode **publishable key and a restricted key** (from the
    Stripe Dashboard → Developers → API keys) and **map it to the `us` channel**. The app then

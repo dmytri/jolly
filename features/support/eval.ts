@@ -11,14 +11,14 @@
 //   - The agent runs under a FAKE, throwaway $HOME (a per-run temp dir), so
 //     pi's own config/state/credentials are isolated and leave no trace.
 //   - The workspace `.env` is seeded with ONLY the REAL runtime JOLLY_* Saleor
-//     Cloud / Stripe values a baseline agent needs to AUTHENTICATE — no dummy
+//     Cloud values a baseline agent needs to AUTHENTICATE — no dummy
 //     credentials, no `.invalid` endpoints, no fake CLIs. The store endpoint and
 //     SALEOR_TOKEN are deliberately left unset so `jolly start` provisions a fresh
 //     `jolly-test` store on the real creation path. The agent acts against real
 //     services exactly as a customer's agent would.
 //   - Every cloud resource the agent creates is `jolly-test`-namespaced and
-//     reclaimed in best-effort teardown (the step definitions register it);
-//     Stripe runs in test mode. The workspace and fake $HOME are removed too.
+//     reclaimed in best-effort teardown (the step definitions register it). The
+//     workspace and fake $HOME are removed too.
 //
 // Harness-only knobs use a HARNESS_* prefix, never JOLLY_*:
 //   HARNESS_OPENROUTER_API_KEY — the OpenRouter model API key, provided into
@@ -28,7 +28,7 @@
 //   HARNESS_EVAL_PROVIDER      — the pi provider (default openrouter).
 //   HARNESS_EVAL_TIMEOUT_MS    — overall agent run budget (default 600000).
 //   HARNESS_EVAL_TRANSCRIPT_DIR — opt-in: when set, a run's evidence (agent
-//                                stdout/stderr, the Jolly + Stripe-CLI traces,
+//                                stdout/stderr, the Jolly-invocation trace and
 //                                the final workspace .env) is persisted under a
 //                                per-run namespaced subdir before teardown,
 //                                scrubbing HARNESS_OPENROUTER_API_KEY. Unset →
@@ -159,8 +159,6 @@ export interface EvalContext {
   traceFile: string;
   /** The real Jolly skill directory made available to the agent. */
   skillDir: string;
-  /** JSONL file the fake Stripe CLI appends one argv record per invocation to. */
-  stripeTraceFile: string;
 }
 
 /**
@@ -316,13 +314,7 @@ export function setupEvalContext(
   writeFileSync(traceFile, "");
   writeShims(shimDir, traceFile);
 
-  // The Stripe CLI trace file the real-session trace wrapper appends to. The
-  // wrapper itself is installed onto shimDir by the "a real Stripe CLI test-mode
-  // session is available" step when a real session is present — never a fake.
-  const stripeTraceFile = join(root, "stripe-trace.jsonl");
-  writeFileSync(stripeTraceFile, "");
-
-  return { workspace, fakeHome, shimDir, traceFile, skillDir, stripeTraceFile };
+  return { workspace, fakeHome, shimDir, traceFile, skillDir };
 }
 
 /**
@@ -593,7 +585,7 @@ export function evalTranscriptDir(): string | undefined {
  * Persist a run's evidence for after-the-fact understanding (feature 023's
  * "Eval transcript keeping", opt-in). When HARNESS_EVAL_TRANSCRIPT_DIR is set,
  * write — under a per-run namespaced subdir, before teardown — the agent's full
- * stdout/stderr, the Jolly-invocation trace, the Stripe-CLI trace, and the final
+ * stdout/stderr, the Jolly-invocation trace, and the final
  * workspace `.env`, scrubbing HARNESS_OPENROUTER_API_KEY from the text. It is
  * observability only: best-effort, and it never changes pass/fail. Returns the
  * directory written to, or undefined when the knob is unset.
@@ -618,7 +610,6 @@ export function persistEvalTranscript(
   write("agent.stderr.txt", run.stderr);
   for (const [name, path] of [
     ["jolly-trace.jsonl", ctx.traceFile],
-    ["stripe-trace.jsonl", ctx.stripeTraceFile],
   ] as const) {
     if (existsSync(path)) write(name, readFileSync(path, "utf8"));
   }

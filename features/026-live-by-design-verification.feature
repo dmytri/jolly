@@ -7,7 +7,7 @@ Feature: Live-by-design verification conformance
   Scenario: Jolly's verification layer uses no forbidden test double
     Given Jolly's step definitions and test support code
     When the test doubles they use are enumerated
-    Then there should be no forbidden double — no fake CLI standing in for a real one (Stripe, Vercel, @saleor/configurator, the storefront CLI), no dummy or forced-safe credential, and no unroutable stand-in endpoint substituting for a real service
+    Then there should be no forbidden double — no fake CLI standing in for a real one (Vercel, @saleor/configurator, the storefront CLI), no dummy or forced-safe credential, and no unroutable stand-in endpoint substituting for a real service
     And any test double that remains should belong to a scenario tagged @exceptional-double whose site names the unproducible condition it injects
 
   @logic @property

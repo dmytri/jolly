@@ -128,7 +128,7 @@ carries the full stage-by-stage detail and shows how I fit alongside your other 
 refresh grant) · `*.saleor.cloud` (your store) · `github.com` (skills). The CLIs I spawn reach their
 own services under their own auth: Vercel → `api.vercel.com`; `@saleor/configurator` → your
 `*.saleor.cloud`; `git` → `github.com`; `npx` → npm. Locked-down environment? Allowlist the union. I
-install the Stripe app through your store's Saleor GraphQL, so I contact no Stripe host.
+install the Stripe app through your store's Saleor GraphQL.
 
 ### Saleor Cloud auth — two endpoints, two schemes
 
@@ -170,7 +170,7 @@ VM — there's no token to paste:
 
 My entire payment role is two things: I **install Saleor's Stripe app** in your store (via the
 store's Saleor GraphQL `appInstall`) and I **install the `stripe-best-practices` skill** for your
-agent. I run no Stripe CLI, contact no Stripe host, and hold no Stripe keys.
+agent.
 
 Configuring the app is a human Dashboard gate I wait at: in the Saleor Dashboard → Extensions → the
 Stripe app, add a configuration with the account's test-mode **publishable key and a restricted
