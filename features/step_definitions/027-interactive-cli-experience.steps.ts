@@ -811,9 +811,14 @@ Then(
       /[a-z0-9-]+\.saleor\.cloud/i,
       `declining must not print a fabricated store URL; got:\n${out}`,
     );
+    // Match fabricated-SUCCESS phrasings only — a positive claim that the store/
+    // setup/checkout was verified or is ready. A bare `verified` is too broad: it
+    // false-matches honest NEGATIVE messages that are the opposite of fabrication
+    // ("could not be verified on disk", "purchasability was not verified"), so the
+    // subject (store|setup|checkout|environment) must immediately precede it.
     assert.doesNotMatch(
       out,
-      /\b(verified|verification (?:passed|succeeded)|store is ready|environment[^\n]*ready)\b/i,
+      /\b((?:store|setup|checkout|environment)\s+(?:is\s+)?verified|verification (?:passed|succeeded|complete)|store is ready|environment[^\n]*ready)\b/i,
       `declining must not print a fabricated verification result; got:\n${out}`,
     );
   },
