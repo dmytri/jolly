@@ -8,68 +8,26 @@ the official tools you authenticate against.
 
 ## Run it
 
-**Two ways to run, depending on whether a human is in the loop to answer questions.**
-
-### Autonomous — you're an agent, no human there to answer
-
-Run this and carry it through to the end:
+Run this one command and carry it through to the end:
 
 ```
 npx @dk/jolly start --yes --json
 ```
 
-`--yes` pre-approves the create/deploy stages, so **don't stop to ask questions a human isn't there
-to answer.** A Saleor token already in `.env` means the account exists — proceed. Keep going through
-every stage; I still stop only at the true human gates and still report only what I actually did. A
-`--dry-run` preview changes nothing, so a preview alone is **not** setup — you must run the real
-command above. The full run takes several minutes — give it a generous budget or background it and
-poll; don't cancel it. The *one* thing you genuinely can't finish alone is pasting the Stripe test
-keys in the Dashboard, and that you surface at the very end as a nextStep, never a mid-run blocker.
+`--yes` pre-approves the create and deploy stages so you don't stop for routine confirmations. The
+run takes several minutes — give it a generous budget or background it and poll; don't cancel it. (A
+`--dry-run` preview changes nothing, so previewing alone is **not** setup — you must run the real
+command above.) Re-running is safe: I skip the finished stages and resume where I left off.
 
-### Supervised — a human is at the keyboard
-
-Go gently: preview first, then run for real.
-
-**Preview — changes nothing:**
-
-```
-npx @dk/jolly start --dry-run --json
-```
-
-Prints the whole plan: every CLI I'll spawn, files I'll write, hosts I'll touch, and where I'll
-pause. `--json` gives you the structured envelope (`status`, `checks`, `nextSteps`) — pass it on
-every command and branch on it. Skim the plan, then run the real command.
-
-**Then run it for real:**
-
-```
-npx @dk/jolly start --json
-```
-
-End-to-end setup on your human's account — I provision a Saleor Cloud store, build and deploy the
-Paper storefront to Vercel, and install Saleor's Stripe app. I pause for your approval before each
-create/deploy and wait at the human gates. Roughly 10–20 minutes around those gates. **Resumable:**
-re-run and I skip the finished stages, leaving the cloned storefront and its config in your working
-directory, ready for you to keep building.
+A few steps need the human — the Saleor and Vercel sign-ins, creating any missing account, and the
+final Stripe keys (see **What needs your human** below). When you reach one: **relay the link (or ask
+the question), tell the human to reply "done" once they've handled it, then re-run the command** and
+I continue. **Don't try to sign in or approve these yourself** — they happen in the human's own
+browser and account, so doing it for them won't work. Surface the Stripe keys step at the very end as
+a nextStep, never a mid-run blocker.
 
 On any failure I stop with an actionable message. A paused, pending, or failed stage says so — never
 dressed up as done.
-
-## How to run this
-
-You're an installer, not a tour guide. Keep your human's part small and calm:
-
-- **Be terse.** Short lines, no walls of text. Don't narrate what I already do.
-- **One question at a time.** Ask, wait, move on — never batch five asks into a paragraph.
-- **Offer choices, not essays.** When your tooling has a pick-an-option input, use it
-  (`[ Have one ]  [ Sign me up ]`, `[ Approve ]  [ Wait ]`) instead of making the human type a long
-  answer.
-- **Let my gates do the gating.** I pause at the stages that genuinely need it (creating the store,
-  deploying). Relay those, get the yes, and run the mechanical stages quietly. Speak up only for an
-  approval, a credential, or a human-only step — no per-step risk table.
-- **Stay honest.** Report only what actually happened.
-
-Voice: calm, dry, a little silly. Eight arms, one store.
 
 ## What needs your human
 
@@ -79,18 +37,24 @@ Four kinds of moment. Stop and ask — one at a time:
   `[ Have one ]  [ Sign me up ]`. No account? Send them to https://cloud.saleor.io to sign up, then
   carry on. (Vercel and Stripe accounts come up at their own steps — creating any account always
   needs a human.)
-- 👩🏼 **Approve the Saleor sign-in** — it's a device-authorization grant: I hand you an
-  `auth.saleor.io` URL with the code pre-filled, the human approves in a browser, I continue. No
-  token to paste.
-- 👨🏻 **Approve the Vercel sign-in** — I start Vercel's device flow and print its URL; the human
-  approves, I deploy.
+- 👩🏼 **Approve the Saleor sign-in** — a device-authorization grant: I give you an `auth.saleor.io`
+  URL with the code pre-filled; **relay it for the human to click and approve in their own browser,
+  tell them to reply "done" when approved**, then re-run and I continue. No token to paste.
+- 👨🏻 **Approve the Vercel sign-in** — I start Vercel's device flow and print its URL; **relay it for
+  the human to approve, tell them to reply "done"**, then re-run and I deploy.
 - 🧑🏿 **Configure the Stripe app** — I install the app and the `stripe-best-practices` skill; the
   human enters the test-mode keys and maps them to the `us` channel in the Saleor Dashboard
   (Extensions → Stripe). That's the one Stripe step no CLI can do.
 
 Everything else, I do.
 
-## Command surface
+---
+
+## Reference — read when you need it
+
+### Command surface
+
+`jolly start` does the whole setup. Each stage is also a command you can run yourself if you need to:
 
 ```
 npx @dk/jolly start    --json     # end-to-end setup (chains the stages below)
@@ -101,13 +65,8 @@ npx @dk/jolly doctor   --json     # checks env, store, deploy, Stripe checkout
 npx @dk/jolly upgrade  --json     # re-verify managed skills + report Paper baseline (no auto-update)
 ```
 
-`start` chains these; each is also a command you can drive yourself. `--json` gives you the envelope
-(`status`, `checks`, `nextSteps`) to parse; drop it for human prose. The installed `jolly` skill
-carries the full stage-by-stage detail and shows how I fit alongside your other skills and CLIs.
-
----
-
-## Reference — read when you need it
+Every command takes `--json` for the structured envelope (`status`, `checks`, `nextSteps`); drop it
+for human prose. The installed `jolly` skill carries the full stage-by-stage detail.
 
 ### Provenance
 
@@ -151,20 +110,6 @@ short-lived in the normal flow; refresh it with `jolly doctor saleor` or re-run 
 `JOLLY_*` vars are my internal auth layer that `SALEOR_TOKEN` is projected from. For unattended CI
 only, a long-lived **Cloud staff token** (~81 chars, `uuid.base58`) set as `JOLLY_SALEOR_CLOUD_TOKEN`
 in the environment is used silently — never minted or pasted in the normal flow.
-
-### Sign-ins — Saleor and Vercel
-
-Both are device-authorization grants, so they work the same on a laptop, a CI runner, or a remote
-VM — there's no token to paste:
-
-- **Saleor:** `jolly login` (or `jolly start`) returns an `auth.saleor.io` verification URL (user
-  code pre-filled) in the envelope's `nextSteps` — surface it as a clickable link. The human
-  approves in the browser, then **re-run the same command**: I resume the same code, store the
-  session (`JOLLY_SALEOR_ACCESS_TOKEN` + refresh) in `.env`, and re-verify with `jolly doctor`. For
-  unattended CI only, set `JOLLY_SALEOR_CLOUD_TOKEN` in the environment and I use it silently.
-- **Vercel:** during `start` I begin Vercel's device flow and return its verification URL in
-  `nextSteps` (a clickable link) while a background `vercel login` keeps polling. The human approves,
-  then **re-run `jolly start --yes`** and I deploy.
 
 ### Stripe (test mode)
 

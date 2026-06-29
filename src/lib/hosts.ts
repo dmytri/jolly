@@ -7,8 +7,8 @@
 // 018 Rule — pointing the Cloud API elsewhere is the customer's explicit
 // choice). Vercel's and Stripe's API hosts are deliberately absent from Jolly's
 // own request code: Vercel's API is reached by the spawned Vercel CLI, and
-// api.stripe.com by the Saleor Stripe app Jolly installs. Retired Saleor hosts
-// are likewise excluded.
+// Stripe's by the Saleor Stripe app Jolly installs. Retired Saleor hosts are
+// likewise excluded.
 
 /**
  * The fixed set of first-party hosts Jolly's request layer may contact. The

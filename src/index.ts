@@ -762,7 +762,7 @@ function deviceVerificationUrl(auth: DeviceAuthorization): string {
 function deviceAuthNextStep(auth: DeviceAuthorization, command: string): NextStep {
   const url = deviceVerificationUrl(auth);
   return {
-    description: `Open ${url} in your browser and approve the Saleor sign-in, then re-run \`${command}\` to finish.`,
+    description: `Hand this link to your human to approve the Saleor sign-in in their browser — it's their account, not yours: ${url}. Tell them to reply "done" once they've approved; then re-run \`${command}\` and I continue.`,
     url,
     command,
   };
@@ -3535,7 +3535,7 @@ function clearPendingVercel(): void {
 // tells the agent to re-run once approved (feature 002).
 function vercelSignInNextStep(deviceUrl: string): NextStep {
   return {
-    description: `Open ${deviceUrl} in your browser and approve the Vercel sign-in, then re-run \`jolly start --yes\` to deploy.`,
+    description: `Hand this link to your human to approve the Vercel sign-in in their browser: ${deviceUrl}. Tell them to reply "done" once they've approved; then re-run \`jolly start --yes\` and I deploy.`,
     url: deviceUrl,
     command: "jolly start --yes",
   };
