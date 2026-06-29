@@ -51,6 +51,12 @@ Feature: Command idempotency and resumability
     And the summary should name the store stage as already satisfied, not pending approval
 
   @logic
+  Scenario: jolly start surfaces the already-configured store's Dashboard URL on resume
+    Given `NEXT_PUBLIC_SALEOR_API_URL` is already configured in the project `.env` from an earlier `jolly create store`
+    When the agent runs `jolly start --dry-run --json`
+    Then the envelope `data` should surface the configured store's Saleor Dashboard URL ending in `.saleor.cloud/dashboard/`
+
+  @logic
   Scenario: Collisions pause instead of overwriting
     Given a non-empty `storefront/` directory Jolly did not create
     When `jolly start` reaches the storefront clone stage

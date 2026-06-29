@@ -433,3 +433,19 @@ Then(
     );
   },
 );
+
+Then(
+  "the envelope `data` should surface the configured store's Saleor Dashboard URL ending in `.saleor.cloud\\/dashboard\\/`",
+  function (this: JollyWorld) {
+    // A resumed run (store endpoint already configured) must still surface the
+    // store's Dashboard URL in `data` so the agent can hand the human the link
+    // for the remaining Dashboard step (e.g. the Stripe keys gate) — not only on
+    // the fresh-provision path (feature 002). Derived from the configured
+    // endpoint; a *.saleor.cloud/dashboard/ first-party URL.
+    const blob = JSON.stringify(this.envelope.data);
+    assert.ok(
+      /https:\/\/[a-z0-9-]+\.saleor\.cloud\/dashboard\//i.test(blob),
+      `resume data must surface the configured store's Saleor Dashboard URL ending in .saleor.cloud/dashboard/: ${blob}`,
+    );
+  },
+);

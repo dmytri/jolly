@@ -2585,6 +2585,23 @@ function startPlan(): PlanStage[] {
 /** The ordered high-risk stages `jolly start` runs itself and gates on. */
 const HIGH_RISK_STAGES = ["store", "recipe", "deploy"] as const;
 
+// The store URLs derived from an already-configured GraphQL endpoint, so a
+// resumed run (the store stage short-circuits because a store is already
+// configured) surfaces the same { graphqlApiUrl, dashboardUrl } in `data.store`
+// that a fresh provision does (feature 002). The agent needs the Dashboard link
+// to hand the human for the remaining Dashboard step (e.g. the Stripe keys gate);
+// without it a resumed run leaves the agent unable to produce the link. Returns
+// undefined for a malformed endpoint rather than throwing.
+function storeDataFromEndpoint(
+  endpoint: string,
+): { graphqlApiUrl: string; dashboardUrl: string } | undefined {
+  try {
+    return { graphqlApiUrl: endpoint, dashboardUrl: new URL("/dashboard/", endpoint).href };
+  } catch {
+    return undefined;
+  }
+}
+
 function commandStartDryRun(): Envelope {
   const command = "start";
   const plan = startPlan();
@@ -2620,6 +2637,9 @@ function commandStartDryRun(): Envelope {
   const summary = storeEndpoint
     ? "Previewed the jolly start plan. The store stage is already satisfied (a store endpoint is configured), so no store would be created this run. No files were written and no network requests were made."
     : "Previewed the jolly start plan. No files were written and no network requests were made.";
+  // Surface the already-configured store's URLs in the preview `data` too, so a
+  // resumed run's --dry-run gives the agent the Dashboard link (feature 002/022).
+  const storeUrls = storeEndpoint ? storeDataFromEndpoint(storeEndpoint) : undefined;
   return envelope({
     command,
     status: "success",
@@ -2627,6 +2647,7 @@ function commandStartDryRun(): Envelope {
     data: {
       dryRun: true,
       plan,
+      ...(storeUrls ? { store: storeUrls } : {}),
     },
     checks: [
       {
@@ -4208,6 +4229,10 @@ async function runStartCore(
       // the riskContext drops to the no-category skip preview the dry-run shows
       // (commandStartDryRun), and no gate is set.
       status = "completed";
+      // Surface the configured store's URLs in `data.store` (feature 002/022) so a
+      // resumed run still hands the agent the Saleor Dashboard link for the
+      // remaining human Dashboard step — same shape a fresh provision emits.
+      storeData = storeDataFromEndpoint(storeEndpoint);
       stageRiskContext = {
         action: "skip store provisioning",
         target: `already-configured store ${storeEndpoint}`,
@@ -4398,7 +4423,7 @@ async function runStartCore(
   if (allStagesDone && !bootstrapFailed) {
     nextSteps.push({
       description:
-        "Your store is live. Orient the human on what's on disk to keep building: `storefront/` is the Paper storefront (Next.js), now live on Vercel — develop it with `npx pnpm dev` and redeploy with `npx vercel`; `recipe.yml` is the store's catalog and configuration as code — edit it, then re-apply with `npx @saleor/configurator deploy`. The `storefront-builder` and `saleor-configurator` skills carry the specifics. Guides: https://github.com/saleor/storefront, https://github.com/saleor/configurator, https://docs.saleor.io.",
+        "Your store is live. First, ask the human to reload/restart their agent so the installed skills load into its context. Then keep building from what's on disk: `storefront/` is the Paper storefront (Next.js), live on Vercel — develop with `npx pnpm dev`, redeploy with `npx vercel`, and drive Paper-specific work from `storefront/AGENTS.md` and the embedded `saleor-paper-storefront` skill (in `storefront/skills/`), falling back to `storefront-builder` for generic patterns. `recipe.yml` is the catalog and config as code — edit it, preview with `npx @saleor/configurator diff`, then apply with `npx @saleor/configurator deploy --failOnDelete` (blocks a destructive apply over real catalog); the `saleor-configurator` skill owns the schema for new product types, attributes, and channels. To build a new Saleor app, the `saleor-app` skill covers the protocol — you install your finished app against the store with the Saleor GraphQL `appInstall` mutation, the same way Jolly installed the Stripe app. Guides: https://github.com/saleor/storefront, https://github.com/saleor/configurator, https://docs.saleor.io.",
     });
   }
 
