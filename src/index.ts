@@ -1768,7 +1768,7 @@ function commandInit(_args: ParsedArgs): Envelope {
     nextSteps: [
       {
         description:
-          "Reload or restart your agent so the newly installed skills are loaded into its context.",
+          "Restart your agent now, before continuing — the skills just installed only load into a fresh session, so without a restart they stay inactive and Jolly's guidance drifts out of your context. Tell your human to restart you, then resume.",
       },
       {
         description: "Run jolly start to bootstrap setup and get the ordered playbook.",
@@ -4423,7 +4423,7 @@ async function runStartCore(
   if (allStagesDone && !bootstrapFailed) {
     nextSteps.push({
       description:
-        "Your store is live. First, ask the human to reload/restart their agent so the installed skills load into its context. Then keep building from what's on disk: `storefront/` is the Paper storefront (Next.js), live on Vercel — develop with `npx pnpm dev`, redeploy with `npx vercel`, and drive Paper-specific work from `storefront/AGENTS.md` and the embedded `saleor-paper-storefront` skill (in `storefront/skills/`), falling back to `storefront-builder` for generic patterns. `recipe.yml` is the catalog and config as code — edit it, preview with `npx @saleor/configurator diff`, then apply with `npx @saleor/configurator deploy --failOnDelete` (blocks a destructive apply over real catalog); the `saleor-configurator` skill owns the schema for new product types, attributes, and channels. To build a new Saleor app, the `saleor-app` skill covers the protocol — you install your finished app against the store with the Saleor GraphQL `appInstall` mutation, the same way Jolly installed the Stripe app. Guides: https://github.com/saleor/storefront, https://github.com/saleor/configurator, https://docs.saleor.io.",
+        "Your store is live. Keep building from what's on disk (after the restart above): `storefront/` is the Paper storefront (Next.js), live on Vercel — develop with `npx pnpm dev`, redeploy with `npx vercel`, and drive Paper-specific work from `storefront/AGENTS.md` and the embedded `saleor-paper-storefront` skill (in `storefront/skills/`), falling back to `storefront-builder` for generic patterns. `recipe.yml` is the catalog and config as code — edit it, preview with `npx @saleor/configurator diff`, then apply with `npx @saleor/configurator deploy --failOnDelete` (blocks a destructive apply over real catalog); the `saleor-configurator` skill owns the schema for new product types, attributes, and channels. To build a new Saleor app, the `saleor-app` skill covers the protocol — you already have staff auth (`SALEOR_TOKEN`, wired into `.mcp.json`), so install your finished app yourself with the Saleor GraphQL `appInstall` mutation, the same call Jolly makes for the Stripe app. Guides: https://github.com/saleor/storefront, https://github.com/saleor/configurator, https://docs.saleor.io.",
     });
   }
 
@@ -4440,6 +4440,19 @@ async function runStartCore(
       description:
         "If the agent cannot clear an interactive gate (such as new account creation), ask the human to run `jolly start` in a plain shell, then start their agent in that project to iterate (the skills jolly init installed are already on disk). This is a fallback — Jolly has not run it.",
       command: "jolly start",
+    });
+  }
+
+  // On a fully completed run, LEAD the nextSteps with a strong, unmissable
+  // restart directive (unshifted to the front): the installed skills only
+  // register on a fresh agent session, and Jolly's own exit guidance drifts out
+  // of context as work continues — so a restart is required, not optional, for
+  // everything else to take effect. Success-only — these artifacts and skills
+  // exist once every side-effecting stage ran.
+  if (allStagesDone && !bootstrapFailed) {
+    nextSteps.unshift({
+      description:
+        "Restart your agent now, before anything else. The skills Jolly installed (the Jolly skill plus the Saleor/Stripe skills) only load on a fresh session, and these setup instructions will drift out of your context as you keep working — so restarting is required, not optional. Tell your human to restart you; after the restart the skills are active and the steps below will work.",
     });
   }
 

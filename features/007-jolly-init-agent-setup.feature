@@ -20,7 +20,7 @@ Feature: Jolly init for local agent setup
     And Jolly should write agent-specific glue files or instructions for supported environments
     And the glue files should actually exist on disk under standard project-local skill locations
     And the envelope `data` should list the installed skill ids
-    And the nextSteps should advise reloading the agent so the installed skills are loaded
+    And the nextSteps should lead with a strong directive to restart the agent so the installed skills register and Jolly's guidance is not lost
     And Jolly should not create remote Saleor Cloud or Vercel resources
     And Jolly should not store secrets
 

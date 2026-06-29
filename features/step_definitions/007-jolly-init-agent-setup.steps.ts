@@ -189,14 +189,17 @@ Then("the envelope `data` should list the installed skill ids", function (this: 
 });
 
 Then(
-  "the nextSteps should advise reloading the agent so the installed skills are loaded",
+  "the nextSteps should lead with a strong directive to restart the agent so the installed skills register and Jolly's guidance is not lost",
   function (this: JollyWorld) {
-    const advises = this.envelope.nextSteps.some((s) =>
-      /reload|restart/i.test(String((s as { description?: unknown }).description ?? "")),
-    );
-    assert.ok(
-      advises,
-      "init nextSteps must advise reloading the agent so the installed skills are loaded",
+    // Prominence: the restart directive must be the FIRST nextStep, not buried —
+    // the installed skills only register on a fresh session and Jolly's guidance
+    // drifts out of context otherwise.
+    const first = String((this.envelope.nextSteps[0] as { description?: unknown })?.description ?? "");
+    assert.match(first, /restart|reload/i, "the first init nextStep must direct an agent restart");
+    assert.match(
+      first,
+      /skill/i,
+      "the restart directive must name that it loads/registers the installed skills",
     );
   },
 );

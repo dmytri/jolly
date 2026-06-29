@@ -1,6 +1,6 @@
 ---
 name: jolly
-description: How to drive Jolly and where it fits — the thin CLI that stands up a Saleor Cloud + Vercel + Stripe storefront by spawning the official CLIs (git, pnpm, @saleor/configurator, vercel) and then hands off to the Saleor and Stripe skills for the building that follows. Use to run and supervise `jolly start`, read its `--json` envelope, gate its risky stages, diagnose with `jolly doctor`, and pick the right sibling skill or CLI afterward.
+description: How to drive Jolly and where it fits among the Saleor skills and official CLIs. Load this when SETTING UP a Saleor Cloud + Vercel + Stripe storefront with Jolly — run and supervise `jolly start`, read its `--json` envelope, gate its risky stages, diagnose with `jolly doctor` — AND when CONTINUING AFTER setup on a Jolly-provisioned store — managing store config and data modelling via `@saleor/configurator`, developing the deployed Saleor Paper storefront, installing a Saleor app, refreshing `SALEOR_TOKEN`, or deciding which sibling Saleor/Stripe skill or official CLI owns a task. Jolly is the thin orchestrator that spawns the official CLIs (git, pnpm, @saleor/configurator, vercel) during setup, then routes you to the right skill for the building that follows.
 ---
 
 # Using Jolly
@@ -205,20 +205,29 @@ Two worked paths the recipe's happy path doesn't cover — concise pointers; the
 the real schema and examples:
 
 - **Extend the data model** (e.g. a new `Book` product type with `author`/`format` attributes, or a
-  second `eu`/EUR channel). The starter `recipe.yml` is a bootstrap, not a modelling template — open
-  `saleor-configurator`'s `rules/config-schema.md` for the `productTypes`/`attributes`/`channels`
-  schema (and the upstream `SCHEMA.md` it links for attribute `inputType`s and product- vs
-  variant-level attributes). A new channel only sells once each product carries a **channel listing**
-  with price + availability there — `config-schema.md` covers it. Preview with
+  second `eu`/EUR channel). **Start from your own store as the worked example: `npx @saleor/configurator
+  introspect` dumps its live config as valid YAML** — real channels, channel listings, and
+  product-type↔attribute wiring, always matching your installed configurator version. Copy that
+  shape; the starter `recipe.yml` is only a bootstrap, not a modelling template. For syntax the
+  introspected config doesn't already show (attribute `inputType`s, product- vs variant-level
+  attributes), open `saleor-configurator`'s `rules/config-schema.md` and the upstream `SCHEMA.md` it
+  links. A new channel only sells once each product carries a **channel listing** with price +
+  availability there (introspect shows the shape on your existing `us` channel). Preview with
   `npx @saleor/configurator diff`, then apply with `npx @saleor/configurator deploy --failOnDelete`
   so a divergent apply is **blocked** rather than silently deleting catalog. (Jolly passes
   `--failOnDelete` during `start`; your own runs must pass it themselves.)
 - **Build and install a Saleor app** (e.g. a webhook-driven loyalty app). The `saleor-app` skill owns
-  the protocol — scaffold the project and implement the manifest + webhook handlers + APL auth from
-  its rules, then deploy it anywhere it's reachable (Vercel works — the same CLI Jolly used). Install
-  it against your store with the Saleor GraphQL `appInstall` mutation (its manifest URL + the
-  permissions it declares, authenticated with a staff token) — **the same call Jolly makes for the
-  Stripe app in stage 7**. Confirm it in the Dashboard → Extensions.
+  the protocol — scaffold the project from the canonical starter and implement the manifest + webhook
+  handlers + APL auth from its rules, then deploy it anywhere it's reachable (Vercel works — the same
+  CLI Jolly used). **To register it you already have everything Jolly provisioned — you don't need a
+  Jolly command for this:** `SALEOR_TOKEN` in `.env` is a staff-superuser Bearer token (it can drive
+  `MANAGE_APPS`), and `.mcp.json` is already wired to your store's GraphQL. So install the app
+  yourself — send the `appInstall` mutation through the `.mcp.json` GraphQL server (or `curl` with
+  `SALEOR_TOKEN`):
+  `appInstall(input: { appName: "Loyalty Points", manifestUrl: "https://your-app.example.com/api/manifest", permissions: [<the scopes your manifest declares>] })`
+  — the same staff-authenticated call Jolly makes for the Stripe app in stage 7. Saleor fetches the
+  manifest from your app's host (Jolly never does — first-party hosts only). Confirm it in the
+  Dashboard → Extensions.
 
 These are starting points — the owning skills and the docs above carry the specifics.
 
