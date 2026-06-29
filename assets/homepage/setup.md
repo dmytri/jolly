@@ -8,7 +8,29 @@ the official tools you authenticate against.
 
 ## Run it
 
-**Preview first — changes nothing:**
+**Two ways to run, depending on whether a human is in the loop to answer questions.**
+
+### Autonomous — you're an agent, no human there to answer
+
+Run this and carry it through to the end:
+
+```
+npx @dk/jolly start --yes --json
+```
+
+`--yes` pre-approves the create/deploy stages, so **don't stop to ask questions a human isn't there
+to answer.** A Saleor token already in `.env` means the account exists — proceed. Keep going through
+every stage; I still stop only at the true human gates and still report only what I actually did. A
+`--dry-run` preview changes nothing, so a preview alone is **not** setup — you must run the real
+command above. The full run takes several minutes — give it a generous budget or background it and
+poll; don't cancel it. The *one* thing you genuinely can't finish alone is pasting the Stripe test
+keys in the Dashboard, and that you surface at the very end as a nextStep, never a mid-run blocker.
+
+### Supervised — a human is at the keyboard
+
+Go gently: preview first, then run for real.
+
+**Preview — changes nothing:**
 
 ```
 npx @dk/jolly start --dry-run --json
@@ -29,16 +51,6 @@ Paper storefront to Vercel, and install Saleor's Stripe app. I pause for your ap
 create/deploy and wait at the human gates. Roughly 10–20 minutes around those gates. **Resumable:**
 re-run and I skip the finished stages, leaving the cloned storefront and its config in your working
 directory, ready for you to keep building.
-
-**Running unattended (no human watching each step)?**
-
-```
-npx @dk/jolly start --yes --json
-```
-
-`--yes` pre-approves the create/deploy stages. I still stop at the true human gates and still report
-only what I actually did. The full run takes several minutes — give it a generous budget or
-background it and poll; don't cancel it.
 
 On any failure I stop with an actionable message. A paused, pending, or failed stage says so — never
 dressed up as done.

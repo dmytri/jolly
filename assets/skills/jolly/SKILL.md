@@ -41,14 +41,22 @@ Jolly to do what these own — reach for them instead:
 
 - **`saleor-storefront`** — Saleor's GraphQL API for storefronts (products, variants, checkout,
   channels, permissions). For querying or debugging the API.
-- **`storefront-builder`** — the data + UX playbook for the Paper storefront's surfaces
-  (PLP/PDP/nav/pricing/availability/media, variant selection).
-- **`saleor-configurator`** — config-as-code patterns: writing `config.yml`, entity identification,
-  the deploy pipeline, debugging sync.
+- **`storefront-builder`** — **framework-agnostic** storefront data + UX playbook
+  (PLP/PDP/nav/pricing/availability/media, variant selection). The fallback for general patterns,
+  not Paper specifics.
+- **`saleor-paper-storefront`** — **Paper-specific** architecture, shipped *inside the cloned repo*
+  at `storefront/skills/` (not installed by `jolly init`): where Paper's routes, components, design
+  tokens, caching, and checkout actually live. **First stop for any change to `storefront/`** — begin
+  at `storefront/AGENTS.md`, then this skill; reach for `storefront-builder` only for generic
+  patterns it does not cover.
+- **`saleor-configurator`** — config-as-code patterns: writing `config.yml`/`recipe.yml`, entity
+  identification, the deploy pipeline, debugging sync. Owns the **schema** for product types,
+  attributes, channels, and page types — the authority for any data-model change.
 - **`saleor-core`** — backend behavior reference (discounts, stock modes, webhook triggers, Dashboard
   rules) for when you hit Saleor internals.
 - **`saleor-app`** — building Saleor apps (manifest, webhooks, registration, settings) if you extend
-  the Dashboard.
+  the Dashboard. Covers the app **protocol**; you install your finished app against the store with the
+  Saleor GraphQL `appInstall` mutation — the same call Jolly makes for the Stripe app (stage 7).
 - **`stripe-best-practices`** — Stripe integration knowledge; drive the Stripe app's key/channel
   configuration and any deeper payment work with it.
 
@@ -168,7 +176,7 @@ name each artifact, say what it's for, and point at the skill/CLI that drives it
 
 | On disk | What it is | Drive it with |
 |---|---|---|
-| `storefront/` | The cloned Paper storefront (Next.js), a fresh git repo, now live on Vercel. Your code. | `storefront-builder` + `saleor-storefront` skills; `npx pnpm dev`, `git`, `npx vercel` |
+| `storefront/` | The cloned Paper storefront (Next.js), a fresh git repo, now live on Vercel. Your code. | **`storefront/AGENTS.md` + the embedded `saleor-paper-storefront` skill** first, `storefront-builder`/`saleor-storefront` for generic patterns; `npx pnpm dev`, `git`, `npx vercel` |
 | `recipe.yml` | Your store's catalog, categories, channels, and settings as code — what was deployed to Saleor. | `saleor-configurator` skill; `npx @saleor/configurator diff` / `deploy` |
 | `.env` | Secrets (your Saleor session + the store token `SALEOR_TOKEN`). Gitignored — never commit. | Jolly reads it; you add values |
 | `.mcp.json` | A local mcp-graphql server wired to your store, for live API access from your agent. | your agent's MCP client |
@@ -178,23 +186,41 @@ References: Paper — https://github.com/saleor/storefront · Configurator —
 https://github.com/saleor/configurator · Vercel CLI — https://vercel.com/docs/cli · Saleor docs —
 https://docs.saleor.io
 
-The pattern for any change: find which artifact owns it, edit there, preview, then ship. A few
-examples to take from there:
+**First, have the human reload/restart their agent** — the skills below are on disk under
+`.agents/skills/` (and `storefront/skills/`) but only load into the agent's context after a restart.
+Until then you cannot route to them.
 
-- **Rename the top-nav categories** (the recipe ships `Weapons`, `Navigation`, `Apparel`,
-  `Treasure`, `Ship Supplies`) — they live in the `categories:` block of `recipe.yml`. Edit the
-  names there, run `npx @saleor/configurator diff` to preview, then `deploy`; the storefront nav
-  reads categories from the store, so it updates once the store does (`saleor-configurator` skill).
-- **Change the storefront's default language / locale** — that's a storefront concern, in
-  `storefront/`, not a Saleor one. Ask the `storefront-builder` skill where Paper sets its locale,
-  edit, `npx pnpm dev` to preview, then `npx vercel --prod` to ship.
-- **Verify or tune caching / data freshness** — caching lives in the storefront's data-fetching
-  layer (Next.js); the `storefront-builder` skill covers Saleor's caching patterns. Change it in
-  `storefront/`, then verify against the deployed URL.
-- **Change the catalog, channels, or store settings** — edit `recipe.yml`, `diff` to preview, then
-  `deploy` (`saleor-configurator`).
+The pattern for any change: match the task to the skill that **owns the depth**, start at its entry
+rule, edit the artifact, preview, then ship. Jolly only routes — it does not carry these specifics.
 
-These are starting points — the skills and docs above carry the specifics.
+| You want to… | Lives in | Owned by | Start at |
+|---|---|---|---|
+| Rename/add catalog, categories, prices | `recipe.yml` | `saleor-configurator` | `rules/config-schema.md` |
+| Model new data — product types, attributes, channels, page types | `recipe.yml` | `saleor-configurator` | `rules/config-schema.md` (+ upstream `SCHEMA.md`) |
+| Add Paper features, pages, design, checkout | `storefront/` | `saleor-paper-storefront` | `storefront/AGENTS.md` |
+| Query or debug the Saleor GraphQL API | — | `saleor-storefront` | `rules/api-*.md` |
+| Build a new Saleor app | a new app project | `saleor-app` | `rules/protocol-manifest.md` |
+
+Two worked paths the recipe's happy path doesn't cover — concise pointers; the owning skill carries
+the real schema and examples:
+
+- **Extend the data model** (e.g. a new `Book` product type with `author`/`format` attributes, or a
+  second `eu`/EUR channel). The starter `recipe.yml` is a bootstrap, not a modelling template — open
+  `saleor-configurator`'s `rules/config-schema.md` for the `productTypes`/`attributes`/`channels`
+  schema (and the upstream `SCHEMA.md` it links for attribute `inputType`s and product- vs
+  variant-level attributes). A new channel only sells once each product carries a **channel listing**
+  with price + availability there — `config-schema.md` covers it. Preview with
+  `npx @saleor/configurator diff`, then apply with `npx @saleor/configurator deploy --failOnDelete`
+  so a divergent apply is **blocked** rather than silently deleting catalog. (Jolly passes
+  `--failOnDelete` during `start`; your own runs must pass it themselves.)
+- **Build and install a Saleor app** (e.g. a webhook-driven loyalty app). The `saleor-app` skill owns
+  the protocol — scaffold the project and implement the manifest + webhook handlers + APL auth from
+  its rules, then deploy it anywhere it's reachable (Vercel works — the same CLI Jolly used). Install
+  it against your store with the Saleor GraphQL `appInstall` mutation (its manifest URL + the
+  permissions it declares, authenticated with a staff token) — **the same call Jolly makes for the
+  Stripe app in stage 7**. Confirm it in the Dashboard → Extensions.
+
+These are starting points — the owning skills and the docs above carry the specifics.
 
 ## Talking to your store after setup
 
