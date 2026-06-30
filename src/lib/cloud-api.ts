@@ -23,6 +23,8 @@
 //   organization's sandbox environment limit is reached, surface the stable
 //   error code ENVIRONMENT_LIMIT_REACHED.
 
+import { readFileSync } from "node:fs";
+import { parse } from "yaml";
 import { isFirstPartyHost } from "./hosts.ts";
 
 const DEFAULT_CLOUD_API_BASE = "https://cloud.saleor.io/platform/api";
@@ -237,6 +239,7 @@ export async function listProjectServices(
  * service in the default region, then any sandbox service, then the first
  * listed; fall back to the spec's "saleor" default when discovery yields
  * nothing.
+ * @planks("Then the POST body should include name, project, domain_label, database_population, service, and optional basic-auth credentials")
  */
 export function pickService(
   services: CloudService[],
@@ -267,7 +270,7 @@ export interface CloudEnvironment {
  * the organization's sandbox environment limit surfaces as a CloudApiError
  * with the stable code ENVIRONMENT_LIMIT_REACHED (feature 012 Rule).
  * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier")
- * @planks("Then Jolly should create an environment via POST /platform/api/organizations/{organization}/environments/")
+ * @planks("Then it should create an environment via POST /platform/api/organizations/{organization}/environments/")
  * @planks("When the agent runs `jolly create store --create-environment --json`")
  * @planks(`Then the envelope status should be "error" with the stable code `ENVIRONMENT_LIMIT_REACHED``)
  */
@@ -340,7 +343,9 @@ export async function listEnvironments(
   return (await response.json()) as CloudEnvironment[];
 }
 
-/** GET /platform/api/organizations/{slug}/environments/{key}/ */
+/** GET /platform/api/organizations/{slug}/environments/{key}/
+ * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier")
+ */
 export async function getEnvironment(
   token: string,
   organizationSlug: string,
@@ -537,6 +542,7 @@ export async function queryGetApps(
  * Checking products (not "any deletion in the diff") avoids both an expensive
  * second configurator introspection and the unreliable job of deciding by name
  * which deletions are Saleor's stock defaults.
+ * @planks("Then the recipe stage should pass `--failOnDelete` to `npx @saleor/configurator deploy`")
  */
 export async function storeHoldsForeignCatalog(
   graphqlUrl: string,
@@ -565,58 +571,62 @@ export async function storeHoldsForeignCatalog(
 // re-run updates in place rather than creating a duplicate (idempotent —
 // feature 022).
 
-export const RECIPE_WAREHOUSE_SLUG = "port-royal";
 export const DEFAULT_STOCK_QUANTITY = 100;
 
-/**
- * The recipe's collections and their member product slugs, mirrored from
- * `assets/skills/jolly/recipe.yml` (`collections[].slug` + `products`). Hardcoded
- * here — like {@link RECIPE_WAREHOUSE_SLUG} — because Jolly uses only Node
- * built-ins (no YAML parser at runtime). The `@saleor/configurator` deploy cannot
- * populate collection membership in one pass (collections precede products in its
- * pipeline), so Jolly assigns it after the deploy from this list. Keep in sync
- * with the recipe.
- */
-export const RECIPE_COLLECTIONS: ReadonlyArray<{
+/** A recipe collection and its declared member product slugs. */
+export interface RecipeCollection {
   slug: string;
   name: string;
   channelSlug: string;
-  productSlugs: readonly string[];
-}> = [
-  {
-    slug: "featured-products",
-    name: "Crew Favorites",
-    channelSlug: "us",
-    productSlugs: [
-      "the-jolly",
-      "cutlass",
-      "brass-spyglass",
-      "tricorne-hat",
-      "jolly-roger-flag",
-    ],
-  },
-];
+  products: string[];
+}
+
+/** The recipe identifiers the post-deploy stages need: the warehouse slug stock
+ * seeds into, every declared product slug, and each collection's membership. */
+export interface RecipeIdentifiers {
+  warehouseSlug: string;
+  productSlugs: string[];
+  collections: RecipeCollection[];
+}
 
 /**
- * Every product slug the recipe declares, mirrored from
- * `assets/skills/jolly/recipe.yml` (`products[].slug`). Hardcoded — like
- * {@link RECIPE_WAREHOUSE_SLUG} — because Jolly uses only Node built-ins at
- * runtime. Used by {@link storeHoldsForeignCatalog} to tell the recipe's own
- * catalog apart from a customer's. Keep in sync with the recipe.
+ * Derive the recipe identifiers from the shipped `assets/skills/jolly/recipe.yml`
+ * asset at runtime, parsing the YAML so the warehouse slug, product slugs, and
+ * collection memberships are the asset's own values rather than a built-in copy
+ * that can drift from the deployed recipe (the recipe asset is the single
+ * source). The `@saleor/configurator` deploy cannot populate collection
+ * membership in one pass (collections precede products in its pipeline), so Jolly
+ * assigns it after the deploy from the derived list; {@link storeHoldsForeignCatalog}
+ * uses the derived product slugs to tell the recipe's own catalog apart from a
+ * customer's; {@link seedRecipeStock} seeds stock into the derived warehouse.
+ * @planks("When the cloud-api module derives the recipe identifiers from that asset")
+ * @planks("When the cloud-api module derives the recipe identifiers from it")
+ * @planks("Then the warehouse slug it uses should be \"test-anchorage\"")
+ * @planks("Then the product slugs it uses should be \"first-mate\" and \"second-mate\"")
+ * @planks("Then the \"crew-picks\" collection it assigns should contain \"first-mate\"")
  */
-export const RECIPE_PRODUCT_SLUGS: readonly string[] = [
-  "cutlass",
-  "flintlock-pistol",
-  "brass-spyglass",
-  "pirates-compass",
-  "tricorne-hat",
-  "leather-eyepatch",
-  "treasure-map",
-  "pieces-of-eight",
-  "oak-rum-barrel",
-  "jolly-roger-flag",
-  "the-jolly",
-];
+export function deriveRecipeIdentifiers(recipeYamlPath: string): RecipeIdentifiers {
+  const recipe = parse(readFileSync(recipeYamlPath, "utf8")) as {
+    warehouses: Array<{ slug: string }>;
+    products: Array<{ slug: string }>;
+    collections?: Array<{
+      slug: string;
+      name: string;
+      products?: string[];
+      channelListings?: Array<{ channelSlug: string }>;
+    }>;
+  };
+  return {
+    warehouseSlug: recipe.warehouses[0].slug,
+    productSlugs: recipe.products.map((product) => product.slug),
+    collections: (recipe.collections ?? []).map((collection) => ({
+      slug: collection.slug,
+      name: collection.name,
+      channelSlug: collection.channelListings?.[0]?.channelSlug ?? "",
+      products: collection.products ?? [],
+    })),
+  };
+}
 
 interface SeedStockResult {
   warehouseId: string;
@@ -763,7 +773,7 @@ export async function seedRecipeStock(
   graphqlUrl: string,
   token: string,
   quantity: number = DEFAULT_STOCK_QUANTITY,
-  warehouseSlug: string = RECIPE_WAREHOUSE_SLUG,
+  warehouseSlug: string,
 ): Promise<SeedStockResult> {
   const warehouseId = await queryWarehouseId(graphqlUrl, token, warehouseSlug);
   if (!warehouseId) {
@@ -886,6 +896,7 @@ async function createRecipeCollection(
  * Returns how many products were assigned; throws COLLECTION_ASSIGN_FAILED on a
  * payload error so the caller reports the stage honestly instead of a fabricated
  * completion.
+ * @planks("Then the recipe's `featured-products` collection should exist in the store holding its declared products")
  */
 export async function assignCollectionProducts(
   graphqlUrl: string,

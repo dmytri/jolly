@@ -41,9 +41,7 @@ import {
   assignCollectionProducts,
   storeHoldsForeignCatalog,
   DEFAULT_STOCK_QUANTITY,
-  RECIPE_WAREHOUSE_SLUG,
-  RECIPE_COLLECTIONS,
-  RECIPE_PRODUCT_SLUGS,
+  deriveRecipeIdentifiers,
   installStripeApp,
   STRIPE_APP_MANIFEST_URL,
   probeCheckoutPaymentGateway,
@@ -486,7 +484,7 @@ function projectDir(): string {
 
 /**
  * @planks("Given .env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token")
- * @planks("Then the .env file Jolly wrote should be readable and writable only by its owner")
+ * @planks("Then the .env file Jolly wrote should be readable and writable only by its owner (mode 600)")
  */
 function envFilePath(): string {
   return join(projectDir(), ".env");
@@ -1564,7 +1562,7 @@ interface StoreProvisionResult {
  *
  * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier")
  * @planks("Then Jolly should discover the organization from the Cloud API")
- * @planks("Then it should reuse an existing project when one exists, otherwise create one via POST /platform/api/organizations/{organization}/projects/")
+ * @planks(`Then it should reuse an existing project when one exists, otherwise create one via POST /platform/api/organizations/{organization}/projects/ with plan="dev"`)
  * @planks("Then it should create an environment via POST /platform/api/organizations/{organization}/environments/")
  * @planks("Then Jolly should extract the resulting domain from the task result")
  * @planks("Then it should write NEXT_PUBLIC_SALEOR_API_URL to .env from the resulting domain")
@@ -1735,7 +1733,7 @@ function commandCreateHelp(): Envelope {
 
 /**
  * @planks("When it inspects `jolly create --help`")
- * @planks("When the agent runs `jolly create {word}` is run with its preconditions unmet")
+ * @planks("Given `jolly create <subcommand>` is run with its preconditions unmet")
  */
 async function commandCreate(args: ParsedArgs): Promise<Envelope> {
   const sub = args.positionals[1];
@@ -3109,7 +3107,7 @@ async function runStoreStage(
  * the published bundle (`dist/index.js`): both sit one level under the package
  * root, and `assets/skills/` ships in package `files`.
  * @planks("When the agent runs `jolly start --dry-run --json`")
- * @planks("When the agent runs `jolly start --yes` to apply the starter recipe to Saleor Cloud`")
+ * @planks("When the agent runs `jolly start --yes` to apply the starter recipe to Saleor Cloud")
  */
 function bundledRecipePath(): string {
   return fileURLToPath(new URL("../assets/skills/jolly/recipe.yml", import.meta.url));
@@ -3207,7 +3205,8 @@ async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
   // blocked (exit 6). If the state cannot be read, keep the safe guard.
   let allowDeletes: boolean;
   try {
-    allowDeletes = !(await storeHoldsForeignCatalog(endpoint, token, RECIPE_PRODUCT_SLUGS));
+    const { productSlugs } = deriveRecipeIdentifiers(bundledRecipe);
+    allowDeletes = !(await storeHoldsForeignCatalog(endpoint, token, productSlugs));
   } catch {
     allowDeletes = false;
   }
@@ -3324,19 +3323,20 @@ async function assignRecipeCollections(
   token: string,
   checks: Check[],
 ): Promise<StageStatus> {
-  if (RECIPE_COLLECTIONS.length === 0) return "completed";
+  const { collections } = deriveRecipeIdentifiers(bundledRecipePath());
+  if (collections.length === 0) return "completed";
   try {
     let assigned = 0;
     let declared = 0;
-    for (const collection of RECIPE_COLLECTIONS) {
-      declared += collection.productSlugs.length;
+    for (const collection of collections) {
+      declared += collection.products.length;
       assigned += await assignCollectionProducts(
         endpoint,
         token,
         collection.slug,
         collection.name,
         collection.channelSlug,
-        collection.productSlugs,
+        collection.products,
       );
     }
     if (assigned < declared) {
@@ -3426,11 +3426,12 @@ async function runStockStage(checks: Check[]): Promise<StageStatus> {
   }
 
   try {
-    const result = await seedRecipeStock(endpoint, token, DEFAULT_STOCK_QUANTITY, RECIPE_WAREHOUSE_SLUG);
+    const { warehouseSlug } = deriveRecipeIdentifiers(bundledRecipePath());
+    const result = await seedRecipeStock(endpoint, token, DEFAULT_STOCK_QUANTITY, warehouseSlug);
     checks.push({
       id: "stock-seeded",
       status: "pass",
-      description: `Seeded ${DEFAULT_STOCK_QUANTITY} stock for ${result.seededCount} recipe variant(s) in ${RECIPE_WAREHOUSE_SLUG} via productVariantStocksCreate.`,
+      description: `Seeded ${DEFAULT_STOCK_QUANTITY} stock for ${result.seededCount} recipe variant(s) in ${warehouseSlug} via productVariantStocksCreate.`,
     });
     return "completed";
   } catch (err) {
