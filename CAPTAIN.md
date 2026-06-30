@@ -21,9 +21,9 @@ The suite runs against **real services** in a production-shaped test env (the `J
 
 ## Pending outbound
 
-The recipe-asset work and the catalog-render + `@latest`-tracking cycle are committed locally (`7b106ff`, `bc6c984`), two commits ahead of `origin/main`. Outbound ships `@dk/jolly` to npm and deploys the homepage. The `bc6c984` `--external:yaml` build fix is required for the published bundle to load on plain Node.
+Pushing to `origin/main` is standing-approved (dk). The release is held: NO npm publish of `@dk/jolly` and NO homepage deploy until we are ready for harbour (dk decision, this session). The `--external:yaml` build fix (`bc6c984`) is required for the published bundle to load on plain Node, so it must ship in that eventual release.
 
-Open trace item: `src/lib/messages.ts` `cliMessage` carries a `@planks("When the agent runs \`jolly start --dry-run\`")` that matches no current step (the dry-run steps are all `--dry-run --json`/`--quiet`, the agent path, not this human-copy seam). The seam stays validly planked via 006's substitution step. Rebind it to a human-render step next cycle or in harbour.
+Open product question (dk to decide): the Paper storefront build needs `NEXT_PUBLIC_DEFAULT_CHANNEL`. Jolly writes `NEXT_PUBLIC_SALEOR_API_URL` to the storefront but does not set the channel; `recipe.yml:23` frames pointing the storefront at the `us` channel as a follow-on step. The native-deps @sandbox test now supplies `NEXT_PUBLIC_DEFAULT_CHANNEL=us` itself to mirror the deploy env. If Jolly should configure the storefront channel, that needs its own scenario.
 
 ## Current design pointers (binding detail in the specs)
 
