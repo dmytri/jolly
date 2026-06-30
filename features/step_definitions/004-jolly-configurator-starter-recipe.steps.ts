@@ -227,7 +227,12 @@ function findRecipeStages(plan: PlanStage[]): {
   stockStage?: PlanStage;
 } {
   const text = (stage: PlanStage) => JSON.stringify(stage).toLowerCase();
-  const deployIndex = plan.findIndex((s) => text(s).includes("configurator deploy"));
+  // Match the configurator-deploy stage robustly across the `@latest`-tagged
+  // spawn (`@saleor/configurator@latest deploy`): the configurator and deploy
+  // tokens both appear, with the version tag between them.
+  const deployIndex = plan.findIndex(
+    (s) => text(s).includes("configurator") && text(s).includes("deploy"),
+  );
   const stockIndex = plan.findIndex((s) =>
     text(s).includes(STOCK_MUTATION.toLowerCase()),
   );
@@ -550,13 +555,13 @@ Then(
 );
 
 Then(
-  "the preview should name the spawned command `npx @saleor\\/configurator deploy`, Jolly's bundled starter recipe, and `SALEOR_URL` and `SALEOR_TOKEN` by name only",
+  "the preview should name the spawned command `npx @saleor\\/configurator@latest deploy`, Jolly's bundled starter recipe, and `SALEOR_URL` and `SALEOR_TOKEN` by name only",
   function (this: JollyWorld) {
     const stage = this.notes.deployStage as PlanStage;
     const blob = JSON.stringify(stage);
     assert.ok(
-      blob.includes("npx @saleor/configurator deploy"),
-      "the preview must name the spawned command `npx @saleor/configurator deploy`",
+      blob.includes("npx @saleor/configurator@latest deploy"),
+      "the preview must name the spawned command `npx @saleor/configurator@latest deploy`",
     );
     assert.ok(
       /recipe\.yml/i.test(blob),

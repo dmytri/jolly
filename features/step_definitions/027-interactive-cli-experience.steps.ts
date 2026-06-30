@@ -919,7 +919,10 @@ function normalizeCatalogText(text: string): string {
 }
 
 Then(
-  /^the .+ should be the `([\w.]+)` message from `assets\/messages\/cli\.json`$/,
+  // The per-stage "running description on stderr" sentences are carried by their
+  // own step below (they need a separated-stream run to observe stderr), so this
+  // generic stdout binding excludes them to keep the match unambiguous.
+  /^the (?!.*running description on stderr).+ should be the `([\w.]+)` message from `assets\/messages\/cli\.json`$/,
   function (this: JollyWorld, key: string) {
     const expected = catalogMessage(key);
     const out = normalizeCatalogText(this.lastRun!.stdout);
@@ -928,6 +931,30 @@ Then(
       `the interactive output must render the "${key}" catalog message verbatim ` +
         `("${expected}"); got:\n${out}`,
     );
+  },
+);
+
+// The CURRENTLY-RUNNING stage's plain-language description renders on stderr,
+// in the live progress region, sourced from the catalog by key (feature 027).
+// Drive `jolly start` with stdout/stderr on separate PTYs so the per-stage
+// running description on stderr is observable; the run happens once and is reused
+// across the init/auth Then steps.
+Then(
+  /^the (init|auth) stage's running description on stderr should be the `([\w.]+)` message from `assets\/messages\/cli\.json`$/,
+  { timeout: 160_000 },
+  function (this: JollyWorld, stage: string, key: string) {
+    if (this.notes.stageRunStderr === undefined) {
+      if (!runStartStagesSeparated(this)) return "skipped";
+      this.notes.stageRunStderr = stripAnsi(this.lastRun!.stderr);
+    }
+    const stderr = String(this.notes.stageRunStderr);
+    const expected = normalizeCatalogText(catalogMessage(key));
+    assert.ok(
+      normalizeCatalogText(stderr).includes(expected),
+      `the ${stage} stage's running description on stderr must render the "${key}" catalog ` +
+        `message ("${expected}"); got:\n${stderr}`,
+    );
+    return undefined;
   },
 );
 

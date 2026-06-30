@@ -73,17 +73,18 @@ Then(
 // --- Scenario: Use Saleor Configurator through the official CLI (@logic) -----
 
 Then(
-  "the plan's recipe stage should name the spawned command `npx @saleor\\/configurator deploy`",
+  "the plan's recipe stage should name the spawned command `npx @saleor\\/configurator@latest deploy`",
   function (this: JollyWorld) {
-    // Carried from "the customer's agent should run `saleor/configurator`
-    // directly...": the recipe stage's spawned command is the official
-    // @saleor/configurator deploy.
+    // The recipe stage's spawned command is the official configurator at its
+    // latest published release: Jolly tags every npx-resolved official CLI spawn
+    // `@latest` so a stale npx cache never pins an older release (feature 003 Rule
+    // "Jolly integration principles").
     const recipe = plan(this).find((s) => s.stage === "recipe");
     assert.ok(recipe, "the plan must include a recipe stage");
     const blob = JSON.stringify(recipe);
     assert.ok(
-      blob.includes("@saleor/configurator deploy"),
-      "the recipe stage must name the spawned command `npx @saleor/configurator deploy`",
+      blob.includes("npx @saleor/configurator@latest deploy"),
+      "the recipe stage must name the spawned command `npx @saleor/configurator@latest deploy`",
     );
   },
 );

@@ -11,8 +11,10 @@
 //
 // Structurally compatible with the feature-020 envelope (see
 // features/support/envelope.ts). No I/O, no env reads, no imports from
-// features/** — `stripeStep` is passed in so this module never reaches back
-// into the CLI's message catalog (avoids a circular import with src/index.ts).
+// features/**. The human summary lines are sourced from the message catalog by
+// key via `cliMessage` from the leaf `src/lib/messages.ts` module, which imports
+// nothing from src/index.ts, so there is no circular import.
+import { cliMessage } from "./messages.ts";
 
 interface CloseEnvelope {
   command: string;
@@ -130,33 +132,42 @@ export function interactiveCloseSummary<E extends CloseEnvelope>(
     const stageLabel = incomplete.join(", ");
     const reasons = failureReasons(core);
     const plural = incomplete.length > 1 ? "stages" : "stage";
+    const reasonsText = reasons.length > 0 ? `: ${reasons.join("; ")}` : "";
     const lines = [
-      `Setup did not finish — the ${stageLabel} ${plural} did not complete` +
-        (reasons.length > 0 ? `: ${reasons.join("; ")}` : "") +
-        ".",
+      cliMessage("start.close.notFinished", {
+        stages: stageLabel,
+        stageWord: plural,
+        reasons: reasonsText,
+      }),
     ];
-    if (storefrontUrl) lines.push(`  Storefront:       ${link(storefrontUrl)}`);
-    if (dashboardUrl) lines.push(`  Saleor Dashboard: ${link(dashboardUrl)}`);
-    lines.push("  Re-run `jolly start` to finish the remaining stages.");
+    if (storefrontUrl) {
+      lines.push(`  ${cliMessage("start.close.storefrontLabel")}       ${link(storefrontUrl)}`);
+    }
+    if (dashboardUrl) {
+      lines.push(`  ${cliMessage("start.close.dashboardLabel")} ${link(dashboardUrl)}`);
+    }
+    lines.push(`  ${cliMessage("start.close.reRun")}`);
     summary = lines.join("\n");
   } else {
     // Every side-effecting stage completed — the store really is live. The
     // remaining Stripe step is a calm final note, each line on its own (027).
-    const lines = ["Your store is live! 🎉"];
-    if (storefrontUrl) lines.push(`  Storefront:       ${link(storefrontUrl)}`);
-    if (dashboardUrl) lines.push(`  Saleor Dashboard: ${link(dashboardUrl)}`);
+    const lines = [cliMessage("start.close.live")];
+    if (storefrontUrl) {
+      lines.push(`  ${cliMessage("start.close.storefrontLabel")}       ${link(storefrontUrl)}`);
+    }
+    if (dashboardUrl) {
+      lines.push(`  ${cliMessage("start.close.dashboardLabel")} ${link(dashboardUrl)}`);
+    }
     lines.push(`  ${opts.stripeStep}`);
     // A blank line, then a minimal "keep building" orientation: the two
     // artifacts setup leaves on disk and the CLI that drives each, with
     // reference links. Success-only — these files exist only once every stage
     // completed; the installed jolly skill carries the how-to.
     lines.push("");
-    lines.push("  Keep building:");
-    lines.push("  • storefront/ — your storefront, live on Vercel (pnpm dev, npx vercel)");
-    lines.push("  • recipe.yml — your catalog & store config as code (npx @saleor/configurator)");
-    lines.push(
-      "  Guides: github.com/saleor/storefront · github.com/saleor/configurator · docs.saleor.io",
-    );
+    lines.push(`  ${cliMessage("start.close.keepBuilding")}`);
+    lines.push(`  • ${cliMessage("start.close.keepStorefront")}`);
+    lines.push(`  • ${cliMessage("start.close.keepRecipe")}`);
+    lines.push(`  ${cliMessage("start.close.guides")}`);
     summary = lines.join("\n");
   }
 

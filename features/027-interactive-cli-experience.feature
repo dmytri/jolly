@@ -25,7 +25,7 @@ Feature: Human-facing interactive CLI experience
       when none is configured, and the storefront project directory — each decision pre-filled
       with a sane default.
     - Every human gate is gathered UP FRONT, before any mechanical stage runs: the Saleor
-      device-grant sign-in, the Vercel sign-in (`npx vercel login`), the organization, environment,
+      device-grant sign-in, the Vercel sign-in (`npx vercel@latest login`), the organization, environment,
       and directory choices, and the single proceed confirmation. Once the human proceeds, the
       mechanical chain runs UNATTENDED to the end, so the human need not watch the whole setup.
       The one irreducible step Jolly cannot perform — pasting the Stripe keys and mapping the `us`
@@ -117,6 +117,13 @@ Feature: Human-facing interactive CLI experience
     When the user presses Enter at every prompt
     Then the up-front Vercel sign-in note should be the `start.vercelSignin` message from `assets/messages/cli.json`
     And the trailing Stripe-step note should be the `start.stripeFinal` message from `assets/messages/cli.json`
+
+  @logic
+  Scenario: Interactive start renders its intro banner from the message catalog
+    Given a fresh empty project directory
+    And `jolly start --dry-run` runs in an interactive terminal
+    When the user presses Enter at every prompt
+    Then the interactive intro on stderr should be the `start.intro` message from `assets/messages/cli.json`
 
   @logic
   Scenario: Interactive start closes with a concise human summary, not the machine check list
@@ -251,7 +258,7 @@ Feature: Human-facing interactive CLI experience
       `auth.saleor.io` verification URL carrying that code as its `user_code` query parameter (so
       opening the link pre-fills the code), waits for the human to authorize, and continues with the
       acquired credentials — rather than reporting a blocked authentication stage and exiting.
-    - Before the unattended stages, when there is no Vercel session, Jolly runs `npx vercel login`
+    - Before the unattended stages, when there is no Vercel session, Jolly runs `npx vercel@latest login`
       inline in the same terminal so the human completes the sign-in there and lets the CLI's
       device grant complete; the Vercel session then exists for the unattended deploy stage.
     - Jolly presents every sign-in by its URL, not by taking over the screen: the device-
@@ -276,6 +283,17 @@ Feature: Human-facing interactive CLI experience
       `--json` path (feature 020). A pre-flight bootstrap readiness check the run itself then
       resolves — no Saleor endpoint, SALEOR_TOKEN, or local storefront before the stages create them —
       is never presented as a failure of the completed run.
+    - Every human-facing string the interactive layer renders — the intro banner, the per-stage
+      progress descriptions, the prompt messages and select option labels, the note titles and note
+      body sentences, the outro, and the close summary sentences and labels — is drawn from the
+      `assets/messages/cli.json` catalog by key, never an inline string literal. The catalog values
+      may carry `{name}` placeholders that the renderer fills with run values such as the
+      organization, the store URL, the device sign-in link and code, and the live URLs. The
+      human-readable words are catalog copy; values composed purely from run data — URLs, device
+      codes, organization, store, and environment slugs, stage names, and per-stage risk-context
+      action text — and the structural glue that joins them (separators, newlines, OSC 8 link
+      wrapping) are not catalog copy and stay in code. Feature 006 guards that no interactive copy
+      bypasses the catalog.
     - On a completed run, after the live URLs and the Stripe step — separated by a blank line — the
       close adds a minimal "keep building" orientation: the two artifacts setup leaves on disk
       (`storefront/` and `recipe.yml`), the CLI that drives each (`npx vercel`,
@@ -311,9 +329,9 @@ Feature: Human-facing interactive CLI experience
     When the user runs `jolly login`
     Then the auth.saleor.io verification URL should be wrapped in an OSC 8 terminal hyperlink escape pointing at that URL
 
-  @captain
-  Scenario: Stage progress descriptions come from the message catalog
-    Given the interactive progress reporter renders a running stage
-    When the store-create stage is in progress
-    Then the stage description shown to the human should be drawn from the catalog asset assets/messages/cli.json
-    And every interactive stage description should resolve through the same catalog binding as start.vercelSignin and start.stripeFinal
+  @logic
+  Scenario: The running stage's plain-language description comes from the message catalog
+    Given a fresh empty project directory
+    When `jolly start` runs in an interactive terminal
+    Then the init stage's running description on stderr should be the `start.stage.init` message from `assets/messages/cli.json`
+    And the auth stage's running description on stderr should be the `start.stage.auth` message from `assets/messages/cli.json`

@@ -166,7 +166,7 @@ Feature: Jolly CLI output contract
       environment domains, and github.com (cloning saleor/storefront and skills). "Hosts Jolly
       contacts" stays exactly equal to the hosts appearing in Jolly's request-sending code.
     - Neither api.vercel.com nor api.stripe.com is in this allowlist, and Jolly's own
-      request-sending code reaches neither: Vercel is reached only by the Vercel CLI (`npx vercel`)
+      request-sending code reaches neither: Vercel is reached only by the Vercel CLI (`npx vercel@latest`)
       Jolly delegates to, and api.stripe.com only by the Saleor Stripe app that Jolly installs via
       Saleor GraphQL `appInstall` (feature 005) and which runs server-side in Saleor (see feature 008
       Rule "Surface — composable plumbing commands; `start` orchestrates the official CLIs").

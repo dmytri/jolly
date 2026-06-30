@@ -87,14 +87,14 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     Given Jolly has cloned and installed the Paper storefront
     When `jolly start` prepares the storefront for the Vercel deploy
     Then `pnpm install` in the storefront should report no ignored build scripts for Paper's native dependencies `sharp` and `esbuild`
-    And the `npx vercel --prod` production build should complete, not fail on unbuilt native modules
+    And the `npx vercel@latest --prod` production build should complete, not fail on unbuilt native modules
 
   @sandbox
   Scenario: Jolly start deploys to Vercel by spawning the official Vercel CLI
     Given the storefront is ready for deployment
     When `jolly start` deploys to Vercel
     Then it should emit the deploy stage's feature 021 `riskContext` and pause for the agent to approve before deploying
-    And it should deploy exclusively by spawning the official Vercel CLI (`npx vercel`), under the CLI's own `vercel login` session
+    And it should deploy exclusively by spawning the official Vercel CLI (`npx vercel@latest`), under the CLI's own `vercel login` session
     And Jolly's own code should send no request to api.vercel.com and hold no Vercel token
     And it should not fall back to any other deployment mechanism such as a guided Git import flow
     And it should configure the required environment variables on the Vercel project through the Vercel CLI
@@ -108,7 +108,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     Given the storefront is ready for deployment
     And the Vercel CLI is pointed at an isolated config with no signed-in session
     When `jolly start` reaches the deploy stage without `--dry-run`
-    Then Jolly should itself spawn `npx vercel login` and surface its device-authorization URL before attempting any deploy
+    Then Jolly should itself spawn `npx vercel@latest login` and surface its device-authorization URL before attempting any deploy
     And a nextStep should carry the Vercel sign-in URL for the human to open and approve
     And the deploy stage should report a pending Vercel sign-in gate that states Jolly runs the Vercel sign-in together with the human, not a deploy `failed`
     And no deploy or vercel check should report `fail` when the only obstacle is the missing Vercel sign-in
@@ -120,7 +120,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And `pnpm` is not resolvable on PATH
     When the agent runs `jolly doctor --json`
     Then a `pnpm-available` check should report status "pass"
-    And the check description should state the storefront stage runs `npx pnpm install` with no global pnpm required
+    And the check description should state the storefront stage runs `npx pnpm@latest install` with no global pnpm required
     And no check or error should contain a raw `spawnSync` ENOENT string
 
   @logic
@@ -179,12 +179,12 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
       succeeded; `blocked`/`failed` honestly otherwise — never a fabricated completion. Idempotent
       (feature 022): an already-cloned/installed `storefront/` is detected and the stage is skipped.
     - The storefront stage also approves the build scripts of Paper's native dependencies (e.g.
-      `sharp`, `esbuild`, `unrs-resolver`) so they run under pnpm and the subsequent `npx vercel`
+      `sharp`, `esbuild`, `unrs-resolver`) so they run under pnpm and the subsequent `npx vercel@latest`
       production build does not fail on unbuilt native modules. pnpm 10+ ignores dependency build
       scripts unless they are approved (there is no `--allow-build` flag), so without this the
       Vercel build fails. This is build configuration, not a change to Paper's source or theme,
       so the "leave Paper's source and theme files unmodified" guarantee still holds.
-    - Deploy stage: Jolly spawns `npx vercel` (and `npx vercel --prod`) under the Vercel CLI's OWN
+    - Deploy stage: Jolly spawns `npx vercel@latest` (and `npx vercel@latest --prod`) under the Vercel CLI's OWN
       `vercel login` session to deploy `storefront/`, sets the required Vercel env vars through the
       CLI, disables Vercel Deployment Protection (on by default — SSO/"Vercel Authentication") via
       `vercel project protection disable --sso` so the store is publicly reachable (a guided fallback
@@ -197,7 +197,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
       api.vercel.com in Jolly's own request code (see "Agent-supervised orchestration" and feature
       020 "First-party hosts only"). The Vercel CLI does NOT passively report a missing session: with
       no session the CLI's sign-in (`vercel whoami` / `vercel login`) emits a device-authorization URL
-      and then waits for a human to complete it. Jolly owns the sign-in by spawning `npx vercel login`
+      and then waits for a human to complete it. Jolly owns the sign-in by spawning `npx vercel@latest login`
       itself (never telling the agent to run it). On the interactive human path (feature 027) Jolly
       runs the sign-in UP FRONT, before the unattended stages, with the terminal passed through, and
       lets the Vercel CLI's device grant COMPLETE — exit 0 means the session exists and the deploy
@@ -289,7 +289,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
 
   Rule: Git provider for optional source control
     - GitHub is the default Git provider for optional source-control setup; other providers are deferred to v2.
-    - Git setup is convenience, not the deployment mechanism — deployment is always the official Vercel CLI (`npx vercel`), spawned by `jolly start` (see "jolly start orchestrates the setup by spawning the official CLIs"). The durable Vercel invariants (official CLI only, its own `vercel login` session, no `JOLLY_VERCEL_TOKEN`, no `api.vercel.com` in Jolly's own code) live in that rule and feature 020's "First-party hosts only".
+    - Git setup is convenience, not the deployment mechanism — deployment is always the official Vercel CLI (`npx vercel@latest`), spawned by `jolly start` (see "jolly start orchestrates the setup by spawning the official CLIs"). The durable Vercel invariants (official CLI only, its own `vercel login` session, no `JOLLY_VERCEL_TOKEN`, no `api.vercel.com` in Jolly's own code) live in that rule and feature 020's "First-party hosts only".
 
   @sandbox
   Scenario: The deployed storefront serves the Saleor catalog and a working cart

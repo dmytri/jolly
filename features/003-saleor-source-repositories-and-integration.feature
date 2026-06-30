@@ -30,7 +30,7 @@ Feature: Saleor source repositories and integration boundaries
   @logic
   Scenario: Use Saleor Configurator through the official CLI
     When the agent runs `jolly start --dry-run --json`
-    Then the plan's recipe stage should name the spawned command `npx @saleor/configurator deploy`
+    Then the plan's recipe stage should name the spawned command `npx @saleor/configurator@latest deploy`
 
   Rule: `saleor/configurator` research notes
     - Repository: https://github.com/saleor/configurator
@@ -91,6 +91,7 @@ Feature: Saleor source repositories and integration boundaries
   Rule: Jolly integration principles
     - Jolly targets Saleor Cloud only — never self-hosted Saleor. Jolly assumes a Saleor Cloud environment for store creation and configuration. Self-hosted Saleor is permanently out of scope, not a roadmap item: Jolly orchestrates Cloud setup, it is not an infrastructure/provisioning tool.
     - `jolly start` delegates mechanical setup to official tools — `git` (cloning `saleor/storefront` from `main` unless the customer chooses another ref), `@saleor/configurator`, `pnpm`, and the Vercel CLI — while never reimplementing them against raw provider APIs.
+    - Jolly invokes each npx-resolved official CLI at its latest published release by tagging the spawn `@latest` (for example `npx @saleor/configurator@latest`), so a stale npx cache never pins an older release. Jolly pins a CLI to a specific version only when a scenario names a known incompatibility.
     - All skills (the Jolly skill and the Saleor agent-skills) are installed via `npx skills add <ref>`, falling back to a Git-based install only for a skill not available that way (such as Paper's embedded skill, which arrives with the cloned storefront).
     - Use the deprecated `saleor/cli` only as research evidence for flows that are not otherwise documented; never invoke it.
     - Preserve upstream agent instructions and skills rather than duplicating all Saleor knowledge inside Jolly.

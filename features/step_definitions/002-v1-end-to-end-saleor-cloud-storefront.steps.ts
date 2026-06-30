@@ -364,7 +364,7 @@ Then(
 );
 
 Then(
-  "it should deploy exclusively by spawning the official Vercel CLI \\(`npx vercel`), under the CLI's own `vercel login` session",
+  "it should deploy exclusively by spawning the official Vercel CLI \\(`npx vercel@latest`), under the CLI's own `vercel login` session",
   function (this: JollyWorld) {
     // Jolly-observable: doctor's deployment check references the Vercel CLI and
     // is marked skipped (Jolly does not contact Vercel) — never a fabricated pass.
@@ -1607,19 +1607,19 @@ Then(
 );
 
 Then(
-  "the check description should state the storefront stage runs `npx pnpm install` with no global pnpm required",
+  "the check description should state the storefront stage runs `npx pnpm@latest install` with no global pnpm required",
   function (this: JollyWorld) {
     const check = this.envelope.checks.find((c) => c.id === "pnpm-available");
     assert.ok(check, "pnpm-available check must exist to carry a description");
     const text = `${check.description ?? ""} ${check.remediation ?? ""} ${check.command ?? ""}`;
-    // No global pnpm on PATH: the storefront stage runs pnpm via `npx`, so the
-    // check stays a clean `pass` whose description points at `npx pnpm install`
-    // and states no global pnpm install is required — never an install-pnpm
-    // remediation or a failure.
+    // No global pnpm on PATH: the storefront stage runs pnpm via `npx` at its
+    // latest release, so the check stays a clean `pass` whose description points
+    // at `npx pnpm@latest install` and states no global pnpm install is required —
+    // never an install-pnpm remediation or a failure.
     assert.match(
       text,
-      /npx pnpm install/i,
-      `pnpm-available description must state the storefront stage runs \`npx pnpm install\`; got: ${text}`,
+      /npx pnpm@latest install/i,
+      `pnpm-available description must state the storefront stage runs \`npx pnpm@latest install\`; got: ${text}`,
     );
     assert.match(
       text,

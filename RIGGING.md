@@ -35,6 +35,7 @@ Procedure lives in the skills. Every role reads this on open.
 ## Dependencies
 
 - policy: locked. Add a new dependency only when a spec requires it.
+- yaml: runtime parser for `assets/skills/jolly/recipe.yml`, required by feature `recipe-identifiers-from-asset` (`deriveRecipeIdentifiers`). Version constraint lives in `package.json`.
 
 ## Outbound
 

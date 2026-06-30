@@ -19,7 +19,7 @@
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { findEnvelope } from "../support/envelope.ts";
 import { absentCredentialsEnv } from "../support/creds-env.ts";
@@ -631,6 +631,349 @@ Then(
     assert.ok(
       out.includes("@dk/jolly"),
       `@dk/jolly must be the package presented as the Jolly tool; got:\n${out}`,
+    );
+  },
+);
+
+// ─── Catalog placeholder substitution (feature 006 @logic) ─────────────────
+// The interactive layer renders human copy from the assets/messages/cli.json
+// catalog by key, and the renderer substitutes `{name}` placeholders with run
+// values. Exercise the REAL render seam: the production cliMessage(key, vars)
+// renderer in src/lib/messages.ts. The catalog template for the key must carry
+// the `{organization}` placeholder, so a passing render proves substitution
+// happened — not a coincidental literal that already reads "acme-co".
+
+const CLI_MESSAGES_PATH = join(REPO_ROOT, "assets", "messages", "cli.json");
+
+function readCatalog(): Record<string, string> {
+  return JSON.parse(readFileSync(CLI_MESSAGES_PATH, "utf8")) as Record<string, string>;
+}
+
+function catalogMessage(key: string): string {
+  const message = readCatalog()[key];
+  assert.ok(
+    typeof message === "string" && message.length > 0,
+    `the message catalog must define a non-empty "${key}"`,
+  );
+  return message;
+}
+
+const CLI_ENTRY = join(REPO_ROOT, "src", "index.ts");
+
+When(
+  /^the CLI renders the `([\w.]+)` message with organization "([^"]+)"$/,
+  { timeout: 160_000 },
+  function (this: JollyWorld, key: string, organization: string) {
+    // The catalog template for this key must carry the {organization}
+    // placeholder, so a rendered run naming the organization proves the renderer
+    // substituted it — not a coincidental literal that already reads the org.
+    const template = catalogMessage(key);
+    assert.ok(
+      template.includes("{organization}"),
+      `the "${key}" catalog template must carry a {organization} placeholder to substitute; got: ${template}`,
+    );
+    if (!ptyAvailable()) {
+      this.notes.renderedMessage = undefined;
+      return "skipped";
+    }
+    // Real render seam: drive `jolly start --dry-run` interactively with two
+    // organizations the named one first, so the org select defaults to it and
+    // Enter resolves it; the CLI then renders `start.usingOrg` for that org on
+    // stderr. --mock-environments= keeps the env picker from making a real
+    // network call that would desync the scripted input. Credentials genuinely
+    // unset so the dry-run preview reaches no real account.
+    const env: Record<string, string> = {};
+    for (const [k, v] of Object.entries({ ...process.env, ...absentCredentialsEnv() })) {
+      if (v !== undefined) env[k] = v;
+    }
+    if (!env.TERM) env.TERM = "xterm-256color";
+    const run = runUnderPty({
+      runtime: process.env.HARNESS_CLI_RUNTIME ?? "node",
+      argv: [
+        CLI_ENTRY,
+        "start",
+        "--dry-run",
+        // @exceptional-double: a Cloud token resolving more than one organization
+        // cannot be produced on demand from the single-org test account; the
+        // deterministic org list is injected to drive the org-announce render.
+        `--mock-organizations=${organization},other-co`,
+        "--mock-environments=",
+      ],
+      cwd: this.projectDir,
+      env,
+      inputs: ["\r", "\r", "\r", "\r", "\r"],
+      inputDelayMs: 600,
+      timeoutMs: 150_000,
+    });
+    // The org announce renders on stderr; runUnderPty's combined output carries
+    // it. Strip ANSI so the rendered copy reads as plain text.
+    this.notes.renderedMessage = run.output.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
+    return undefined;
+  },
+);
+
+Then("the rendered text should contain {string}", function (this: JollyWorld, expected: string) {
+  if (this.notes.renderedMessage === undefined) return "skipped";
+  const out = String(this.notes.renderedMessage);
+  assert.ok(out.includes(expected), `rendered text must contain "${expected}"; got:\n${out}`);
+  return undefined;
+});
+
+Then(
+  "the rendered text should carry no {string} placeholder token",
+  function (this: JollyWorld, token: string) {
+    if (this.notes.renderedMessage === undefined) return "skipped";
+    const out = String(this.notes.renderedMessage);
+    assert.ok(
+      !out.includes(token),
+      `rendered text must carry no "${token}" placeholder token; got:\n${out}`,
+    );
+    return undefined;
+  },
+);
+
+// ─── @property: no interactive copy bypasses the message catalog ────────────
+// Conformance scan, in the family of feature 026/027's source-property checks.
+// Every human-facing string the interactive layer renders comes from the catalog
+// by key via cliMessage(...), never an inline string literal at the render site
+// (feature 027 Rule). We make this falsifiable by parsing the published CLI
+// source (TypeScript AST) and, at every interactive render seam — the clack
+// intro/prompts/notes/outro, the per-stage progress descriptions, and the
+// start-close summary lines — flagging any human-prose literal not enclosed in a
+// cliMessage(...) call. Structural glue (separators, newlines, OSC 8) carries no
+// letters and is allowed; run-data values are expressions, not literals.
+
+const INTERACTIVE_SRC = join(REPO_ROOT, "src", "index.ts");
+const START_CLOSE_SRC = join(REPO_ROOT, "src", "lib", "start-close.ts");
+
+// clack render functions aliased in src/index.ts. Positional seams take their
+// human text as positional string args; object seams take { message, options }.
+const CLACK_POSITIONAL = new Set(["clackIntro", "clackOutro", "clackNote"]);
+const CLACK_OBJECT = new Set([
+  "clackText",
+  "clackConfirm",
+  "clackSelect",
+  "clackMultiselect",
+  "clackPassword",
+]);
+
+interface SeamScan {
+  violations: string[];
+  cliMessageKeys: string[];
+}
+
+async function scanInteractiveSeams(): Promise<SeamScan> {
+  const tsmod = (await import("typescript")) as unknown as { default?: unknown };
+  // typescript ships CommonJS; the namespace is the default export under ESM.
+  const ts = (tsmod.default ?? tsmod) as typeof import("typescript");
+
+  const COMPARISON_TOKENS = new Set<number>([
+    ts.SyntaxKind.EqualsEqualsEqualsToken,
+    ts.SyntaxKind.ExclamationEqualsEqualsToken,
+    ts.SyntaxKind.EqualsEqualsToken,
+    ts.SyntaxKind.ExclamationEqualsToken,
+    ts.SyntaxKind.LessThanToken,
+    ts.SyntaxKind.GreaterThanToken,
+    ts.SyntaxKind.LessThanEqualsToken,
+    ts.SyntaxKind.GreaterThanEqualsToken,
+  ]);
+
+  const violations: string[] = [];
+  const cliMessageKeys: string[] = [];
+  // Any alphabetic run marks human-readable copy. Catalog keys live inside
+  // cliMessage(...) calls, which the walker records and skips, so a flagged
+  // literal is always render-site copy.
+  const hasLetters = (s: string): boolean => /[A-Za-z]/.test(s);
+
+  function flagLiteralsIn(root: import("typescript").Node, where: string): void {
+    const visit = (n: import("typescript").Node): void => {
+      // cliMessage(key, vars) is the sanctioned source: record the key, then
+      // inspect only the vars (run-data) — never flag the key literal itself.
+      if (
+        ts.isCallExpression(n) &&
+        ts.isIdentifier(n.expression) &&
+        n.expression.text === "cliMessage"
+      ) {
+        const first = n.arguments[0];
+        if (first && ts.isStringLiteralLike(first)) cliMessageKeys.push(first.text);
+        for (const extra of n.arguments.slice(1)) visit(extra);
+        return;
+      }
+      // Comparison/equality operands are stage-slug or status DATA, not render
+      // copy (e.g. `s.stage !== "init"` inside a render argument's filter), so a
+      // comparison subtree is skipped.
+      if (ts.isBinaryExpression(n) && COMPARISON_TOKENS.has(n.operatorToken.kind)) {
+        return;
+      }
+      if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) {
+        if (hasLetters(n.text)) violations.push(`${where}: inline literal ${JSON.stringify(n.text)}`);
+        return;
+      }
+      if (ts.isTemplateExpression(n)) {
+        if (hasLetters(n.head.text)) {
+          violations.push(`${where}: inline template text ${JSON.stringify(n.head.text)}`);
+        }
+        for (const span of n.templateSpans) {
+          if (hasLetters(span.literal.text)) {
+            violations.push(`${where}: inline template text ${JSON.stringify(span.literal.text)}`);
+          }
+          visit(span.expression);
+        }
+        return;
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(root);
+  }
+
+  function propValue(
+    obj: import("typescript").ObjectLiteralExpression,
+    name: string,
+  ): import("typescript").Expression | undefined {
+    for (const p of obj.properties) {
+      if (
+        ts.isPropertyAssignment(p) &&
+        ((ts.isIdentifier(p.name) && p.name.text === name) ||
+          (ts.isStringLiteral(p.name) && p.name.text === name))
+      ) {
+        return p.initializer;
+      }
+    }
+    return undefined;
+  }
+
+  // ── src/index.ts: clack render seams + STAGE_DESCRIPTIONS map ──────────────
+  const indexSource = ts.createSourceFile(
+    INTERACTIVE_SRC,
+    readFileSync(INTERACTIVE_SRC, "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+  );
+
+  const walkIndex = (n: import("typescript").Node): void => {
+    // STAGE_DESCRIPTIONS: every per-stage progress description value.
+    if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.name.text === "STAGE_DESCRIPTIONS" &&
+      n.initializer
+    ) {
+      flagLiteralsIn(n.initializer, "STAGE_DESCRIPTIONS");
+    }
+    if (ts.isCallExpression(n)) {
+      const callee = n.expression;
+      // clackLog.<method>(message, ...)
+      if (
+        ts.isPropertyAccessExpression(callee) &&
+        ts.isIdentifier(callee.expression) &&
+        callee.expression.text === "clackLog"
+      ) {
+        if (n.arguments[0]) flagLiteralsIn(n.arguments[0], "clackLog");
+      } else if (ts.isIdentifier(callee) && CLACK_POSITIONAL.has(callee.text)) {
+        for (const arg of n.arguments) flagLiteralsIn(arg, callee.text);
+      } else if (ts.isIdentifier(callee) && CLACK_OBJECT.has(callee.text)) {
+        const optsArg = n.arguments[0];
+        if (optsArg && ts.isObjectLiteralExpression(optsArg)) {
+          const msg = propValue(optsArg, "message");
+          if (msg) flagLiteralsIn(msg, callee.text);
+          for (const label of ["active", "inactive"]) {
+            const v = propValue(optsArg, label);
+            if (v) flagLiteralsIn(v, `${callee.text}.${label}`);
+          }
+          const options = propValue(optsArg, "options");
+          if (options && ts.isArrayLiteralExpression(options)) {
+            for (const el of options.elements) {
+              if (ts.isObjectLiteralExpression(el)) {
+                const lbl = propValue(el, "label");
+                if (lbl) flagLiteralsIn(lbl, `${callee.text} option label`);
+              }
+            }
+          }
+        }
+      }
+    }
+    ts.forEachChild(n, walkIndex);
+  };
+  walkIndex(indexSource);
+
+  // ── src/lib/start-close.ts: the human summary lines (array init + push) ────
+  const closeSource = ts.createSourceFile(
+    START_CLOSE_SRC,
+    readFileSync(START_CLOSE_SRC, "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  const walkClose = (n: import("typescript").Node): void => {
+    // `const lines = [ <summary line>, ... ]`
+    if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.name.text === "lines" &&
+      n.initializer &&
+      ts.isArrayLiteralExpression(n.initializer)
+    ) {
+      for (const el of n.initializer.elements) flagLiteralsIn(el, "start-close summary line");
+    }
+    // `lines.push(<summary line>)`
+    if (
+      ts.isCallExpression(n) &&
+      ts.isPropertyAccessExpression(n.expression) &&
+      ts.isIdentifier(n.expression.expression) &&
+      n.expression.expression.text === "lines" &&
+      n.expression.name.text === "push"
+    ) {
+      for (const arg of n.arguments) flagLiteralsIn(arg, "start-close summary line");
+    }
+    ts.forEachChild(n, walkClose);
+  };
+  walkClose(closeSource);
+
+  return { violations, cliMessageKeys };
+}
+
+Given(
+  "the interactive render seams: the clack intro, prompts, notes and outro, the per-stage progress descriptions, and the start-close summary lines",
+  function () {
+    // Framing; the published CLI source is scanned in the When.
+  },
+);
+
+When(
+  "each seam's human-facing message text is examined in the source",
+  async function (this: JollyWorld) {
+    const scan = await scanInteractiveSeams();
+    this.notes.seamViolations = scan.violations;
+    this.notes.seamCliMessageKeys = scan.cliMessageKeys;
+  },
+);
+
+Then(
+  /^every human-facing message should be sourced from `assets\/messages\/cli\.json` by key$/,
+  function (this: JollyWorld) {
+    const keys = (this.notes.seamCliMessageKeys as string[]) ?? [];
+    assert.ok(
+      keys.length > 0,
+      "the interactive render seams must source copy from the catalog via cliMessage(key)",
+    );
+    const catalog = readCatalog();
+    const missing = [...new Set(keys)].filter((k) => !(k in catalog));
+    assert.deepEqual(
+      missing,
+      [],
+      `every cliMessage key the seams use must exist in the catalog; missing: ${missing.join(", ")}`,
+    );
+  },
+);
+
+Then(
+  "no interactive render seam should emit an inline human-facing string literal",
+  function (this: JollyWorld) {
+    const violations = (this.notes.seamViolations as string[]) ?? [];
+    assert.deepEqual(
+      violations,
+      [],
+      `interactive render seams must source human copy from the catalog by key, ` +
+        `never an inline literal; found:\n${violations.join("\n")}`,
     );
   },
 );

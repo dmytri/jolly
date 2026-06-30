@@ -9,14 +9,14 @@ Feature: Jolly Configurator starter recipe
     When the agent runs `jolly start --dry-run --json`
     Then the plan should name the bundled starter recipe Jolly ships (`recipe.yml`)
     And the plan should write the recipe to a file at a named path before deployment
-    And the plan should deploy it by spawning `npx @saleor/configurator deploy`
+    And the plan should deploy it by spawning `npx @saleor/configurator@latest deploy`
     And the plan should name the deploy token as `SALEOR_TOKEN` (the resolved store token Jolly holds)
 
   @sandbox
   Scenario: Jolly blocks a recipe re-deploy over a pre-existing store's destructive diff
     Given a Saleor Cloud environment that already holds catalog data
     When the agent runs `jolly start --yes` to apply the starter recipe to Saleor Cloud
-    Then the recipe stage should pass `--failOnDelete` to `npx @saleor/configurator deploy`
+    Then the recipe stage should pass `--failOnDelete` to `npx @saleor/configurator@latest deploy`
     And the configurator should exit 6 for deletions
     And Jolly should report the recipe stage as "blocked", not "completed"
 
@@ -58,7 +58,7 @@ Feature: Jolly Configurator starter recipe
     Given a project with the recipe stage not yet applied
     When the agent runs `jolly start --dry-run --json`
     Then the plan should include a configurator-deploy step that runs before the stock-seeding step
-    And the preview should name the spawned command `npx @saleor/configurator deploy`, Jolly's bundled starter recipe, and `SALEOR_URL` and `SALEOR_TOKEN` by name only
+    And the preview should name the spawned command `npx @saleor/configurator@latest deploy`, Jolly's bundled starter recipe, and `SALEOR_URL` and `SALEOR_TOKEN` by name only
     And the preview should name the safe flag `--failOnDelete` used to guard a re-deploy over a pre-existing store
     And the configurator-deploy step should carry a riskContext for deploying store configuration
     And the riskContext should mark a dry run available via the configurator `--plan` preview
@@ -77,7 +77,7 @@ Feature: Jolly Configurator starter recipe
   Scenario: Jolly start deploys the starter recipe with @saleor/configurator
     Given a freshly created blank Saleor Cloud environment
     When Jolly start runs the configurator-deploy stage with approval
-    Then Jolly should spawn `npx @saleor/configurator deploy` of its bundled starter recipe against the store, never reimplementing it against raw APIs
+    Then Jolly should spawn `npx @saleor/configurator@latest deploy` of its bundled starter recipe against the store, never reimplementing it against raw APIs
     And the bootstrap deploy should record a successful configurator deployment report and the recipe's catalog entities should exist in the store
     And the stage should be reported completed only when the configurator's deployment report records success
     And re-running the stage should reconcile to a no-op diff rather than creating duplicate entities
@@ -179,7 +179,7 @@ Feature: Jolly Configurator starter recipe
       false blocked"; a brittle timing assertion is intentionally not specified.
 
   Rule: Configurator deploy
-    - `jolly start` performs the recipe deploy itself by SPAWNING `npx @saleor/configurator deploy`.
+    - `jolly start` performs the recipe deploy itself by SPAWNING `npx @saleor/configurator@latest deploy`.
       Jolly spawns the official, current CLI and never reimplements it against raw APIs.
     - It deploys Jolly's own bundled starter recipe (`assets/skills/jolly/recipe.yml`, resolved
       relative to Jolly's module path — the same bundled-asset mechanism `init` uses to install the

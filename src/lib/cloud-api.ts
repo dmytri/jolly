@@ -542,7 +542,7 @@ export async function queryGetApps(
  * Checking products (not "any deletion in the diff") avoids both an expensive
  * second configurator introspection and the unreliable job of deciding by name
  * which deletions are Saleor's stock defaults.
- * @planks("Then the recipe stage should pass `--failOnDelete` to `npx @saleor/configurator deploy`")
+ * @planks("Then the recipe stage should pass `--failOnDelete` to `npx @saleor/configurator@latest deploy`")
  */
 export async function storeHoldsForeignCatalog(
   graphqlUrl: string,

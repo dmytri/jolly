@@ -17,6 +17,19 @@ Feature: Npx-first Jolly CLI command surface
     Then the trailing Stripe-step note should be the `start.stripeFinal` message from `assets/messages/cli.json`
 
   @logic
+  Scenario: The message catalog substitutes placeholders with run values
+    When the CLI renders the `start.usingOrg` message with organization "acme-co"
+    Then the rendered text should contain "acme-co"
+    And the rendered text should carry no "{organization}" placeholder token
+
+  @logic @property
+  Scenario: No interactive copy bypasses the message catalog
+    Given the interactive render seams: the clack intro, prompts, notes and outro, the per-stage progress descriptions, and the start-close summary lines
+    When each seam's human-facing message text is examined in the source
+    Then every human-facing message should be sourced from `assets/messages/cli.json` by key
+    And no interactive render seam should emit an inline human-facing string literal
+
+  @logic
   Scenario: Agent starts the guided setup flow
     Given the customer wants the end-to-end guided Saleor storefront setup
     When the agent runs `jolly start --json`
@@ -146,6 +159,14 @@ Feature: Npx-first Jolly CLI command surface
       the catalog from its own package, not the source tree. The `--json` path
       never reads the catalog, so this guard exercises the installed CLI on its
       interactive path.
+    - All human-facing copy the interactive layer renders is sourced from
+      `assets/messages/cli.json` by key, never an inline string literal at the
+      render site: the intro banner, the prompts and notes, the per-stage progress
+      descriptions, and the close summary (feature 027). A catalog value may carry
+      `{name}` placeholders the renderer fills with run values such as the
+      organization, the store URL, and the live URLs. The "no interactive copy
+      bypasses the catalog" property keeps the sweep complete: a new inline
+      human-facing literal on the interactive path fails it.
     - The published package's `engines` field must declare the Node.js requirement.
     - On a Node.js older than the minimum, the launcher should fail with a clear
       message naming the minimum Node version, not a raw syntax or module error.

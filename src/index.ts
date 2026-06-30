@@ -54,6 +54,7 @@ import { loadEnvValues, writeEnvValues } from "./lib/env-file.ts";
 import { normalizeSaleorUrl } from "./lib/saleor-url.ts";
 import { isFirstPartyHost } from "./lib/hosts.ts";
 import { interactiveCloseSummary } from "./lib/start-close.ts";
+import { cliMessage } from "./lib/messages.ts";
 import {
   requestDeviceCode,
   pollForDeviceTokens,
@@ -761,9 +762,10 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
  */
 async function deviceGrantLogin(command: string): Promise<Envelope> {
   const auth = await requestDeviceCode();
+  const signInUrl = `${auth.verificationUri}?user_code=${auth.userCode}`;
   clackNote(
-    `Open ${osc8Hyperlink(`${auth.verificationUri}?user_code=${auth.userCode}`)}\nand enter the code: ${auth.userCode}`,
-    "Sign in to Saleor Cloud",
+    cliMessage("start.note.signInBody", { link: osc8Hyperlink(signInUrl), code: auth.userCode }),
+    cliMessage("start.note.signIn"),
     CLACK_STDERR,
   );
   const tokens = await pollForDeviceTokens(auth);
@@ -1772,21 +1774,6 @@ function bundledJollySkillPath(): string {
   return fileURLToPath(new URL("../assets/skills/jolly", import.meta.url));
 }
 
-// Human-facing CLI copy lives in the message catalog asset, rendered by key, not
-// hard-coded here (feature 027 "copy is a catalog asset"). The catalog ships in
-// the package beside the skills, resolved the same `../assets/...` way.
-let cliMessageCatalog: Record<string, string> | undefined;
-/**
- * @planks("When the agent runs `jolly start --dry-run`")
- */
-function cliMessage(key: string): string {
-  if (!cliMessageCatalog) {
-    const path = fileURLToPath(new URL("../assets/messages/cli.json", import.meta.url));
-    cliMessageCatalog = JSON.parse(readFileSync(path, "utf8")) as Record<string, string>;
-  }
-  return cliMessageCatalog[key]!;
-}
-
 /**
  * @planks("When the agent invokes `jolly init`")
  * @planks("When it installs the default skill set")
@@ -2398,7 +2385,7 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
       status: "pass",
       description: globalPnpm
         ? `pnpm is available (${pnpmProbe.stdout.trim()}); the storefront stage installs Paper's dependencies with it.`
-        : "No global pnpm; the storefront stage runs `npx pnpm install` (no global pnpm install required).",
+        : "No global pnpm; the storefront stage runs `npx pnpm@latest install` (no global pnpm install required).",
     });
 
     const storefrontPresent =
@@ -2789,7 +2776,7 @@ function startPlan(): PlanStage[] {
         categories: ["production configuration changes"],
         reversible: false,
         sideEffects: [
-          "Spawns `npx @saleor/configurator deploy --config <bundled assets/skills/jolly/recipe.yml> --url <SALEOR_URL> --token <SALEOR_TOKEN>` to apply the starter recipe to the store (store URL and token referenced by name only; values never printed)",
+          "Spawns `npx @saleor/configurator@latest deploy --config <bundled assets/skills/jolly/recipe.yml> --url <SALEOR_URL> --token <SALEOR_TOKEN>` to apply the starter recipe to the store (store URL and token referenced by name only; values never printed)",
           "A `--plan` preview shows the configurator diff without applying changes; a re-deploy over a pre-existing store passes `--failOnDelete` to block a destructive apply (the bootstrap deploy of the store Jolly just provisioned replaces Saleor's stock defaults)",
         ],
         dryRunAvailable: true,
@@ -3315,7 +3302,7 @@ async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
  * only when every recipe collection was populated; `blocked` (never a fabricated
  * completion) when the assignment fails. A no-op `completed` when the recipe
  * declares no collections.
- * @planks("Then Jolly should spawn `npx @saleor/configurator deploy` of its bundled starter recipe against the store, never reimplementing it against raw APIs")
+ * @planks("Then Jolly should spawn `npx @saleor/configurator@latest deploy` of its bundled starter recipe against the store, never reimplementing it against raw APIs")
  * @planks("Then the recipe's `featured-products` collection should exist in the store holding its declared products")
  */
 async function assignRecipeCollections(
@@ -4122,14 +4109,14 @@ function osc8Hyperlink(url: string): string {
 // progress says what it is doing (not a bare stage name), especially for the slow
 // store/recipe/deploy stages (feature 027).
 const STAGE_DESCRIPTIONS: Record<string, string> = {
-  init: "setting up skills + config",
-  auth: "signing in to Saleor Cloud",
-  store: "creating your Saleor store (~1 min)",
-  storefront: "cloning the storefront + installing dependencies",
-  recipe: "deploying the starter catalog",
-  stock: "seeding product stock",
-  deploy: "deploying to Vercel",
-  stripe: "installing the Stripe app",
+  init: cliMessage("start.stage.init"),
+  auth: cliMessage("start.stage.auth"),
+  store: cliMessage("start.stage.store"),
+  storefront: cliMessage("start.stage.storefront"),
+  recipe: cliMessage("start.stage.recipe"),
+  stock: cliMessage("start.stage.stock"),
+  deploy: cliMessage("start.stage.deploy"),
+  stripe: cliMessage("start.stage.stripe"),
 };
 
 /**
@@ -4230,7 +4217,7 @@ function stageProgress(
  * @planks("When the user presses Enter at every prompt")
  */
 async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
-  clackIntro("jolly start — guided setup", CLACK_STDERR);
+  clackIntro(cliMessage("start.intro"), CLACK_STDERR);
 
   // No Saleor Cloud authentication configured (feature 027 Rule "runs
   // end-to-end in one session" + feature 018): sign in inline through the Saleor
@@ -4249,9 +4236,10 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
       process.env["JOLLY_SALEOR_ACCESS_TOKEN"];
     if (!existingAuth) {
       const auth = await requestDeviceCode();
+      const signInUrl = `${auth.verificationUri}?user_code=${auth.userCode}`;
       clackNote(
-        `Open ${osc8Hyperlink(`${auth.verificationUri}?user_code=${auth.userCode}`)}\nand enter the code: ${auth.userCode}`,
-        "Sign in to Saleor Cloud",
+        cliMessage("start.note.signInBody", { link: osc8Hyperlink(signInUrl), code: auth.userCode }),
+        cliMessage("start.note.signIn"),
         CLACK_STDERR,
       );
       const tokens = await pollForDeviceTokens(auth);
@@ -4276,17 +4264,17 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
     if (orgs.length > 1) {
       organizationPrompted = true;
       const choice = await clackSelect({
-        message: "Choose the Saleor organization to use",
+        message: cliMessage("start.prompt.organization"),
         options: orgs.map((o) => ({ value: o.slug, label: o.slug })),
         initialValue: orgs[0]!.slug,
         ...CLACK_STDERR,
       });
       if (clackIsCancel(choice)) return runStartCore({ ...args, yes: false });
       organization = String(choice);
-      clackLog.info(`Using organization "${organization}".`, CLACK_STDERR);
+      clackLog.info(cliMessage("start.usingOrg", { organization }), CLACK_STDERR);
     } else if (orgs.length === 1) {
       organization = orgs[0]!.slug;
-      clackLog.info(`Using your only organization "${organization}".`, CLACK_STDERR);
+      clackLog.info(cliMessage("start.usingOnlyOrg", { organization }), CLACK_STDERR);
     }
   }
 
@@ -4298,7 +4286,7 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
   let envName: string | symbol = DEFAULT_ENV_NAME;
   if (configuredStore) {
     clackLog.info(
-      `Reusing your already-configured store (${configuredStore}); resuming the remaining stages.`,
+      cliMessage("start.reusingConfiguredStore", { storeUrl: configuredStore }),
       CLACK_STDERR,
     );
   } else {
@@ -4312,12 +4300,15 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
     let reuseEndpoint: string | undefined;
     if (existingEnvs.length > 0) {
       const choice = await clackSelect({
-        message: "Create a new store, or reuse an existing one?",
+        message: cliMessage("start.prompt.store"),
         options: [
-          { value: "__new__", label: "Create a new store" },
+          { value: "__new__", label: cliMessage("start.option.createStore") },
           ...existingEnvs.map((e) => ({
             value: environmentHost(e)!,
-            label: `Reuse ${e.name ?? e.domain_label} (${environmentHost(e)})`,
+            label: cliMessage("start.option.reuseStore", {
+              name: e.name ?? e.domain_label,
+              url: environmentHost(e)!,
+            }),
           })),
         ],
         initialValue: "__new__",
@@ -4338,10 +4329,10 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
         // The store endpoint is now known: project the agent-facing surface.
         projectSaleorAgentEnv({ SALEOR_URL: reuseEndpoint });
       }
-      clackLog.info(`Reusing the existing store ${reuseEndpoint}.`, CLACK_STDERR);
+      clackLog.info(cliMessage("start.reusingStore", { storeUrl: reuseEndpoint }), CLACK_STDERR);
     } else {
       envName = await clackText({
-        message: "Environment name",
+        message: cliMessage("start.prompt.envName"),
         placeholder: DEFAULT_ENV_NAME,
         defaultValue: DEFAULT_ENV_NAME,
         ...CLACK_STDERR,
@@ -4350,7 +4341,7 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
     }
   }
   const projectDirectory = await clackText({
-    message: "Storefront project directory",
+    message: cliMessage("start.prompt.projectDir"),
     placeholder: DEFAULT_STOREFRONT_DIR,
     defaultValue: DEFAULT_STOREFRONT_DIR,
     ...CLACK_STDERR,
@@ -4368,7 +4359,7 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
       .filter((s) => s.stage !== "init" && s.stage !== "auth")
       .map((s) => `${s.stage}: ${s.riskContext?.action ?? s.stage}`)
       .join("\n"),
-    "Planned stages",
+    cliMessage("start.note.plannedStages"),
     CLACK_STDERR,
   );
   clackLog.info(cliMessage("start.vercelSignin"), CLACK_STDERR);
@@ -4383,7 +4374,7 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
   };
 
   if (args.dryRun) {
-    clackOutro("Previewed the plan. No files were written and no changes were made.", CLACK_STDERR);
+    clackOutro(cliMessage("start.previewedPlan"), CLACK_STDERR);
     const preview = commandStartDryRun();
     // The interactive close is a concise human summary, not the machine check
     // enumeration or the agent `next:` playbook (feature 027): the prose summary
