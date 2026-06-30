@@ -807,7 +807,7 @@ function vercelSignInUrlInNextSteps(world: JollyWorld): boolean {
 }
 
 Then(
-  "Jolly should itself spawn `npx vercel login` and surface its device-authorization URL before attempting any deploy",
+  "Jolly should itself spawn `npx vercel@latest login` and surface its device-authorization URL before attempting any deploy",
   function (this: JollyWorld) {
     assert.ok(this.envelope.command.startsWith("start"), "the run must be a `jolly start` run");
     assert.ok(
@@ -1529,7 +1529,7 @@ Then(
 );
 
 Then(
-  "the `npx vercel --prod` production build should complete, not fail on unbuilt native modules",
+  "the `npx vercel@latest --prod` production build should complete, not fail on unbuilt native modules",
   { timeout: 900_000 },
   function (this: JollyWorld) {
     if (this.notes.skipNativeBuild) return "skipped" as const;
@@ -1539,10 +1539,17 @@ Then(
     // the process environment, so the @sandbox NEXT_PUBLIC_SALEOR_API_URL drives
     // Paper's codegen. An unbuilt sharp/esbuild native module fails this build;
     // its success is the falsifiable observable that the native build scripts ran.
+    // Paper's build collects the `[channel]` route's page data, which needs a
+    // configured storefront channel ("[Channels] No channels configured. Set
+    // NEXT_PUBLIC_DEFAULT_CHANNEL or STOREFRONT_CHANNELS"). The real Vercel deploy
+    // gets this from the project env Jolly configures; the direct build here
+    // mirrors it with the recipe's `us` channel (assets/skills/jolly/recipe.yml),
+    // so the build reaches the native-module compilation under test.
     const result = spawnSync("npx", ["pnpm", "build"], {
       cwd: dir,
       encoding: "utf8",
       timeout: 840_000,
+      env: { ...process.env, NEXT_PUBLIC_DEFAULT_CHANNEL: "us" },
     });
     const output = (result.stdout ?? "") + (result.stderr ?? "");
     assert.equal(

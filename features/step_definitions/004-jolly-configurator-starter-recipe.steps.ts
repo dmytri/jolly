@@ -18,6 +18,7 @@ import { createServer } from "node:http";
 import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 import { findRiskContexts, assertRiskContextShape } from "../support/envelope.ts";
 import { saleorGraphql } from "../support/saleor-graphql.ts";
+import { makeNamespace } from "../support/sandbox.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 // The Jolly starter recipe's warehouse (assets/skills/jolly/recipe.yml) and the
@@ -51,7 +52,7 @@ Then(
 );
 
 Then(
-  "the plan should deploy it by spawning `npx @saleor\\/configurator deploy`",
+  "the plan should deploy it by spawning `npx @saleor\\/configurator@latest deploy`",
   function (this: JollyWorld) {
     // Jolly performs the recipe deploy ITSELF by SPAWNING `npx @saleor/configurator
     // deploy` (feature 004 Rule "Configurator deploy"; src/index.ts runRecipeStage
@@ -65,8 +66,8 @@ Then(
     assert.ok(stage, "the plan must include the `@saleor/configurator` deploy stage");
     const blob = JSON.stringify(stage);
     assert.ok(
-      blob.includes("npx @saleor/configurator deploy"),
-      "the plan must name the spawned command `npx @saleor/configurator deploy`",
+      blob.includes("npx @saleor/configurator@latest deploy"),
+      "the plan must name the spawned command `npx @saleor/configurator@latest deploy`",
     );
     assert.ok(
       /recipe\.yml/i.test(blob),
@@ -105,9 +106,80 @@ Then(
 
 // --- Scenario: Agent applies the starter recipe safely (@sandbox) -----------
 
-Given("a Saleor Cloud environment that already holds catalog data", function (this: JollyWorld) {
-  this.notes.recipeReady = true;
-});
+Given(
+  "a Saleor Cloud environment that already holds catalog data",
+  { timeout: 120_000 },
+  async function (this: JollyWorld) {
+    // The destructive-diff block is only reachable when the store already holds
+    // a product the recipe does not declare: production passes `--failOnDelete`
+    // exactly when `storeHoldsForeignCatalog` is true (src/lib/cloud-api.ts — any
+    // product slug outside the recipe's). Seed one real foreign product into the
+    // provisioned store so the subsequent recipe deploy detects a deletion and
+    // the configurator exits 6. Harmless by design: the product and its type are
+    // `jolly-test`-namespaced and torn down LIFO.
+    const { endpoint, token } = storeCreds();
+    if (!endpoint) {
+      this.notes.skipDestructive = true;
+      return;
+    }
+    const slug = `${makeNamespace()}-foreign`;
+    const name = `Jolly Test Foreign ${slug}`;
+    const typeResult = await saleorGraphql(
+      endpoint,
+      token,
+      `mutation($name: String!) {
+         productTypeCreate(input: { name: $name, kind: NORMAL, hasVariants: false }) {
+           productType { id }
+           errors { field message }
+         }
+       }`,
+      { name },
+    );
+    const typePayload = typeResult.data?.productTypeCreate as
+      | { productType?: { id: string }; errors?: Array<{ field: string; message: string }> }
+      | undefined;
+    assert.ok(
+      typePayload?.productType?.id,
+      `seeding foreign catalog must create a product type; errors: ${JSON.stringify(typePayload?.errors ?? typeResult.errors)}`,
+    );
+    const productTypeId = typePayload.productType!.id;
+    this.cleanup.register(`product type ${productTypeId}`, async () => {
+      await saleorGraphql(
+        endpoint,
+        token,
+        `mutation($id: ID!) { productTypeDelete(id: $id) { errors { code } } }`,
+        { id: productTypeId },
+      );
+    });
+    const productResult = await saleorGraphql(
+      endpoint,
+      token,
+      `mutation($name: String!, $slug: String!, $productType: ID!) {
+         productCreate(input: { name: $name, slug: $slug, productType: $productType }) {
+           product { id }
+           errors { field message }
+         }
+       }`,
+      { name, slug, productType: productTypeId },
+    );
+    const productPayload = productResult.data?.productCreate as
+      | { product?: { id: string }; errors?: Array<{ field: string; message: string }> }
+      | undefined;
+    assert.ok(
+      productPayload?.product?.id,
+      `seeding foreign catalog must create a product; errors: ${JSON.stringify(productPayload?.errors ?? productResult.errors)}`,
+    );
+    const productId = productPayload.product!.id;
+    this.cleanup.register(`product ${productId}`, async () => {
+      await saleorGraphql(
+        endpoint,
+        token,
+        `mutation($id: ID!) { productDelete(id: $id) { errors { code } } }`,
+        { id: productId },
+      );
+    });
+  },
+);
 
 When(
   "the agent runs `jolly start --yes` to apply the starter recipe to Saleor Cloud",
@@ -144,7 +216,7 @@ When(
 );
 
 Then(
-  "the recipe stage should pass `--failOnDelete` to `npx @saleor\\/configurator deploy`",
+  "the recipe stage should pass `--failOnDelete` to `npx @saleor\\/configurator@latest deploy`",
   function (this: JollyWorld) {
     if (this.notes.skipDestructive) return "skipped";
     // Observable proof Jolly passed `--failOnDelete`: the recipe-deployed check
@@ -814,7 +886,7 @@ When(
 );
 
 Then(
-  "Jolly should spawn `npx @saleor\\/configurator deploy` of its bundled starter recipe against the store, never reimplementing it against raw APIs",
+  "Jolly should spawn `npx @saleor\\/configurator@latest deploy` of its bundled starter recipe against the store, never reimplementing it against raw APIs",
   function (this: JollyWorld) {
     if (this.notes.skipRecipe) return "skipped";
     // Jolly-observable: a recipe-deploy check confirms the configurator was
