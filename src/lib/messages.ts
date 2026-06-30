@@ -23,7 +23,6 @@ function catalogPath(): string {
 }
 
 /**
- * @planks("When the agent runs `jolly start --dry-run`")
  * @planks("When the CLI renders the `start.usingOrg` message with organization \"acme-co\"")
  */
 export function cliMessage(
