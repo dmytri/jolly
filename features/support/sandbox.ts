@@ -446,6 +446,17 @@ export function makeNamespace(id: string = runId()): string {
   return `jolly-test-${id}`;
 }
 
+/**
+ * The cucumber parallel worker id (`CUCUMBER_WORKER_ID`), or "0" in a
+ * single-worker run. Each parallel worker namespaces its own shared sandbox
+ * environment by this id on top of the run id, so concurrent workers never
+ * share or reclaim each other's live store (cucumber.js sandbox profile).
+ */
+export function workerId(): string {
+  const id = process.env.CUCUMBER_WORKER_ID;
+  return id !== undefined && id.trim() !== "" ? id.trim() : "0";
+}
+
 export interface CleanupFailure {
   description: string;
   error: string;

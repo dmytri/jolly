@@ -10,3 +10,6 @@ bun.lockb
 skills-lock.json
 .vercel
 .sandbox-rerun.txt
+
+# c8 coverage output (transient verification artifact)
+coverage/

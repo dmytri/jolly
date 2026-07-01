@@ -13,7 +13,7 @@ import {
   assertEnvelopeShape,
   type Envelope,
 } from "./envelope.ts";
-import { CleanupRegistry, makeNamespace, runId } from "./sandbox.ts";
+import { CleanupRegistry, makeNamespace, runId, workerId } from "./sandbox.ts";
 
 export const REPO_ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const CLI_ENTRY = join(REPO_ROOT, "src", "index.ts");
@@ -68,7 +68,10 @@ export class JollyWorld extends World {
 
   constructor(options: IWorldOptions) {
     super(options);
-    this.namespace = `${makeNamespace(this.runId)}-${++worldCounter}`;
+    // The worker id keeps namespaces unique across parallel workers: the run id
+    // is shared by every worker (cucumber.js), so the per-process counter alone
+    // would collide between workers (both start at 1).
+    this.namespace = `${makeNamespace(this.runId)}-w${workerId()}-${++worldCounter}`;
     for (const name of Object.keys(process.env)) {
       if (/^JOLLY_.*(TOKEN|SECRET|KEY|PASSWORD)/.test(name)) {
         const value = process.env[name];

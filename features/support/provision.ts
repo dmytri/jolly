@@ -22,8 +22,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deleteEnvironment, listAllEnvironments } from "./cloud.ts";
-import { findEnvelope } from "./envelope.ts";
-import { CleanupRegistry, makeNamespace, runId, type CleanupFailure } from "./sandbox.ts";
+import { findEnvelope, type Envelope } from "./envelope.ts";
+import { CleanupRegistry, makeNamespace, runId, workerId, type CleanupFailure } from "./sandbox.ts";
 import { REPO_ROOT } from "./world.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
 
@@ -31,9 +31,11 @@ export type ProvisionOutcome =
   | { status: "ready" }
   | { status: "skip"; reason: string };
 
-/** Name and domain label of the run's shared environment. */
+/** Name and domain label of this worker's shared environment. The run id is
+ * shared by every parallel worker (set in cucumber.js); the worker id makes each
+ * worker's environment unique, so concurrent workers never collide. */
 export function sharedEnvironmentName(): string {
-  return `${makeNamespace(runId())}-shared`;
+  return `${makeNamespace(runId())}-w${workerId()}-shared`;
 }
 
 const teardownRegistry = new CleanupRegistry();
@@ -83,24 +85,31 @@ export async function provisionSharedEnvironment(): Promise<ProvisionOutcome> {
   // prefix positively marks them as this dedicated test org's disposable
   // resources (AGENTS.md "Leftover handling"). Delete them freely to free
   // capacity; an environment lacking the prefix is never touched.
+  // Reclaim leftover jolly-test environments from OTHER runs only. Under
+  // `parallel`, a sibling worker's environment carries THIS run's namespace
+  // (the run id is shared across workers; only the worker id differs), so
+  // deleting it would destroy a live store. Skipping this run's namespace
+  // protects siblings; a crashed worker's leftover is reclaimed by a later run.
+  const runNamespace = makeNamespace(runId());
+  const fullName = sharedEnvironmentName();
   const before = await listAllEnvironments(cloudToken);
   for (const env of before) {
-    if (env.name.startsWith("jolly-test-")) {
+    if (env.name.startsWith("jolly-test-") && !env.name.startsWith(runNamespace)) {
       await deleteEnvironment(cloudToken, env.org, env.key);
     }
   }
 
   // Catch-all teardown registered BEFORE the CLI can create anything: if the
   // run dies without an envelope (timeout, crash), a diff against this
-  // snapshot still finds and deletes whatever this run created — and only
-  // jolly-test environments of THIS run, never a pre-existing resource.
+  // snapshot still finds and deletes whatever THIS worker created. The full
+  // per-worker name (run id + worker id) is matched, never the bare run
+  // namespace, so a worker never tears down a sibling worker's live store.
   const snapshot = new Set(before.map((env) => env.key));
-  const runNamespace = makeNamespace(runId());
   teardownRegistry.register(
     "shared Saleor Cloud environment (catch-all diff vs pre-provisioning snapshot)",
     async () => {
       for (const env of await listAllEnvironments(cloudToken)) {
-        if (!snapshot.has(env.key) && env.name.startsWith(runNamespace)) {
+        if (!snapshot.has(env.key) && env.name.startsWith(fullName)) {
           await deleteEnvironment(cloudToken, env.org, env.key);
         }
       }
@@ -117,33 +126,52 @@ export async function provisionSharedEnvironment(): Promise<ProvisionOutcome> {
 
   const name = sharedEnvironmentName();
   const runtime = process.env.HARNESS_CLI_RUNTIME ?? "node";
-  const spawned = spawnSync(
-    runtime,
-    [
-      join(REPO_ROOT, "src", "index.ts"),
-      "create",
-      "store",
-      "--create-environment",
-      "--name",
-      name,
-      "--domain-label",
-      name,
-      "--json",
-    ],
-    { cwd: scratchDir, env: { ...process.env }, encoding: "utf8", timeout: 540_000 },
-  );
-  if (spawned.error) {
-    throw new Error(
-      `failed to invoke Jolly CLI for shared-environment provisioning via "${runtime}": ${spawned.error.message}`,
+
+  // Create the environment, waiting out a transient org environment-limit. Under
+  // a parallel run the limit is consumed by sibling workers' live stores, which
+  // they tear down as their scenarios finish, freeing a slot. Run-scoped
+  // reclamation never deletes a sibling's live store, so capacity is recovered by
+  // waiting and retrying, not by deleting. Skip only after the wait budget.
+  const limitDeadline = Date.now() + 540_000;
+  let envelope: Envelope;
+  for (;;) {
+    const spawned = spawnSync(
+      runtime,
+      [
+        join(REPO_ROOT, "src", "index.ts"),
+        "create",
+        "store",
+        "--create-environment",
+        "--name",
+        name,
+        "--domain-label",
+        name,
+        "--json",
+      ],
+      { cwd: scratchDir, env: { ...process.env }, encoding: "utf8", timeout: 540_000 },
     );
-  }
-  const stdout = spawned.stdout ?? "";
-  const envelope = findEnvelope(stdout);
-  if (!envelope) {
-    throw new Error(
-      `shared-environment provisioning produced no output envelope ` +
-        `(exit ${spawned.status}).\nstdout:\n${stdout}\nstderr:\n${spawned.stderr}`,
-    );
+    if (spawned.error) {
+      throw new Error(
+        `failed to invoke Jolly CLI for shared-environment provisioning via "${runtime}": ${spawned.error.message}`,
+      );
+    }
+    const stdout = spawned.stdout ?? "";
+    const parsed = findEnvelope(stdout);
+    if (!parsed) {
+      throw new Error(
+        `shared-environment provisioning produced no output envelope ` +
+          `(exit ${spawned.status}).\nstdout:\n${stdout}\nstderr:\n${spawned.stderr}`,
+      );
+    }
+    const atLimit =
+      parsed.status === "error" &&
+      parsed.errors.some((e) => e.code === "ENVIRONMENT_LIMIT_REACHED");
+    if (atLimit && Date.now() < limitDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 15_000));
+      continue;
+    }
+    envelope = parsed;
+    break;
   }
 
   // Precise teardown for the reported environment (LIFO: runs before the
@@ -168,9 +196,9 @@ export async function provisionSharedEnvironment(): Promise<ProvisionOutcome> {
     return {
       status: "skip",
       reason:
-        "Cloud API rejected environment creation with ENVIRONMENT_LIMIT_REACHED " +
-        "(organization sandbox limit). Delete an unused environment or upgrade " +
-        "the plan to run these scenarios.",
+        "Cloud API still rejected environment creation with ENVIRONMENT_LIMIT_REACHED " +
+        "after waiting for a sibling worker to free a slot (organization sandbox " +
+        "limit). Raise the org's environment limit or lower the sandbox worker count.",
     };
   }
   if (envelope.status !== "success") {

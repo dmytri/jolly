@@ -313,10 +313,16 @@ async function seedNamespacedEnvironment(world: JollyWorld, name: string) {
       ],
       { timeoutMs: 540_000 },
     );
+  // Wait out a transient org environment-limit the same way the provisioner does:
+  // under a parallel run a sibling worker frees a slot when its scenario tears
+  // down. Reclaim any prior-run leftover that frees capacity without touching this
+  // run's live environments, then wait and retry until the budget.
+  const deadline = Date.now() + 540_000;
   let result = await attempt();
-  if (
+  while (
     result.envelope?.status === "error" &&
-    result.envelope.errors.some((e) => e.code === "ENVIRONMENT_LIMIT_REACHED")
+    result.envelope.errors.some((e) => e.code === "ENVIRONMENT_LIMIT_REACHED") &&
+    Date.now() < deadline
   ) {
     for (const env of leftoverTestEnvironments(
       await listAllEnvironments(token),
@@ -324,6 +330,7 @@ async function seedNamespacedEnvironment(world: JollyWorld, name: string) {
     )) {
       await deleteEnvironment(token, env.org, env.key);
     }
+    await new Promise((resolve) => setTimeout(resolve, 15_000));
     result = await attempt();
   }
   assert.equal(
@@ -349,17 +356,20 @@ Given(
       .filter((e) => !e.name.startsWith("jolly-test-"))
       .map((e) => `${e.org}/${e.key}`);
 
-    // Seed a REAL leftover. It carries this run's namespace so teardown can
-    // attribute it, but the jolly-test- PREFIX is what marks it a reclamation
-    // target — exactly as a genuine previous-run leftover would be. Teardown
-    // registered BEFORE creation (a crash mid-create stays cleanable); the
-    // reclamation under test should remove it first, leaving teardown an
-    // idempotent 404 no-op.
-    const name = `${this.namespace}-leftover`;
+    // Seed a REAL leftover under a PRIOR-run namespace, exactly as a genuine
+    // previous-run leftover would stand: the jolly-test- prefix marks it a
+    // reclamation target, and carrying a run id that is NOT this run's is what
+    // lets the run-scoped provisioner reclamation delete it while protecting
+    // this run's own live environment and any sibling parallel worker's. The
+    // prior namespace still embeds this run's id so teardown attributes it.
+    // Teardown registered BEFORE creation (a crash mid-create stays cleanable);
+    // the reclamation under test removes it first, leaving teardown a 404 no-op.
+    const priorNamespace = this.namespace.replace("jolly-test-", "jolly-test-prior-");
+    const name = `${priorNamespace}-leftover`;
     this.notes.leftoverName = name;
     this.cleanup.register(`seeded leftover environment ${name}`, async () => {
       for (const env of await listAllEnvironments(token)) {
-        if (env.name.startsWith(this.namespace)) {
+        if (env.name.startsWith(priorNamespace)) {
           await deleteEnvironment(token, env.org, env.key);
         }
       }

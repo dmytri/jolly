@@ -49,10 +49,12 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   deleteEnvironment,
+  leftoverTestEnvironments,
   listAllEnvironments,
   type CloudEnvironment,
 } from "./cloud.ts";
 import { findEnvelope, type Envelope } from "./envelope.ts";
+import { makeNamespace, runId } from "./sandbox.ts";
 
 const REPO_ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const JOLLY_BIN = join(REPO_ROOT, "bin", "jolly");
@@ -370,7 +372,11 @@ export async function reclaimLeftoverTestEnvironments(
   token: string,
 ): Promise<CloudEnvironment[]> {
   const all = await listAllEnvironments(token);
-  const leftovers = all.filter((env) => env.name.startsWith("jolly-test-"));
+  // Reclaim PRIOR-run leftovers only (the run-scoped helper excludes this run's
+  // namespace). At eval reclaim time this run has provisioned nothing yet, so
+  // this clears every standing leftover exactly as before — and under a parallel
+  // @sandbox run it never deletes a sibling worker's live environment.
+  const leftovers = leftoverTestEnvironments(all, makeNamespace(runId()));
   for (const env of leftovers) {
     await deleteEnvironment(token, env.org, env.key);
   }
