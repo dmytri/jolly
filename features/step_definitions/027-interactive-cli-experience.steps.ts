@@ -29,6 +29,7 @@ import {
   vercelCliAuthenticated,
 } from "../support/sandbox.ts";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
+import { writeEnvValues } from "../../src/lib/env-file.ts";
 
 const CLI_ENTRY = join(REPO_ROOT, "src", "index.ts");
 
@@ -1235,6 +1236,16 @@ When(
     const storeToken = process.env["SALEOR_TOKEN"];
     if (!endpoint || !storeToken) return "skipped";
 
+    // The configured-store gate reads the project's .env file (loadEnvValues in
+    // src/index.ts), not the process environment, so write the shared store there.
+    // With NEXT_PUBLIC_SALEOR_API_URL configured, `jolly start` silently reuses
+    // the store (feature 027 "start.reusingConfiguredStore") — no create/reuse
+    // prompt and no environment-name prompt — and the close names its Dashboard URL.
+    writeEnvValues(this.projectDir, {
+      NEXT_PUBLIC_SALEOR_API_URL: endpoint,
+      SALEOR_TOKEN: storeToken,
+    });
+
     // One `jolly-test` namespace for the Vercel project the deploy stage creates,
     // so it is attributable cannon fodder torn down after the run.
     const namespace = makeNamespace(this.runId);
@@ -1256,10 +1267,11 @@ When(
     }
 
     // Inputs, in prompt order (Cloud token configured → no device sign-in;
-    // --organization pinned → no org choice): accept the environment name, the
-    // storefront directory, and the proceed gate, each with Enter. Each keystroke
-    // is gated on its prompt marker (waitFor) so the real run's network gaps before
-    // each prompt cannot make a fixed cadence send — and lose — an Enter before the
+    // --organization pinned → no org choice; store configured in .env → no
+    // create/reuse choice and no environment name): accept the storefront
+    // directory and the proceed gate, each with Enter. Each keystroke is gated on
+    // its prompt marker (waitFor) so the real run's network gaps before each
+    // prompt cannot make a fixed cadence send — and lose — an Enter before the
     // prompt renders.
     const run = runUnderPty({
       runtime: process.env.HARNESS_CLI_RUNTIME ?? "node",
@@ -1270,8 +1282,8 @@ When(
         SALEOR_TOKEN: storeToken,
         JOLLY_VERCEL_PROJECT: namespace,
       }),
-      inputs: ["\r", "\r", "\r"],
-      waitFor: ["Environment name", "Storefront project directory", "Build your store now?"],
+      inputs: ["\r", "\r"],
+      waitFor: ["Storefront project directory", "Build your store now?"],
       timeoutMs: 1_500_000,
       separateStreams: true,
     });
