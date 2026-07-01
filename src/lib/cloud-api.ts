@@ -75,7 +75,6 @@ const POLL_TIMEOUT_MS = 480_000; // stay under the harness's CLI timeout
 
 /** Error from the Cloud API with a stable, branchable code.
  * @planks(`Then the envelope status should be "error" with the stable code `ENVIRONMENT_LIMIT_REACHED``)
- * @planks("When the agent runs `jolly create store --create-environment --json` with no reachable store")
  */
 export class CloudApiError extends Error {
   readonly code: string;
