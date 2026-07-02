@@ -4913,7 +4913,6 @@ function commandHelp(): Envelope {
 // `jolly create --help` keeps its subcommand listing (handled in commandCreate).
 /**
  * @planks("When the agent runs `jolly <command> --help`")
- * @planks("When the agent runs `jolly start --help`")
  */
 function commandUsage(args: ParsedArgs): Envelope {
   const path = args.positionals.join(" ");
