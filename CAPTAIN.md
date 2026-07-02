@@ -29,6 +29,8 @@ The teardown-retry harness fix is directed durably in `AGENTS.md` ("Sandbox harn
 
 ## Harbour status (in progress)
 
+**Checkpoint (this session):** watch1 re-verified GREEN on fresh `@sandbox` — `027…completed interactive start closes…` (9 steps, ~4 min) + `002…Vercel sign-in spawns…` (16 steps, ~3 min), real provision+deploy+teardown, tree clean, all pushed (`origin/main`, v0.10.25). Spent `watchbill.json` removed. No production change this cycle. **Teardown-retry status corrected:** `deleteEnvironment` (`features/support/cloud.ts:100`) now retries on HTTP status (6×15s) but line 102's `fetch` still has NO try/catch, so a thrown `fetch failed` still crashes `AfterAll` — the AGENTS.md line 119 "retry the thrown `fetch failed` like `cloudFetchRetry`" guard is HALF-closed. Still gates a clean COMPLETE full-tier `@sandbox` boundary (harbour close). No failing scenario selects it; a `@property` invariant would.
+
 Shipwright ran a maintenance harbour inventory this session. Findings:
 
 - Code clean: 1 stale plank corrected (`src/index.ts commandUsage`, the literal `jolly start --help` plank; the `jolly <command> --help` outline already traces it, `006:112`). 0 unplanked seams (317 planks). 0 `@shipwright`-flagged code. 2 module globals reviewed benign (`completion.ts registered`, `messages.ts cliMessageCatalog`). Catalog conformance already specced (`006:26`), so no new `@captain` scenario.
