@@ -21,7 +21,11 @@ The suite runs against **real services** in a production-shaped test env (the `J
 
 ## Pending outbound
 
-Pushing to `origin/main` is standing-approved (dk). The release is held: NO npm publish of `@dk/jolly` and NO homepage deploy until we are ready for harbour (dk decision, this session). The `--external:yaml` build fix (`bc6c984`) is required for the published bundle to load on plain Node, so it must ship in that eventual release.
+**Harbour requires only `git push`, NOT npm publish or homepage deploy (dk, this session).** So the harbour-entry guard is met once `main` is pushed and the tree is clean. Push to `origin/main` is standing-approved (dk) and is DONE (`main` level with `origin/main`).
+
+The `@dk/jolly` npm publish + homepage deploy are a SEPARATE, deferred release, NOT a harbour blocker. When we choose to cut it, go **green-first, then ship** (dk decision, this session): land the teardown-retry fix + all tiers green, THEN bump/publish/deploy and verify the published npm package and the live homepage. The `--external:yaml` build fix must ride in that eventual release.
+
+The teardown-retry harness fix is directed durably in `AGENTS.md` ("Sandbox harness mechanics") for a future QM cycle. It is verification-only, does not touch the shipped bundle, and does not block harbour; Shipwright's full-tier boundary check will surface it.
 
 Open product question (dk to decide): the Paper storefront build needs `NEXT_PUBLIC_DEFAULT_CHANNEL`. Jolly writes `NEXT_PUBLIC_SALEOR_API_URL` to the storefront but does not set the channel; `recipe.yml:23` frames pointing the storefront at the `us` channel as a follow-on step. The native-deps @sandbox test now supplies `NEXT_PUBLIC_DEFAULT_CHANNEL=us` itself to mirror the deploy env. If Jolly should configure the storefront channel, that needs its own scenario.
 
