@@ -22,6 +22,7 @@ Procedure lives in the skills. Every role reads this on open.
 - focused: `npx cucumber-js "{scenario}" --tags "not @captain"`
 - broad: `npx cucumber-js -p logic --tags "@logic and not @captain"`
 - coverage: `npx c8 --reporter=text --reporter=json -- npx cucumber-js -p logic --tags "@logic and not @captain"`
+- coverage-sandbox: `NODE_OPTIONS=--max-old-space-size=8192 npx c8 --clean=false --reporter=text --reporter=json -- npx cucumber-js -p sandbox --tags "@sandbox and not @captain"`
 - step-usage: `npx cucumber-js --format usage --tags "not @captain"`
 - typecheck: `npm run typecheck`
 - lint: `npx gplint "features/*.feature"`

@@ -25,7 +25,18 @@ The suite runs against **real services** in a production-shaped test env (the `J
 
 The `@dk/jolly` npm publish + homepage deploy are a SEPARATE, deferred release, NOT a harbour blocker. When we choose to cut it, go **green-first, then ship** (dk decision, this session): land the teardown-retry fix + all tiers green, THEN bump/publish/deploy and verify the published npm package and the live homepage. The `--external:yaml` build fix must ride in that eventual release.
 
-The teardown-retry harness fix is directed durably in `AGENTS.md` ("Sandbox harness mechanics") for a future QM cycle. It is verification-only, does not touch the shipped bundle, and does not block harbour; Shipwright's full-tier boundary check will surface it.
+The teardown-retry harness fix is directed durably in `AGENTS.md` ("Sandbox harness mechanics") for a QM cycle. It is verification-only and does not touch the shipped bundle. It did NOT block harbour ENTRY, but it DOES gate harbour CLOSE: resuming the voyage needs a green complete full-tier `@sandbox` boundary, which the teardown crash denies.
+
+## Harbour status (in progress)
+
+Shipwright ran a maintenance harbour inventory this session. Findings:
+
+- Code clean: 1 stale plank corrected (`src/index.ts commandUsage`, the literal `jolly start --help` plank; the `jolly <command> --help` outline already traces it, `006:112`). 0 unplanked seams (317 planks). 0 `@shipwright`-flagged code. 2 module globals reviewed benign (`completion.ts registered`, `messages.ts cliMessageCatalog`). Catalog conformance already specced (`006:26`), so no new `@captain` scenario.
+- Coverage: `@logic` alone is 48.88% and misleading for the side-effecting modules. Combined `@logic` + partial `@sandbox` shows production `src/` at 73-100% per module (`cloud-api` funcs 3%->100%, `env-file`->100%, `index`->92%), confirming the real-service code is exercised, not dead. No obvious dead code.
+- Tooling: `c8` + full `@sandbox` OOMs at the default 2GB heap (`SANDBOX_EXIT=134`, died at 002 Vercel after 403 files). Added `coverage-sandbox` to `RIGGING` with an 8GB heap (`--clean=false`, appends to the `@logic` coverage run) for a definitive combined dead-code pass (dk approved the `RIGGING` edit, this session).
+- The OOM crash likely bypassed `AfterAll` teardown, leaking `jolly-test` resources; reclaimed by the next run's leftover-handling.
+
+Harbour-close gate: a green COMPLETE full-tier `@sandbox` boundary. Plan: QM cycle lands the teardown-retry fix; run the `@sandbox` boundary (without `c8` to avoid the OOM) for a clean complete pass, and `coverage-sandbox` (8GB heap) when a definitive dead-code verdict is wanted. Then harbour closes, the voyage resumes, and the deferred release ships green-first.
 
 Open product question (dk to decide): the Paper storefront build needs `NEXT_PUBLIC_DEFAULT_CHANNEL`. Jolly writes `NEXT_PUBLIC_SALEOR_API_URL` to the storefront but does not set the channel; `recipe.yml:23` frames pointing the storefront at the `us` channel as a follow-on step. The native-deps @sandbox test now supplies `NEXT_PUBLIC_DEFAULT_CHANNEL=us` itself to mirror the deploy env. If Jolly should configure the storefront channel, that needs its own scenario.
 
