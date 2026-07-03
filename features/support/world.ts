@@ -25,7 +25,7 @@ const CLI_ENTRY = join(REPO_ROOT, "src", "index.ts");
 // XDG_DATA_HOME the Vercel-auth scenarios isolate; the store is immutable and
 // concurrency-safe, so sharing across parallel workers is fine. Real downloads,
 // shared — NOT a mock. Override the location with HARNESS_PKG_CACHE.
-const SHARED_PKG_CACHE = process.env.HARNESS_PKG_CACHE ?? join(tmpdir(), "jolly-test-pkg-cache");
+const SHARED_PKG_CACHE = process.env.HARNESS_PKG_CACHE ?? join(tmpdir(), "jolly-cannon-fodder-pkg-cache");
 const SHARED_PNPM_STORE = join(SHARED_PKG_CACHE, "pnpm-store");
 const SHARED_NPM_CACHE = join(SHARED_PKG_CACHE, "npm-cache");
 mkdirSync(SHARED_PNPM_STORE, { recursive: true });

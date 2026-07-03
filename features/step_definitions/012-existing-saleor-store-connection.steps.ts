@@ -447,7 +447,7 @@ Then("no environment should be created", function (this: JollyWorld) {
 // saleorCloud-gated. Namespace + teardown registered BEFORE creation.
 
 Given(
-  "this run has already created an environment with a jolly-test-namespaced domain label",
+  "this run has already created an environment with a jolly-cannon-fodder-namespaced domain label",
   // Real environment provisioning against the live Cloud API: well beyond the
   // default 5s cucumber step timeout (the CLI polls async job status).
   { timeout: 540_000 },
@@ -513,7 +513,7 @@ Then(
 );
 
 Then(
-  "exactly one environment should carry that domain label, with the run's jolly-test namespace and registered teardown",
+  "exactly one environment should carry that domain label, with the run's jolly-cannon-fodder namespace and registered teardown",
   { timeout: 60_000 },
   async function (this: JollyWorld) {
     const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"]!;
@@ -522,7 +522,7 @@ Then(
     assert.equal(matching.length, 1, "exactly one environment must carry the label");
     assert.ok(
       matching[0]!.name.startsWith(this.namespace),
-      "the environment must carry the run's jolly-test namespace",
+      "the environment must carry the run's jolly-cannon-fodder namespace",
     );
     // Teardown for all namespace-prefixed environments was registered in the
     // Given before any creation.
@@ -692,7 +692,7 @@ Then(
 // saleorCloud-gated. Namespace + teardown registered BEFORE creation.
 
 Given(
-  "no leftover jolly-test environment remains from a previous run",
+  "no leftover jolly-cannon-fodder environment remains from a previous run",
   // A live Cloud API listing across organizations can exceed the default 5s
   // cucumber step timeout, especially while the shared run environment is in
   // flight.
@@ -701,14 +701,14 @@ Given(
     const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
     assert.ok(token, "requires JOLLY_SALEOR_CLOUD_TOKEN");
     const all = await listAllEnvironments(token!);
-    // Use the RUN-level namespace (jolly-test-<runId>), not this.namespace (the
+    // Use the RUN-level namespace (jolly-cannon-fodder-<runId>), not this.namespace (the
     // per-scenario suffix): the run's own shared/sibling environments share the
     // run prefix and must not be misread as leftovers from a previous run.
     const leftovers = leftoverTestEnvironments(all, makeNamespace(this.runId));
     assert.equal(
       leftovers.length,
       0,
-      `leftover jolly-test environments block this scenario: ${leftovers
+      `leftover jolly-cannon-fodder environments block this scenario: ${leftovers
         .map((e) => `${e.org}/${e.key} ("${e.name}")`)
         .join(", ")}`,
     );
@@ -716,7 +716,7 @@ Given(
 );
 
 When(
-  "the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier",
+  "the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-cannon-fodder identifier",
   { timeout: 540_000 },
   async function (this: JollyWorld) {
     const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"]!;
@@ -838,7 +838,7 @@ Then(
 );
 
 Then(
-  "the created environment's name and domain label should carry the run's jolly-test namespace",
+  "the created environment's name and domain label should carry the run's jolly-cannon-fodder namespace",
   function (this: JollyWorld) {
     const name = String(envData(this)["environmentName"]);
     assert.ok(name.startsWith(this.namespace), `environment name "${name}" must carry the namespace`);

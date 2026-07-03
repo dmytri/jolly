@@ -5,25 +5,25 @@
 // JOLLY_SALEOR_CLOUD_TOKEN is present, the harness provisions ONE shared
 // environment for the whole run — through Jolly's own
 // `create store --create-environment` with the `--name`/`--domain-label`
-// overrides carrying the per-run jolly-test namespace — derives both values
+// overrides carrying the per-run jolly-cannon-fodder namespace — derives both values
 // from it, and tears it down when the run ends (AfterAll in hooks.ts).
 //
-// Leftover jolly-test environments from previous runs are RECLAIMED before
-// creating, never skipped: the jolly-test- prefix is the protection boundary
+// Leftover jolly-cannon-fodder environments from previous runs are RECLAIMED before
+// creating, never skipped: the jolly-cannon-fodder- prefix is the protection boundary
 // (AGENTS.md "Leftover handling"), so they are this dedicated test org's
 // disposable resources and are deleted freely to free capacity.
 //
 // Skip-not-fail stays only for what cannot be derived or produced harmlessly:
 //   - ENVIRONMENT_LIMIT_REACHED that reclamation could not clear (genuine
-//     non-jolly-test capacity the harness must never delete)
+//     non-jolly-cannon-fodder capacity the harness must never delete)
 // Any other provisioning failure is a real failure and throws.
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deleteEnvironment, listAllEnvironments } from "./cloud.ts";
 import { findEnvelope, type Envelope } from "./envelope.ts";
-import { CleanupRegistry, makeNamespace, runId, workerId, type CleanupFailure } from "./sandbox.ts";
+import { CleanupRegistry, makeNamespace, runId, type CleanupFailure } from "./sandbox.ts";
 import { REPO_ROOT } from "./world.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
 
@@ -31,24 +31,93 @@ export type ProvisionOutcome =
   | { status: "ready" }
   | { status: "skip"; reason: string };
 
-/** Name and domain label of this worker's shared environment. The run id is
- * shared by every parallel worker (set in cucumber.js); the worker id makes each
- * worker's environment unique, so concurrent workers never collide. */
+/** Name and domain label of the run's ONE shared environment. The run id is
+ * shared by every parallel worker (cucumber.js sets HARNESS_RUN_ID and the
+ * worker children inherit it), so every worker computes the same name and reuses
+ * the single store one worker provisions — keeping the run to one env slot and
+ * leaving the org's second slot free for env-creating scenarios. */
 export function sharedEnvironmentName(): string {
-  return `${makeNamespace(runId())}-w${workerId()}-shared`;
+  return `${makeNamespace(runId())}-shared`;
+}
+
+/** Filesystem paths every worker of a run agrees on (the run id is shared): a
+ * lock so exactly one worker provisions, and a state file the winner writes with
+ * the derived values for the rest to read. */
+function sharedLockPath(): string {
+  return join(tmpdir(), `${makeNamespace(runId())}-shared-env.lock`);
+}
+function sharedStatePath(): string {
+  return join(tmpdir(), `${makeNamespace(runId())}-shared-env.json`);
 }
 
 const teardownRegistry = new CleanupRegistry();
 let provisioning: Promise<ProvisionOutcome> | undefined;
 
 /**
- * Provision the shared environment exactly once per run (lazy: only the
- * first scenario that actually needs a derived endpoint pays for it) and
- * export the derived values into process.env for the rest of the run.
+ * Ensure the run's ONE shared environment exists and export its derived values
+ * into this worker's process.env. Exactly one worker across the whole run
+ * provisions it (whoever wins the filesystem lock); every other worker reads the
+ * derived values the winner publishes to the state file. Memoized per worker.
  */
 export function ensureSharedEnvironment(): Promise<ProvisionOutcome> {
-  provisioning ??= provisionSharedEnvironment();
+  provisioning ??= coordinateSharedEnvironment();
   return provisioning;
+}
+
+/**
+ * Cross-worker coordination. Cucumber runs each parallel worker in its own child
+ * process, so an in-memory memo cannot be shared; the lock and state files are
+ * keyed on the shared run id, so all workers agree on their paths. The lock
+ * winner provisions the single shared store and publishes its derived values;
+ * the rest wait for the state file and adopt them.
+ */
+async function coordinateSharedEnvironment(): Promise<ProvisionOutcome> {
+  const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
+  if (!cloudToken || cloudToken.trim() === "") {
+    return { status: "skip", reason: "missing JOLLY_SALEOR_CLOUD_TOKEN" };
+  }
+  let owner = false;
+  try {
+    closeSync(openSync(sharedLockPath(), "wx")); // atomic O_EXCL: one winner
+    owner = true;
+  } catch {
+    owner = false;
+  }
+  if (owner) {
+    const outcome = await provisionSharedEnvironment();
+    writeFileSync(
+      sharedStatePath(),
+      JSON.stringify(
+        outcome.status === "ready"
+          ? {
+              status: "ready",
+              url: process.env["NEXT_PUBLIC_SALEOR_API_URL"],
+              token: process.env["SALEOR_TOKEN"],
+            }
+          : outcome,
+      ),
+    );
+    return outcome;
+  }
+  const deadline = Date.now() + 600_000;
+  for (;;) {
+    if (existsSync(sharedStatePath())) {
+      const state = JSON.parse(readFileSync(sharedStatePath(), "utf8")) as
+        | { status: "ready"; url: string; token: string }
+        | { status: "skip"; reason: string };
+      if (state.status === "skip") return { status: "skip", reason: state.reason };
+      process.env["NEXT_PUBLIC_SALEOR_API_URL"] = state.url;
+      process.env["SALEOR_TOKEN"] = state.token;
+      return { status: "ready" };
+    }
+    if (Date.now() >= deadline) {
+      return {
+        status: "skip",
+        reason: "timed out waiting for the shared environment another worker is provisioning",
+      };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
 }
 
 /** The derived SALEOR_TOKEN value, for per-scenario secret tracking. */
@@ -67,7 +136,7 @@ export async function teardownSharedEnvironment(): Promise<CleanupFailure[]> {
 }
 
 /**
- * The un-memoized provisioning logic: reclaim leftover jolly-test environments,
+ * The un-memoized provisioning logic: reclaim leftover jolly-cannon-fodder environments,
  * then create the run's shared environment and derive its runtime values.
  * `ensureSharedEnvironment` wraps this once-per-run; the feature 026 @sandbox
  * conformance scenario drives it directly to exercise the provision path fresh,
@@ -80,41 +149,38 @@ export async function provisionSharedEnvironment(): Promise<ProvisionOutcome> {
     return { status: "skip", reason: "missing JOLLY_SALEOR_CLOUD_TOKEN" };
   }
 
-  // Reclaim leftover jolly-test environments before creating, instead of
-  // skipping: they consume capacity and can block creation, and the jolly-test-
-  // prefix positively marks them as this dedicated test org's disposable
-  // resources (AGENTS.md "Leftover handling"). Delete them freely to free
-  // capacity; an environment lacking the prefix is never touched.
-  // Reclaim leftover jolly-test environments from OTHER runs only. Under
-  // `parallel`, a sibling worker's environment carries THIS run's namespace
-  // (the run id is shared across workers; only the worker id differs), so
-  // deleting it would destroy a live store. Skipping this run's namespace
-  // protects siblings; a crashed worker's leftover is reclaimed by a later run.
+  // Reclaim every OTHER run's jolly-cannon-fodder environments before creating.
+  // They are this dedicated test org's disposable cannon fodder, positively
+  // marked by the jolly-cannon-fodder- prefix (AGENTS.md "Leftover handling"),
+  // so ownership is irrelevant and they are deleted freely to free capacity —
+  // this reclaim IS the run's teardown. Nothing tears the shared store down
+  // mid-run (that would race a sibling worker, since cucumber's AfterAll runs
+  // per worker), so a later run wipes the slate. The current run's namespace is
+  // spared so the reclaim never deletes the live store this run is using; an
+  // environment lacking the prefix is never touched.
   const runNamespace = makeNamespace(runId());
-  const fullName = sharedEnvironmentName();
   const before = await listAllEnvironments(cloudToken);
   for (const env of before) {
-    if (env.name.startsWith("jolly-test-") && !env.name.startsWith(runNamespace)) {
+    if (env.name.startsWith("jolly-cannon-fodder-") && !env.name.startsWith(runNamespace)) {
       await deleteEnvironment(cloudToken, env.org, env.key);
     }
   }
 
-  // Catch-all teardown registered BEFORE the CLI can create anything: if the
-  // run dies without an envelope (timeout, crash), a diff against this
-  // snapshot still finds and deletes whatever THIS worker created. The full
-  // per-worker name (run id + worker id) is matched, never the bare run
-  // namespace, so a worker never tears down a sibling worker's live store.
-  const snapshot = new Set(before.map((env) => env.key));
-  teardownRegistry.register(
-    "shared Saleor Cloud environment (catch-all diff vs pre-provisioning snapshot)",
-    async () => {
-      for (const env of await listAllEnvironments(cloudToken)) {
-        if (!snapshot.has(env.key) && env.name.startsWith(fullName)) {
-          await deleteEnvironment(cloudToken, env.org, env.key);
-        }
-      }
-    },
-  );
+  // Reclaim leaked LOCAL scratch dirs from other runs the same way. The
+  // per-scenario temp dirs (world.ts newTempDir) are jolly-cannon-fodder-<run>
+  // namespaced and removed in teardown, but a crashed or cut-off teardown leaks
+  // them until they fill the disk (ENOSPC). Delete every jolly-cannon-fodder tmp
+  // entry outside this run's namespace, sparing the shared package cache. Mirrors
+  // the Cloud reclaim: a later run wipes what a crash left behind.
+  for (const entry of readdirSync(tmpdir())) {
+    if (
+      entry.startsWith("jolly-cannon-fodder-") &&
+      !entry.startsWith(runNamespace) &&
+      entry !== "jolly-cannon-fodder-pkg-cache"
+    ) {
+      rmSync(join(tmpdir(), entry), { recursive: true, force: true });
+    }
+  }
 
   // Scratch project directory: the CLI writes the derived values to its
   // .env. Kept (and removed in teardown) rather than scenario-scoped — the
@@ -174,20 +240,12 @@ export async function provisionSharedEnvironment(): Promise<ProvisionOutcome> {
     break;
   }
 
-  // Precise teardown for the reported environment (LIFO: runs before the
-  // catch-all diff, which then finds nothing left).
+  // No teardown is registered for the shared store: tearing it down would run in
+  // a per-worker AfterAll and could delete the store while a sibling worker is
+  // still using it. The store is reclaimed by the next run's delete-every-other-
+  // run's-cannon-fodder pass above, so teardown effectively happens after all
+  // tiers, by construction.
   const data = envelope.data;
-  if (
-    typeof data.organizationSlug === "string" &&
-    typeof data.environmentKey === "string"
-  ) {
-    const org = data.organizationSlug;
-    const key = data.environmentKey;
-    teardownRegistry.register(
-      `shared Saleor Cloud environment ${org}/${key}`,
-      () => deleteEnvironment(cloudToken, org, key),
-    );
-  }
 
   if (
     envelope.status === "error" &&

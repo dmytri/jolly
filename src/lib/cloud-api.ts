@@ -60,7 +60,7 @@ function assertFirstPartyUrl(url: string): void {
  * The Cloud API base URL for this request: the JOLLY_SALEOR_CLOUD_API_URL
  * override when set (feature 018 Rule — pointing it elsewhere is the
  * customer's explicit choice), otherwise the first-party default.
- * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier")
+ * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-cannon-fodder identifier")
  */
 export function cloudApiBase(): string {
   const override = process.env["JOLLY_SALEOR_CLOUD_API_URL"];
@@ -96,7 +96,7 @@ export class CloudApiError extends Error {
  * (`JOLLY_SALEOR_CLOUD_TOKEN`) as `Authorization: Token`. The access token, when
  * stored, takes precedence — so a value equal to `JOLLY_SALEOR_ACCESS_TOKEN`
  * authenticates as `Bearer`, everything else as `Token`.
- * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier")
+ * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-cannon-fodder identifier")
  */
 export function platformAuthScheme(token: string): "Bearer" | "Token" {
   // Decide by the token's SHAPE, not by whether it happens to be mirrored in
@@ -118,14 +118,37 @@ async function cloudFetch(
   token: string,
   options: RequestInit = {},
 ): Promise<Response> {
-  return await fetch(url, {
+  const init = {
     ...options,
     headers: {
       Authorization: `${platformAuthScheme(token)} ${token}`,
       "Content-Type": "application/json",
       ...((options.headers as Record<string, string>) ?? {}),
     },
-  });
+  };
+  // A momentary Cloud platform-API blip (429/5xx server error, connection
+  // reset) under concurrent load must not fail an otherwise-valid request such
+  // as the org/environment resolution `create store --url` runs. Retry with a
+  // SHORT backoff (~6s total) that stays well within callers' step budgets — a
+  // persistent failure still surfaces so the caller reports honestly.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const response = await fetch(url, init);
+      const transient =
+        response.status === 429 || (response.status >= 500 && response.status <= 504);
+      if (transient && attempt < TRANSIENT_RETRIES) {
+        await sleep(Math.min(500 * 2 ** attempt, 3000));
+        continue;
+      }
+      return response;
+    } catch (error) {
+      if (attempt < TRANSIENT_RETRIES) {
+        await sleep(Math.min(500 * 2 ** attempt, 3000));
+        continue;
+      }
+      throw error;
+    }
+  }
 }
 
 // ── Organizations ────────────────────────────────────────────────────────
@@ -137,7 +160,7 @@ export interface CloudOrganization {
 }
 
 /** GET /platform/api/organizations/
- * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier")
+ * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-cannon-fodder identifier")
  * @planks("When the agent runs `jolly doctor saleor --json`")
  */
 export async function listOrganizations(
@@ -165,7 +188,7 @@ export interface CloudProject {
 }
 
 /** GET /platform/api/organizations/{slug}/projects/
- * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier")
+ * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-cannon-fodder identifier")
  */
 export async function listProjects(
   token: string,
@@ -186,7 +209,7 @@ export async function listProjects(
 }
 
 /** POST /platform/api/organizations/{slug}/projects/ with { name, plan, region }.
- * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier")
+ * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-cannon-fodder identifier")
  */
 export async function createProject(
   token: string,
@@ -218,7 +241,7 @@ export interface CloudService {
 }
 
 /** GET /platform/api/organizations/{org}/projects/{project}/services/
- * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier")
+ * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-cannon-fodder identifier")
  */
 export async function listProjectServices(
   token: string,
@@ -268,7 +291,7 @@ export interface CloudEnvironment {
  * environment (with task_id for async provisioning). A rejection caused by
  * the organization's sandbox environment limit surfaces as a CloudApiError
  * with the stable code ENVIRONMENT_LIMIT_REACHED (feature 012 Rule).
- * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier")
+ * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-cannon-fodder identifier")
  * @planks("Then it should create an environment via POST /platform/api/organizations/{organization}/environments/")
  * @planks("When the agent runs `jolly create store --create-environment --json`")
  * @planks(`Then the envelope status should be "error" with the stable code `ENVIRONMENT_LIMIT_REACHED``)
@@ -328,7 +351,7 @@ export async function createEnvironment(
 }
 
 /** GET /platform/api/organizations/{slug}/environments/
- * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier")
+ * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-cannon-fodder identifier")
  */
 export async function listEnvironments(
   token: string,
@@ -343,7 +366,7 @@ export async function listEnvironments(
 }
 
 /** GET /platform/api/organizations/{slug}/environments/{key}/
- * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier")
+ * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-cannon-fodder identifier")
  */
 export async function getEnvironment(
   token: string,
@@ -451,14 +474,17 @@ export function extractDomainUrl(
 
 // ── Instance GraphQL ──────────────────────────────────────────────────────
 
-// A transient HTTP 429 rate-limit must not fail an otherwise-successful backend
-// Saleor request (feature 004 Rule "Backend Saleor requests retry a transient
-// rate-limit"). Resilience lives at this shared request layer so every backend
-// Saleor GraphQL request Jolly's own code sends retries a momentary rate-limit,
-// rather than each caller wrapping its own retry. Bounded: after a few attempts
-// a PERSISTENT 429 still surfaces honestly so the stage reports blocked/fail.
-const RATE_LIMIT_RETRIES = 4;
-const RATE_LIMIT_RETRY_DELAY_MS = 1_000;
+// A transient Saleor Cloud condition must not fail an otherwise-successful
+// backend request (feature 004 Rule "Backend Saleor requests retry a transient
+// failure"): a rate-limit (429), a server error (500/502/503/504 — a
+// freshly-provisioned or momentarily-busy instance), or a connection-level
+// failure (fetch rejects). Resilience lives at this shared request layer so every
+// backend Saleor GraphQL request Jolly sends retries, rather than each caller
+// wrapping its own. Bounded to a SHORT ~6s exponential backoff that stays within
+// callers' step budgets (a longer backoff turns a slow query into a step
+// timeout); a PERSISTENT failure still surfaces honestly so the stage reports
+// blocked/fail.
+const TRANSIENT_RETRIES = 4;
 
 /**
  * @planks("When the agent runs `jolly start --yes --json` and the stock stage runs against that endpoint")
@@ -479,14 +505,24 @@ async function graphqlFetch(
     },
     body: JSON.stringify(variables ? { query, variables } : { query }),
   };
-  let response = await fetch(graphqlUrl, init);
-  for (
-    let attempt = 0;
-    response.status === 429 && attempt < RATE_LIMIT_RETRIES;
-    attempt++
-  ) {
-    await sleep(RATE_LIMIT_RETRY_DELAY_MS);
-    response = await fetch(graphqlUrl, init);
+  let response: Response;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const r = await fetch(graphqlUrl, init);
+      const transient = r.status === 429 || (r.status >= 500 && r.status <= 504);
+      if (transient && attempt < TRANSIENT_RETRIES) {
+        await sleep(Math.min(500 * 2 ** attempt, 3000));
+        continue;
+      }
+      response = r;
+      break;
+    } catch (error) {
+      if (attempt < TRANSIENT_RETRIES) {
+        await sleep(Math.min(500 * 2 ** attempt, 3000));
+        continue;
+      }
+      throw error;
+    }
   }
   if (!response.ok) {
     throw new CloudApiError(

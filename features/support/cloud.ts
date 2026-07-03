@@ -112,7 +112,7 @@ export async function deleteEnvironment(
 }
 
 /**
- * Environments left behind by PREVIOUS runs: jolly-test-namespaced names that
+ * Environments left behind by PREVIOUS runs: jolly-cannon-fodder-namespaced names that
  * do not belong to the given run namespace. Feature 012: a leftover blocks
  * creation — non-interactive runs skip, naming it; it is never auto-deleted
  * here because this run cannot positively attribute it to itself.
@@ -123,7 +123,7 @@ export function leftoverTestEnvironments(
 ): CloudEnvironment[] {
   return environments.filter(
     (env) =>
-      env.name.startsWith("jolly-test-") &&
+      env.name.startsWith("jolly-cannon-fodder-") &&
       !env.name.startsWith(currentRunNamespace),
   );
 }

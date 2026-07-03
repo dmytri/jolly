@@ -28,12 +28,16 @@ export default { ...common, tags: "not @eval" };
 
 // Targeted profiles: `cucumber-js -p logic` / `-p sandbox` / `-p eval`.
 // The logic tier is pure local behavior with no shared external state, so it runs
-// in parallel for fast status/worklist feedback. The sandbox tier also runs in
-// parallel: each worker provisions its own run-id + worker-id namespaced Saleor
-// environment, so workers no longer race on a single shared store
-// (features/support/provision.ts). Worker count is bounded by the org's
-// concurrent-environment limit: each worker holds one store and an env-creating
-// scenario transiently needs a second, so 2 workers stay clear of the cap.
+// in parallel for fast status/worklist feedback. The sandbox tier provisions ONE
+// shared Saleor environment for the whole run (features/support/provision.ts):
+// the lock winner creates it, every other worker reuses its derived values, so
+// the run holds a single env slot and the org's second slot stays free for the
+// few env-creating scenarios. That decouples the worker count from the 2-env cap.
+// The real ceiling then is Saleor Cloud's tolerance for CONCURRENT load, not CPU
+// or the env limit: measured, parallel:4 raised transient 503/network failures
+// vs parallel:2 (more concurrent requests -> more Cloud back-pressure), so the
+// bottleneck is the service. parallel:2 is the reliable point; push higher only
+// once every store-touching path retries transient 5xx robustly.
 export const logic = { ...common, tags: "@logic", parallel: 2 };
 export const sandbox = { ...common, tags: "@sandbox", parallel: 2 };
 

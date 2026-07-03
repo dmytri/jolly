@@ -10,7 +10,7 @@
 // Live by design (features 025 + 023): the agent runs against the REAL
 // integrated test-env credentials — no fakes. Safety is harmless-by-design: a
 // throwaway $HOME and temp workspace, every created cloud resource
-// `jolly-test`-namespaced and reclaimed in best-effort teardown. The @eval Before
+// `jolly-cannon-fodder`-namespaced and reclaimed in best-effort teardown. The @eval Before
 // hook (support/hooks.ts) skips — never fails — when the runner or
 // HARNESS_OPENROUTER_API_KEY is absent, so this never gates normal CI.
 import { Given, When, Then } from "@cucumber/cucumber";
@@ -99,7 +99,7 @@ Given(
 );
 
 Given(
-  "the agent is run with the real integrated test-env credentials, every resource it creates `jolly-test`-namespaced and removed in teardown",
+  "the agent is run with the real integrated test-env credentials, every resource it creates `jolly-cannon-fodder`-namespaced and removed in teardown",
   function (this: JollyWorld) {
     // The workspace `.env` was seeded with the REAL runtime credentials by
     // setupEvalContext; confirm it carries the real Saleor Cloud token (live by
@@ -120,9 +120,9 @@ Given(
       const v = process.env[name];
       if (v && v.trim() !== "") this.trackSecret(v);
     }
-    // Best-effort teardown reclaiming the jolly-test-namespaced Saleor
+    // Best-effort teardown reclaiming the jolly-cannon-fodder-namespaced Saleor
     // environments the run created — unless retention is explicitly requested.
-    // jolly-test-namespaced environments are this test org's disposable
+    // jolly-cannon-fodder-namespaced environments are this test org's disposable
     // resources (AGENTS.md); only that namespace is ever deleted.
     const keep = process.env.HARNESS_EVAL_KEEP_STORE;
     if (keep && keep.trim() !== "") {
@@ -131,9 +131,9 @@ Given(
     }
     const token = realToken;
     const runNamespace = this.namespace;
-    this.cleanup.register(`eval jolly-test environments (run ${runNamespace})`, async () => {
+    this.cleanup.register(`eval jolly-cannon-fodder environments (run ${runNamespace})`, async () => {
       for (const env of await listAllEnvironments(token)) {
-        if (env.name.startsWith("jolly-test")) {
+        if (env.name.startsWith("jolly-cannon-fodder")) {
           await deleteEnvironment(token, env.org, env.key);
         }
       }
@@ -156,10 +156,10 @@ When(
   { timeout: AGENT_STEP_TIMEOUT_MS },
   async function (this: JollyWorld, task: string) {
     // Pre-run capacity reclamation (features 025 + 026): before the agent's
-    // `jolly start` provisions its fresh jolly-test store, delete leftover
-    // jolly-test-namespaced environments from previous runs so a finite org
+    // `jolly start` provisions its fresh jolly-cannon-fodder store, delete leftover
+    // jolly-cannon-fodder-namespaced environments from previous runs so a finite org
     // environment limit never starves the run at its store stage. Only
-    // jolly-test-namespaced environments are ever deleted (the prefix is the
+    // jolly-cannon-fodder-namespaced environments are ever deleted (the prefix is the
     // protection boundary); the feature 026 @sandbox conformance drives this same
     // seam and asserts its real effect.
     const cloudToken = process.env.JOLLY_SALEOR_CLOUD_TOKEN;
@@ -348,7 +348,7 @@ Then(
 );
 
 Then(
-  "when the store stage completed, the run must surface the real Saleor Dashboard URL Jolly emitted for the `jolly-test`-namespaced environment it created — a real `.saleor.cloud\\/dashboard\\/` URL observed from Jolly's output, never fabricated — and likewise the deployed storefront URL when the Vercel deploy completed",
+  "when the store stage completed, the run must surface the real Saleor Dashboard URL Jolly emitted for the `jolly-cannon-fodder`-namespaced environment it created — a real `.saleor.cloud\\/dashboard\\/` URL observed from Jolly's output, never fabricated — and likewise the deployed storefront URL when the Vercel deploy completed",
   function (this: JollyWorld) {
     // Surface, from Jolly's OWN output envelopes, the real URLs reported for the
     // stages that actually completed — never fabricated. The assertion is
@@ -415,12 +415,12 @@ Then(
 );
 
 Then(
-  "every cloud resource the agent created should be `jolly-test`-namespaced and, unless retention is explicitly requested via `HARNESS_EVAL_KEEP_STORE`, removed in best-effort teardown, with nothing outside that namespace touched",
+  "every cloud resource the agent created should be `jolly-cannon-fodder`-namespaced and, unless retention is explicitly requested via `HARNESS_EVAL_KEEP_STORE`, removed in best-effort teardown, with nothing outside that namespace touched",
   function (this: JollyWorld) {
     // Any environment/store the run reports in its envelopes must be
-    // jolly-test-namespaced. Best-effort teardown reclamation was registered by
+    // jolly-cannon-fodder-namespaced. Best-effort teardown reclamation was registered by
     // the credentials Given (skipped only when HARNESS_EVAL_KEEP_STORE is set);
-    // it deletes only jolly-test-namespaced environments, nothing else.
+    // it deletes only jolly-cannon-fodder-namespaced environments, nothing else.
     const envelopes = trace(this)
       .map((rec) => (rec.stdout ? findEnvelope(rec.stdout) : undefined))
       .filter((e): e is Envelope => Boolean(e));
@@ -430,8 +430,8 @@ Then(
         const v = data[key];
         if (typeof v === "string" && v.trim() !== "") {
           assert.ok(
-            v.includes("jolly-test"),
-            `a created cloud resource (${key}="${v}") must be jolly-test-namespaced`,
+            v.includes("jolly-cannon-fodder"),
+            `a created cloud resource (${key}="${v}") must be jolly-cannon-fodder-namespaced`,
           );
         }
       }
@@ -439,8 +439,8 @@ Then(
     const keep = process.env.HARNESS_EVAL_KEEP_STORE;
     this.attach(
       keep && keep.trim() !== ""
-        ? "HARNESS_EVAL_KEEP_STORE set: created jolly-test store retained for inspection."
-        : "Created jolly-test resources will be reclaimed in best-effort teardown.",
+        ? "HARNESS_EVAL_KEEP_STORE set: created jolly-cannon-fodder store retained for inspection."
+        : "Created jolly-cannon-fodder resources will be reclaimed in best-effort teardown.",
       "text/plain",
     );
   },

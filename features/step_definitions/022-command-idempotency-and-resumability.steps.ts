@@ -304,7 +304,7 @@ Then(
 Given(
   "`NEXT_PUBLIC_SALEOR_API_URL` is already configured in the project `.env` from an earlier `jolly create store`",
   function (this: JollyWorld) {
-    const url = "https://jolly-test-resumable.saleor.cloud/graphql/";
+    const url = "https://jolly-cannon-fodder-resumable.saleor.cloud/graphql/";
     this.runCli(["create", "store", "--url", url, "--json"], { env: absentCredentialsEnv() });
     assert.equal(this.envelope.status, "success", "create store --url must store the endpoint");
     assert.ok(

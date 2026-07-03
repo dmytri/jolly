@@ -66,7 +66,7 @@ Feature: Jolly create subcommands
   Scenario: jolly create store gives actionable recovery when the organization is at its environment limit
     # @exceptional-double: an organization already at its Saleor Cloud sandbox-environment
     # limit cannot be produced on demand against the real test org — the harness reclaims
-    # capacity by deleting jolly-test environments — so this lone scenario points
+    # capacity by deleting jolly-cannon-fodder environments — so this lone scenario points
     # create-store's Cloud API at an endpoint that returns the real
     # ENVIRONMENT_LIMIT_REACHED rejection. It never replaces the real create path; the
     # feature 004/012 @sandbox provisioning exercises a real `create store`.

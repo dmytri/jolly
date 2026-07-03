@@ -1197,7 +1197,7 @@ Then(
 // (so the close can name the live store's Saleor Dashboard URL), Jolly clones,
 // installs, and deploys, and the deploy reaches a real Vercel deploy under the
 // authenticated CLI session (gated as a capability). Harmless by design: the
-// created Saleor environment and Vercel project are both `jolly-test`-namespaced
+// created Saleor environment and Vercel project are both `jolly-cannon-fodder`-namespaced
 // (the env name is typed at the prompt; the Vercel project name is the
 // JOLLY_VERCEL_PROJECT deploy hook), and teardown of both is registered BEFORE
 // the run creates them. Driven against separate stdout/stderr PTYs so the human
@@ -1227,7 +1227,7 @@ When(
     // The @sandbox gate guarantees the Cloud token under CI; guard defensively.
     if (!cloudToken) return "skipped";
 
-    // The @sandbox gate pre-provisioned one shared `jolly-test`-namespaced store
+    // The @sandbox gate pre-provisioned one shared `jolly-cannon-fodder`-namespaced store
     // (endpoint + SALEOR_TOKEN now in process.env) and torn-down at run end. Seed the
     // fresh project's .env with it so the interactive run REUSES that namespaced
     // live store (runStoreStage reuses a configured endpoint; it never creates a
@@ -1246,7 +1246,7 @@ When(
       SALEOR_TOKEN: storeToken,
     });
 
-    // One `jolly-test` namespace for the Vercel project the deploy stage creates,
+    // One `jolly-cannon-fodder` namespace for the Vercel project the deploy stage creates,
     // so it is attributable cannon fodder torn down after the run.
     const namespace = makeNamespace(this.runId);
 
@@ -1261,7 +1261,7 @@ When(
     // removal BEFORE the run creates the deployment (harmless by design).
     if (vercelCliAuthenticated()) {
       addVercelProject(namespace);
-      this.cleanup.register(`jolly-test Vercel project (run ${namespace})`, () => {
+      this.cleanup.register(`jolly-cannon-fodder Vercel project (run ${namespace})`, () => {
         removeVercelProject(namespace);
       });
     }

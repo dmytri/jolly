@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { loadEnvValues, writeEnvValues } from "../src/lib/env-file.ts";
 
 function tempProject(): string {
-  return mkdtempSync(join(tmpdir(), "jolly-test-envfile-"));
+  return mkdtempSync(join(tmpdir(), "jolly-cannon-fodder-envfile-"));
 }
 
 describe("writeEnvValues", () => {

@@ -216,7 +216,7 @@ Then(
 
 // Feature 026 — second @logic @property scenario: the eval seed carries only
 // AUTHENTICATION credentials, never a pre-provisioned store. Feature 025
-// requires `jolly start` to provision a fresh `jolly-test` store on the real
+// requires `jolly start` to provision a fresh `jolly-cannon-fodder` store on the real
 // creation path; a seed that includes the store endpoint + SALEOR_TOKEN makes
 // `jolly start` treat the store as pre-existing, so the configurator's
 // `--failOnDelete` guard blocks the starter recipe and the live stages can
@@ -270,14 +270,14 @@ Then(
 );
 
 Then(
-  "it should omit the store endpoint `NEXT_PUBLIC_SALEOR_API_URL` and the `SALEOR_TOKEN`, so a baseline agent's `jolly start` provisions a fresh `jolly-test` store on the real creation path instead of reusing a pre-seeded one",
+  "it should omit the store endpoint `NEXT_PUBLIC_SALEOR_API_URL` and the `SALEOR_TOKEN`, so a baseline agent's `jolly start` provisions a fresh `jolly-cannon-fodder` store on the real creation path instead of reusing a pre-seeded one",
   function (this: JollyWorld) {
     const seeded = new Set(this.notes.enumeratedSeedVars as string[]);
     for (const v of STORE_SEED_VARS) {
       assert.ok(
         !seeded.has(v),
         `the eval seed must omit ${v} so \`jolly start\` provisions a fresh ` +
-          `jolly-test store on the real creation path; it is currently seeded`,
+          `jolly-cannon-fodder store on the real creation path; it is currently seeded`,
       );
     }
   },
@@ -286,22 +286,22 @@ Then(
 // Feature 026 — third scenario (@sandbox): the eval's pre-run capacity
 // reclamation, gated behaviorally. Feature 025 requires the eval harness to
 // reclaim capacity BEFORE the agent provisions — deleting leftover
-// jolly-test-namespaced environments from previous runs so a finite org
+// jolly-cannon-fodder-namespaced environments from previous runs so a finite org
 // environment limit never starves the run's store stage. @eval never gates CI, so
 // an eval carrying only teardown and no pre-run reclamation would silently let
 // leftovers fill the org and the live store stage would fail unobserved. A pure
 // selection check would pass against never-called reclamation code, so the
-// conformance is the OBSERVABLE EFFECT: seed a real jolly-test leftover, run the
+// conformance is the OBSERVABLE EFFECT: seed a real jolly-cannon-fodder leftover, run the
 // eval's reclamation seam (the same one the @eval run invokes before the agent
 // provisions), and assert the leftover is gone afterward while every
-// non-jolly-test environment survives. Live by design — the leftover is a REAL
+// non-jolly-cannon-fodder environment survives. Live by design — the leftover is a REAL
 // environment created via Jolly's own create-environment path, never a fake.
 
 /**
- * Create a real jolly-test-namespaced environment via Jolly's own
+ * Create a real jolly-cannon-fodder-namespaced environment via Jolly's own
  * create-environment path. An org environment limit is reclaimed, never a skip
  * (AGENTS.md): if the org rejects creation at its limit, delete prior-run
- * jolly-test leftovers to free a slot and retry once.
+ * jolly-cannon-fodder leftovers to free a slot and retry once.
  */
 async function seedNamespacedEnvironment(world: JollyWorld, name: string) {
   const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"]!;
@@ -342,29 +342,29 @@ async function seedNamespacedEnvironment(world: JollyWorld, name: string) {
 }
 
 Given(
-  "a leftover `jolly-test`-namespaced Saleor environment standing in the org from a previous run",
+  "a leftover `jolly-cannon-fodder`-namespaced Saleor environment standing in the org from a previous run",
   { timeout: 600_000 },
   async function (this: JollyWorld) {
     const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
     assert.ok(token, "requires JOLLY_SALEOR_CLOUD_TOKEN");
     this.notes.reclaimToken = token;
 
-    // Snapshot every NON-jolly-test environment now (read-only) so the survival
+    // Snapshot every NON-jolly-cannon-fodder environment now (read-only) so the survival
     // assertion can confirm reclamation never deletes one.
     const before = await listAllEnvironments(token);
     this.notes.nonTestEnvKeysBefore = before
-      .filter((e) => !e.name.startsWith("jolly-test-"))
+      .filter((e) => !e.name.startsWith("jolly-cannon-fodder-"))
       .map((e) => `${e.org}/${e.key}`);
 
     // Seed a REAL leftover under a PRIOR-run namespace, exactly as a genuine
-    // previous-run leftover would stand: the jolly-test- prefix marks it a
+    // previous-run leftover would stand: the jolly-cannon-fodder- prefix marks it a
     // reclamation target, and carrying a run id that is NOT this run's is what
     // lets the run-scoped provisioner reclamation delete it while protecting
     // this run's own live environment and any sibling parallel worker's. The
     // prior namespace still embeds this run's id so teardown attributes it.
     // Teardown registered BEFORE creation (a crash mid-create stays cleanable);
     // the reclamation under test removes it first, leaving teardown a 404 no-op.
-    const priorNamespace = this.namespace.replace("jolly-test-", "jolly-test-prior-");
+    const priorNamespace = this.namespace.replace("jolly-cannon-fodder-", "jolly-cannon-fodder-prior-");
     const name = `${priorNamespace}-leftover`;
     this.notes.leftoverName = name;
     this.cleanup.register(`seeded leftover environment ${name}`, async () => {
@@ -395,7 +395,7 @@ When(
 );
 
 Then(
-  "the leftover `jolly-test`-namespaced environment should no longer exist in the org",
+  "the leftover `jolly-cannon-fodder`-namespaced environment should no longer exist in the org",
   { timeout: 60_000 },
   async function (this: JollyWorld) {
     const token = this.notes.reclaimToken as string;
@@ -414,10 +414,10 @@ Then(
 );
 
 // Feature 026 — fourth scenario (@sandbox): the @sandbox PROVISIONER reclaims a
-// leftover jolly-test environment instead of skipping. AGENTS.md ("Leftover
+// leftover jolly-cannon-fodder environment instead of skipping. AGENTS.md ("Leftover
 // handling"): before creating the run's shared environment, the harness deletes
-// leftover jolly-test-namespaced environments to reclaim capacity — the
-// jolly-test- prefix IS the protection boundary — rather than skipping the run.
+// leftover jolly-cannon-fodder-namespaced environments to reclaim capacity — the
+// jolly-cannon-fodder- prefix IS the protection boundary — rather than skipping the run.
 // The masked defect was a skip-on-leftover branch; this scenario makes the
 // reclaim-not-skip contract executable and falsifiable. Live by design: a REAL
 // leftover (seeded by the shared Given through Jolly's own create path) and the
@@ -442,7 +442,7 @@ When(
 );
 
 Then(
-  "it should reclaim the leftover `jolly-test`-namespaced environment and provision the run's environment, not skip the run",
+  "it should reclaim the leftover `jolly-cannon-fodder`-namespaced environment and provision the run's environment, not skip the run",
   { timeout: 120_000 },
   async function (this: JollyWorld) {
     const token = this.notes.reclaimToken as string;
@@ -468,7 +468,7 @@ Then(
 );
 
 Then(
-  "every environment lacking the `jolly-test` prefix should still be present afterward",
+  "every environment lacking the `jolly-cannon-fodder` prefix should still be present afterward",
   { timeout: 60_000 },
   async function (this: JollyWorld) {
     const token = this.notes.reclaimToken as string;
@@ -479,17 +479,17 @@ Then(
     assert.deepEqual(
       missing,
       [],
-      `reclamation must never delete a non-jolly-test environment; missing: ${missing.join(", ")}`,
+      `reclamation must never delete a non-jolly-cannon-fodder environment; missing: ${missing.join(", ")}`,
     );
-    // And nothing it deleted lacked the jolly-test- prefix.
+    // And nothing it deleted lacked the jolly-cannon-fodder- prefix.
     const reclaimed = this.notes.reclaimed as CloudEnvironment[];
     const wrongful = reclaimed
-      .filter((e) => !e.name.startsWith("jolly-test-"))
+      .filter((e) => !e.name.startsWith("jolly-cannon-fodder-"))
       .map((e) => e.name);
     assert.deepEqual(
       wrongful,
       [],
-      "reclamation must delete only jolly-test-namespaced environments",
+      "reclamation must delete only jolly-cannon-fodder-namespaced environments",
     );
   },
 );

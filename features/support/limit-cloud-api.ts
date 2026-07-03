@@ -10,7 +10,7 @@
 //
 // @exceptional-double: an organization already at its sandbox-environment limit
 // cannot be produced on demand against the real test org (the harness reclaims
-// capacity by deleting jolly-test environments), so this loopback returns the
+// capacity by deleting jolly-cannon-fodder environments), so this loopback returns the
 // real ENVIRONMENT_LIMIT_REACHED rejection. It never replaces the real create
 // path; features 004/012 @sandbox provisioning exercises a real `create store`.
 import { createServer, type Server } from "node:http";

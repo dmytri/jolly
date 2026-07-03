@@ -47,7 +47,7 @@ Feature: Jolly Configurator starter recipe
     # the resilience the idempotent re-run depends on so a momentary rate-limit
     # never degrades an otherwise-successful stock stage to a false blocked. The
     # same transient-429 retry contract holds for every backend Saleor request
-    # (Rule "Backend Saleor requests retry a transient rate-limit").
+    # (Rule "Backend Saleor requests retry a transient failure").
     Given the stock stage's Saleor GraphQL endpoint returns HTTP 429 once and then succeeds with the recipe catalog in stock
     When the agent runs `jolly start --yes --json` and the stock stage runs against that endpoint
     Then the stock stage should be reported completed, having retried the rate-limited request
@@ -164,18 +164,22 @@ Feature: Jolly Configurator starter recipe
       was actually seeded; if no recipe variants are present yet (recipe not deployed), the stage is
       reported `pending`/`blocked` honestly, never a fabricated `completed`.
 
-  Rule: Backend Saleor requests retry a transient rate-limit
+  Rule: Backend Saleor requests retry a transient failure
     - Honesty cuts both ways: a stage is `blocked`/`fail` only when its work genuinely could not be
-      done — a momentary HTTP 429 rate-limit that succeeds on retry must NOT degrade an
-      otherwise-successful stage to a false `blocked`. The executable contract is the per-stage
-      `@exceptional-double` retry scenarios (stock here; the Stripe app-install stage in feature 005);
-      they hold for every backend Saleor GraphQL request Jolly's own code sends, so resilience belongs
-      at the shared request layer rather than one caller.
+      done — a momentary transient failure that succeeds on retry must NOT degrade an
+      otherwise-successful stage to a false `blocked`. Transient covers an HTTP 429 rate-limit, an HTTP
+      5xx server error (a freshly-provisioned or momentarily-busy Saleor instance answers 502/503/504),
+      and a connection-level failure (the request rejects before a response). The executable contract is
+      the per-stage `@exceptional-double` retry scenarios (stock here; the Stripe app-install stage in
+      feature 005); they hold for every backend Saleor GraphQL request Jolly's own code sends, so
+      resilience belongs at the shared request layer rather than one caller. A 5xx or connection failure
+      cannot be produced on demand any more than a 429 can, so the 429 scenario is the producible slice
+      of the same shared retry.
     - Design intent (non-binding rationale; the scenarios above pin the observable contract): the
-      retry is BOUNDED (it gives up and reports `blocked`/`fail` honestly when the 429 PERSISTS past
+      retry is BOUNDED (it gives up and reports `blocked`/`fail` honestly when the failure PERSISTS past
       the budget, never retrying forever) and SHOULD honor a `Retry-After` response header when the
       server supplies one. Precise `Retry-After` honoring is a refinement deferred past the v1 launch
-      bar — the launch-protecting contract is "a single transient 429 is retried, not reported as a
+      bar — the launch-protecting contract is "a single transient failure is retried, not reported as a
       false blocked"; a brittle timing assertion is intentionally not specified.
 
   Rule: Configurator deploy

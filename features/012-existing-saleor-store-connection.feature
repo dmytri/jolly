@@ -63,10 +63,10 @@ Feature: Existing Saleor store connection
 
   @sandbox
   Scenario: Jolly create store reuses an existing same-label environment instead of duplicating it
-    Given this run has already created an environment with a jolly-test-namespaced domain label
+    Given this run has already created an environment with a jolly-cannon-fodder-namespaced domain label
     When the agent requests another environment with the same domain label
     Then Jolly should reuse the existing environment rather than create a duplicate
-    And exactly one environment should carry that domain label, with the run's jolly-test namespace and registered teardown
+    And exactly one environment should carry that domain label, with the run's jolly-cannon-fodder namespace and registered teardown
 
   @logic
   Scenario: Jolly create store honors --region and --organization overrides
@@ -87,8 +87,8 @@ Feature: Existing Saleor store connection
   @sandbox
   Scenario: Jolly creates a Saleor Cloud environment
     Given the agent has a Saleor Cloud token authenticated via JOLLY_SALEOR_CLOUD_TOKEN
-    And no leftover jolly-test environment remains from a previous run
-    When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier
+    And no leftover jolly-cannon-fodder environment remains from a previous run
+    When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-cannon-fodder identifier
     Then Jolly should discover the organization from the Cloud API
     And it should reuse an existing project when one exists, otherwise create one via POST /platform/api/organizations/{organization}/projects/ with plan="dev"
     And the output envelope data should state whether the project was created or reused
@@ -100,7 +100,7 @@ Feature: Existing Saleor store connection
     And the envelope `data` should report the created store's Saleor Dashboard URL ending in `.saleor.cloud/dashboard/`
     And it should write NEXT_PUBLIC_SALEOR_API_URL to .env from the resulting domain
     And it should write SALEOR_URL and SALEOR_TOKEN to .env from the authenticated session
-    And the created environment's name and domain label should carry the run's jolly-test namespace
+    And the created environment's name and domain label should carry the run's jolly-cannon-fodder namespace
     And teardown should delete the created environment right after the scenario
 
   @logic @exceptional-double

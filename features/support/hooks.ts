@@ -31,7 +31,7 @@ import type { JollyWorld } from "./world.ts";
 // credentials are absent AND cannot be derived — the Cloud token itself, or
 // Vercel. A missing Saleor endpoint/SALEOR_TOKEN with the Cloud token
 // present is DERIVED instead: the harness provisions one shared per-run
-// jolly-test environment on first need and exports the values for the whole
+// jolly-cannon-fodder environment on first need and exports the values for the whole
 // run. Provisioning creates a real environment, so the timeout is generous.
 Before(
   { tags: "@sandbox", timeout: 900_000 },

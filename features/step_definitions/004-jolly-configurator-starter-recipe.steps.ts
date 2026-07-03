@@ -116,7 +116,7 @@ Given(
     // product slug outside the recipe's). Seed one real foreign product into the
     // provisioned store so the subsequent recipe deploy detects a deletion and
     // the configurator exits 6. Harmless by design: the product and its type are
-    // `jolly-test`-namespaced and torn down LIFO.
+    // `jolly-cannon-fodder`-namespaced and torn down LIFO.
     const { endpoint, token } = storeCreds();
     if (!endpoint) {
       this.notes.skipDestructive = true;

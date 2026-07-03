@@ -14,9 +14,9 @@
 //     Cloud values a baseline agent needs to AUTHENTICATE — no dummy
 //     credentials, no `.invalid` endpoints, no fake CLIs. The store endpoint and
 //     SALEOR_TOKEN are deliberately left unset so `jolly start` provisions a fresh
-//     `jolly-test` store on the real creation path. The agent acts against real
+//     `jolly-cannon-fodder` store on the real creation path. The agent acts against real
 //     services exactly as a customer's agent would.
-//   - Every cloud resource the agent creates is `jolly-test`-namespaced and
+//   - Every cloud resource the agent creates is `jolly-cannon-fodder`-namespaced and
 //     reclaimed in best-effort teardown (the step definitions register it). The
 //     workspace and fake $HOME are removed too.
 //
@@ -311,11 +311,11 @@ export function setupEvalContext(
   // the file-form the agent reads (Jolly reads .env via loadEnvValues); the same
   // real values reach the agent process below. No dummy creds, no `.invalid`.
   //
-  // Also default the store name to this run's `jolly-test`-namespace, so the
+  // Also default the store name to this run's `jolly-cannon-fodder`-namespace, so the
   // autonomous agent's `jolly start`/`create store` provisions a
-  // `jolly-test`-namespaced environment (feature 025: every created resource
-  // jolly-test-namespaced and reclaimable). Without it Jolly falls through to its
-  // product default "jolly-store", which the jolly-test teardown cannot reclaim —
+  // `jolly-cannon-fodder`-namespaced environment (feature 025: every created resource
+  // jolly-cannon-fodder-namespaced and reclaimable). Without it Jolly falls through to its
+  // product default "jolly-store", which the jolly-cannon-fodder teardown cannot reclaim —
   // leaking the env and failing the namespacing assertion.
   writeFileSync(
     join(workspace, ".env"),
@@ -334,7 +334,7 @@ export function setupEvalContext(
  * ones a baseline agent needs to AUTHENTICATE to the real services (feature 025
  * / 026). The store endpoint `NEXT_PUBLIC_SALEOR_API_URL` and the
  * `SALEOR_TOKEN` are deliberately left unset so `jolly start`
- * provisions a fresh `jolly-test` store on the real creation path instead of
+ * provisions a fresh `jolly-cannon-fodder` store on the real creation path instead of
  * reusing a pre-seeded one (a seeded endpoint makes `jolly start` treat the
  * store as pre-existing, so the configurator's `--failOnDelete` guard blocks
  * the starter recipe and the live stages can never complete).
@@ -359,11 +359,11 @@ export function realEnvFileContents(): string {
 /**
  * The eval's pre-run capacity reclamation (features 025 + 026): BEFORE the
  * baseline agent's `jolly start` provisions its fresh store, delete every
- * leftover `jolly-test`-namespaced environment standing in the org from previous
+ * leftover `jolly-cannon-fodder`-namespaced environment standing in the org from previous
  * runs, so a finite org environment limit never starves the run at its store
  * stage — the same capacity reclamation the @sandbox provision path performs.
- * The `jolly-test-` prefix IS the protection boundary (AGENTS.md): only
- * `jolly-test`-namespaced environments are ever deleted; anything lacking the
+ * The `jolly-cannon-fodder-` prefix IS the protection boundary (AGENTS.md): only
+ * `jolly-cannon-fodder`-namespaced environments are ever deleted; anything lacking the
  * prefix is never touched. Deletion is idempotent and returns the environments it
  * removed, for observability and the feature 026 conformance assertion. A no-op
  * when no leftover stands.

@@ -59,7 +59,7 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   "Jolly start completes successfully": FULL_END_TO_END,
   // 027-interactive-cli-experience
   // A full interactive `jolly start` run to completion. The harness pre-provisions
-  // one shared `jolly-test`-namespaced store (endpoint + SALEOR_TOKEN, derivable from
+  // one shared `jolly-cannon-fodder`-namespaced store (endpoint + SALEOR_TOKEN, derivable from
   // the Cloud token); the interactive run inherits it, so the store stage REUSES
   // that namespaced live store (it never creates a default-named environment) and
   // the close can name its Saleor Dashboard URL. The shared env is torn down by the
@@ -202,14 +202,14 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   // 026-live-by-design-verification
   // The eval's pre-run capacity reclamation drives only the Cloud API (list +
   // delete environments); the Cloud token alone is required.
-  "The eval reclaims a leftover jolly-test environment before a run provisions": [
+  "The eval reclaims a leftover jolly-cannon-fodder environment before a run provisions": [
     "saleorCloud",
   ],
   // The @sandbox provisioner's leftover reclamation drives only the Cloud API
   // (list + delete) and Jolly's own create-environment path; the Cloud token
   // alone is required. NOT derivable, so the Before hook does not pre-provision a
   // shared environment before this scenario seeds its leftover.
-  "The @sandbox provisioner reclaims a leftover jolly-test environment instead of skipping the run": [
+  "The @sandbox provisioner reclaims a leftover jolly-cannon-fodder environment instead of skipping the run": [
     "saleorCloud",
   ],
   // 019-iteration-phase
@@ -320,7 +320,7 @@ export function vercelWhoamiAccount(): string {
 }
 
 /**
- * Pre-create a `jolly-test`-namespaced Vercel project so the deploy stage's
+ * Pre-create a `jolly-cannon-fodder`-namespaced Vercel project so the deploy stage's
  * `vercel deploy --project <name>` targets it (the CLI's `--project` requires an
  * existing project). Best-effort and never throws; an already-existing project or
  * an unauthenticated CLI is a no-op. Goes through the official Vercel CLI under
@@ -339,7 +339,7 @@ export function addVercelProject(name: string): void {
 }
 
 /**
- * Best-effort teardown of a `jolly-test`-namespaced Vercel project a deploy
+ * Best-effort teardown of a `jolly-cannon-fodder`-namespaced Vercel project a deploy
  * created (harmless-by-design: every created resource is namespaced and removed,
  * AGENTS.md). `vercel project remove` prompts "Are you sure?" with no skip flag,
  * so answer it via stdin. Goes through the official Vercel CLI under its own
@@ -381,7 +381,7 @@ export function missingCredentials(
 /**
  * Groups whose variables the harness can DERIVE when they are not configured
  * but `JOLLY_SALEOR_CLOUD_TOKEN` is present: it provisions one shared
- * per-run `jolly-test` environment and reads the endpoint URL and SALEOR_TOKEN
+ * per-run `jolly-cannon-fodder` environment and reads the endpoint URL and SALEOR_TOKEN
  * from it (features 023 + 012). Everything else — the Cloud token itself and
  * Vercel — cannot be derived and stays a skip condition.
  */
@@ -443,7 +443,7 @@ export function runId(): string {
 
 /** Namespace prefix for every resource a test run creates. */
 export function makeNamespace(id: string = runId()): string {
-  return `jolly-test-${id}`;
+  return `jolly-cannon-fodder-${id}`;
 }
 
 /**

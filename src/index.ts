@@ -1562,7 +1562,7 @@ interface StoreProvisionResult {
  * 022): an existing project/environment matching the name/domain label is reused
  * rather than recreated.
  *
- * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-test identifier")
+ * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-cannon-fodder identifier")
  * @planks("Then Jolly should discover the organization from the Cloud API")
  * @planks(`Then it should reuse an existing project when one exists, otherwise create one via POST /platform/api/organizations/{organization}/projects/ with plan="dev"`)
  * @planks("Then it should create an environment via POST /platform/api/organizations/{organization}/environments/")
@@ -2960,7 +2960,7 @@ interface StartStage {
  * configured store name — a real customer affordance read from project
  * configuration (`JOLLY_STORE_NAME` / `JOLLY_STORE_DOMAIN_LABEL` in `.env` or the
  * environment) — with a sensible default otherwise. This same affordance is the
- * single hook the test harness uses to make provisioned stores `jolly-test`
+ * single hook the test harness uses to make provisioned stores `jolly-cannon-fodder`
  * cannon fodder; Jolly bakes no test knowledge into production.
  * @planks("Then the `store` stage preview should report the configured store as already satisfied and skip provisioning")
  */
@@ -3217,15 +3217,38 @@ async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
     // clean environment").
     ...(allowDeletes ? [] : ["--failOnDelete"]),
   ];
-  const result = spawnSync("npx", deployArgs, {
+  // A transient Saleor Cloud blip (503, cold instance, connection reset) makes
+  // the spawned configurator exit non-zero with a network error in its stderr —
+  // not a recipe defect, and not the --failOnDelete block (exit 6). The deploy is
+  // idempotent reconciliation, so retry it a bounded few times before treating a
+  // non-zero exit as blocked; a persistent failure still surfaces honestly.
+  let result = spawnSync("npx", deployArgs, {
     cwd: projectDir(),
     encoding: "utf8",
     timeout: 600_000,
     env: { ...process.env, SALEOR_URL: endpoint, SALEOR_TOKEN: token },
   });
-
-  // The configurator's own deployment-report verdict, when it wrote one.
-  const reportStatus = readConfiguratorReportStatus(reportPath);
+  let reportStatus = readConfiguratorReportStatus(reportPath);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const succeeded = result.status === 0 || reportStatus === "success";
+    const transient =
+      !succeeded &&
+      !result.error &&
+      result.status !== null &&
+      result.status !== 6 &&
+      /network error|unable to connect|fetch failed|ECONNRESET|ETIMEDOUT|socket hang up|EAI_AGAIN|HTTP 50[234]/i.test(
+        (result.stderr ?? "").toString(),
+      );
+    if (!transient) break;
+    await new Promise((resolve) => setTimeout(resolve, Math.min(3000 * 2 ** attempt, 12_000)));
+    result = spawnSync("npx", deployArgs, {
+      cwd: projectDir(),
+      encoding: "utf8",
+      timeout: 600_000,
+      env: { ...process.env, SALEOR_URL: endpoint, SALEOR_TOKEN: token },
+    });
+    reportStatus = readConfiguratorReportStatus(reportPath);
+  }
   rmSync(reportPath, { force: true });
 
   if (result.error || result.status === null) {
@@ -3760,6 +3783,9 @@ function pendingVercelPath(): string {
   return join(projectDir(), PENDING_VERCEL_FILE);
 }
 
+/**
+ * @planks("When the agent runs `jolly start` again while the sign-in URL is within its lifetime")
+ */
 function loadPendingVercelUrl(): string | undefined {
   try {
     const saved = JSON.parse(readFileSync(pendingVercelPath(), "utf8")) as {
@@ -3879,7 +3905,7 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
   const channel =
     values["JOLLY_STORE_CHANNEL"] ?? process.env["JOLLY_STORE_CHANNEL"] ?? "us";
   // Optional configured Vercel project name (a real customer affordance, and the
-  // single hook the test harness uses to make the deployed project `jolly-test`
+  // single hook the test harness uses to make the deployed project `jolly-cannon-fodder`
   // cannon fodder it can tear down). Default: let the Vercel CLI infer it from
   // the storefront/ directory, so a real customer gets a sensibly named project.
   const vercelProject =
@@ -4986,6 +5012,11 @@ async function dispatch(args: ParsedArgs): Promise<Envelope> {
   }
 }
 
+/**
+ * @planks("When the agent runs `jolly start --frobnicate --json`")
+ * @planks("Then Jolly should default NPM_CONFIG_LOGLEVEL to error so spawned npx tools suppress warn-level notices such as EBADENGINE")
+ * @planks("When a Jolly command handler throws an unexpected internal error while producing its result")
+ */
 async function main(): Promise<void> {
   // Quiet npm's install-time warnings (e.g. EBADENGINE from a transitive dep of
   // the Vercel CLI on Node 26) for every `npx` Jolly spawns — they are noise, not

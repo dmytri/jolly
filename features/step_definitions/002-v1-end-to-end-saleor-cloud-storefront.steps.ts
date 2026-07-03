@@ -727,12 +727,12 @@ Then("it should not fabricate that the human-run step was completed", function (
 // stderr, reporting a pending sign-in gate — never a deploy `failed`, and never
 // telling the agent to run `vercel login` or to re-run `jolly start` after a
 // manual sign-in. Gated on the Cloud token (["saleorCloud"]): the run
-// auto-provisions a jolly-test store and reaches deploy itself; it deliberately
+// auto-provisions a jolly-cannon-fodder store and reaches deploy itself; it deliberately
 // needs NO authenticated Vercel session (the isolated-config Given supplies the
 // no-session condition), so it is NOT in VERCEL_CLI_SCENARIOS.
 
 /** Snapshot the org's Saleor environments and register teardown of only the
- * NEW jolly-test-namespaced ones this run creates (never a pre-existing or
+ * NEW jolly-cannon-fodder-namespaced ones this run creates (never a pre-existing or
  * non-test resource). Saleor-only: these scenarios run WITHOUT a Vercel session,
  * so nothing is created on Vercel and no Vercel teardown is registered. */
 async function registerSaleorEnvTeardown(world: JollyWorld): Promise<void> {
@@ -779,7 +779,7 @@ When(
     // A real end-to-end run: the Cloud token drives store auto-provisioning, the
     // storefront stage clones+installs Paper, and the run reaches the deploy
     // stage. The namespaced store/project names make every created resource
-    // jolly-test cannon fodder. The isolated XDG dirs ensure the deploy stage
+    // jolly-cannon-fodder cannon fodder. The isolated XDG dirs ensure the deploy stage
     // finds no Vercel session.
     this.runCli(["start", "--yes", "--json"], {
       env: absentCredentialsEnv({
@@ -1224,15 +1224,15 @@ Given(
   "`JOLLY_SALEOR_CLOUD_TOKEN` is set and no `NEXT_PUBLIC_SALEOR_API_URL` is configured",
   function (this: JollyWorld) {
     const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? STAND_IN_TOKEN;
-    // Surface the per-run `jolly-test-<run>` namespace through the SAME store-name
+    // Surface the per-run `jolly-cannon-fodder-<run>` namespace through the SAME store-name
     // configuration affordance a customer uses (feature 002 Rule), so the store
-    // `jolly start` auto-provisions is `jolly-test` cannon fodder the teardown
+    // `jolly start` auto-provisions is `jolly-cannon-fodder` cannon fodder the teardown
     // above reclaims. Production bakes in no test knowledge; the harness just sets
     // the configured name, exactly as it passes `--name` to `jolly create store`.
     this.notes.startEnv = absentCredentialsEnv({
       JOLLY_SALEOR_CLOUD_TOKEN: cloudToken,
       JOLLY_STORE_NAME: makeNamespace(this.runId),
-      // Namespace the Vercel project too, so a deploy is jolly-test cannon
+      // Namespace the Vercel project too, so a deploy is jolly-cannon-fodder cannon
       // fodder the teardown reclaims (harmless-by-design).
       JOLLY_VERCEL_PROJECT: makeNamespace(this.runId),
     });
@@ -1244,7 +1244,7 @@ Given(
 //
 // A real end-to-end run that may CREATE a Saleor Cloud environment. Harmless by
 // design: before running, snapshot the org's environments and register a
-// best-effort teardown that deletes only NEW `jolly-test`-namespaced
+// best-effort teardown that deletes only NEW `jolly-cannon-fodder`-namespaced
 // environments this run created (never a pre-existing or non-test resource).
 
 async function registerAutoProvisionTeardown(world: JollyWorld): Promise<void> {
@@ -1268,7 +1268,7 @@ async function registerAutoProvisionTeardown(world: JollyWorld): Promise<void> {
   // (otherwise the deploy stage gates and nothing is created).
   if (vercelCliAuthenticated()) {
     addVercelProject(runNamespace);
-    world.cleanup.register(`jolly-test Vercel project (run ${runNamespace})`, () => {
+    world.cleanup.register(`jolly-cannon-fodder Vercel project (run ${runNamespace})`, () => {
       removeVercelProject(runNamespace);
     });
   }

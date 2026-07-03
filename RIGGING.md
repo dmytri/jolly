@@ -30,7 +30,7 @@ Procedure lives in the skills. Every role reads this on open.
 ## Tiers
 
 - default: @logic. Fast behaviour tier, run in parallel. Exercises real behaviour against the `.env` test env per the live-by-design policy in `AGENTS.md`. Skips a target when its credential or capability is absent.
-- sandbox: @sandbox. Requires `JOLLY_SALEOR_CLOUD_TOKEN` and a Vercel CLI session in the environment. The harness provisions disposable `jolly-test`-namespaced Saleor Cloud and Vercel resources and tears them down.
+- sandbox: @sandbox. Requires `JOLLY_SALEOR_CLOUD_TOKEN` and a Vercel CLI session in the environment. The harness provisions disposable `jolly-cannon-fodder`-namespaced Saleor Cloud and Vercel resources and tears them down.
 - eval: @eval. Opt-in model-behaviour evaluation. Requires `HARNESS_OPENROUTER_API_KEY` and `HARNESS_EVAL_MODEL`. Excluded from default and broad runs.
 
 ## Dependencies
@@ -44,6 +44,6 @@ Procedure lives in the skills. Every role reads this on open.
 
 ## Known false-failure modes
 
-- A @sandbox failure may be a stale `.env` that points at a deleted `jolly-test` store and returns HTTP 404. Probe store reachability before treating it as a defect.
+- A @sandbox failure may be a stale `.env` that points at a deleted `jolly-cannon-fodder` store and returns HTTP 404. Probe store reachability before treating it as a defect.
 - After npm publish, verify against the local clean tree. CDN propagation can return a stale or empty tarball for minutes.
 - The feature 027 interactive stage-progress scenario can flake under real-service load. Re-run it in isolation before treating red as a defect.
