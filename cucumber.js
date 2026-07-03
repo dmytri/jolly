@@ -33,13 +33,17 @@ export default { ...common, tags: "not @eval" };
 // the lock winner creates it, every other worker reuses its derived values, so
 // the run holds a single env slot and the org's second slot stays free for the
 // few env-creating scenarios. That decouples the worker count from the 2-env cap.
-// The real ceiling then is Saleor Cloud's tolerance for CONCURRENT load, not CPU
-// or the env limit: measured, parallel:4 raised transient 503/network failures
-// vs parallel:2 (more concurrent requests -> more Cloud back-pressure), so the
-// bottleneck is the service. parallel:2 is the reliable point; push higher only
-// once every store-touching path retries transient 5xx robustly.
+// The real ceiling then is the free Saleor instance's tolerance for CONCURRENT
+// load, not CPU or the env budget. MEASURED against this org: parallel:4 -> 11
+// failures, parallel:2 -> 8, SERIAL -> 0 (42 pass). The heavy scenarios (full
+// `jolly start` deploys + store queries) hammer the single shared instance until
+// it goes not-serving (persistent 404 / "unable to connect"), which no retry
+// budget fixes because it is sustained, not momentary. So @sandbox runs SERIAL:
+// reliable-and-slower (~48m) beats flaky-and-fast, which just means re-runs. The
+// shared-store fix makes serial affordable (no per-scenario provisioning). Push
+// parallel only behind a paid instance or a heavy/light phase split.
 export const logic = { ...common, tags: "@logic", parallel: 2 };
-export const sandbox = { ...common, tags: "@sandbox", parallel: 2 };
+export const sandbox = { ...common, tags: "@sandbox", parallel: 1 };
 
 // The eval profile runs ONLY the opt-in @eval tier (feature 025). `eval` is a
 // reserved identifier, so it is exported under that name via an alias.
