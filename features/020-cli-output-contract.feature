@@ -114,9 +114,10 @@ Feature: Jolly CLI output contract
     And the error message should name the refused host evil.example.com
     And nothing should be written to .env
 
-  @logic
+  @sandbox
   Scenario: An unexpected internal error surfaces as a stable error envelope, never a raw crash
-    When a Jolly command handler throws an unexpected internal error while producing its result
+    Given a prepared storefront directory whose `package.json` is malformed JSON
+    When the agent runs `jolly start --yes --json`
     Then the envelope status should be "error" with the stable `code` "UNEXPECTED_ERROR"
     And the `errors` remediation should tell the agent to re-run with `--json` and report the error code
     And stdout should carry the JSON envelope rather than a raw stack trace

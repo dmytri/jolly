@@ -26,3 +26,10 @@ Feature: Sandbox worker isolation
     Given the @sandbox harness running under two different worker ids
     When each worker derives the Vercel project it deploys to
     Then the two workers derive different jolly-cannon-fodder-namespaced Vercel project names
+
+  @logic @property
+  Scenario: The @sandbox tier is configured for per-worker parallel execution with a serial env-creating phase
+    Given the project's cucumber run profiles
+    When the @sandbox run profiles are enumerated
+    Then the bulk @sandbox profile runs its workers in parallel and excludes the @creates-env scenarios
+    And a separate profile runs the @creates-env scenarios serially
