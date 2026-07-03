@@ -192,7 +192,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
       Vercel project name comes from an
       OPTIONAL configured name (`JOLLY_VERCEL_PROJECT`, passed to the CLI as `--project`) when set, and
       the CLI-inferred default otherwise — the same affordance the test harness uses to make the
-      project `jolly-test`-namespaced cannon fodder it tears down (mirrors the store name). The durable Vercel invariants hold: official
+      project `jolly-cannon-fodder`-namespaced cannon fodder it tears down (mirrors the store name). The durable Vercel invariants hold: official
       CLI only (never a raw-API reimplementation), its own auth, no `JOLLY_VERCEL_TOKEN`, and no
       api.vercel.com in Jolly's own request code (see "Agent-supervised orchestration" and feature
       020 "First-party hosts only"). The Vercel CLI does NOT passively report a missing session: with
@@ -275,8 +275,8 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
       start` through project configuration) when one is set, and a sensible default otherwise.
       This is an ordinary configuration affordance — a customer can name their store; Jolly bakes
       no test knowledge into production. It is ALSO the single hook the test harness uses to make
-      every store it provisions `jolly-test`-namespaced cannon fodder (AGENTS.md "harmless by
-      design"): the harness sets that configured name to the per-run `jolly-test-<run>` value,
+      every store it provisions `jolly-cannon-fodder`-namespaced cannon fodder (AGENTS.md "harmless by
+      design"): the harness sets that configured name to the per-run `jolly-cannon-fodder-<run>` value,
       exactly as it already passes `--name`/`--domain-label` to `jolly create store`.
     - The inverse holds for idempotency (feature 022): when `NEXT_PUBLIC_SALEOR_API_URL` is
       already configured — the customer connected an existing store, or a previous run
@@ -298,6 +298,14 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     Then the URL should respond successfully
     And it should list products from the Saleor Cloud catalog
     And adding a product to the cart should update the cart
+
+  @sandbox
+  Scenario: A re-run before Vercel approval reuses the same pending sign-in URL until it expires
+    Given `jolly start` reached the deploy stage without `--dry-run` and surfaced a Vercel device sign-in URL
+    And the human has not yet approved the Vercel sign-in
+    When the agent runs `jolly start` again while the sign-in URL is within its lifetime
+    Then the deploy stage should surface the same Vercel sign-in URL rather than spawning a new login
+    But a re-run after the sign-in URL is past its lifetime should discard it and spawn a fresh Vercel login
 
   Rule: V1 operational readiness
     - The deployed storefront URL must work.

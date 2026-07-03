@@ -114,6 +114,13 @@ Feature: Npx-first Jolly CLI command surface
       | upgrade          |
       | create store     |
 
+  @logic
+  Scenario: Jolly quiets npm install-time warnings for the npx tools it spawns
+    Given the environment sets no NPM_CONFIG_LOGLEVEL value
+    When the agent runs a Jolly command
+    Then Jolly should default NPM_CONFIG_LOGLEVEL to error so spawned npx tools suppress warn-level notices such as EBADENGINE
+    And a NPM_CONFIG_LOGLEVEL value the caller already set should be preserved unchanged
+
   Rule: Thin command surface
     - Jolly is a thin CLI: it provides deterministic plumbing, installs the Jolly skill, and uses `jolly start` to orchestrate official CLIs without reimplementing them against raw provider APIs.
     - The full command surface is `login`, `logout`, `auth status`, `init`, `start`, `doctor`, `upgrade`, `skills`, `create`, and `completion`, with `create` subcommand `store` only.

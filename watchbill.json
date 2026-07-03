@@ -1,0 +1,9 @@
+{
+  "watch1": {
+    "scenarios": [
+      "features/006-npx-cli-command-surface.feature:Jolly quiets npm install-time warnings for the npx tools it spawns",
+      "features/020-cli-output-contract.feature:An unexpected internal error surfaces as a stable error envelope, never a raw crash",
+      "features/002-v1-end-to-end-saleor-cloud-storefront.feature:A re-run before Vercel approval reuses the same pending sign-in URL until it expires"
+    ]
+  }
+}

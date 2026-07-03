@@ -114,6 +114,13 @@ Feature: Jolly CLI output contract
     And the error message should name the refused host evil.example.com
     And nothing should be written to .env
 
+  @logic
+  Scenario: An unexpected internal error surfaces as a stable error envelope, never a raw crash
+    When a Jolly command handler throws an unexpected internal error while producing its result
+    Then the envelope status should be "error" with the stable `code` "UNEXPECTED_ERROR"
+    And the `errors` remediation should tell the agent to re-run with `--json` and report the error code
+    And stdout should carry the JSON envelope rather than a raw stack trace
+
   Rule: Output envelope principles
     - Every command should emit one consistent top-level JSON envelope. The single exception
       is `completion` (feature 027), whose output is a shell-completion script consumed via
