@@ -27,6 +27,11 @@ Procedure lives in the skills. Every role reads this on open.
 - typecheck: `npm run typecheck`
 - lint: `npx gplint "features/*.feature"`
 
+## Perturbation
+
+- message: `PERTURBATION: consider current durable context; remove when fixed`
+- fail-fast: `throw new Error("PERTURBATION: consider current durable context; remove when fixed");`
+
 ## Tiers
 
 - default: @logic. Fast behaviour tier, run in parallel. Exercises real behaviour against the `.env` test env per the live-by-design policy in `AGENTS.md`. Skips a target when its credential or capability is absent.

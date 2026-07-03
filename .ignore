@@ -1,0 +1,4 @@
+# Search-exclusion artifact (Shipshape fitting-out derived).
+# Keeps Captain-only notes out of crew-visible search by construction.
+# ripgrep and ag honour this file; Captain still opens CAPTAIN.md by path.
+CAPTAIN.md
