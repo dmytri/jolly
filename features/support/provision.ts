@@ -23,22 +23,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deleteEnvironment, listAllEnvironments } from "./cloud.ts";
 import { findEnvelope, type Envelope } from "./envelope.ts";
-import { CleanupRegistry, makeNamespace, runId, type CleanupFailure } from "./sandbox.ts";
+import { CleanupRegistry, makeNamespace, runId, workerNamespace, type CleanupFailure } from "./sandbox.ts";
 import { REPO_ROOT } from "./world.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
 
 export type ProvisionOutcome =
   | { status: "ready" }
   | { status: "skip"; reason: string };
-
-/** Name and domain label of the run's ONE shared environment. The run id is
- * shared by every parallel worker (cucumber.js sets HARNESS_RUN_ID and the
- * worker children inherit it), so every worker computes the same name and reuses
- * the single store one worker provisions — keeping the run to one env slot and
- * leaving the org's second slot free for env-creating scenarios. */
-export function sharedEnvironmentName(): string {
-  return `${makeNamespace(runId())}-shared`;
-}
 
 /** Filesystem paths every worker of a run agrees on (the run id is shared): a
  * lock so exactly one worker provisions, and a state file the winner writes with
@@ -185,12 +176,12 @@ export async function provisionSharedEnvironment(): Promise<ProvisionOutcome> {
   // Scratch project directory: the CLI writes the derived values to its
   // .env. Kept (and removed in teardown) rather than scenario-scoped — the
   // environment is shared by the whole run.
-  const scratchDir = mkdtempSync(join(tmpdir(), `${sharedEnvironmentName()}-`));
+  const scratchDir = mkdtempSync(join(tmpdir(), `${workerNamespace()}-`));
   teardownRegistry.register(`scratch directory ${scratchDir}`, () => {
     rmSync(scratchDir, { recursive: true, force: true });
   });
 
-  const name = sharedEnvironmentName();
+  const name = workerNamespace();
   const runtime = process.env.HARNESS_CLI_RUNTIME ?? "node";
 
   // Create the environment, waiting out a transient org environment-limit. Under

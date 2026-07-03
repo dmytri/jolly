@@ -88,6 +88,15 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   "Jolly start owns the Vercel sign-in rather than telling the agent to run it": [
     "saleorCloud",
   ],
+  // The pending-sign-in reuse scenario reaches the deploy stage via a full
+  // `jolly start --yes` auto-provision run (Cloud token only; store/endpoint are
+  // provisioned inside the run) and deliberately needs NO authenticated Vercel
+  // session — the isolated-config Given supplies the no-session condition that
+  // makes Jolly surface a device sign-in URL — so it is NOT in
+  // VERCEL_CLI_SCENARIOS.
+  "A re-run before Vercel approval reuses the same pending sign-in URL until it expires": [
+    "saleorCloud",
+  ],
   // The storefront's native deps (sharp, esbuild) must build so the production
   // build completes. Clone+install is credential-independent; the production
   // build's codegen needs a reachable Saleor schema (saleorEndpoint).
@@ -455,6 +464,18 @@ export function makeNamespace(id: string = runId()): string {
 export function workerId(): string {
   const id = process.env.CUCUMBER_WORKER_ID;
   return id !== undefined && id.trim() !== "" ? id.trim() : "0";
+}
+
+/**
+ * The per-worker resource namespace: the run namespace with the worker id
+ * appended. Every parallel worker derives its own isolated namespace, so no two
+ * workers share the Saleor environment they provision or the Vercel project they
+ * deploy to (AGENTS.md "Sandbox harness mechanics" per-worker isolation). The
+ * jolly-cannon-fodder- prefix is preserved, so every derived name stays this
+ * dedicated test org's disposable, reclaimable cannon fodder.
+ */
+export function workerNamespace(id: string = workerId()): string {
+  return `${makeNamespace(runId())}-w${id}`;
 }
 
 export interface CleanupFailure {

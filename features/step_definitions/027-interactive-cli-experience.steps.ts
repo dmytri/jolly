@@ -24,9 +24,9 @@ import { findEnvelope } from "../support/envelope.ts";
 import { listOrganizations } from "../support/cloud.ts";
 import {
   addVercelProject,
-  makeNamespace,
   removeVercelProject,
   vercelCliAuthenticated,
+  workerNamespace,
 } from "../support/sandbox.ts";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
 import { writeEnvValues } from "../../src/lib/env-file.ts";
@@ -1246,9 +1246,10 @@ When(
       SALEOR_TOKEN: storeToken,
     });
 
-    // One `jolly-cannon-fodder` namespace for the Vercel project the deploy stage creates,
-    // so it is attributable cannon fodder torn down after the run.
-    const namespace = makeNamespace(this.runId);
+    // One `jolly-cannon-fodder` namespace for the Vercel project the deploy stage
+    // creates, per worker so no two workers share a project — attributable cannon
+    // fodder torn down after the run.
+    const namespace = workerNamespace();
 
     // Pin the organization deterministically (a real feature 012 affordance) so a
     // multi-org token never inserts an org-choice prompt that would misalign the

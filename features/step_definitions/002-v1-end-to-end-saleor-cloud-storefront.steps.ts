@@ -23,7 +23,7 @@
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, symlinkSync } from "node:fs";
+import { existsSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { loadEnvValues, writeEnvValues } from "../../src/lib/env-file.ts";
 import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
@@ -35,6 +35,7 @@ import {
   makeNamespace,
   removeVercelProject,
   vercelCliAuthenticated,
+  workerNamespace,
 } from "../support/sandbox.ts";
 import type { JollyWorld } from "../support/world.ts";
 
@@ -785,7 +786,7 @@ When(
       env: absentCredentialsEnv({
         JOLLY_SALEOR_CLOUD_TOKEN: process.env["JOLLY_SALEOR_CLOUD_TOKEN"],
         JOLLY_STORE_NAME: makeNamespace(this.runId),
-        JOLLY_VERCEL_PROJECT: makeNamespace(this.runId),
+        JOLLY_VERCEL_PROJECT: workerNamespace(),
         ...xdg,
       }),
       timeoutMs: 840_000,
@@ -1232,9 +1233,10 @@ Given(
     this.notes.startEnv = absentCredentialsEnv({
       JOLLY_SALEOR_CLOUD_TOKEN: cloudToken,
       JOLLY_STORE_NAME: makeNamespace(this.runId),
-      // Namespace the Vercel project too, so a deploy is jolly-cannon-fodder cannon
-      // fodder the teardown reclaims (harmless-by-design).
-      JOLLY_VERCEL_PROJECT: makeNamespace(this.runId),
+      // Namespace the Vercel project per worker, so a deploy is jolly-cannon-fodder
+      // cannon fodder the teardown reclaims and no two workers share a project
+      // (harmless-by-design + per-worker isolation).
+      JOLLY_VERCEL_PROJECT: workerNamespace(),
     });
   },
 );
@@ -1267,9 +1269,10 @@ async function registerAutoProvisionTeardown(world: JollyWorld): Promise<void> {
   // harmless-by-design cannon fodder. Only when the Vercel CLI is authenticated
   // (otherwise the deploy stage gates and nothing is created).
   if (vercelCliAuthenticated()) {
-    addVercelProject(runNamespace);
-    world.cleanup.register(`jolly-cannon-fodder Vercel project (run ${runNamespace})`, () => {
-      removeVercelProject(runNamespace);
+    const project = workerNamespace();
+    addVercelProject(project);
+    world.cleanup.register(`jolly-cannon-fodder Vercel project (${project})`, () => {
+      removeVercelProject(project);
     });
   }
 }
@@ -1652,6 +1655,124 @@ Then(
       blob,
       /ENOENT/,
       `no check or error may leak a raw ENOENT string; got:\n${blob}`,
+    );
+  },
+);
+
+// ─── Scenario: pending Vercel sign-in URL reuse until it expires (@sandbox) ───
+//
+// A real deploy-stage run with NO Vercel session makes Jolly spawn the device
+// sign-in and persist its URL to `.jolly-pending-vercel.json` in the project
+// dir. A re-run within the URL's lifetime reuses the persisted URL rather than
+// spawning a fresh `vercel login`; a re-run after the lifetime discards it and
+// spawns a fresh login. Cloud token only (["saleorCloud"]): the run
+// auto-provisions the store and reaches deploy; the no-session condition comes
+// from the isolated XDG dirs, never a double.
+const PENDING_VERCEL_FILE = ".jolly-pending-vercel.json";
+const VERCEL_SIGNIN_LIFETIME_SECONDS = 600;
+
+/** The Vercel device sign-in URL surfaced in the run's nextSteps, or undefined. */
+function surfacedVercelDeviceUrl(world: JollyWorld): string | undefined {
+  const steps = (world.envelope.nextSteps ?? []) as Array<Record<string, unknown>>;
+  for (const step of steps) {
+    const blob = `${String(step.url ?? "")} ${String(step.description ?? "")}`;
+    const match = blob.match(/https:\/\/vercel\.com\/oauth\/device[^\s"']*/i);
+    if (match) return match[0];
+  }
+  return undefined;
+}
+
+/** A real `jolly start --yes` auto-provision run reaching the deploy stage with
+ * the scenario's no-session XDG, in the scenario's stable project dir (so the
+ * pending-Vercel file persists across re-runs). */
+async function runStartToDeployStage(world: JollyWorld): Promise<void> {
+  const xdg = (world.notes.vercelXdg as Record<string, string>) ?? {};
+  world.runCli(["start", "--yes", "--json"], {
+    env: absentCredentialsEnv({
+      JOLLY_SALEOR_CLOUD_TOKEN: process.env["JOLLY_SALEOR_CLOUD_TOKEN"],
+      JOLLY_STORE_NAME: makeNamespace(world.runId),
+      JOLLY_VERCEL_PROJECT: workerNamespace(),
+      ...xdg,
+    }),
+    timeoutMs: 840_000,
+  });
+}
+
+Given(
+  "`jolly start` reached the deploy stage without `--dry-run` and surfaced a Vercel device sign-in URL",
+  { timeout: 900_000 },
+  async function (this: JollyWorld) {
+    // Real, producible no-session condition (not a double): isolated empty XDG
+    // config/data dirs hold no Vercel auth, so the deploy stage spawns the device
+    // sign-in and surfaces its URL.
+    const dir = this.newTempDir("vercel-config");
+    this.notes.vercelXdg = {
+      XDG_CONFIG_HOME: join(dir, "config"),
+      XDG_DATA_HOME: join(dir, "data"),
+    };
+    await registerSaleorEnvTeardown(this);
+    await runStartToDeployStage(this);
+    const url = surfacedVercelDeviceUrl(this);
+    assert.ok(
+      url,
+      `the first run must surface a Vercel device sign-in URL; got: ${JSON.stringify(this.envelope.nextSteps)}`,
+    );
+    this.notes.firstVercelUrl = url;
+  },
+);
+
+Given("the human has not yet approved the Vercel sign-in", function (this: JollyWorld) {
+  // No approval occurs; the isolated no-session persists. Jolly must have
+  // persisted the pending sign-in so a re-run can reuse it.
+  assert.ok(
+    existsSync(join(this.projectDir, PENDING_VERCEL_FILE)),
+    "Jolly must persist the pending Vercel sign-in so a re-run can reuse it",
+  );
+});
+
+When(
+  "the agent runs `jolly start` again while the sign-in URL is within its lifetime",
+  { timeout: 900_000 },
+  async function (this: JollyWorld) {
+    await runStartToDeployStage(this);
+    this.notes.secondVercelUrl = surfacedVercelDeviceUrl(this);
+  },
+);
+
+Then(
+  "the deploy stage should surface the same Vercel sign-in URL rather than spawning a new login",
+  function (this: JollyWorld) {
+    assert.equal(
+      this.notes.secondVercelUrl,
+      this.notes.firstVercelUrl,
+      "a re-run within the sign-in URL lifetime must reuse the persisted URL, never spawn a fresh login",
+    );
+  },
+);
+
+Then(
+  "a re-run after the sign-in URL is past its lifetime should discard it and spawn a fresh Vercel login",
+  { timeout: 900_000 },
+  async function (this: JollyWorld) {
+    // Age Jolly's own on-disk pending sign-in past its lifetime (real state
+    // manipulation of a persisted file, not a double), so the next run discards it.
+    const pending = join(this.projectDir, PENDING_VERCEL_FILE);
+    const saved = JSON.parse(readFileSync(pending, "utf8")) as {
+      deviceUrl?: string;
+      savedAt?: number;
+    };
+    saved.savedAt = Date.now() - (VERCEL_SIGNIN_LIFETIME_SECONDS + 60) * 1000;
+    writeFileSync(pending, JSON.stringify(saved));
+    await runStartToDeployStage(this);
+    const fresh = surfacedVercelDeviceUrl(this);
+    assert.ok(
+      fresh,
+      `a re-run past the lifetime must spawn a fresh Vercel login and surface a new URL; got: ${JSON.stringify(this.envelope.nextSteps)}`,
+    );
+    assert.notEqual(
+      fresh,
+      this.notes.firstVercelUrl,
+      "a re-run past the sign-in URL lifetime must discard the expired URL and surface a fresh one",
     );
   },
 );

@@ -977,3 +977,74 @@ Then(
     );
   },
 );
+
+// @logic "Jolly quiets npm install-time warnings for the npx tools it spawns":
+// main() defaults NPM_CONFIG_LOGLEVEL to "error" when the caller set none, so
+// every `npx` Jolly spawns with `{ ...process.env }` inherits the quiet level
+// and its warn-level notices (e.g. EBADENGINE) are suppressed; a value the
+// caller already set is preserved. Observed on the REAL CLI process: a Node
+// --import exit hook reads the effective process.env.NPM_CONFIG_LOGLEVEL main()
+// leaves behind — the exact value spawned npx children receive — with no
+// production change and no stand-in.
+const LOGLEVEL_OBSERVER =
+  "data:text/javascript," +
+  encodeURIComponent(
+    'process.on("exit",()=>{try{process.stderr.write("\\n__JOLLY_LOGLEVEL__="+String(process.env.NPM_CONFIG_LOGLEVEL)+"\\n")}catch{}})',
+  );
+
+function observeEffectiveLoglevel(preset?: string): string {
+  const runtime = process.env.HARNESS_CLI_RUNTIME ?? "node";
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v !== undefined) env[k] = v;
+  }
+  delete env["NPM_CONFIG_LOGLEVEL"];
+  delete env["npm_config_loglevel"];
+  if (preset !== undefined) env["NPM_CONFIG_LOGLEVEL"] = preset;
+  const run = spawnSync(runtime, ["--import", LOGLEVEL_OBSERVER, join(REPO_ROOT, "src", "index.ts"), "help"], {
+    env,
+    encoding: "utf8",
+    timeout: 120_000,
+  });
+  const match = /__JOLLY_LOGLEVEL__=(\S*)/.exec(run.stderr ?? "");
+  assert.ok(
+    match,
+    `the CLI run did not report its effective NPM_CONFIG_LOGLEVEL.\nstdout:\n${run.stdout}\nstderr:\n${run.stderr}`,
+  );
+  return match[1]!;
+}
+
+Given("the environment sets no NPM_CONFIG_LOGLEVEL value", function (this: JollyWorld) {
+  assert.equal(
+    process.env["NPM_CONFIG_LOGLEVEL"] ?? "",
+    "",
+    "precondition: the harness process itself must carry no NPM_CONFIG_LOGLEVEL",
+  );
+  assert.equal(process.env["npm_config_loglevel"] ?? "", "");
+});
+
+When("the agent runs a Jolly command", function (this: JollyWorld) {
+  this.notes.effectiveLoglevel = observeEffectiveLoglevel();
+});
+
+Then(
+  "Jolly should default NPM_CONFIG_LOGLEVEL to error so spawned npx tools suppress warn-level notices such as EBADENGINE",
+  function (this: JollyWorld) {
+    assert.equal(
+      this.notes.effectiveLoglevel,
+      "error",
+      "with no caller value, Jolly must default NPM_CONFIG_LOGLEVEL to error for spawned npx tools",
+    );
+  },
+);
+
+Then(
+  "a NPM_CONFIG_LOGLEVEL value the caller already set should be preserved unchanged",
+  function (this: JollyWorld) {
+    assert.equal(
+      observeEffectiveLoglevel("warn"),
+      "warn",
+      "a caller-set NPM_CONFIG_LOGLEVEL must be preserved, never overridden",
+    );
+  },
+);
