@@ -1,0 +1,8 @@
+{
+  "watch1": {
+    "scenarios": [
+      "features/002-v1-end-to-end-saleor-cloud-storefront.feature:jolly start waits for a freshly-provisioned store to serve before completing the store stage",
+      "features/002-v1-end-to-end-saleor-cloud-storefront.feature:jolly start blocks the store stage when a freshly-provisioned store never becomes reachable"
+    ]
+  }
+}

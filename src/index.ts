@@ -3012,6 +3012,7 @@ interface StageOutcome {
  * @planks(`Then the `store` stage status should be "completed", not "pending"`)
  * @planks("Then the envelope `data` should include the new store's `*.saleor.cloud` GraphQL API URL and its Saleor Dashboard URL ending in `.saleor.cloud/dashboard/`")
  * @planks("Then `jolly start` should write that `NEXT_PUBLIC_SALEOR_API_URL` (mirrored to `SALEOR_URL`) and the resolved `SALEOR_TOKEN` to `.env`")
+ * @planks(`Then the `store` stage should report "completed" only once the endpoint answers a live GraphQL probe`)
  */
 async function runStoreStage(
   checks: Check[],
@@ -5036,7 +5037,7 @@ async function dispatch(args: ParsedArgs): Promise<Envelope> {
 /**
  * @planks("When the agent runs `jolly start --frobnicate --json`")
  * @planks("Then Jolly should default NPM_CONFIG_LOGLEVEL to error so spawned npx tools suppress warn-level notices such as EBADENGINE")
- * @planks("When a Jolly command handler throws an unexpected internal error while producing its result")
+ * @planks("Then stdout should carry the JSON envelope rather than a raw stack trace")
  */
 async function main(): Promise<void> {
   // Quiet npm's install-time warnings (e.g. EBADENGINE from a transitive dep of
