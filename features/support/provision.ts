@@ -26,6 +26,7 @@ import { findEnvelope, type Envelope } from "./envelope.ts";
 import { CleanupRegistry, makeNamespace, runId, workerNamespace, type CleanupFailure } from "./sandbox.ts";
 import { REPO_ROOT } from "./world.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
+import { probeEndpointConnectivity } from "../../src/lib/cloud-api.ts";
 
 export type ProvisionOutcome =
   | { status: "ready" }
@@ -279,5 +280,24 @@ export async function provisionSharedEnvironment(): Promise<ProvisionOutcome> {
   }
   process.env["NEXT_PUBLIC_SALEOR_API_URL"] = url;
   process.env["SALEOR_TOKEN"] = saleorToken;
+
+  // Readiness gate. The platform task reporting SUCCEEDED means the environment
+  // RECORD exists, not that its GraphQL endpoint is serving yet: a freshly
+  // provisioned Saleor store answers 404 / 5xx until its instance stands up.
+  // Poll until it actually serves before handing off, so the run's heavy
+  // scenarios never race a cold store — the configurator, which does not retry,
+  // would otherwise fail its deploy against a not-yet-serving endpoint. Bounded;
+  // a store that never becomes reachable is a real fault, so it throws.
+  const readinessDeadline = Date.now() + 180_000;
+  for (;;) {
+    if ((await probeEndpointConnectivity(url)).kind === "reachable") break;
+    if (Date.now() >= readinessDeadline) {
+      throw new Error(
+        `provisioned store ${url} did not become reachable within 180s ` +
+          `(cold-start readiness budget exceeded)`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5_000));
+  }
   return { status: "ready" };
 }
