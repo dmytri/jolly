@@ -107,6 +107,16 @@ export const SANDBOX_REQUIREMENTS: Record<string, CredentialGroup[]> = {
   // endpoint (the scenario's premise is "no NEXT_PUBLIC_SALEOR_API_URL"), so
   // saleorEndpoint/saleorAppToken are deliberately absent here.
   "jolly start auto-provisions a new store when none is configured": ["saleorCloud"],
+  // Readiness gate — "waits": a real `jolly start --yes` auto-provision whose
+  // fresh store genuinely cold-starts, so it needs only the Cloud token and must
+  // NOT pre-derive a store endpoint (the premise is a fresh provision).
+  "jolly start waits for a freshly-provisioned store to serve before completing the store stage":
+    ["saleorCloud"],
+  // Readiness gate — "blocks" (@exceptional-double): a loopback Cloud API
+  // provisions an environment whose endpoint never serves, so no real credential
+  // is needed; it runs anywhere.
+  "jolly start blocks the store stage when a freshly-provisioned store never becomes reachable":
+    [],
   // The live-storefront acceptance check requires an actual deployed storefront
   // URL, which only a full (human-gated) `jolly start` produces — the harness
   // cannot derive it. So it takes NO JOLLY credential group via the hook; the

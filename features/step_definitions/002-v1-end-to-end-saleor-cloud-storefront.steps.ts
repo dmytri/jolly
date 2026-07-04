@@ -27,6 +27,8 @@ import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 
 import { delimiter, join } from "node:path";
 import { loadEnvValues, writeEnvValues } from "../../src/lib/env-file.ts";
 import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
+import { startColdStoreCloudApi, type ColdStoreHarness } from "../support/cold-store-cloud-api.ts";
+import { probeEndpointConnectivity } from "../../src/lib/cloud-api.ts";
 import { deleteEnvironment, listAllEnvironments } from "../support/cloud.ts";
 import { findRiskContexts, assertRiskContextShape } from "../support/envelope.ts";
 import { saleorGraphql } from "../support/saleor-graphql.ts";
@@ -1800,6 +1802,187 @@ Then(
       fresh,
       this.notes.firstVercelUrl,
       "a re-run past the sign-in URL lifetime must discard the expired URL and surface a fresh one",
+    );
+  },
+);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Scenarios: the store stage's cold-start readiness gate (@sandbox @heavy)
+//
+// A freshly-provisioned Saleor Cloud store answers 404 / 5xx until its instance
+// stands up. `runStoreStage` waits for a live GraphQL probe before reporting the
+// store stage `completed`, and blocks (with a re-run remediation) when the
+// endpoint never becomes reachable within the readiness budget.
+//   - "waits" (@sandbox): a REAL `jolly start --yes` auto-provision. The fresh
+//     store genuinely cold-starts, so a `completed` store stage proves the gate
+//     waited — the resulting endpoint answers a live GraphQL probe now.
+//   - "blocks" (@sandbox @exceptional-double): a real store cannot be held
+//     unreachable on demand, so a loopback Cloud API drives the real create path
+//     to environmentCreated = true and hands back a namespaced, non-existent
+//     *.saleor.cloud endpoint the gate probes until the budget elapses.
+//
+// The differentiating `And` selects the path; the shared `When` dispatches on it.
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface ColdStoreNotes {
+  mode: "real" | "double";
+  harness?: ColdStoreHarness;
+}
+
+/** Reclaim leftover jolly-cannon-fodder environments so the org's shared sandbox
+ * environment limit does not reject this run's real provision. Spares this run's
+ * own namespace so a sibling parallel worker's live store is never deleted
+ * (mirrors the suite-start reclaim in provision.ts). */
+async function reclaimLeftoverEnvironments(runNamespace: string): Promise<void> {
+  const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
+  if (!cloudToken) return;
+  for (const env of await listAllEnvironments(cloudToken)) {
+    if (env.name.startsWith("jolly-cannon-fodder-") && !env.name.startsWith(runNamespace)) {
+      await deleteEnvironment(cloudToken, env.org, env.key);
+    }
+  }
+}
+
+Given("`jolly start` auto-provisions a new Saleor Cloud store", function (this: JollyWorld) {
+  // Shared precondition: no store endpoint is configured, so the store stage
+  // provisions one. The differentiating `And` below selects the real cold-start
+  // path or the never-serving exceptional-double. Default to the real path.
+  this.notes.coldStore = { mode: "real" } satisfies ColdStoreNotes;
+});
+
+Given(
+  "the new store's Saleor GraphQL endpoint is briefly not yet serving",
+  function (this: JollyWorld) {
+    // A real fresh Saleor Cloud store IS briefly not-yet-serving during cold
+    // start — the real path exercises exactly this condition.
+    this.notes.coldStore = { mode: "real" } satisfies ColdStoreNotes;
+  },
+);
+
+Given(
+  "the new store's Saleor GraphQL endpoint stays unreachable past the readiness budget",
+  async function (this: JollyWorld) {
+    // @exceptional-double: a real store cold-starts then serves; it cannot be
+    // held unreachable on demand. Point provisioning at a loopback Cloud API that
+    // creates an environment whose *.saleor.cloud endpoint never answers.
+    const harness = await startColdStoreCloudApi(this);
+    this.notes.coldStore = { mode: "double", harness } satisfies ColdStoreNotes;
+  },
+);
+
+When("the store stage runs", { timeout: 900_000 }, async function (this: JollyWorld) {
+  const cold = this.notes.coldStore as ColdStoreNotes;
+  // The behaviour under test is the store stage's readiness gate. Neutralize the
+  // unrelated downstream stages so the run spends its time on that gate, not on
+  // the storefront clone or a live Vercel deploy:
+  //   - a pre-prepared storefront/ (package.json + node_modules) takes the
+  //     storefront stage's idempotent reuse path (no real `git clone` + install);
+  //   - isolated, session-less Vercel XDG dirs make the deploy stage surface a
+  //     pending sign-in and return fast (no live deploy).
+  const storefront = join(this.projectDir, "storefront");
+  mkdirSync(join(storefront, "node_modules"), { recursive: true });
+  writeFileSync(join(storefront, "package.json"), JSON.stringify({ name: "paper", version: "0.0.0" }));
+  const vercelDir = this.newTempDir("vercel-config");
+  const vercelXdg = {
+    XDG_CONFIG_HOME: join(vercelDir, "config"),
+    XDG_DATA_HOME: join(vercelDir, "data"),
+  };
+  if (cold.mode === "double") {
+    // runCliAsync (not runCli): the cold-store Cloud API is an in-process server
+    // the CLI must reach during provisioning; spawnSync would block this worker's
+    // event loop and deadlock it (same reason feature 012's loopback scenario
+    // uses runCliAsync). Loopback provisioning creates no real Cloud resource, so
+    // no Cloud teardown; the harness registers its own server shutdown.
+    await this.runCliAsync(["start", "--yes", "--json"], {
+      env: absentCredentialsEnv({
+        JOLLY_SALEOR_CLOUD_API_URL: cold.harness!.baseUrl,
+        JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN,
+        JOLLY_STORE_NAME: makeNamespace(this.runId),
+        JOLLY_VERCEL_PROJECT: workerNamespace(),
+        ...vercelXdg,
+      }),
+      timeoutMs: 840_000,
+    });
+    return;
+  }
+  // Real auto-provision: a fresh jolly-cannon-fodder store cold-starts for real.
+  // Reclaim leftover jolly-cannon-fodder capacity first (the org's sandbox
+  // environment limit is shared; leaked cannon fodder from a cut-off run would
+  // otherwise reject creation), then register teardown of the new namespaced env.
+  await reclaimLeftoverEnvironments(makeNamespace(this.runId));
+  await registerAutoProvisionTeardown(this);
+  this.runCli(["start", "--yes", "--json"], {
+    env: absentCredentialsEnv({
+      JOLLY_SALEOR_CLOUD_TOKEN: process.env["JOLLY_SALEOR_CLOUD_TOKEN"],
+      JOLLY_STORE_NAME: makeNamespace(this.runId),
+      JOLLY_VERCEL_PROJECT: workerNamespace(),
+      ...vercelXdg,
+    }),
+    timeoutMs: 840_000,
+  });
+});
+
+Then(
+  'the `store` stage should report "completed" only once the endpoint answers a live GraphQL probe',
+  async function (this: JollyWorld) {
+    const store = startStage(this, "store");
+    assert.ok(store, "the orchestrated stages must include the store stage");
+    assert.equal(
+      store!.status,
+      "completed",
+      `the store stage must report completed after the readiness gate; got "${store!.status}"`,
+    );
+    // Proof the completion waited for a live endpoint: the provisioned endpoint
+    // answers a live GraphQL probe now. A gate that did not wait could report
+    // completed against a still-cold (unreachable) endpoint.
+    const endpoint = loadEnvValues(this.lastRun!.cwd)["NEXT_PUBLIC_SALEOR_API_URL"] ?? "";
+    assert.ok(
+      endpoint,
+      "a completed store stage must have written NEXT_PUBLIC_SALEOR_API_URL to .env",
+    );
+    const outcome = await probeEndpointConnectivity(endpoint);
+    assert.equal(
+      outcome.kind,
+      "reachable",
+      `a completed store stage's endpoint must answer a live GraphQL probe: ${endpoint}`,
+    );
+  },
+);
+
+Then(
+  'the `store` stage status should be "blocked", not "completed"',
+  function (this: JollyWorld) {
+    const store = startStage(this, "store");
+    assert.ok(store, "the orchestrated stages must include the store stage");
+    assert.equal(
+      store!.status,
+      "blocked",
+      `the store stage must block when the endpoint never becomes reachable; got "${store!.status}"`,
+    );
+  },
+);
+
+Then(
+  "the remediation should tell the human the store may still be starting up and to re-run `jolly start`",
+  function (this: JollyWorld) {
+    const check = this.envelope.checks.find(
+      (c) =>
+        c.id === "store-provisioned" &&
+        typeof c.remediation === "string" &&
+        c.remediation.length > 0,
+    );
+    assert.ok(
+      check,
+      `the blocked store stage must carry a store-provisioned check with remediation: ${JSON.stringify(this.envelope.checks)}`,
+    );
+    const remediation = String(check!.remediation).toLowerCase();
+    assert.ok(
+      /starting up|still.*start/.test(remediation),
+      `the remediation must say the store may still be starting up: "${check!.remediation}"`,
+    );
+    assert.ok(
+      /jolly start/.test(remediation),
+      `the remediation must tell the human to re-run \`jolly start\`: "${check!.remediation}"`,
     );
   },
 );
