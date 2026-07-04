@@ -91,6 +91,9 @@ export async function listAllEnvironments(
  * Idempotent environment deletion: 404 = already gone. The platform can
  * reject deletion while provisioning tasks still block the environment, so
  * retry briefly — a creation that timed out mid-poll must still be removable.
+ * The DELETE goes through cloudFetchRetry, so a TRANSIENT thrown network fault
+ * (`TypeError: fetch failed`) during teardown is retried rather than crashing
+ * the AfterAll and masking a run whose scenarios all passed.
  */
 export async function deleteEnvironment(
   token: string,
@@ -99,7 +102,7 @@ export async function deleteEnvironment(
 ): Promise<void> {
   const maxAttempts = 6;
   for (let attempt = 1; ; attempt++) {
-    const response = await fetch(
+    const response = await cloudFetchRetry(
       `${CLOUD_API}/organizations/${org}/environments/${key}/`,
       { method: "DELETE", headers: { Authorization: `Token ${token}` } },
     );
