@@ -3062,6 +3062,27 @@ async function runStoreStage(
       domainLabel,
       region: "us-east-1",
     });
+    // A freshly-created Saleor environment answers 404/5xx until its store
+    // instance stands up. Wait for it to actually serve before reporting the
+    // stage completed, so the recipe/deploy stages that immediately follow this
+    // one do not run against a cold endpoint (the spawned configurator does not
+    // retry, so it would fail its deploy with "unable to connect"). A reused
+    // environment is already serving, so only a newly created one needs the wait.
+    if (result.environmentCreated && result.graphqlApiUrl) {
+      const readinessDeadline = Date.now() + 180_000;
+      while ((await probeEndpointConnectivity(result.graphqlApiUrl)).kind !== "reachable") {
+        if (Date.now() >= readinessDeadline) {
+          checks.push({
+            id: "store-provisioned",
+            status: "fail",
+            description: `Provisioned Saleor Cloud environment "${result.environmentName}" in "${selectedOrg}", but its Saleor endpoint did not become reachable within 180s.`,
+            remediation: "The store may still be starting up. Re-run jolly start --yes in a few moments.",
+          });
+          return { status: "blocked" };
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+      }
+    }
     checks.push({
       id: "store-provisioned",
       status: "pass",
