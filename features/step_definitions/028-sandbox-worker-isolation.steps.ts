@@ -64,6 +64,94 @@ Then(
   },
 );
 
+// Scenario 3: the @sandbox tier's run profiles are shaped for per-worker
+// parallel bulk execution plus a serial env-creating phase. The seam under test
+// is cucumber.js's exported run profiles (the "test tiers and harness mechanics"
+// config). Importing the config module enumerates its real profile objects.
+interface CucumberProfile {
+  tags?: string;
+  parallel?: number;
+}
+
+Given(
+  "the project's cucumber run profiles",
+  async function (this: JollyWorld) {
+    const configUrl = new URL("../../cucumber.js", import.meta.url);
+    const mod = (await import(configUrl.href)) as Record<string, unknown>;
+    const profiles: Record<string, CucumberProfile> = {};
+    for (const [name, value] of Object.entries(mod)) {
+      if (value && typeof value === "object" && "tags" in (value as object)) {
+        profiles[name] = value as CucumberProfile;
+      }
+    }
+    this.notes.profiles = profiles;
+  },
+);
+
+When(
+  "the @sandbox run profiles are enumerated",
+  function (this: JollyWorld) {
+    const profiles = this.notes.profiles as Record<string, CucumberProfile>;
+    this.notes.sandboxProfiles = Object.entries(profiles).filter(
+      ([, p]) => typeof p.tags === "string" && p.tags.includes("@sandbox"),
+    );
+  },
+);
+
+Then(
+  "the bulk @sandbox profile runs its workers in parallel and excludes the @creates-env scenarios",
+  function (this: JollyWorld) {
+    const sandboxProfiles = this.notes.sandboxProfiles as [
+      string,
+      CucumberProfile,
+    ][];
+    const parallel = sandboxProfiles.filter(
+      ([, p]) => typeof p.parallel === "number" && p.parallel >= 2,
+    );
+    assert.equal(
+      parallel.length,
+      1,
+      `expected exactly one parallel @sandbox profile, found ${parallel.length}: ` +
+        JSON.stringify(sandboxProfiles),
+    );
+    const [name, profile] = parallel[0];
+    assert.ok(
+      profile.tags!.includes("not @creates-env"),
+      `bulk @sandbox profile "${name}" tags "${profile.tags}" do not exclude ` +
+        `the @creates-env scenarios`,
+    );
+  },
+);
+
+Then(
+  "a separate profile runs the @creates-env scenarios serially",
+  function (this: JollyWorld) {
+    const sandboxProfiles = this.notes.sandboxProfiles as [
+      string,
+      CucumberProfile,
+    ][];
+    const createsEnv = sandboxProfiles.filter(
+      ([, p]) =>
+        typeof p.tags === "string" &&
+        p.tags.includes("@creates-env") &&
+        !p.tags.includes("not @creates-env"),
+    );
+    assert.equal(
+      createsEnv.length,
+      1,
+      `expected exactly one @creates-env @sandbox profile, found ` +
+        `${createsEnv.length}: ${JSON.stringify(sandboxProfiles)}`,
+    );
+    const [name, profile] = createsEnv[0];
+    const workers = profile.parallel ?? 1;
+    assert.ok(
+      workers <= 1,
+      `env-creating profile "${name}" runs ${workers} workers in parallel; ` +
+        `the @creates-env phase must run serially`,
+    );
+  },
+);
+
 function assertDistinctNamespacedNames([a, b]: [string, string]): void {
   assert.ok(
     a.startsWith("jolly-cannon-fodder-"),

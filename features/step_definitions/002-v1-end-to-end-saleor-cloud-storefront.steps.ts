@@ -23,7 +23,7 @@
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { loadEnvValues, writeEnvValues } from "../../src/lib/env-file.ts";
 import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
@@ -1236,6 +1236,33 @@ Given(
       // Namespace the Vercel project per worker, so a deploy is jolly-cannon-fodder
       // cannon fodder the teardown reclaims and no two workers share a project
       // (harmless-by-design + per-worker isolation).
+      JOLLY_VERCEL_PROJECT: workerNamespace(),
+    });
+  },
+);
+
+// --- Shared Given: a prepared storefront directory with malformed package.json ---
+//     (feature 020: unexpected-error envelope) --------------------------------
+//
+// A prepared storefront reuses storefront/ instead of re-cloning: the storefront
+// stage sees storefront/package.json and skips the clone (src/index.ts
+// runStorefrontStage). With no node_modules it then parses that package.json to
+// approve Paper's build scripts, and malformed JSON throws an UNEXPECTED internal
+// error deep in the run. The scenario asserts that throw surfaces as the stable
+// error envelope, never a raw crash. Reach the storefront stage through the same
+// real cannon-fodder start env the auto-provision run uses (real Cloud token,
+// per-run namespaced store, per-worker Vercel project), reclaimed by the shared
+// When's teardown.
+Given(
+  "a prepared storefront directory whose `package.json` is malformed JSON",
+  function (this: JollyWorld) {
+    const storefront = join(this.projectDir, "storefront");
+    mkdirSync(storefront, { recursive: true });
+    writeFileSync(join(storefront, "package.json"), "{ this is not valid json ");
+    const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? STAND_IN_TOKEN;
+    this.notes.startEnv = absentCredentialsEnv({
+      JOLLY_SALEOR_CLOUD_TOKEN: cloudToken,
+      JOLLY_STORE_NAME: makeNamespace(this.runId),
       JOLLY_VERCEL_PROJECT: workerNamespace(),
     });
   },

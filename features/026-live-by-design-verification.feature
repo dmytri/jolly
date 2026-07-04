@@ -17,14 +17,14 @@ Feature: Live-by-design verification conformance
     Then the seed should include only the credentials the agent needs to authenticate — the Saleor Cloud token and any Cloud API override
     And it should omit the store endpoint `NEXT_PUBLIC_SALEOR_API_URL` and the `SALEOR_TOKEN`, so a baseline agent's `jolly start` provisions a fresh `jolly-cannon-fodder` store on the real creation path instead of reusing a pre-seeded one
 
-  @sandbox
+  @sandbox @creates-env
   Scenario: The eval reclaims a leftover jolly-cannon-fodder environment before a run provisions
     Given a leftover `jolly-cannon-fodder`-namespaced Saleor environment standing in the org from a previous run
     When the eval performs its pre-run capacity reclamation
     Then the leftover `jolly-cannon-fodder`-namespaced environment should no longer exist in the org
     And every environment lacking the `jolly-cannon-fodder` prefix should still be present afterward
 
-  @sandbox
+  @sandbox @creates-env
   Scenario: The @sandbox provisioner reclaims a leftover jolly-cannon-fodder environment instead of skipping the run
     Given a leftover `jolly-cannon-fodder`-namespaced Saleor environment standing in the org from a previous run
     When the @sandbox harness provisions its shared environment for a run

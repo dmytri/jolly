@@ -61,7 +61,7 @@ Feature: Existing Saleor store connection
     # Real execution (task polling, domain extraction, env writes) is pinned by
     # the @sandbox scenario "Jolly creates a Saleor Cloud environment" below.
 
-  @sandbox
+  @sandbox @creates-env
   Scenario: Jolly create store reuses an existing same-label environment instead of duplicating it
     Given this run has already created an environment with a jolly-cannon-fodder-namespaced domain label
     When the agent requests another environment with the same domain label
@@ -84,7 +84,7 @@ Feature: Existing Saleor store connection
     And the output should name the organization slug Jolly selected
     And the output should advise re-running with `--organization <slug>` if the selection is wrong
 
-  @sandbox
+  @sandbox @creates-env
   Scenario: Jolly creates a Saleor Cloud environment
     Given the agent has a Saleor Cloud token authenticated via JOLLY_SALEOR_CLOUD_TOKEN
     And no leftover jolly-cannon-fodder environment remains from a previous run

@@ -879,6 +879,68 @@ Then(
   },
 );
 
+// --- Scenario: An unexpected internal error surfaces as a stable envelope ----
+//
+// An unexpected internal throw (feature 020 Rule) must be caught at the top level
+// and rendered as the shared error envelope with the stable UNEXPECTED_ERROR
+// code, never a raw stack trace on stdout. The Given (feature 002 steps) plants a
+// malformed storefront/package.json so a real `jolly start --yes --json` run
+// throws deep in the storefront stage.
+
+Then(
+  "the envelope status should be {string} with the stable `code` {string}",
+  function (this: JollyWorld, status: string, code: string) {
+    assert.equal(
+      this.envelope.status,
+      status,
+      `envelope status must be "${status}" for an unexpected internal error; ` +
+        `got "${this.envelope.status}"`,
+    );
+    const codes = this.envelope.errors.map((e) => e.code);
+    assert.ok(
+      codes.includes(code),
+      `errors[] must carry the stable code ${code}; got ${JSON.stringify(codes)}`,
+    );
+  },
+);
+
+Then(
+  "the `errors` remediation should tell the agent to re-run with `--json` and report the error code",
+  function (this: JollyWorld) {
+    const entry =
+      this.envelope.errors.find((e) => e.code === "UNEXPECTED_ERROR") ??
+      this.envelope.errors[0];
+    assert.ok(entry, "expected at least one error entry");
+    const remediation = String((entry as { remediation?: unknown }).remediation ?? "");
+    assert.match(
+      remediation,
+      /--json/,
+      `remediation must tell the agent to re-run with --json; got: "${remediation}"`,
+    );
+    assert.match(
+      remediation,
+      /code/i,
+      `remediation must tell the agent to report the error code; got: "${remediation}"`,
+    );
+  },
+);
+
+Then(
+  "stdout should carry the JSON envelope rather than a raw stack trace",
+  function (this: JollyWorld) {
+    const run = this.lastRun!;
+    assert.ok(
+      run.envelope,
+      `stdout must carry the JSON envelope; got:\n${run.stdout}`,
+    );
+    assert.doesNotMatch(
+      run.stdout,
+      /\n\s+at\s+.+:\d+:\d+/,
+      `stdout must not carry a raw stack trace; got:\n${run.stdout}`,
+    );
+  },
+);
+
 Then("nothing should be written to .env", function (this: JollyWorld) {
   // A refused request must not write any Jolly-managed credential to .env. The
   // strongest form is that the refused command created no .env at all; if one
