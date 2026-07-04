@@ -114,7 +114,7 @@ Feature: Jolly CLI output contract
     And the error message should name the refused host evil.example.com
     And nothing should be written to .env
 
-  @sandbox
+  @sandbox @heavy
   Scenario: An unexpected internal error surfaces as a stable error envelope, never a raw crash
     Given a prepared storefront directory whose `package.json` is malformed JSON
     When the agent runs `jolly start --yes --json`

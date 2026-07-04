@@ -3,7 +3,7 @@ Feature: Jolly Configurator starter recipe
   I want a Jolly-specific Configurator recipe
   So that the Saleor store is configured to work with the Paper storefront immediately
 
-  @sandbox
+  @sandbox @heavy
   Scenario: Jolly prepares the starter recipe
     Given the customer has created or selected a Saleor Cloud environment
     When the agent runs `jolly start --dry-run --json`
@@ -12,7 +12,7 @@ Feature: Jolly Configurator starter recipe
     And the plan should deploy it by spawning `npx @saleor/configurator@latest deploy`
     And the plan should name the deploy token as `SALEOR_TOKEN` (the resolved store token Jolly holds)
 
-  @sandbox
+  @sandbox @heavy
   Scenario: Jolly blocks a recipe re-deploy over a pre-existing store's destructive diff
     Given a Saleor Cloud environment that already holds catalog data
     When the agent runs `jolly start --yes` to apply the starter recipe to Saleor Cloud
@@ -29,7 +29,7 @@ Feature: Jolly Configurator starter recipe
     And the preview should name the real Saleor GraphQL request, the recipe warehouse, and the default per-variant quantity
     And the preview should not perform any mutation
 
-  @sandbox
+  @sandbox @heavy
   Scenario: Jolly start seeds stock so the recipe catalog is buyable
     Given a freshly created Saleor Cloud environment with the starter recipe deployed
     When Jolly start completes the recipe stage
@@ -73,7 +73,7 @@ Feature: Jolly Configurator starter recipe
     And the overall envelope status should be "warning", not "success"
     And Jolly should not print a fabricated deployment result
 
-  @sandbox
+  @sandbox @heavy
   Scenario: Jolly start deploys the starter recipe with @saleor/configurator
     Given a freshly created blank Saleor Cloud environment
     When Jolly start runs the configurator-deploy stage with approval
@@ -82,14 +82,14 @@ Feature: Jolly Configurator starter recipe
     And the stage should be reported completed only when the configurator's deployment report records success
     And re-running the stage should reconcile to a no-op diff rather than creating duplicate entities
 
-  @sandbox
+  @sandbox @heavy
   Scenario: Jolly start deploys the recipe over the stock defaults of a store created by a prior create-store command
     Given a blank Saleor Cloud environment created by a prior `jolly create store --create-environment` and recorded in `.env`
     When the agent runs `jolly start --yes` and the run reaches the configurator-deploy stage
     Then the recipe stage should be reported "completed", not "blocked"
     And the recipe's `us` channel should exist and be active in the store
 
-  @sandbox
+  @sandbox @heavy
   Scenario: Jolly start confirms the recipe's featured collection exists before reporting the recipe stage completed
     Given a freshly created blank Saleor Cloud environment
     When Jolly start runs the configurator-deploy stage with approval

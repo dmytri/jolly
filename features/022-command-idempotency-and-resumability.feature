@@ -7,7 +7,7 @@ Feature: Command idempotency and resumability
     Given `jolly start` bootstraps setup and runs the mechanical stages by spawning official CLIs
     And the agent may also invoke individual `jolly create` subcommands at its own discretion
 
-  @sandbox
+  @sandbox @heavy
   Scenario Outline: Re-running a create subcommand detects existing work
     Given `<command>` has already completed its resource
     When the agent runs `<command>` again
@@ -20,7 +20,7 @@ Feature: Command idempotency and resumability
       | command                 |
       | jolly create store      |
 
-  @sandbox
+  @sandbox @heavy
   Scenario: Jolly start resumes bootstrap and reflects stage progress
     Given a previous `jolly start` run completed some bootstrap work but not all
     When the agent runs `jolly start` again
@@ -28,14 +28,14 @@ Feature: Command idempotency and resumability
     And it should detect end-to-end progress already present in observable artifacts — a cloned storefront directory, a configured store, a Vercel deployment — and report those stages as done
     And it should continue from the first stage still outstanding rather than redoing completed work
 
-  @sandbox
+  @sandbox @heavy
   Scenario: Jolly recognizes externally-produced work
     Given a cloned storefront, configured store, or deployment already exists — whether produced by `jolly start` or by the agent running a stage itself
     When the agent later runs `jolly doctor` or `jolly start`
     Then Jolly should detect that state from its observable artifacts (the storefront directory, the store configuration, the deployment) and treat it as satisfied
     And it should not ask the agent to redo it
 
-  @sandbox
+  @sandbox @heavy
   Scenario: Composed subcommands and start agree on state
     Given the agent has already run individual `jolly create` subcommands
     When the agent later runs `jolly start`

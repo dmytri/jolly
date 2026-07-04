@@ -19,7 +19,7 @@ Feature: Structured agent risk context
     And it should include the expected `sideEffects`
     And it should include whether a dry run is available via `dryRunAvailable`
 
-  @sandbox
+  @sandbox @heavy
   Scenario: Risk context is consistent across preview and execution
     Given the agent previews `jolly create store --create-environment --dry-run --json`
     When it later runs `jolly create store --create-environment --json` for real

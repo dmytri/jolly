@@ -99,7 +99,7 @@ When(
 );
 
 Then(
-  "the bulk @sandbox profile runs its workers in parallel and excludes the @creates-env scenarios",
+  "the parallel @sandbox profile runs its workers in parallel and excludes the heavy scenarios",
   function (this: JollyWorld) {
     const sandboxProfiles = this.notes.sandboxProfiles as [
       string,
@@ -116,38 +116,38 @@ Then(
     );
     const [name, profile] = parallel[0];
     assert.ok(
-      profile.tags!.includes("not @creates-env"),
-      `bulk @sandbox profile "${name}" tags "${profile.tags}" do not exclude ` +
-        `the @creates-env scenarios`,
+      profile.tags!.includes("not @heavy"),
+      `parallel @sandbox profile "${name}" tags "${profile.tags}" do not exclude ` +
+        `the heavy scenarios`,
     );
   },
 );
 
 Then(
-  "a separate profile runs the @creates-env scenarios serially",
+  "a separate profile runs the heavy scenarios serially",
   function (this: JollyWorld) {
     const sandboxProfiles = this.notes.sandboxProfiles as [
       string,
       CucumberProfile,
     ][];
-    const createsEnv = sandboxProfiles.filter(
+    const serial = sandboxProfiles.filter(
       ([, p]) =>
         typeof p.tags === "string" &&
-        p.tags.includes("@creates-env") &&
-        !p.tags.includes("not @creates-env"),
+        p.tags.includes("@heavy") &&
+        !p.tags.includes("not @heavy"),
     );
     assert.equal(
-      createsEnv.length,
+      serial.length,
       1,
-      `expected exactly one @creates-env @sandbox profile, found ` +
-        `${createsEnv.length}: ${JSON.stringify(sandboxProfiles)}`,
+      `expected exactly one heavy-serial @sandbox profile, found ` +
+        `${serial.length}: ${JSON.stringify(sandboxProfiles)}`,
     );
-    const [name, profile] = createsEnv[0];
+    const [name, profile] = serial[0];
     const workers = profile.parallel ?? 1;
     assert.ok(
       workers <= 1,
-      `env-creating profile "${name}" runs ${workers} workers in parallel; ` +
-        `the @creates-env phase must run serially`,
+      `heavy @sandbox profile "${name}" runs ${workers} workers in parallel; ` +
+        `heavy scenarios must run serially`,
     );
   },
 );

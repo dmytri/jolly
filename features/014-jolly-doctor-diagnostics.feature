@@ -71,7 +71,7 @@ Feature: Jolly doctor diagnostics
     Then the "vercel-auth" check should read the session by running `vercel whoami`
     And the "vercel-auth" check should be "pass"
 
-  @sandbox
+  @sandbox @heavy
   Scenario: Jolly start runs doctor automatically
     Given `jolly start` has completed setup steps
     When the agent runs `jolly start --json`

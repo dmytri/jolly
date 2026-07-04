@@ -134,7 +134,7 @@ Feature: Human-facing interactive CLI experience
     And the human result on stdout should carry no per-check `[status] check-id` enumeration line
     And the human result on stdout should carry no `next:` command line
 
-  @sandbox
+  @sandbox @heavy
   Scenario: A completed interactive start closes by naming the live store and the remaining human step
     Given a Saleor Cloud token is configured
     And a fresh empty project directory

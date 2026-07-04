@@ -7,7 +7,7 @@ Feature: Jolly iteration phase support
     Given `jolly init` has completed
     And a deployed storefront URL in .env
 
-  @sandbox
+  @sandbox @heavy
   Scenario: Agent has live store access from day one
     Given jolly init has completed
     When the agent runs a products query through mcp-graphql

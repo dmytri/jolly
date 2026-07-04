@@ -30,16 +30,21 @@ export default { ...common, tags: "not @eval" };
 // The logic tier is pure local behavior with no shared external state, so it runs
 // in parallel for fast status/worklist feedback. The sandbox tier gives EACH
 // worker its own isolated jolly-cannon-fodder environment, namespaced by run id +
-// worker id (features/support/provision.ts, features/support/sandbox.ts). No two
-// bulk workers share a store, so concurrent `jolly start` deploys + store queries
-// never pile onto one instance — the failure mode that forced the earlier shared-
-// store serial run. The free org holds TWO concurrent environments, so the bulk
-// worker count is capped at two (parallel:2). The env-creating scenarios run in a
-// separate serial phase (tagged @creates-env) so they claim the slot the parallel
-// bulk frees, never contending with it for the two-environment budget.
+// worker id (features/support/provision.ts, features/support/sandbox.ts). Isolation
+// removes cross-worker COLLISION, but MEASURED against the free org it does not
+// remove concurrent LOAD: two workers each running a full `jolly start` (provision
+// + configurator deploy + storefront + Vercel) drive the free instance to
+// sustained not-serving (503 / "unable to connect"), which no retry budget rides
+// out. So the tier is a heavy/light phase split. HEAVY scenarios (a full
+// `jolly start` / real deploy / provision, tagged @heavy) run SERIAL — the free
+// instance sustains exactly one heavy stream. The env-creating scenarios
+// (@creates-env) also run serial, since they need a slot the parallel phase's two
+// isolated envs would consume. Everything else is a light query/check that runs in
+// parallel across the two isolated worker envs. Real parallel speedup on the heavy
+// bulk needs a paid instance; on the free org, serial-heavy is the reliable point.
 export const logic = { ...common, tags: "@logic", parallel: 2 };
-export const sandbox = { ...common, tags: "@sandbox and not @creates-env", parallel: 2 };
-export const sandboxCreatesEnv = { ...common, tags: "@sandbox and @creates-env", parallel: 1 };
+export const sandbox = { ...common, tags: "@sandbox and not @heavy and not @creates-env", parallel: 2 };
+export const sandboxSerial = { ...common, tags: "@sandbox and (@heavy or @creates-env)", parallel: 1 };
 
 // The eval profile runs ONLY the opt-in @eval tier (feature 025). `eval` is a
 // reserved identifier, so it is exported under that name via an alias.
