@@ -46,7 +46,10 @@ const server = createServer((req, res) => {
     }
     if (req.method === "POST" && url.includes("/token")) {
       // The human approval cannot be produced on demand; approve on the first
-      // poll so the real poll-and-store path completes without waiting.
+      // poll so the real poll-and-store path completes without waiting. The same
+      // endpoint answers the refresh grant (grant_type=refresh_token) with a
+      // fresh marker-stamped access token, so Jolly's real refresh-and-store path
+      // completes headlessly.
       const now = Math.floor(Date.now() / 1000);
       res.statusCode = 200;
       res.end(
@@ -57,6 +60,33 @@ const server = createServer((req, res) => {
           expires_in: 300,
         }),
       );
+      return;
+    }
+    if (req.method === "GET" && url.includes("/organizations")) {
+      // The platform-API organizations read Jolly makes with the refreshed
+      // `Authorization: Bearer <access>` token. Returns an org ONLY when a
+      // marker-stamped token this host issued is presented, so a scenario proves
+      // Jolly actually made the Bearer read (not that Saleor's auth works — the
+      // real device-grant token cannot be produced on demand, hence this double).
+      const auth = req.headers["authorization"] || "";
+      const bearer = /^Bearer\s+(.+)$/.exec(auth);
+      let issued = false;
+      if (bearer) {
+        try {
+          const part = bearer[1].split(".")[1];
+          const payload = JSON.parse(Buffer.from(part, "base64url").toString());
+          issued = payload.marker === MARKER;
+        } catch {
+          issued = false;
+        }
+      }
+      if (!issued) {
+        res.statusCode = 401;
+        res.end(JSON.stringify({ error: "unauthorized" }));
+        return;
+      }
+      res.statusCode = 200;
+      res.end(JSON.stringify([{ slug: "jolly-fake-org", name: "Jolly Fake Org" }]));
       return;
     }
     res.statusCode = 404;

@@ -116,11 +116,12 @@ Feature: Jolly auth commands
     access token has expired, mints a fresh access token through the refresh grant
     (`grant_type=refresh_token`, `client_id=jolly`) rather than failing or re-prompting.
 
-    @sandbox @exceptional-double
+    @logic @exceptional-double
     Scenario: An expired access token is refreshed from the stored refresh token
-      # @exceptional-double: the authorized grant is seeded from the harness's stored refresh
-      # token (a human authorize cannot be produced on demand); the refresh-grant call and the
-      # platform-API read it enables are real.
+      # @exceptional-double: a human-authorized device-grant token pair cannot be produced on
+      # demand, so the local fake auth host issues the refresh grant and answers the platform
+      # organizations read. Jolly's real detect-expiry, refresh, store, and Bearer-read flow runs
+      # headlessly against it — proving Jolly does the flow, not that Saleor's auth accepts it.
       Given an expired device-grant access token in JOLLY_SALEOR_ACCESS_TOKEN and its refresh token in JOLLY_SALEOR_REFRESH_TOKEN
       When the agent runs `jolly doctor saleor --json`
       Then it should mint a fresh access token through the refresh grant at `https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/token`

@@ -881,6 +881,20 @@ Then(
   },
 );
 
+Then(
+  'the {string} check should be {string} naming the organization slug the fake auth host returned',
+  function (this: JollyWorld, id: string, status: string) {
+    const check = this.findCheck(id);
+    assert.ok(check, `doctor saleor must report a \`${id}\` check`);
+    assert.equal(check!.status, status, `${id} must be "${status}" via the refreshed Bearer read`);
+    assert.match(
+      JSON.stringify(check),
+      /jolly-fake-org/,
+      `the ${id} pass must name the organization slug the fake auth host returned (jolly-fake-org)`,
+    );
+  },
+);
+
 // Scenario: Doctor validates stored device-grant credentials with Bearer (@sandbox @exceptional-double)
 // The Given/When are shared with feature 018's refresh scenario (the device-grant
 // Given seeds notes.saleorDoctorEnv; the When is the saleor-doctor run above). The
@@ -913,15 +927,15 @@ Then(
 
 Then(
   "the check must not report {string} from the refresh token's presence alone",
-  async function (this: JollyWorld, passWord: string) {
+  function (this: JollyWorld, passWord: string) {
     const check = cloudTokenCheck(this);
-    // A presence-only verdict could not carry the org identity the real Bearer
-    // GET returned; require that response-derived evidence to back any pass.
-    const slugs = await realOrgSlugs(this);
+    // A presence-only verdict could not carry the org identity the Bearer GET
+    // returned; require that response-derived evidence (the fake host's org slug)
+    // to back any pass.
     const text = JSON.stringify(check);
     assert.ok(
-      check.status !== passWord || slugs.some((slug) => text.includes(slug)),
-      `${passWord} must be backed by the real organizations response, not the refresh token's presence`,
+      check.status !== passWord || text.includes("jolly-fake-org"),
+      `${passWord} must be backed by the organizations response, not the refresh token's presence`,
     );
   },
 );

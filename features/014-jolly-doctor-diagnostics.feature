@@ -164,15 +164,16 @@ Feature: Jolly doctor diagnostics
     Then the "saleor-cloud-token" check should be "warning"
     And the check message should state the value looks like a store access token rather than a Cloud staff token and direct the customer to run `jolly login` to sign in through the Saleor device authorization grant
 
-  @sandbox @exceptional-double
+  @logic @exceptional-double
   Scenario: Doctor validates stored device-grant credentials with Bearer
-    # @exceptional-double: a human authorize cannot be produced on demand in CI, so the stored
-    # device-grant refresh token is seeded from the harness; the refresh grant and the Bearer
-    # probe of the platform API it enables are real.
+    # @exceptional-double: a human-authorized device-grant token pair cannot be produced on
+    # demand, so the local fake auth host issues the refresh grant and answers the platform
+    # organizations read. Doctor's real refresh + Bearer-read flow runs headlessly against it —
+    # proving Jolly does the flow, not that Saleor's auth accepts the token.
     Given an expired device-grant access token in JOLLY_SALEOR_ACCESS_TOKEN and its refresh token in JOLLY_SALEOR_REFRESH_TOKEN
     When the agent runs `jolly doctor saleor --json`
     Then the "saleor-cloud-token" check should mint a fresh access token and authenticate an `Authorization: Bearer` read of the Cloud API organizations endpoint
-    And the "saleor-cloud-token" check should be "pass" naming the authenticated organization slug from the real response
+    And the "saleor-cloud-token" check should be "pass" naming the organization slug the fake auth host returned
     And the check must not report "pass" from the refresh token's presence alone
 
   @sandbox

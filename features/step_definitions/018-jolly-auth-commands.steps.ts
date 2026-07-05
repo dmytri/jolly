@@ -448,25 +448,27 @@ function makeExpiredAccessJwt(): string {
 
 Given(
   "an expired device-grant access token in JOLLY_SALEOR_ACCESS_TOKEN and its refresh token in JOLLY_SALEOR_REFRESH_TOKEN",
-  function (this: JollyWorld) {
-    // A real stored device-grant refresh token is present by fitting-out (a human
-    // authorizes the device grant once; the refresh token is stored in .env). The
-    // refresh grant below mints a fresh access token against the real realm.
-    const refresh = process.env["JOLLY_SALEOR_REFRESH_TOKEN"];
-    assert.ok(
-      refresh && refresh.trim() !== "",
-      "fitting out must provide JOLLY_SALEOR_REFRESH_TOKEN (a stored device-grant refresh token)",
-    );
-    this.trackSecret(refresh!);
+  async function (this: JollyWorld) {
+    // @exceptional-double: a device-grant token pair a human authorized cannot be
+    // produced on demand, so the local fake auth host issues the refresh grant and
+    // answers the platform organizations read with a marker-stamped token. Jolly's
+    // real detect-expiry, refresh, store, and Bearer-read path runs headlessly
+    // against it — proving Jolly does the flow, not that Saleor's auth accepts it.
+    const realmBase = await startFakeAuthHost(this);
+    const cloudApiBase = realmBase.replace("/realms/saleor-cloud", "/platform/api");
+    const refresh = "jolly-fake-device-grant-refresh";
+    this.trackSecret(refresh);
     const expiredAccess = makeExpiredAccessJwt();
     this.notes.expiredAccess = expiredAccess;
     this.trackSecret(expiredAccess);
     // No Cloud staff token (absentCredentialsEnv unsets it), so the platform-API
-    // scheme is the device-grant Bearer token, not Token. The expired access
-    // token + real refresh token drive the refresh grant.
+    // scheme is the device-grant Bearer token, not Token. The expired access token
+    // drives the refresh grant; the fake host issues and accepts the fresh token.
     this.notes.saleorDoctorEnv = absentCredentialsEnv({
       JOLLY_SALEOR_ACCESS_TOKEN: expiredAccess,
       JOLLY_SALEOR_REFRESH_TOKEN: refresh,
+      JOLLY_SALEOR_AUTH_URL: realmBase,
+      JOLLY_SALEOR_CLOUD_API_URL: cloudApiBase,
     });
   },
 );
