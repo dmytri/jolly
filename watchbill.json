@@ -1,7 +1,0 @@
-{
-  "watch1": {
-    "scenarios": [
-      "features/002-v1-end-to-end-saleor-cloud-storefront.feature:jolly start makes the Vercel project turnkey for a plain re-deploy"
-    ]
-  }
-}
