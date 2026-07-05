@@ -449,11 +449,13 @@ function makeExpiredAccessJwt(): string {
 Given(
   "an expired device-grant access token in JOLLY_SALEOR_ACCESS_TOKEN and its refresh token in JOLLY_SALEOR_REFRESH_TOKEN",
   function (this: JollyWorld) {
-    // @sandbox capability gate guarantees a real stored refresh token is present.
+    // A real stored device-grant refresh token is present by fitting-out (a human
+    // authorizes the device grant once; the refresh token is stored in .env). The
+    // refresh grant below mints a fresh access token against the real realm.
     const refresh = process.env["JOLLY_SALEOR_REFRESH_TOKEN"];
     assert.ok(
       refresh && refresh.trim() !== "",
-      "the @exceptional-double gate must have ensured a stored device-grant refresh token is present",
+      "fitting out must provide JOLLY_SALEOR_REFRESH_TOKEN (a stored device-grant refresh token)",
     );
     this.trackSecret(refresh!);
     const expiredAccess = makeExpiredAccessJwt();
