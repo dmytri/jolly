@@ -4050,15 +4050,30 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
         ? `The deployed storefront${deployedUrl ? ` (${deployedUrl})` : ""} is built against the Saleor Cloud endpoint and reaches Saleor Cloud (verified by a live GraphQL probe).`
         : `The deployed storefront${deployedUrl ? ` (${deployedUrl})` : ""} is built against Saleor Cloud, but live connectivity to the endpoint could not be verified in this run.`,
     });
+    // Link storefront/ to the project so the env commands operate on it: a
+    // `vercel deploy --project <name>` targets the project but does NOT link the
+    // working dir, and `vercel env add`/`ls` require a linked project. Link it
+    // now so persistence lands and a plain `npx vercel deploy` re-deploy uses it.
+    if (vercelProject) {
+      spawnSync(
+        "npx",
+        ["--yes", VERCEL_PKG, "link", "--yes", "--project", vercelProject],
+        { cwd: dir, encoding: "utf8", timeout: 120_000, env: { ...process.env } },
+      );
+    }
     // Persist the build-time env vars on the Vercel PROJECT through the Vercel
     // CLI (not only `--build-env` at deploy time), so a plain `npx vercel deploy`
-    // re-deploy builds them too (feature 029). The `production` target is the one
-    // this `--prod` deploy built against; the storefront/ dir the deploy just
-    // linked to the project is the CLI's working dir.
+    // re-deploy builds them too (feature 029). Replace any existing value first so
+    // a re-deploy stays idempotent; `vercel env add` reads the value from stdin.
     for (const [name, value] of [
       ["NEXT_PUBLIC_SALEOR_API_URL", endpoint],
       ["NEXT_PUBLIC_DEFAULT_CHANNEL", channel],
     ] as const) {
+      spawnSync(
+        "npx",
+        ["--yes", VERCEL_PKG, "env", "rm", name, "production", "--yes"],
+        { cwd: dir, encoding: "utf8", timeout: 120_000, env: { ...process.env } },
+      );
       spawnSync(
         "npx",
         ["--yes", VERCEL_PKG, "env", "add", name, "production"],
