@@ -2690,8 +2690,6 @@ function createStoreGateTarget(): string {
 /**
  * @planks("When the agent runs `jolly start --dry-run --json`")
  * @planks("Then the data should include a per-stage plan of intended effects: directories created, files written, network hosts contacted, and repositories cloned")
- * @planks("Then the `deploy` stage preview should name persisting the storefront build env vars `NEXT_PUBLIC_SALEOR_API_URL` and `NEXT_PUBLIC_DEFAULT_CHANNEL` on the Vercel project itself through the Vercel CLI, not only as one-off `--build-env` flags on Jolly's own deploy")
- * @planks("Then the preview should name writing `NEXT_PUBLIC_DEFAULT_CHANNEL` to `.env`, so a plain `npx vercel deploy` and the local storefront both read the store channel with no key juggling")
  */
 function startPlan(): PlanStage[] {
   return [
@@ -2821,9 +2819,7 @@ function startPlan(): PlanStage[] {
         categories: ["live deployment"],
         reversible: true,
         sideEffects: [
-          "Spawns `npx vercel` (and `npx vercel --prod`) under the Vercel CLI's OWN `vercel login` session to deploy storefront/, sets the required Vercel env vars through the CLI, and surfaces Vercel Deployment Protection",
-          "Persists the storefront build env vars NEXT_PUBLIC_SALEOR_API_URL and NEXT_PUBLIC_DEFAULT_CHANNEL on the Vercel project itself through the Vercel CLI, not only as one-off --build-env flags on Jolly's own deploy, so a plain `npx vercel deploy` re-deploy also picks them up",
-          "Writes NEXT_PUBLIC_DEFAULT_CHANNEL to .env, so a plain `npx vercel deploy` and the local storefront both read the store channel with no key juggling",
+          "Spawns `npx vercel` (and `npx vercel --prod`) under the Vercel CLI's OWN `vercel login` session to deploy storefront/, passes the storefront build env vars as `--build-env` flags on the deploy, and surfaces Vercel Deployment Protection",
           "Jolly holds no Vercel token (there is no JOLLY_VERCEL_TOKEN) and its own code sends no request to the Vercel API — Vercel is reached only by the spawned Vercel CLI under its own auth",
         ],
         dryRunAvailable: true,
