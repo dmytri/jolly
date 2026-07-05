@@ -3895,6 +3895,9 @@ async function runInteractiveVercelSignIn(): Promise<void> {
 /**
  * @planks("When `jolly start` deploys to Vercel")
  * @planks("When `jolly start` reaches the deploy stage without `--dry-run`")
+ * @planks(`Then the `deploy` stage should report "completed" with the deployed `*.vercel.app` URL captured from the Vercel CLI's output`)
+ * @planks("Then it should persist `NEXT_PUBLIC_SALEOR_API_URL` and `NEXT_PUBLIC_DEFAULT_CHANNEL` on the Vercel project through the Vercel CLI, so a plain `npx vercel deploy` re-deploy also builds them")
+ * @planks("Then it should write `NEXT_PUBLIC_DEFAULT_CHANNEL` to `.env`, so the local storefront and a re-deploy read the store channel with no key juggling")
  */
 async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
   const dir = join(projectDir(), "storefront");
@@ -4047,6 +4050,24 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
         ? `The deployed storefront${deployedUrl ? ` (${deployedUrl})` : ""} is built against the Saleor Cloud endpoint and reaches Saleor Cloud (verified by a live GraphQL probe).`
         : `The deployed storefront${deployedUrl ? ` (${deployedUrl})` : ""} is built against Saleor Cloud, but live connectivity to the endpoint could not be verified in this run.`,
     });
+    // Persist the build-time env vars on the Vercel PROJECT through the Vercel
+    // CLI (not only `--build-env` at deploy time), so a plain `npx vercel deploy`
+    // re-deploy builds them too (feature 029). The `production` target is the one
+    // this `--prod` deploy built against; the storefront/ dir the deploy just
+    // linked to the project is the CLI's working dir.
+    for (const [name, value] of [
+      ["NEXT_PUBLIC_SALEOR_API_URL", endpoint],
+      ["NEXT_PUBLIC_DEFAULT_CHANNEL", channel],
+    ] as const) {
+      spawnSync(
+        "npx",
+        ["--yes", VERCEL_PKG, "env", "add", name, "production"],
+        { cwd: dir, encoding: "utf8", timeout: 120_000, input: value, env: { ...process.env } },
+      );
+    }
+    // Write the store channel to the project `.env` so the local storefront and a
+    // re-deploy read NEXT_PUBLIC_DEFAULT_CHANNEL with no key juggling (feature 029).
+    writeEnvValues(projectDir(), { NEXT_PUBLIC_DEFAULT_CHANNEL: channel });
     return {
       status: "completed",
       data: deployedUrl ? { deploymentUrl: deployedUrl, storefrontUrl: deployedUrl } : {},
@@ -4989,6 +5010,53 @@ function commandUsage(args: ParsedArgs): Envelope {
  * @planks("When the agent runs `jolly start --yes --json`")
  * @planks("When the agent runs `jolly start --dry-run --json`")
  */
+// ─── Composable stage commands (feature 029) ────────────────────────────────
+
+// Run exactly one side-effecting stage as its own first-class `jolly` command,
+// against already-prepared preconditions, never the `jolly start` pipeline.
+// Calls the stage seam directly, so it bypasses the orchestrator and its
+// approval gate, and emits an envelope whose `data.stages` holds exactly the one
+// {stage, status} the command ran. `jolly start` still composes these same seams
+// in order and is unchanged.
+/**
+ * @planks("When the agent runs `jolly deploy --yes --json`")
+ * @planks("When the agent runs `jolly storefront --yes --json`")
+ * @planks("When the agent runs `jolly recipe --yes --json`")
+ * @planks("When the agent runs `jolly stock --yes --json`")
+ * @planks("When the agent runs `jolly stripe --yes --json`")
+ * @planks(`Then the `storefront` stage should report "completed", backed by a real cloned Paper storefront with installed dependencies on disk`)
+ * @planks(`Then the `recipe` stage should report "completed", having deployed the bundled starter recipe through `@saleor/configurator``)
+ * @planks(`Then the `stock` stage should report "completed", having seeded stock for the recipe variants through Saleor GraphQL`)
+ * @planks(`Then the `stripe` stage should report "completed" or "blocked" honestly, having attempted the Saleor app install for the Stripe payment app`)
+ * @planks("Then it should not provision a store, clone the storefront, or run any other stage")
+ * @planks("Then it should not provision a store, deploy, or run any other stage")
+ * @planks("Then it should not provision a store, prepare the storefront, or deploy")
+ * @planks("Then it should not deploy or run any other stage")
+ */
+async function commandStage(
+  stage: string,
+  run: (checks: Check[]) => Promise<StageOutcome>,
+): Promise<Envelope> {
+  const checks: Check[] = [];
+  const outcome = await run(checks);
+  const status: EnvelopeStatus =
+    outcome.status === "completed"
+      ? "success"
+      : outcome.status === "error"
+        ? "error"
+        : "warning";
+  return envelope({
+    command: stage,
+    status,
+    summary: `Ran the ${stage} stage against its prepared preconditions: ${outcome.status}.`,
+    data: {
+      stages: [{ stage, status: outcome.status }],
+      ...(stage === "deploy" && outcome.data ? { deploy: outcome.data } : {}),
+    },
+    checks,
+  });
+}
+
 async function dispatch(args: ParsedArgs): Promise<Envelope> {
   const cmd = args.positionals[0];
 
@@ -5022,6 +5090,20 @@ async function dispatch(args: ParsedArgs): Promise<Envelope> {
       return commandInit(args);
     case "start":
       return commandStart(args);
+    case "storefront":
+      return commandStage("storefront", (checks) =>
+        runStorefrontStage(checks).then((s) => ({ status: s })));
+    case "recipe":
+      return commandStage("recipe", (checks) =>
+        runRecipeStage(checks).then((s) => ({ status: s })));
+    case "stock":
+      return commandStage("stock", (checks) =>
+        runStockStage(checks).then((s) => ({ status: s })));
+    case "stripe":
+      return commandStage("stripe", (checks) =>
+        runStripeStage(checks).then((s) => ({ status: s })));
+    case "deploy":
+      return commandStage("deploy", (checks) => runDeployStage(checks));
     case "doctor":
       return commandDoctor(args);
     case "upgrade":
