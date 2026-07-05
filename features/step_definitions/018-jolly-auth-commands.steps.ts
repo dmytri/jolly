@@ -326,7 +326,7 @@ When(
   "the user runs `jolly login`",
   { timeout: 30_000 },
   function (this: JollyWorld) {
-    if (!ptyAvailable()) return "skipped";
+    assert.ok(ptyAvailable(), "the PTY driver must be available");
     // No env token (absentCredentialsEnv unsets the runtime credentials). The
     // shared Given exported JOLLY_SALEOR_AUTH_URL pointing at the fake auth host,
     // inherited here through resolvedChildEnv, so the grant approves on the first
@@ -723,7 +723,7 @@ Then(
 );
 
 // ─── @sandbox: login rejects an invalid token gracefully ───────────────────
-// saleorCloud requirement is `[]` per SANDBOX_REQUIREMENTS (network only).
+// Uses the network only; the invalid token is real bad input, no account touched.
 
 Then(
   "the verification request should really be sent and really be rejected",

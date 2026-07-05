@@ -3013,6 +3013,8 @@ interface StageOutcome {
  * @planks("Then the envelope `data` should include the new store's `*.saleor.cloud` GraphQL API URL and its Saleor Dashboard URL ending in `.saleor.cloud/dashboard/`")
  * @planks("Then `jolly start` should write that `NEXT_PUBLIC_SALEOR_API_URL` (mirrored to `SALEOR_URL`) and the resolved `SALEOR_TOKEN` to `.env`")
  * @planks(`Then the `store` stage should report "completed" only once the endpoint answers a live GraphQL probe`)
+ * @planks(`Then the `store` stage status should be "blocked", not "completed"`)
+ * @planks("Then the remediation should tell the human the store may still be starting up and to re-run `jolly start`")
  */
 async function runStoreStage(
   checks: Check[],

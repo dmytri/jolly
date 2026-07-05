@@ -111,43 +111,10 @@ function evalCliTimeoutMs(): number {
   return Number.isFinite(n) && n > 0 ? n : 120_000;
 }
 
-/** Whether the baseline-agent runner (the bundled `pi` binary) is available. */
-export function runnerAvailable(): boolean {
-  return existsSync(PI_BIN);
-}
-
-/** The OpenRouter model key, or undefined when the eval cannot run. */
+/** The OpenRouter model key the underlying agent reads to reach the model. */
 export function modelApiKey(): string | undefined {
   const key = process.env.HARNESS_OPENROUTER_API_KEY;
   return key && key.trim() !== "" ? key.trim() : undefined;
-}
-
-export interface EvalGate {
-  ok: boolean;
-  reason?: string;
-}
-
-/**
- * Gate the eval the way @sandbox gates on credentials: skip — never fail —
- * when the runner or the model key is absent (feature 025 "skip-not-fail when
- * unavailable").
- */
-export function evalGate(): EvalGate {
-  if (!runnerAvailable()) {
-    return {
-      ok: false,
-      reason:
-        `baseline-agent runner not found at ${PI_BIN} ` +
-        "(@earendil-works/pi-coding-agent is a devDependency; run `npm install`)",
-    };
-  }
-  if (modelApiKey() === undefined) {
-    return {
-      ok: false,
-      reason: "missing HARNESS_OPENROUTER_API_KEY (the OpenRouter model key)",
-    };
-  }
-  return { ok: true };
 }
 
 export interface EvalContext {
@@ -403,8 +370,7 @@ export interface AgentRun {
  * Copy the runner's real Vercel CLI session into the agent's isolated fake
  * $HOME so `npx vercel` is authenticated there (live-by-design deploy). The
  * Vercel CLI stores its session under $XDG_DATA_HOME/com.vercel.cli (Linux) or
- * ~/.vercel; mirror whichever exists. Best-effort and skip-not-fail: absent a
- * session the deploy stage gates as before.
+ * ~/.vercel; mirror whichever exists. Best-effort.
  */
 function passThroughVercelSession(fakeHome: string): void {
   const realHome = process.env.HOME ?? "";
@@ -424,7 +390,7 @@ function passThroughVercelSession(fakeHome: string): void {
       cpSync(legacySrc, join(fakeHome, ".vercel"), { recursive: true });
     }
   } catch {
-    // best-effort: absent/unreadable session → deploy stage gates (skip-not-fail)
+    // best-effort
   }
 }
 
@@ -446,8 +412,7 @@ export function runBaselineAgent(ctx: EvalContext, task: string): AgentRun {
   // Pass a real Vercel CLI session into the agent's isolated home when one
   // exists on the runner (live by design): the customer's own agent would be
   // logged in to Vercel, so the eval's agent gets the same session and can drive
-  // the live Vercel deploy stage (feature 002). Absent a session, the deploy
-  // stage gates (skip-not-fail) exactly as before.
+  // the live Vercel deploy stage (feature 002).
   passThroughVercelSession(ctx.fakeHome);
 
   const timeout = evalTimeoutMs();

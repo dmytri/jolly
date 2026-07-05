@@ -38,7 +38,7 @@ const EMOJI =
 // Run `jolly <argv>` under a real kernel PTY so stdout is a genuine terminal
 // (process.stdout.isTTY === true). doctor renders no prompt, so no input is fed.
 // Records the terminal output as the world's last run. Returns false when no PTY
-// is available (the caller then skips).
+// is available.
 function runOnTerminal(world: JollyWorld, argv: string[]): boolean {
   if (!ptyAvailable()) return false;
   const env: Record<string, string> = {};
@@ -309,8 +309,7 @@ Then(
 // terminal, absent when stdout is a pipe and under --json.
 
 When("`jolly doctor` runs in an interactive terminal", function (this: JollyWorld) {
-  if (!runOnTerminal(this, ["doctor"])) return "skipped";
-  return undefined;
+  assert.ok(runOnTerminal(this, ["doctor"]), "the interactive terminal run must start");
 });
 
 Then("stdout should contain ANSI colour codes", function (this: JollyWorld) {
@@ -440,7 +439,7 @@ Then(
   function (this: JollyWorld) {
     // The shared When ("`jolly start` runs in an interactive terminal") only
     // records the argv; perform the separated-stream run here.
-    if (!runStartSeparated(this)) return "skipped";
+    assert.ok(runStartSeparated(this), "the separated-stream interactive run must start");
     const stderr = this.lastRun!.stderr;
     assert.ok(
       stderr.trim().length > 0,

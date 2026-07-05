@@ -25,7 +25,6 @@ import { listOrganizations } from "../support/cloud.ts";
 import {
   addVercelProject,
   removeVercelProject,
-  vercelCliAuthenticated,
   workerNamespace,
 } from "../support/sandbox.ts";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
@@ -87,7 +86,7 @@ function interactiveChildEnv(
 // Run `jolly <argv>` under a real PTY (an interactive terminal) feeding the
 // scripted keystrokes, and record the result as the world's last run so the
 // standard envelope/output assertions apply. Returns false when no PTY is
-// available (the caller then skips).
+// available.
 function runInteractive(
   world: JollyWorld,
   argv: string[],
@@ -496,9 +495,10 @@ When(
   "the user presses Enter at every prompt",
   { timeout: 160_000 },
   function (this: JollyWorld) {
-    if (!runInteractive(this, startArgvWithMock(this), ENTER_AT_EVERY_PROMPT)) {
-      return "skipped";
-    }
+    assert.ok(
+      runInteractive(this, startArgvWithMock(this), ENTER_AT_EVERY_PROMPT),
+      "the interactive run must start",
+    );
   },
 );
 
@@ -516,13 +516,12 @@ When(
     // project-directory defaults with Enter, then decline the proceed confirmation
     // with `n`.
     this.notes.mockOrgs = "org-solo";
-    if (
-      !runInteractive(this, startArgvWithMock(this), ["\r", "\r", "n"], {
+    assert.ok(
+      runInteractive(this, startArgvWithMock(this), ["\r", "\r", "n"], {
         JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN,
-      })
-    ) {
-      return "skipped";
-    }
+      }),
+      "the interactive run must start",
+    );
   },
 );
 
@@ -565,7 +564,7 @@ When(
   "`jolly start --dry-run --yes` runs in an interactive terminal and receives no input",
   { timeout: 160_000 },
   function (this: JollyWorld) {
-    if (!runInteractive(this, ["start", "--dry-run", "--yes"], [])) return "skipped";
+    assert.ok(runInteractive(this, ["start", "--dry-run", "--yes"], []), "the interactive run must start");
   },
 );
 
@@ -573,7 +572,7 @@ When(
   "`jolly start --dry-run --json` runs in an interactive terminal",
   { timeout: 160_000 },
   function (this: JollyWorld) {
-    if (!runInteractive(this, ["start", "--dry-run", "--json"], [])) return "skipped";
+    assert.ok(runInteractive(this, ["start", "--dry-run", "--json"], []), "the interactive run must start");
   },
 );
 
@@ -841,7 +840,7 @@ When(
   "the user starts interactive setup with no Cloud token configured",
   { timeout: 30_000 },
   function (this: JollyWorld) {
-    if (!ptyAvailable()) return "skipped";
+    assert.ok(ptyAvailable(), "the PTY driver must be available");
     const run = runUnderPty({
       runtime: process.env.HARNESS_CLI_RUNTIME ?? "node",
       argv: [CLI_ENTRY, "start"],
@@ -945,7 +944,7 @@ Then(
   { timeout: 160_000 },
   function (this: JollyWorld, stage: string, key: string) {
     if (this.notes.stageRunStderr === undefined) {
-      if (!runStartStagesSeparated(this)) return "skipped";
+      assert.ok(runStartStagesSeparated(this), "the separated-stages interactive run must start");
       this.notes.stageRunStderr = stripAnsi(this.lastRun!.stderr);
     }
     const stderr = String(this.notes.stageRunStderr);
@@ -1022,7 +1021,7 @@ Then(
   function (this: JollyWorld) {
     // The shared When records only the argv; perform the separated-stream run
     // here so stderr is captured distinctly from the clean stdout.
-    if (!runStartStagesSeparated(this)) return "skipped";
+    assert.ok(runStartStagesSeparated(this), "the separated-stages interactive run must start");
     const stderr = this.lastRun!.stderr;
     assert.ok(
       stderr.trim().length > 0,
@@ -1056,7 +1055,7 @@ Then(
 Then(
   "the running stage's row should describe in plain language what that stage is doing",
   function (this: JollyWorld) {
-    if (!ptyAvailable() || !this.lastRun?.stderr) return "skipped";
+    assert.ok(ptyAvailable() && this.lastRun?.stderr, "the PTY run must produce stderr");
     const stderr = stripAnsi(this.lastRun.stderr);
     assert.match(
       stderr,
@@ -1222,10 +1221,9 @@ When(
   "`jolly start` runs to completion in an interactive terminal",
   { timeout: 1_560_000 },
   async function (this: JollyWorld) {
-    if (!ptyAvailable()) return "skipped";
+    assert.ok(ptyAvailable(), "the PTY driver must be available");
     const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
-    // The @sandbox gate guarantees the Cloud token under CI; guard defensively.
-    if (!cloudToken) return "skipped";
+    assert.ok(cloudToken, "the Saleor Cloud token must be present");
 
     // The @sandbox gate pre-provisioned one shared `jolly-cannon-fodder`-namespaced store
     // (endpoint + SALEOR_TOKEN now in process.env) and torn-down at run end. Seed the
@@ -1234,7 +1232,8 @@ When(
     // default-named environment) — harmless, and the close can name its Dashboard URL.
     const endpoint = process.env["NEXT_PUBLIC_SALEOR_API_URL"];
     const storeToken = process.env["SALEOR_TOKEN"];
-    if (!endpoint || !storeToken) return "skipped";
+    assert.ok(endpoint, "the provisioned store endpoint must be present");
+    assert.ok(storeToken, "the provisioned SALEOR_TOKEN must be present");
 
     // The configured-store gate reads the project's .env file (loadEnvValues in
     // src/index.ts), not the process environment, so write the shared store there.
@@ -1256,16 +1255,14 @@ When(
     // scripted keystrokes; with --organization set the org prompt is skipped.
     const orgs = await listOrganizations(cloudToken);
     const organization = orgs[0];
-    if (!organization) return "skipped";
+    assert.ok(organization, "the Cloud token must resolve at least one organization");
 
     // Pre-create the namespaced Vercel project the deploy targets and register its
     // removal BEFORE the run creates the deployment (harmless by design).
-    if (vercelCliAuthenticated()) {
-      addVercelProject(namespace);
-      this.cleanup.register(`jolly-cannon-fodder Vercel project (run ${namespace})`, () => {
-        removeVercelProject(namespace);
-      });
-    }
+    addVercelProject(namespace);
+    this.cleanup.register(`jolly-cannon-fodder Vercel project (run ${namespace})`, () => {
+      removeVercelProject(namespace);
+    });
 
     // Inputs, in prompt order (Cloud token configured → no device sign-in;
     // --organization pinned → no org choice; store configured in .env → no

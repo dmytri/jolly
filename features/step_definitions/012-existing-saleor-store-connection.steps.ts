@@ -15,9 +15,8 @@
 //   - multi-org warning via --mock-organizations (no network).
 //
 // @sandbox scenarios (validate endpoint, infer org/env, project SALEOR_TOKEN,
-// create environment, domain collision) run against real accounts in CI and
-// skip locally. Their bodies namespace every created resource and register
-// teardown BEFORE creation.
+// create environment, domain collision) run against real accounts. Their bodies
+// namespace every created resource and register teardown BEFORE creation.
 //
 // Safety: every @logic command runs with the runtime credentials genuinely
 // UNSET (absentCredentialsEnv) — real absence, never dummy values. The create-env

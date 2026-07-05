@@ -36,6 +36,12 @@ export async function startColdStoreCloudApi(
   // to servers whose slow timeouts stretch the run past the budget under test);
   // a refused loopback address is the harmless, offline, instant "unreachable".
   const domain = "127.0.0.1:1";
+  // @exceptional-double: a freshly-provisioned Saleor Cloud store whose GraphQL
+  // endpoint never becomes reachable cannot be produced on demand against the
+  // real Cloud (a real store cold-starts and then serves). This in-process Cloud
+  // API drives the real create path, then hands back a never-serving endpoint so
+  // the store stage's readiness gate blocks. It never replaces normal-path real
+  // coverage: the sibling "waits" scenario exercises a real auto-provision.
   const server = createServer((req, res) => {
     const method = req.method ?? "GET";
     const url = req.url ?? "/";

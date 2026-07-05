@@ -255,16 +255,11 @@ Then(
 
 // --- Scenario: Jolly start installs the Stripe app and surfaces the gate (@sandbox)
 //
-// Gated by SANDBOX_REQUIREMENTS["Jolly start installs the Stripe app and
-// surfaces the keys and channel gate"] (saleorCloud + saleorEndpoint — the
-// appInstall uses the Cloud STAFF token) → skips locally. Verifies the SECOND
-// genuinely-executing `jolly start` stage against a real store: with approvals
-// pre-granted (`--yes`), the run reaches the Stripe stage and installs the app
-// via Saleor GraphQL appInstall; a re-run reuses the existing install (no
-// duplicate); the keys + `us`-channel mapping is announced as a human gate. When
-// the Stripe stage does not report `completed` (e.g. appInstall is unavailable
-// in this environment), the scenario skips — premise not producible — rather
-// than failing.
+// Verifies the SECOND genuinely-executing `jolly start` stage against a real
+// store: with approvals pre-granted (`--yes`), the run reaches the Stripe stage
+// and installs the app via Saleor GraphQL appInstall; a re-run reuses the
+// existing install (no duplicate); the keys + `us`-channel mapping is announced
+// as a human gate.
 
 function stripeStoreCreds(): { endpoint: string; cloudToken: string | undefined } {
   return {
@@ -314,27 +309,20 @@ Given(
 
 When("Jolly start reaches the Stripe stage", function (this: JollyWorld) {
   // The genuinely-executing outcome to verify is the Stripe stage reporting
-  // `completed` (the app installed via appInstall). When appInstall is not
-  // possible in this environment, Jolly reports the stage pending/blocked
-  // honestly (never a fabricated `completed`), so the scenario skips — premise
-  // not producible — rather than failing.
+  // `completed` (the app installed via appInstall). The store and Cloud staff
+  // token are present by fitting-out, so the stage installs the app for real.
   const stages = (this.envelope.data.stages ?? []) as StartStage[];
   const stripe = findStripeStage(stages);
-  if (!stripe || stripe.status !== "completed") {
-    this.attach(
-      `Skipped: the Stripe app-install stage did not complete in this ` +
-        `environment (status: ${stripe?.status ?? "absent"})`,
-      "text/plain",
-    );
-    this.notes.skipStripe = true;
-  }
+  assert.ok(
+    stripe && stripe.status === "completed",
+    `the Stripe app-install stage must complete (status: ${stripe?.status ?? "absent"})`,
+  );
 });
 
 Then(
   "it should install the Saleor Stripe app via Saleor GraphQL `appInstall` using the Cloud staff token and the current Stripe app manifest",
   { timeout: 120_000 },
   async function (this: JollyWorld) {
-    if (this.notes.skipStripe) return "skipped";
     const endpoint = String(this.notes.storeEndpoint);
     const token = this.notes.storeToken as string | undefined;
     const apps = await installedStripeApps(endpoint, token);
@@ -350,7 +338,6 @@ Then(
   "re-running the stage should reuse the existing installation rather than installing a duplicate",
   { timeout: 900_000 },
   async function (this: JollyWorld) {
-    if (this.notes.skipStripe) return "skipped";
     // Re-run the orchestrated stage; the install must be idempotent (feature
     // 022) — it detects the existing Stripe app and reuses it.
     this.runCli(["start", "--yes", "--json"], { timeoutMs: 840_000 });
@@ -369,7 +356,6 @@ Then(
 Then(
   "it should announce the guided gate to paste the keys and map the configuration to the `us` channel, referencing the keys by name only",
   function (this: JollyWorld) {
-    if (this.notes.skipStripe) return "skipped";
     const text = JSON.stringify(this.envelope).toLowerCase();
     assert.ok(text.includes("channel"), "the gate must reference the channel mapping");
     assert.ok(text.includes("key"), "the gate must reference the keys to paste");
@@ -381,7 +367,6 @@ Then(
 Then(
   "it should report the Stripe stage as completed \\(the app was installed) and name the keys-and-`us`-channel Dashboard mapping as the remaining human step in nextSteps, without claiming the keys are configured or checkout is ready",
   function (this: JollyWorld) {
-    if (this.notes.skipStripe) return "skipped";
     const stages = (this.envelope.data.stages ?? []) as StartStage[];
     const stripe = findStripeStage(stages);
     assert.ok(stripe, "the run must report a Stripe stage in data.stages");
@@ -673,10 +658,8 @@ Then(
 
 // --- Scenario: Jolly doctor verifies the Stripe payment gateway is reachable (@sandbox)
 //
-// Gated by SANDBOX_REQUIREMENTS["Jolly doctor verifies the Stripe payment
-// gateway is reachable for checkout"] (saleorEndpoint + saleorAppToken, derivable
-// from the Cloud token) → skips locally. The probe is Jolly's own Saleor GraphQL
-// (no CLI spawn, no Vercel) so it does NOT gate on the Vercel CLI. Against a real
+// The probe is Jolly's own Saleor GraphQL
+// (no CLI spawn, no Vercel). Against a real
 // store the checkout-readiness check passes ONLY when the Stripe gateway is
 // offered for a `us` checkout (independently re-verified here), and reports
 // honestly otherwise. When the store/endpoint is unreachable or carries no `us`
@@ -766,32 +749,14 @@ When(
   function (this: JollyWorld) {
     this.runCli(["doctor", "stripe", "--json"], { timeoutMs: 90_000 });
     const check = findCheckoutReadinessCheck(this.envelope.checks);
-    if (!check) {
-      this.attach(
-        "Skipped: doctor reported no checkout-readiness check in this run",
-        "text/plain",
-      );
-      this.notes.skipProbe = true;
-      return "skipped";
-    }
+    assert.ok(check, "doctor stripe must report a checkout-readiness check");
     this.notes.checkoutReadiness = check;
-    // When the store/creds were unreachable the probe honestly reports
-    // skipped/unknown — premise not producible, so the scenario skips.
-    if (check.status === "skipped" || check.status === "unknown") {
-      this.attach(
-        `Skipped: checkout-readiness probe could not run (status: ${check.status})`,
-        "text/plain",
-      );
-      this.notes.skipProbe = true;
-      return "skipped";
-    }
   },
 );
 
 Then(
   "it should create a harmless, reverted test checkout in the `us` channel and inspect its available payment gateways",
   function (this: JollyWorld) {
-    if (this.notes.skipProbe) return "skipped";
     const check = this.notes.checkoutReadiness as { status: string } | undefined;
     assert.ok(check, "the checkout-readiness check must be present");
     // Jolly-observable: the probe reaches a verdict (pass/warning/fail) by
@@ -808,7 +773,6 @@ Then(
   "the checkout-readiness check should pass only when the Stripe gateway is offered for that checkout",
   { timeout: 120_000 },
   async function (this: JollyWorld) {
-    if (this.notes.skipProbe) return "skipped";
     const check = this.notes.checkoutReadiness as { status: string };
     const offered = await stripeOfferedForUsCheckout(
       this,
@@ -816,16 +780,11 @@ Then(
       this.notes.storeToken as string | undefined,
     );
     this.notes.stripeOffered = offered;
-    if (offered === null) {
-      // Could not independently create a `us` checkout (no variants / channel) —
-      // premise not producible for the cross-check; skip rather than fail.
-      this.attach(
-        "Skipped: could not create an independent `us` checkout to cross-check the gateway",
-        "text/plain",
-      );
-      this.notes.skipProbe = true;
-      return "skipped";
-    }
+    assert.notEqual(
+      offered,
+      null,
+      "an independent `us` checkout must be creatable to cross-check the gateway",
+    );
     if (check.status === "pass") {
       assert.ok(
         offered,
@@ -838,7 +797,6 @@ Then(
 Then(
   "it should report honestly when the Stripe gateway is not yet offered, naming the remaining keys-and-channel Dashboard step",
   function (this: JollyWorld) {
-    if (this.notes.skipProbe) return "skipped";
     const check = this.notes.checkoutReadiness as {
       status: string;
       description?: unknown;
@@ -877,7 +835,6 @@ Then(
 Then(
   "the probe should use Stripe test mode only and capture no payment",
   function (this: JollyWorld) {
-    if (this.notes.skipProbe) return "skipped";
     // v1 is test mode only (Background). The probe creates + reverts a checkout
     // and never completes/charges it: no order/payment language in the verdict,
     // and no secret values leaked.

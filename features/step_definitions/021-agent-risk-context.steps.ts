@@ -6,7 +6,7 @@
 // sideEffects/dryRunAvailable), categories drawn only from the feature-010
 // high-risk list, and that the riskContext is identical in structure for a
 // --dry-run preview and a real run. The @sandbox "consistent across preview and
-// execution" scenario runs against a real endpoint (skips locally).
+// execution" scenario runs against a real endpoint.
 //
 // Safety: every command runs with the runtime credentials genuinely UNSET
 // (absentCredentialsEnv) — real absence, never dummy values — so the "real
@@ -135,8 +135,7 @@ Then(
 );
 
 // --- @sandbox: Risk context is consistent across preview and execution -----
-// Runs against a real endpoint; skips locally (saleorEndpoint gated). The body
-// is written for credentialed CI: the dry-run and real riskContexts must match.
+// Runs against a real endpoint: the dry-run and real riskContexts must match.
 
 Given(
   "the agent previews `jolly create store --create-environment --dry-run --json`",

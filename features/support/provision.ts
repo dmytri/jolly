@@ -13,10 +13,9 @@
 // (AGENTS.md "Leftover handling"), so they are this dedicated test org's
 // disposable resources and are deleted freely to free capacity.
 //
-// Skip-not-fail stays only for what cannot be derived or produced harmlessly:
-//   - ENVIRONMENT_LIMIT_REACHED that reclamation could not clear (genuine
-//     non-jolly-cannon-fodder capacity the harness must never delete)
-// Any other provisioning failure is a real failure and throws.
+// Every provisioning failure is a real failure and throws, so a run that cannot
+// stand up its store surfaces the fault loudly. The Cloud token is present by
+// fitting-out; the provisioner reads it from the environment.
 import { spawnSync } from "node:child_process";
 import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -28,9 +27,7 @@ import { REPO_ROOT } from "./world.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
 import { probeEndpointConnectivity } from "../../src/lib/cloud-api.ts";
 
-export type ProvisionOutcome =
-  | { status: "ready" }
-  | { status: "skip"; reason: string };
+export type ProvisionOutcome = { status: "ready" };
 
 /** Filesystem paths every worker of a run agrees on (the run id is shared): a
  * lock so exactly one worker provisions, and a state file the winner writes with
@@ -64,10 +61,6 @@ export function ensureSharedEnvironment(): Promise<ProvisionOutcome> {
  * the rest wait for the state file and adopt them.
  */
 async function coordinateSharedEnvironment(): Promise<ProvisionOutcome> {
-  const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
-  if (!cloudToken || cloudToken.trim() === "") {
-    return { status: "skip", reason: "missing JOLLY_SALEOR_CLOUD_TOKEN" };
-  }
   let owner = false;
   try {
     closeSync(openSync(sharedLockPath(), "wx")); // atomic O_EXCL: one winner
@@ -79,34 +72,30 @@ async function coordinateSharedEnvironment(): Promise<ProvisionOutcome> {
     const outcome = await provisionSharedEnvironment();
     writeFileSync(
       sharedStatePath(),
-      JSON.stringify(
-        outcome.status === "ready"
-          ? {
-              status: "ready",
-              url: process.env["NEXT_PUBLIC_SALEOR_API_URL"],
-              token: process.env["SALEOR_TOKEN"],
-            }
-          : outcome,
-      ),
+      JSON.stringify({
+        status: "ready",
+        url: process.env["NEXT_PUBLIC_SALEOR_API_URL"],
+        token: process.env["SALEOR_TOKEN"],
+      }),
     );
     return outcome;
   }
   const deadline = Date.now() + 600_000;
   for (;;) {
     if (existsSync(sharedStatePath())) {
-      const state = JSON.parse(readFileSync(sharedStatePath(), "utf8")) as
-        | { status: "ready"; url: string; token: string }
-        | { status: "skip"; reason: string };
-      if (state.status === "skip") return { status: "skip", reason: state.reason };
+      const state = JSON.parse(readFileSync(sharedStatePath(), "utf8")) as {
+        status: "ready";
+        url: string;
+        token: string;
+      };
       process.env["NEXT_PUBLIC_SALEOR_API_URL"] = state.url;
       process.env["SALEOR_TOKEN"] = state.token;
       return { status: "ready" };
     }
     if (Date.now() >= deadline) {
-      return {
-        status: "skip",
-        reason: "timed out waiting for the shared environment another worker is provisioning",
-      };
+      throw new Error(
+        "timed out waiting for the shared environment another worker is provisioning",
+      );
     }
     await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
@@ -135,11 +124,7 @@ export async function teardownSharedEnvironment(): Promise<CleanupFailure[]> {
  * regardless of suite order.
  */
 export async function provisionSharedEnvironment(): Promise<ProvisionOutcome> {
-  const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
-  if (!cloudToken || cloudToken.trim() === "") {
-    // Callers gate on the Cloud token before calling; this is a backstop.
-    return { status: "skip", reason: "missing JOLLY_SALEOR_CLOUD_TOKEN" };
-  }
+  const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? "";
 
   // Reclaim every OTHER run's jolly-cannon-fodder environments before creating.
   // They are this dedicated test org's disposable cannon fodder, positively
@@ -243,13 +228,11 @@ export async function provisionSharedEnvironment(): Promise<ProvisionOutcome> {
     envelope.status === "error" &&
     envelope.errors.some((e) => e.code === "ENVIRONMENT_LIMIT_REACHED")
   ) {
-    return {
-      status: "skip",
-      reason:
-        "Cloud API still rejected environment creation with ENVIRONMENT_LIMIT_REACHED " +
+    throw new Error(
+      "Cloud API still rejected environment creation with ENVIRONMENT_LIMIT_REACHED " +
         "after waiting for a sibling worker to free a slot (organization sandbox " +
         "limit). Raise the org's environment limit or lower the sandbox worker count.",
-    };
+    );
   }
   if (envelope.status !== "success") {
     throw new Error(

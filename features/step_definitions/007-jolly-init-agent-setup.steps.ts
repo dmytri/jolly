@@ -365,8 +365,7 @@ Then("the summary should indicate what was installed", function (this: JollyWorl
 // scenarios above — which pre-seed the skill dirs to test verification offline —
 // this scenario drives the REAL `npx skills add` non-interactively and asserts
 // every default skill genuinely lands under the universal `.agents/skills/<id>/`
-// location, with success reported only when it did. It needs no Saleor
-// credentials (registered with [] in SANDBOX_REQUIREMENTS), only `npx`/network.
+// location, with success reported only when it did. It uses `npx`/network only.
 
 const NO_AGENT_ENV_NOTE = "noAgentEnv";
 

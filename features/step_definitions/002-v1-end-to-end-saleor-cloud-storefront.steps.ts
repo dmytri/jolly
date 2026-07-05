@@ -17,9 +17,7 @@
 // The deep auth/store/SALEOR_TOKEN/url-normalization behavior is pinned in
 // features 018/012; here it is asserted only at the Jolly surface.
 //
-// Safety: @logic CLI runs use absentCredentialsEnv() in the scenario's temp dir. The
-// @sandbox scenarios are gated by SANDBOX_REQUIREMENTS (+ requiresVercelCli for
-// the deploy scenario) and skip locally.
+// Safety: @logic CLI runs use absentCredentialsEnv() in the scenario's temp dir.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -36,7 +34,6 @@ import {
   addVercelProject,
   makeNamespace,
   removeVercelProject,
-  vercelCliAuthenticated,
   workerNamespace,
 } from "../support/sandbox.ts";
 import type { JollyWorld } from "../support/world.ts";
@@ -115,10 +112,8 @@ Then(
 //
 // Deep registration behavior (Cloud APIs, token auth, env creation) is pinned in
 // features 018/012/024. Here it is asserted only at the Jolly surface: `jolly
-// create store` carries the right riskContext and (under real creds) provisions
-// an environment. Gated by SANDBOX_REQUIREMENTS["Agent helps register a new
-// Saleor Cloud store"] (saleorCloud) → skips locally. The account-signup steps
-// stay narrative no-ops.
+// create store` carries the right riskContext and provisions an environment. The
+// account-signup steps stay narrative no-ops.
 
 Given("`JOLLY_SALEOR_CLOUD_TOKEN` is set for an organization with no project", function (this: JollyWorld) {
   this.notes.registerBranch = true;
@@ -206,7 +201,7 @@ Then(
 //
 // URL normalization, introspection validation, org/env inference, and
 // SALEOR_TOKEN projection are pinned in features 012/018. Asserted only at the
-// Jolly surface here. Gated (saleorEndpoint+SALEOR_TOKEN) → skips locally.
+// Jolly surface here.
 
 Given("a store URL `https:\\/\\/example.saleor.cloud` and a valid `SALEOR_TOKEN`", function (this: JollyWorld) {
   this.notes.connectBranch = true;
@@ -246,7 +241,7 @@ Then(
 // (install) to prepare the storefront. The spawn + live outcome is the
 // acceptance-run concern; here we assert Jolly's observable surface — `jolly
 // doctor storefront` reports storefront readiness (and `--full-validation` is
-// its deeper check). Gated (saleorEndpoint) → skips locally.
+// its deeper check).
 
 Given("Saleor connectivity has been verified", function (this: JollyWorld) {
   this.notes.connectivityVerified = true;
@@ -338,8 +333,7 @@ Then(
 // Vercel token. The riskContext/approval pause is pinned at @logic (001/021);
 // here we assert Jolly's observable surface — `jolly doctor` reports the
 // deployment as spawn-run (skipped, not fabricated) and verifies the deployed
-// storefront can reach Saleor. Gated (saleorEndpoint) AND requiresVercelCli →
-// skips locally without an authenticated Vercel CLI.
+// storefront can reach Saleor.
 
 Given("the storefront is ready for deployment", function (this: JollyWorld) {
   this.notes.deployReady = true;
@@ -605,17 +599,13 @@ Then(
   { timeout: 300_000 },
   function (this: JollyWorld) {
     // The When ran a real no-creds `jolly start --yes` — its storefront stage
-    // does credential-independent local work (git clone + pnpm install). Skip —
-    // premise not producible — if the storefront was not prepared (git/pnpm
-    // unavailable in this environment).
+    // does credential-independent local work (git clone + pnpm install), which
+    // produces the prepared storefront/ this step exercises.
     const dir = join(this.lastRun!.cwd, "storefront");
-    if (!existsSync(join(dir, "package.json"))) {
-      this.attach(
-        "Skipped: the Paper storefront was not cloned/installed in this environment",
-        "text/plain",
-      );
-      return "skipped" as const;
-    }
+    assert.ok(
+      existsSync(join(dir, "package.json")),
+      "the Paper storefront must be cloned and installed by the storefront stage",
+    );
     // Re-run the install (idempotent) and capture pnpm's ignored-build-scripts
     // report. After Jolly's preparation, neither sharp nor esbuild may appear
     // among the build scripts pnpm ignored.
@@ -993,24 +983,19 @@ async function fetchWithTimeout(url: string, ms: number): Promise<Response> {
   }
 }
 
-function deployedSkipReason(): string | undefined {
-  if (!process.env["HARNESS_DEPLOYED_STOREFRONT_URL"]) {
-    return "HARNESS_DEPLOYED_STOREFRONT_URL is not set; a live deployed storefront URL is required (produced only by a full `jolly start` Vercel deploy)";
-  }
-  if (!process.env["NEXT_PUBLIC_SALEOR_API_URL"]) {
-    return "NEXT_PUBLIC_SALEOR_API_URL (the Saleor store the storefront serves) is not set";
-  }
-  return undefined;
-}
-
 Given(
   "`jolly start` has deployed the storefront to Vercel against the configured Saleor Cloud store",
   function (this: JollyWorld) {
-    const reason = deployedSkipReason();
-    if (reason) {
-      this.attach(`Skipped: ${reason}`, "text/plain");
-      return "skipped" as const;
-    }
+    // The live deployed storefront URL and the Saleor store it serves are present
+    // by fitting-out; the harness reads them from the environment.
+    assert.ok(
+      process.env["HARNESS_DEPLOYED_STOREFRONT_URL"],
+      "a live deployed storefront URL (HARNESS_DEPLOYED_STOREFRONT_URL) must be present",
+    );
+    assert.ok(
+      process.env["NEXT_PUBLIC_SALEOR_API_URL"],
+      "the served Saleor store (NEXT_PUBLIC_SALEOR_API_URL) must be present",
+    );
     this.notes.deployedUrl = process.env["HARNESS_DEPLOYED_STOREFRONT_URL"];
     this.notes.storeEndpoint = process.env["NEXT_PUBLIC_SALEOR_API_URL"];
     this.notes.channel = process.env["HARNESS_STOREFRONT_CHANNEL"] ?? "default-channel";
@@ -1021,7 +1006,6 @@ When(
   "the deployed storefront URL is opened",
   { timeout: STOREFRONT_TIMEOUT_MS + 5_000 },
   async function (this: JollyWorld) {
-    if (deployedSkipReason()) return "skipped" as const;
     const url = String(this.notes.deployedUrl);
     const res = await fetchWithTimeout(url, STOREFRONT_TIMEOUT_MS);
     this.notes.deployedStatus = res.status;
@@ -1030,7 +1014,6 @@ When(
 );
 
 Then("the URL should respond successfully", function (this: JollyWorld) {
-  if (deployedSkipReason()) return "skipped" as const;
   const status = Number(this.notes.deployedStatus);
   assert.ok(
     status >= 200 && status < 400,
@@ -1042,7 +1025,6 @@ Then(
   "it should list products from the Saleor Cloud catalog",
   { timeout: STOREFRONT_TIMEOUT_MS },
   async function (this: JollyWorld) {
-    if (deployedSkipReason()) return "skipped" as const;
     // The storefront lists the catalog it reads from the served Saleor store:
     // verify that store publishes a buyable catalog in the storefront's channel.
     const endpoint = String(this.notes.storeEndpoint);
@@ -1079,7 +1061,6 @@ Then(
   "adding a product to the cart should update the cart",
   { timeout: STOREFRONT_TIMEOUT_MS },
   async function (this: JollyWorld) {
-    if (deployedSkipReason()) return "skipped" as const;
     const variantId = this.notes.variantId as string | undefined;
     assert.ok(
       variantId,
@@ -1295,15 +1276,13 @@ async function registerAutoProvisionTeardown(world: JollyWorld): Promise<void> {
   );
   // Pre-create the namespaced Vercel project so the deploy stage's
   // `vercel deploy --project <namespace>` targets it, and register its removal —
-  // harmless-by-design cannon fodder. Only when the Vercel CLI is authenticated
-  // (otherwise the deploy stage gates and nothing is created).
-  if (vercelCliAuthenticated()) {
-    const project = workerNamespace();
-    addVercelProject(project);
-    world.cleanup.register(`jolly-cannon-fodder Vercel project (${project})`, () => {
-      removeVercelProject(project);
-    });
-  }
+  // harmless-by-design cannon fodder. The Vercel CLI session is present by
+  // fitting-out.
+  const project = workerNamespace();
+  addVercelProject(project);
+  world.cleanup.register(`jolly-cannon-fodder Vercel project (${project})`, () => {
+    removeVercelProject(project);
+  });
 }
 
 When(
@@ -1486,10 +1465,7 @@ Then(
 // native modules `sharp` and `esbuild`, whose build scripts MUST run or the
 // production build fails on unbuilt native binaries. `jolly start`'s storefront
 // preparation must approve those builds so the install does not silently ignore
-// them and the production build the Vercel deploy runs completes. Gated by
-// SANDBOX_REQUIREMENTS["Jolly start lets Paper's native dependencies run their
-// build scripts so the Vercel build succeeds"] (saleorEndpoint — the build's
-// codegen needs a reachable Saleor schema) → skips locally.
+// them and the production build the Vercel deploy runs completes.
 //
 // The clone+install (Given) is the credential-independent storefront stage, so
 // it runs with the runtime credentials unset — only that stage does real local
@@ -1512,14 +1488,10 @@ Given(
       timeoutMs: 540_000,
     });
     const storefrontDir = join(this.lastRun!.cwd, "storefront");
-    if (!existsSync(join(storefrontDir, "package.json"))) {
-      this.attach(
-        "Skipped: the Paper storefront was not cloned/installed in this environment",
-        "text/plain",
-      );
-      this.notes.skipNativeBuild = true;
-      return "skipped";
-    }
+    assert.ok(
+      existsSync(join(storefrontDir, "package.json")),
+      "the Paper storefront must be cloned and installed by the storefront stage",
+    );
     this.notes.storefrontDir = storefrontDir;
   },
 );
@@ -1536,7 +1508,6 @@ Then(
   "`pnpm install` in the storefront should report no ignored build scripts for Paper's native dependencies `sharp` and `esbuild`",
   { timeout: 300_000 },
   function (this: JollyWorld) {
-    if (this.notes.skipNativeBuild) return "skipped" as const;
     const dir = String(this.notes.storefrontDir);
     // Re-run the install (idempotent) and capture pnpm's ignored-build-scripts
     // report. After Jolly's preparation, neither sharp nor esbuild may appear
@@ -1564,7 +1535,6 @@ Then(
   "the `npx vercel@latest --prod` production build should complete, not fail on unbuilt native modules",
   { timeout: 900_000 },
   function (this: JollyWorld) {
-    if (this.notes.skipNativeBuild) return "skipped" as const;
     const dir = String(this.notes.storefrontDir);
     // Run the same production build the Vercel deploy runs (Paper's `pnpm build`),
     // directly and harmlessly (no live deployment published). The build inherits

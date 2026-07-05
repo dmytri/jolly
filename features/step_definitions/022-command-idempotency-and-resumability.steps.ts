@@ -49,8 +49,7 @@ Given(
 // ─── @sandbox: Re-running a create subcommand detects existing work ──────────
 // Jolly-observable: with a store endpoint already stored, re-running
 // `jolly create store --url <same>` detects the stored work and reports it
-// through the standard envelope without erroring or duplicating. Gated
-// (saleorEndpoint) → skips locally.
+// through the standard envelope without erroring or duplicating.
 
 Given(
   "`jolly create store` has already completed its resource",
@@ -111,8 +110,7 @@ Then(
 // ─── @sandbox: Jolly start resumes bootstrap and reflects playbook progress ──
 // Jolly-observable: with skills/.mcp.json already present and an agent-produced
 // storefront directory on disk, `jolly start` skips satisfied bootstrap and
-// reflects the cloned storefront in the emitted playbook/checks. Gated
-// (defaults to ALL_CREDENTIAL_GROUPS) → skips locally.
+// reflects the cloned storefront in the emitted playbook/checks.
 
 Given(
   "a previous `jolly start` run completed some bootstrap work but not all",
@@ -181,7 +179,7 @@ Then(
 // ─── @sandbox: Jolly recognizes work the agent did with the official CLIs ────
 // Jolly-observable: with an agent-produced storefront directory on disk,
 // `jolly doctor` detects it from the artifact and treats it as satisfied
-// rather than asking the agent to redo it. Gated (default ALL) → skips locally.
+// rather than asking the agent to redo it.
 
 Given(
   "a cloned storefront, configured store, or deployment already exists — whether produced by `jolly start` or by the agent running a stage itself",
@@ -225,7 +223,7 @@ Then("it should not ask the agent to redo it", function (this: JollyWorld) {
 // ─── @sandbox: Composed subcommands and start agree on state ─────────────────
 // Jolly-observable: after a `jolly create` subcommand stored the endpoint,
 // `jolly start` recognizes that work as satisfied (its doctor pass reports the
-// endpoint present) rather than redoing it. Gated (default ALL) → skips locally.
+// endpoint present) rather than redoing it.
 
 Given(
   "the agent has already run individual `jolly create` subcommands",

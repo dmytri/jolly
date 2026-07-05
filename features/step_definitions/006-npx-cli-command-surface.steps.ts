@@ -230,7 +230,7 @@ When(
   "the installed `jolly start --dry-run` runs through the published launcher in an interactive terminal, accepting every default",
   { timeout: 240_000 },
   function (this: JollyWorld) {
-    if (!ptyAvailable()) return "skipped";
+    assert.ok(ptyAvailable(), "the PTY driver must be available");
     const { installedBin } = packAndInstallJolly(this);
 
     // Build the child env from scratch with the runtime credentials genuinely
@@ -672,10 +672,7 @@ When(
       template.includes("{organization}"),
       `the "${key}" catalog template must carry a {organization} placeholder to substitute; got: ${template}`,
     );
-    if (!ptyAvailable()) {
-      this.notes.renderedMessage = undefined;
-      return "skipped";
-    }
+    assert.ok(ptyAvailable(), "the PTY driver must be available to drive the interactive render");
     // Real render seam: drive `jolly start --dry-run` interactively with two
     // organizations the named one first, so the org select defaults to it and
     // Enter resolves it; the CLI then renders `start.usingOrg` for that org on
@@ -713,7 +710,6 @@ When(
 );
 
 Then("the rendered text should contain {string}", function (this: JollyWorld, expected: string) {
-  if (this.notes.renderedMessage === undefined) return "skipped";
   const out = String(this.notes.renderedMessage);
   assert.ok(out.includes(expected), `rendered text must contain "${expected}"; got:\n${out}`);
   return undefined;
@@ -722,8 +718,7 @@ Then("the rendered text should contain {string}", function (this: JollyWorld, ex
 Then(
   "the rendered text should carry no {string} placeholder token",
   function (this: JollyWorld, token: string) {
-    if (this.notes.renderedMessage === undefined) return "skipped";
-    const out = String(this.notes.renderedMessage);
+      const out = String(this.notes.renderedMessage);
     assert.ok(
       !out.includes(token),
       `rendered text must carry no "${token}" placeholder token; got:\n${out}`,

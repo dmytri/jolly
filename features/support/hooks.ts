@@ -1,100 +1,45 @@
 // Cucumber hooks (feature 023).
 //
-// Before, in spec order:
-//   1. @sandbox — gate on the same runtime JOLLY_* credentials Jolly itself
-//      uses (feature 023): when required credentials are absent the scenario
-//      is skipped, not failed, with a reason naming the missing variables.
+// Before @sandbox: provision the run's one shared jolly-cannon-fodder store and
+// export its derived endpoint + SALEOR_TOKEN for the scenario, then track the
+// derived secret for output-safety. Credentials for every tier are present by
+// fitting-out; the underlying provisioner reads the Cloud token from the
+// environment. Assume they are present.
+//
+// Before @eval: build the published-shape CLI bundle the shimmed bin/jolly imports.
 //
 // After: run the scenario's LIFO, idempotent, best-effort cleanup registry
 // and report anything it could not remove by its namespaced identifier
 // (feature 023 "Harmless by design"). Teardown failures are reported, never
 // swallowed silently — the scenario fails so leaked resources are visible.
 import { After, AfterAll, Before } from "@cucumber/cucumber";
-import type { ITestCaseHookParameter } from "@cucumber/cucumber";
-import { ensureCliBundle, evalGate } from "./eval.ts";
+import { ensureCliBundle } from "./eval.ts";
 import {
   derivedSecrets,
   ensureSharedEnvironment,
   teardownSharedEnvironment,
 } from "./provision.ts";
-import {
-  classifyCredentials,
-  deviceGrantRefreshAvailable,
-  requiredGroups,
-  requiresDeviceGrantRefresh,
-  requiresVercelCli,
-  vercelCliAuthenticated,
-} from "./sandbox.ts";
 import type { JollyWorld } from "./world.ts";
 
-// 1 — @sandbox credential gate (feature 023): skip (never fail) only when
-// credentials are absent AND cannot be derived — the Cloud token itself, or
-// Vercel. A missing Saleor endpoint/SALEOR_TOKEN with the Cloud token
-// present is DERIVED instead: the harness provisions one shared per-run
-// jolly-cannon-fodder environment on first need and exports the values for the whole
-// run. Provisioning creates a real environment, so the timeout is generous.
+// Provision the run's one shared jolly-cannon-fodder store (endpoint + SALEOR_TOKEN
+// derived from the Cloud token) and track the derived secret so output-safety
+// assertions cover it. Provisioning creates a real environment, so the timeout
+// is generous. A scenario that needs a clean, store-less starting state passes
+// its own env to the CLI (absentCredentialsEnv).
 Before(
   { tags: "@sandbox", timeout: 900_000 },
-  async function (this: JollyWorld, hook: ITestCaseHookParameter) {
-    const scenarioName = hook.pickle.name;
-    const gate = classifyCredentials(requiredGroups(scenarioName));
-    if (gate.missing.length > 0) {
-      this.attach(
-        `Skipped: missing required credentials ${gate.missing.join(", ")}`,
-        "text/plain",
-      );
-      return "skipped";
-    }
-    if (gate.derivable.length > 0) {
-      const outcome = await ensureSharedEnvironment();
-      if (outcome.status === "skip") {
-        this.attach(`Skipped: ${outcome.reason}`, "text/plain");
-        return "skipped";
-      }
-      // The derived SALEOR_TOKEN entered process.env after this world snapshot
-      // took its secrets; track it so output-safety assertions cover it.
-      for (const secret of derivedSecrets()) this.trackSecret(secret);
-    }
-    // Device-grant refresh capability gate (@exceptional-double): the refresh-
-    // grant scenarios need a stored device-grant refresh token a human authorize
-    // cannot produce on demand. Absent → skip, never fail.
-    if (requiresDeviceGrantRefresh(scenarioName) && !deviceGrantRefreshAvailable()) {
-      this.attach(
-        "Skipped: no stored device-grant refresh token (JOLLY_SALEOR_REFRESH_TOKEN) " +
-          "to seed the authorized grant",
-        "text/plain",
-      );
-      return "skipped";
-    }
-    // Vercel capability gate (decision 2026-06-13): deployment-touching
-    // scenarios need an authenticated Vercel CLI session, not a Jolly env var.
-    if (requiresVercelCli(scenarioName) && !vercelCliAuthenticated()) {
-      this.attach(
-        "Skipped: Vercel CLI is not authenticated (`npx vercel whoami` exited " +
-          "non-zero); run `vercel login` to enable deployment scenarios",
-        "text/plain",
-      );
-      return "skipped";
-    }
+  async function (this: JollyWorld) {
+    await ensureSharedEnvironment();
+    for (const secret of derivedSecrets()) this.trackSecret(secret);
   },
 );
 
-// 2 — @eval gate (feature 025): skip — never fail — when the baseline-agent
-// runner or the model key (HARNESS_OPENROUTER_API_KEY) is absent, exactly like
-// @sandbox credential gating. The eval is opt-in and never gates normal CI.
-// When it can run, ensure the published-shape CLI bundle (dist/index.js) the
-// shimmed `bin/jolly` imports is built; a build failure is a clean skip.
+// Build the published-shape CLI bundle (dist/index.js) the shimmed `bin/jolly`
+// imports, so the eval drives the real published shape. A build failure fails
+// the scenario.
 Before({ tags: "@eval", timeout: 180_000 }, function (this: JollyWorld) {
-  const gate = evalGate();
-  if (!gate.ok) {
-    this.attach(`Skipped: ${gate.reason}`, "text/plain");
-    return "skipped";
-  }
   const buildError = ensureCliBundle();
-  if (buildError) {
-    this.attach(`Skipped: ${buildError}`, "text/plain");
-    return "skipped";
-  }
+  if (buildError) throw new Error(buildError);
 });
 
 // Teardown: LIFO best-effort cleanup of everything the scenario created.

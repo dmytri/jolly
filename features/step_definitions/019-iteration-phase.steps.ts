@@ -8,8 +8,7 @@
 //   - "Agent has live store access from day one" is @sandbox: it verifies
 //     jolly init wrote a working mcp-graphql config AND that the agent can
 //     query/mutate the live store through it (read-only verification via
-//     saleor-graphql.ts). Gated by SANDBOX_REQUIREMENTS (saleorEndpoint +
-//     SALEOR_TOKEN) → skips locally.
+//     saleor-graphql.ts).
 //   - The two @logic scenarios (doctor health checks, upgrade) run read-only
 //     Jolly commands under absentCredentialsEnv() in the scenario's temp project dir.
 import { Given, When, Then } from "@cucumber/cucumber";

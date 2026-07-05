@@ -451,8 +451,7 @@ Then(
     assert.equal(
       outcome.status,
       "ready",
-      `provisioning must reclaim the leftover and proceed, not skip the run` +
-        (outcome.status === "skip" ? `: ${outcome.reason}` : ""),
+      "provisioning must reclaim the leftover and provision the run's environment",
     );
     const after = await listAllEnvironments(token);
     assert.ok(

@@ -11,8 +11,7 @@
 // (absentCredentialsEnv) — so connectivity is never probed and no remote `pass`
 // is fabricated.
 // @sandbox scenarios (connectivity, storefront, deployment+payment readiness,
-// start-runs-doctor) are gated by name in SANDBOX_REQUIREMENTS and skip
-// locally; their bodies assert only Jolly's own observable contribution.
+// start-runs-doctor) assert only Jolly's own observable contribution.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { existsSync, writeFileSync } from "node:fs";
@@ -140,8 +139,8 @@ Then(
 // ─── Scenario: Doctor checks storefront readiness (@sandbox) ────────────────
 
 Given("a Paper storefront directory exists locally", function (this: JollyWorld) {
-  // @sandbox: the agent's cloned storefront is the precondition; this scenario
-  // skips locally (no real storefront/account). Nothing to fabricate here.
+  // @sandbox: the agent's cloned storefront is the precondition. Nothing to
+  // fabricate here.
 });
 
 When("`jolly doctor` checks the storefront", function (this: JollyWorld) {
@@ -200,7 +199,7 @@ Then(
 // ─── Scenario: Doctor checks deployment and payment readiness (@sandbox) ────
 
 Given("a deployed storefront URL is configured in .env", function (this: JollyWorld) {
-  // @sandbox: deployment is agent-run via the Vercel CLI; skips locally.
+  // @sandbox: deployment is agent-run via the Vercel CLI.
 });
 
 When("`jolly doctor` checks remote readiness", function (this: JollyWorld) {
@@ -351,7 +350,7 @@ Then(
 // ─── Scenario: Jolly start runs doctor automatically (@sandbox) ─────────────
 
 Given("`jolly start` has completed setup steps", function (this: JollyWorld) {
-  // @sandbox (FULL_END_TO_END + Vercel CLI): skips locally. The non-dry-run
+  // @sandbox. The non-dry-run
   // `jolly start` body is exercised by feature 001; here we assert only that
   // start folds doctor results into its output.
 });

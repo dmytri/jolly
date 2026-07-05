@@ -8,10 +8,6 @@
 // for any Jolly remote/action command supports --dry-run; the agent owns the
 // approval decision). The recipe-application narrative lives in the Jolly skill
 // (a Captain-owned asset), not in these step defs.
-//
-// Gated by SANDBOX_REQUIREMENTS["Agent prepares the starter recipe"] /
-// ["Agent applies the starter recipe safely"] (saleorEndpoint+saleorAppToken)
-// → skip locally.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
@@ -118,10 +114,7 @@ Given(
     // the configurator exits 6. Harmless by design: the product and its type are
     // `jolly-cannon-fodder`-namespaced and torn down LIFO.
     const { endpoint, token } = storeCreds();
-    if (!endpoint) {
-      this.notes.skipDestructive = true;
-      return;
-    }
+    assert.ok(endpoint, "a Saleor GraphQL endpoint must be configured/derived");
     const slug = `${makeNamespace()}-foreign`;
     const name = `Jolly Test Foreign ${slug}`;
     const typeResult = await saleorGraphql(
@@ -197,28 +190,19 @@ When(
     // fetch/network) — a condition the real test env cannot produce on demand — so
     // the deploy premise was not reachable and the scenario skips. A recipe stage
     // blocked for the destructive diff is exactly the behaviour under test and MUST
-    // fail the Then, never be masked as a skip.
-    const recipeCheck = this.findCheck("recipe-deployed");
-    const couldNotSpawn = /could not be spawned/i.test(
-      String(recipeCheck?.description ?? ""),
+    // fail the Then.
+    assert.ok(
+      !/could not be spawned/i.test(
+        String(this.findCheck("recipe-deployed")?.description ?? ""),
+      ),
+      "the @saleor/configurator binary must be spawnable via npx",
     );
-    if (couldNotSpawn) {
-      this.attach(
-        `Skipped: the @saleor/configurator binary could not be spawned in this ` +
-          `environment — an environmental inability the real test env cannot ` +
-          `produce on demand, not the destructive-diff contract under test`,
-        "text/plain",
-      );
-      this.notes.skipDestructive = true;
-      return "skipped";
-    }
   },
 );
 
 Then(
   "the recipe stage should pass `--failOnDelete` to `npx @saleor\\/configurator@latest deploy`",
   function (this: JollyWorld) {
-    if (this.notes.skipDestructive) return "skipped";
     // Observable proof Jolly passed `--failOnDelete`: the recipe-deployed check
     // fails reporting the configurator was blocked by it over the pre-existing
     // store (src/index.ts runRecipeStage: exit 6 → recipe-deployed fail naming
@@ -238,7 +222,6 @@ Then(
 );
 
 Then("the configurator should exit {int} for deletions", function (this: JollyWorld, deleteExit: number) {
-  if (this.notes.skipDestructive) return "skipped";
   assert.equal(deleteExit, 6, "the configurator exits 6 when --failOnDelete blocks deletions");
   // Observable of the exit-6 path: the recipe-deployed check names the destructive
   // diff the configurator detected over the pre-existing store.
@@ -253,7 +236,6 @@ Then("the configurator should exit {int} for deletions", function (this: JollyWo
 Then(
   "Jolly should report the recipe stage as {string}, not {string}",
   function (this: JollyWorld, blocked: string, completed: string) {
-    if (this.notes.skipDestructive) return "skipped";
     const stages = (this.envelope.data.stages ?? []) as Array<{
       stage: string;
       status: string;
@@ -389,9 +371,7 @@ Then("the preview should not perform any mutation", function (this: JollyWorld) 
 
 // --- Scenario: Jolly start seeds stock so the recipe catalog is buyable (@sandbox)
 //
-// Gated by SANDBOX_REQUIREMENTS["Jolly start seeds stock so the recipe catalog
-// is buyable"] (saleorEndpoint + saleorAppToken; derivable from the Cloud token)
-// → skips locally. Verifies the FIRST genuinely-executing `jolly start` stage:
+// Verifies the FIRST genuinely-executing `jolly start` stage:
 // the stock-seeding (feature 004 Rule "Recipe products need seeded stock" / MVP
 // sequencing). The CLI-spawning stages (git/pnpm/configurator/vercel) are NOT
 // performed by `jolly start` yet — they stay agent-driven — so this scenario's
@@ -401,9 +381,7 @@ Then("the preview should not perform any mutation", function (this: JollyWorld) 
 // observable real outcomes against the live store: every recipe variant has
 // stock in the recipe warehouse, a `us` checkout is not blocked by
 // INSUFFICIENT_STOCK, and re-running updates quantities idempotently rather than
-// creating duplicate stock. When the `stock` stage does not report `completed`
-// (the recipe is not deployed here, so there are no variants to seed), the
-// scenario skips (premise not producible) rather than failing.
+// creating duplicate stock.
 
 function storeCreds(): { endpoint: string; token: string | undefined } {
   return {
@@ -463,28 +441,19 @@ When("Jolly start completes the recipe stage", function (this: JollyWorld) {
   // construct is the @saleor/configurator binary failing to spawn (npx
   // fetch/network) — an environmental inability the real test env cannot produce
   // on demand. A stock stage `blocked`/`pending` for any other reason is the
-  // behaviour under test and MUST fail the Then, never be masked as a skip.
-  const recipeCheck = this.findCheck("recipe-deployed");
-  const couldNotSpawn = /could not be spawned/i.test(
-    String(recipeCheck?.description ?? ""),
+  // behaviour under test and MUST fail the Then.
+  assert.ok(
+    !/could not be spawned/i.test(
+      String(this.findCheck("recipe-deployed")?.description ?? ""),
+    ),
+    "the @saleor/configurator binary must be spawnable via npx",
   );
-  if (couldNotSpawn) {
-    this.attach(
-      `Skipped: the @saleor/configurator binary could not be spawned in this ` +
-        `environment — an environmental inability the real test env cannot ` +
-        `produce on demand, not the stock contract under test`,
-      "text/plain",
-    );
-    this.notes.skipStock = true;
-    return "skipped";
-  }
 });
 
 Then(
   "every recipe product variant should have stock in the recipe warehouse",
   { timeout: 60_000 },
   async function (this: JollyWorld) {
-    if (this.notes.skipStock) return "skipped";
     const endpoint = String(this.notes.storeEndpoint);
     const token = this.notes.storeToken as string | undefined;
     const variants = await recipeVariants(endpoint, token);
@@ -513,7 +482,6 @@ Then(
   "a checkout in the `us` channel should not be blocked by INSUFFICIENT_STOCK",
   { timeout: 60_000 },
   async function (this: JollyWorld) {
-    if (this.notes.skipStock) return "skipped";
     const endpoint = String(this.notes.storeEndpoint);
     const token = this.notes.storeToken as string | undefined;
     const variantId = String(this.notes.sampleVariantId);
@@ -556,7 +524,6 @@ Then(
   "re-running the stage should update the quantities idempotently rather than creating duplicate stock",
   { timeout: 900_000 },
   async function (this: JollyWorld) {
-    if (this.notes.skipStock) return "skipped";
     // Re-run the orchestrated stage; seeding must update in place (feature 022).
     this.runCli(["start", "--yes", "--json"], { timeoutMs: 840_000 });
     const endpoint = String(this.notes.storeEndpoint);
@@ -811,16 +778,11 @@ Then(
 // ─── Scenario: Jolly start deploys the starter recipe with @saleor/configurator
 //     (@sandbox) ────────────────────────────────────────────────────────────
 //
-// Gated by SANDBOX_REQUIREMENTS["Jolly start deploys the starter recipe with
-// @saleor/configurator"] (saleorEndpoint + saleorAppToken; derivable from the
-// Cloud token via per-run provisioning) → skips locally. Verifies the FIRST
-// spawned-CLI `jolly start` stage genuinely executing: against a blank store,
-// `jolly start --yes` SPAWNS `npx @saleor/configurator deploy` of Jolly's bundled
-// recipe; the additive apply exits 0 so the recipe's catalog entities exist and
-// the stage is reported `completed`; a re-run reconciles to a no-op diff (no
-// duplicate entities). When the recipe stage does not complete in this
-// environment (e.g. the store is not blank, or the configurator could not be
-// spawned), the scenario skips — premise not producible — rather than failing.
+// Verifies the FIRST spawned-CLI `jolly start` stage genuinely executing:
+// against a blank store, `jolly start --yes` SPAWNS `npx @saleor/configurator
+// deploy` of Jolly's bundled recipe; the additive apply exits 0 so the recipe's
+// catalog entities exist and the stage is reported `completed`; a re-run
+// reconciles to a no-op diff (no duplicate entities).
 
 interface ResultStage {
   stage: string;
@@ -846,8 +808,8 @@ Given(
   "a freshly created blank Saleor Cloud environment",
   function (this: JollyWorld) {
     // The @sandbox harness provisions/derives a blank per-run environment from
-    // the Cloud token (feature 023); the gating skips locally when creds are
-    // absent. Record the derived store creds for the post-deploy verification.
+    // the Cloud token (feature 023). Record the derived store creds for the
+    // post-deploy verification.
     const creds = storeCreds();
     this.notes.storeEndpoint = creds.endpoint;
     this.notes.storeToken = creds.token;
@@ -866,29 +828,19 @@ When(
     // binary could genuinely not be spawned here (npx fetch/network) — a condition
     // the real test env cannot produce on demand — so the deploy premise was not
     // reachable and the scenario skips. A recipe stage `blocked`/`failed` for ANY
-    // other reason is exactly the behaviour under test and MUST fail the Then,
-    // never be masked as a skip.
-    const recipeCheck = this.findCheck("recipe-deployed");
-    const couldNotSpawn = /could not be spawned/i.test(
-      String(recipeCheck?.description ?? ""),
+    // other reason is exactly the behaviour under test and MUST fail the Then.
+    assert.ok(
+      !/could not be spawned/i.test(
+        String(this.findCheck("recipe-deployed")?.description ?? ""),
+      ),
+      "the @saleor/configurator binary must be spawnable via npx",
     );
-    if (couldNotSpawn) {
-      this.attach(
-        `Skipped: the @saleor/configurator binary could not be spawned in this ` +
-          `environment — an environmental inability the real test env cannot ` +
-          `produce on demand, not the recipe-deploy contract under test`,
-        "text/plain",
-      );
-      this.notes.skipRecipe = true;
-      return "skipped";
-    }
   },
 );
 
 Then(
   "Jolly should spawn `npx @saleor\\/configurator@latest deploy` of its bundled starter recipe against the store, never reimplementing it against raw APIs",
   function (this: JollyWorld) {
-    if (this.notes.skipRecipe) return "skipped";
     // Jolly-observable: a recipe-deploy check confirms the configurator was
     // spawned (Jolly never reimplements the configurator against raw APIs — the
     // recipe stage's only side effect is spawning the official CLI).
@@ -907,7 +859,6 @@ Then(
   "the bootstrap deploy should record a successful configurator deployment report and the recipe's catalog entities should exist in the store",
   { timeout: 60_000 },
   async function (this: JollyWorld) {
-    if (this.notes.skipRecipe) return "skipped";
     const endpoint = String(this.notes.storeEndpoint);
     const token = this.notes.storeToken as string | undefined;
     const count = await productCount(endpoint, token);
@@ -921,7 +872,6 @@ Then(
 Then(
   "the stage should be reported completed only when the configurator's deployment report records success",
   function (this: JollyWorld) {
-    if (this.notes.skipRecipe) return "skipped";
     // Reaching here means the When step saw the recipe stage `completed`; the
     // integrity contract is that Jolly reports `completed` ONLY when the
     // configurator's own deployment report records success (the exit code alone
@@ -942,7 +892,6 @@ Then(
   "re-running the stage should reconcile to a no-op diff rather than creating duplicate entities",
   { timeout: 900_000 },
   async function (this: JollyWorld) {
-    if (this.notes.skipRecipe) return "skipped";
     const endpoint = String(this.notes.storeEndpoint);
     const token = this.notes.storeToken as string | undefined;
     const before = await productCount(endpoint, token);
@@ -969,10 +918,6 @@ Then(
 // ─── Scenario: Jolly start deploys the recipe over the stock defaults of a
 //     store created by a prior create-store command (@sandbox) ─────────────────
 //
-// Gated by SANDBOX_REQUIREMENTS["Jolly start deploys the recipe over the stock
-// defaults of a store created by a prior create-store command"] (saleorEndpoint
-// + saleorAppToken; derivable from the Cloud token via per-run provisioning,
-// which itself runs `jolly create store --create-environment`) → skips locally.
 // Verifies the bootstrap path: against the blank create-store-provisioned
 // environment, `jolly start --yes` SPAWNS the configurator deploy of Jolly's
 // bundled recipe; the declarative apply reconciles the store to the recipe,
@@ -1001,8 +946,7 @@ Given(
     // The @sandbox harness provisions the shared per-run environment THROUGH
     // `jolly create store --create-environment` (provision.ts) and records its
     // NEXT_PUBLIC_SALEOR_API_URL / SALEOR_TOKEN — exactly the blank,
-    // create-store-bootstrapped environment this scenario starts from. Gating
-    // skips locally when the Cloud token is absent.
+    // create-store-bootstrapped environment this scenario starts from.
     const creds = storeCreds();
     assert.ok(
       creds.endpoint,
@@ -1027,28 +971,19 @@ When(
     // reason — in particular the `--failOnDelete` destructive-diff guard firing
     // over the blank store's Saleor stock defaults — is exactly the behaviour
     // under test (the store was provisioned blank, so the premise HOLDS) and
-    // MUST fail the Then, never be masked as a skip.
-    const recipeCheck = this.findCheck("recipe-deployed");
-    const couldNotSpawn = /could not be spawned/i.test(
-      String(recipeCheck?.description ?? ""),
+    // MUST fail the Then.
+    assert.ok(
+      !/could not be spawned/i.test(
+        String(this.findCheck("recipe-deployed")?.description ?? ""),
+      ),
+      "the @saleor/configurator binary must be spawnable via npx",
     );
-    if (couldNotSpawn) {
-      this.attach(
-        `Skipped: the @saleor/configurator binary could not be spawned in this ` +
-          `environment — an environmental inability the real test env cannot ` +
-          `produce on demand, not the bootstrap contract under test`,
-        "text/plain",
-      );
-      this.notes.skipBootstrap = true;
-      return "skipped";
-    }
   },
 );
 
 Then(
   "the recipe stage should be reported {string}, not {string}",
   function (this: JollyWorld, completed: string, blocked: string) {
-    if (this.notes.skipBootstrap) return "skipped";
     const stages = (this.envelope.data.stages ?? []) as ResultStage[];
     const recipe = stages.find((s) => s.stage === "recipe");
     assert.ok(recipe, "the orchestrated stages must include the recipe stage");
@@ -1065,7 +1000,6 @@ Then(
   "the recipe's `us` channel should exist and be active in the store",
   { timeout: 60_000 },
   async function (this: JollyWorld) {
-    if (this.notes.skipBootstrap) return "skipped";
     const endpoint = String(this.notes.storeEndpoint);
     const token = this.notes.storeToken as string | undefined;
     const channels = await recipeChannels(endpoint, token);
@@ -1308,14 +1242,9 @@ Then(
 // ─── Scenario: Jolly start confirms the recipe's featured collection exists
 //     before reporting the recipe stage completed (@sandbox) ──────────────────
 //
-// Gated by SANDBOX_REQUIREMENTS["Jolly start confirms the recipe's featured
-// collection exists before reporting the recipe stage completed"] (saleorEndpoint
-// + saleorAppToken; derivable from the Cloud token via per-run provisioning) →
-// skips locally. Shares the Given "a freshly created blank Saleor Cloud
-// environment" and the When "Jolly start runs the configurator-deploy stage with
-// approval" with the configurator-deploy @sandbox scenario above — the When sets
-// notes.skipRecipe when the recipe stage does not complete in this environment,
-// so the premise (recipe deployed) is not fabricated. The integrity contract:
+// Shares the Given "a freshly created blank Saleor Cloud environment" and the
+// When "Jolly start runs the configurator-deploy stage with approval" with the
+// configurator-deploy @sandbox scenario above. The integrity contract:
 // Jolly reports the recipe stage `completed` only after it reads the store back
 // and confirms the recipe's declared catalog entities exist there — so the real
 // teeth are the live read-back of the `featured-products` collection holding its
@@ -1327,7 +1256,6 @@ Then(
   "the recipe's `featured-products` collection should exist in the store holding its declared products",
   { timeout: 60_000 },
   async function (this: JollyWorld) {
-    if (this.notes.skipRecipe) return "skipped";
     const endpoint = String(this.notes.storeEndpoint);
     const token = this.notes.storeToken as string | undefined;
     const result = await saleorGraphql(
@@ -1361,7 +1289,6 @@ Then(
 Then(
   'the recipe stage should be reported "completed" only after Jolly reads the store back and confirms the recipe\'s declared catalog entities exist there, not from the configurator\'s summary counts alone',
   function (this: JollyWorld) {
-    if (this.notes.skipRecipe) return "skipped";
     // Reaching here means the When saw the recipe stage `completed` AND the
     // preceding Then confirmed the `featured-products` collection actually exists
     // in the store via a real read-back. Together they pin the contract: a
@@ -1382,7 +1309,6 @@ Then(
 Then(
   'the `recipe-deployed` check should derive its status from that store read-back, so it cannot report "pass" while a sibling check reports a declared entity such as the `featured-products` collection is absent',
   function (this: JollyWorld) {
-    if (this.notes.skipRecipe) return "skipped";
     const checks = this.envelope.checks;
     const recipeDeployed = checks.find((c) => String(c.id) === "recipe-deployed");
     assert.ok(recipeDeployed, "the recipe stage must emit a recipe-deployed check");

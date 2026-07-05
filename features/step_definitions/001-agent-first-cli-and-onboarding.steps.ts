@@ -6,7 +6,7 @@
 // vercel`), pausing for the agent to approve each high-risk stage (feature 021
 // riskContext) and announcing-and-waiting at the human gates. These step defs
 // cover its three faces:
-//   - @sandbox: the full orchestrated run (skips locally; observed at the Jolly
+//   - @sandbox: the full orchestrated run (observed at the Jolly
 //     surface — bootstrap-first, the spawned-CLI stages, the automatic doctor
 //     verification, honest reporting of only the stages actually performed).
 //   - @logic: `jolly start` (no --dry-run) must NOT fabricate stage completion —
