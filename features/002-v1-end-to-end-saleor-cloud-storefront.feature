@@ -118,6 +118,13 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And the envelope `data` should report the deployed storefront URL captured from the Vercel CLI's deploy output, not a fabricated or guessed value
     And `nextSteps` should list the remaining human gates
 
+  @logic
+  Scenario: jolly start makes the Vercel project turnkey for a plain re-deploy
+    Given `JOLLY_SALEOR_CLOUD_TOKEN` is set and `NEXT_PUBLIC_SALEOR_API_URL` is configured to an existing store
+    When the agent runs `jolly start --dry-run --json`
+    Then the `deploy` stage preview should name persisting the storefront build env vars `NEXT_PUBLIC_SALEOR_API_URL` and `NEXT_PUBLIC_DEFAULT_CHANNEL` on the Vercel project itself through the Vercel CLI, not only as one-off `--build-env` flags on Jolly's own deploy
+    And the preview should name writing `NEXT_PUBLIC_DEFAULT_CHANNEL` to `.env`, so a plain `npx vercel deploy` and the local storefront both read the store channel with no key juggling
+
   @sandbox @heavy
   Scenario: Jolly start spawns the Vercel sign-in itself when there is no Vercel session
     Given the storefront is ready for deployment
