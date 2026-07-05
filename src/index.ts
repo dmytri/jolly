@@ -4559,10 +4559,36 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
  * @planks("Then the data should include a per-stage plan of intended effects: directories created, files written, network hosts contacted, and repositories cloned")
  * @planks("When the agent runs `jolly start` again")
  */
+/**
+ * A start stage's executor. `jolly start` composes these — the same seams the
+ * narrow `jolly <stage>` commands run. Injectable so the orchestration's
+ * composition (call order, gates, state hand-off) is verifiable with recording
+ * spies, without running the real heavy stages (feature 029): the stages'
+ * behaviour is proven by their own command scenarios.
+ */
+type StageRunner = (checks: Check[], args: ParsedArgs) => Promise<StageOutcome>;
+
+const DEFAULT_STAGE_RUNNERS: Record<string, StageRunner> = {
+  store: (checks, args) => {
+    const nameOpt = args.options["name"];
+    const domainOpt = args.options["domain-label"];
+    return runStoreStage(checks, {
+      name: typeof nameOpt === "string" ? nameOpt : undefined,
+      domainLabel: typeof domainOpt === "string" ? domainOpt : undefined,
+    });
+  },
+  recipe: (checks) => runRecipeStage(checks).then((status) => ({ status })),
+  stock: (checks) => runStockStage(checks).then((status) => ({ status })),
+  storefront: (checks) => runStorefrontStage(checks).then((status) => ({ status })),
+  stripe: (checks) => runStripeStage(checks).then((status) => ({ status })),
+  deploy: (checks) => runDeployStage(checks),
+};
+
 async function runStartCore(
   args: ParsedArgs,
   onStage?: (stage: string, status: StageStatus) => void,
   onStageStart?: (stage: string) => void,
+  stageRunners: Record<string, StageRunner> = DEFAULT_STAGE_RUNNERS,
 ): Promise<Envelope> {
   const command = "start";
 
@@ -4712,38 +4738,24 @@ async function runStartCore(
       // it is pre-approved and would proceed (and fail at the network layer
       // under the unroutable logic-safe base — which is fine, just not a gate).
       if (args.yes) {
-        // Perturbation — see RIGGING.md ## Perturbation. Guarded on a runtime
-        // value so the type checker still analyses the seam being reimplemented.
-        if (plan.length > -1) {
-          throw new Error("PERTURBATION: consider current durable context; remove when fixed");
-        }
         // With --yes (pre-approved) and the gate unset, the high-risk stages
-        // genuinely execute, each reported honestly (`completed` only when the
-        // real work succeeded, never fabricated): the store stage auto-provisions
-        // a Saleor Cloud environment when none is configured (feature 002), the
-        // recipe stage spawns `npx @saleor/configurator deploy` of the bundled
-        // starter recipe, and the deploy stage spawns `npx vercel`.
-        if (planStage.stage === "store") {
-          const nameOpt = args.options["name"];
-          const domainOpt = args.options["domain-label"];
-          const outcome = await runStoreStage(checks, {
-            name: typeof nameOpt === "string" ? nameOpt : undefined,
-            domainLabel: typeof domainOpt === "string" ? domainOpt : undefined,
-          });
+        // genuinely execute through their seam runner, each reported honestly
+        // (`completed` only when the real work succeeded, never fabricated): the
+        // store stage auto-provisions a Saleor Cloud environment when none is
+        // configured (feature 002), the recipe stage spawns `npx @saleor/configurator
+        // deploy` of the starter recipe, and the deploy stage spawns `npx vercel`.
+        const runner = stageRunners[planStage.stage];
+        if (runner) {
+          const outcome = await runner(checks, args);
           status = outcome.status;
-          storeData = outcome.data;
-        } else if (planStage.stage === "recipe") {
-          // The recipe stage decides the bootstrap path by the store's STATE
-          // (feature 004 Rule "Recipe targets a clean environment"), not by
-          // which command provisioned the store.
-          status = await runRecipeStage(checks);
-        } else if (planStage.stage === "deploy") {
-          const outcome = await runDeployStage(checks);
-          status = outcome.status;
-          deployData = outcome.data;
-          const vercelUrl = outcome.data?.["vercelSignInUrl"];
-          if (typeof vercelUrl === "string" && vercelUrl.length > 0) {
-            deployPendingStep = vercelSignInNextStep(vercelUrl);
+          if (planStage.stage === "store") {
+            storeData = outcome.data;
+          } else if (planStage.stage === "deploy") {
+            deployData = outcome.data;
+            const vercelUrl = outcome.data?.["vercelSignInUrl"];
+            if (typeof vercelUrl === "string" && vercelUrl.length > 0) {
+              deployPendingStep = vercelSignInNextStep(vercelUrl);
+            }
           }
         } else {
           status = "pending";
@@ -4763,7 +4775,7 @@ async function runStartCore(
       // (gate unset, i.e. the store gate before it was pre-approved with --yes).
       // Reported honestly: `completed` only on a real clone+install; `blocked`
       // otherwise — never a fabricated completion. Idempotent (feature 022).
-      status = await runStorefrontStage(checks);
+      status = (await stageRunners["storefront"](checks, args)).status;
     } else if (planStage.stage === "stock" && !gate) {
       // The stock stage is the FIRST genuinely-executing `jolly start` stage
       // (decision 2026-06-14, MVP sequencing): @saleor/configurator cannot make
@@ -4774,7 +4786,7 @@ async function runStartCore(
       // when stock was actually seeded against real recipe variants; `blocked`
       // (with an explaining check) when there are no variants/warehouse yet or
       // the store is unreachable — never a fabricated completion.
-      status = await runStockStage(checks);
+      status = (await stageRunners["stock"](checks, args)).status;
     } else if (planStage.stage === "stripe" && !gate) {
       // The Stripe app-install stage is the SECOND genuinely-executing `jolly
       // start` stage (decision 2026-06-14, MVP sequencing): Jolly's own Saleor
@@ -4787,7 +4799,7 @@ async function runStartCore(
       // fabricated install. The keys + `us`-channel mapping stay a human gate
       // announced below whenever the stage was reached.
       stripeStageReached = true;
-      status = await runStripeStage(checks);
+      status = (await stageRunners["stripe"](checks, args)).status;
     } else {
       status = "pending";
     }
