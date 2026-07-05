@@ -189,6 +189,10 @@ Then(
 // a pending human gate. This is the no-fabrication (integrity-rule) target.
 
 When("`jolly start` reaches the Stripe stage", function (this: JollyWorld) {
+  // Stays on `jolly start`: this scenario asserts the keys+channel human gate is
+  // named in nextSteps, which `commandStart` surfaces after the stripe stage.
+  // Migrating to `jolly stripe` needs runStripeStage to surface that gate itself
+  // (a production change, out of this migration's scope).
   this.runCli(["start", "--yes", "--json"], { env: absentCredentialsEnv(), timeoutMs: 240_000 });
 });
 
@@ -477,9 +481,9 @@ When(
     // event loop and the server could never answer). Point the run's Saleor
     // GraphQL endpoint at the stand-in and supply the Cloud staff token the
     // Stripe stage authenticates with (STAND_IN_TOKEN — the stand-in does not
-    // validate it). Generous timeout: start clones Paper + pnpm-installs before
-    // reaching the Stripe stage, plus the retry backoff.
-    await this.runCliAsync(["start", "--yes", "--json"], {
+    // validate it). Run the Stripe stage alone (`jolly stripe`) against the
+    // stand-in — the retry resilience is the Stripe stage's.
+    await this.runCliAsync(["stripe", "--yes", "--json"], {
       env: absentCredentialsEnv({
         NEXT_PUBLIC_SALEOR_API_URL: String(this.notes.rateLimitEndpoint),
         JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN,

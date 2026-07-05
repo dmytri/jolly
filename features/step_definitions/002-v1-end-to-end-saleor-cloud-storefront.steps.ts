@@ -565,7 +565,7 @@ Then("the preview should not spawn git or pnpm or write the storefront", functio
 When(
   "the run reaches the storefront stage without `--dry-run`",
   function (this: JollyWorld) {
-    this.runCli(["start", "--yes", "--json"], { env: noCredsStartEnv(), timeoutMs: 240_000 });
+    this.runCli(["storefront", "--yes", "--json"], { env: noCredsStartEnv(), timeoutMs: 240_000 });
   },
 );
 
@@ -633,7 +633,7 @@ Then(
 When(
   "the run reaches the deploy stage without `--dry-run`",
   function (this: JollyWorld) {
-    this.runCli(["start", "--yes", "--json"], { env: noCredsStartEnv(), timeoutMs: 240_000 });
+    this.runCli(["deploy", "--yes", "--json"], { env: noCredsStartEnv(), timeoutMs: 240_000 });
   },
 );
 

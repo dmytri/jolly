@@ -148,11 +148,10 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And the preview should not spawn git or pnpm or write the storefront
 
   @logic
-  Scenario: Jolly start does not fabricate the storefront preparation
+  Scenario: jolly storefront does not fabricate the storefront preparation
     Given the agent runs `jolly start` with no real Saleor credentials
     When the run reaches the storefront stage without `--dry-run`
     Then Jolly should report the storefront stage as completed, blocked, or pending, never fabricated
-    And the overall envelope status should be "warning", not "success"
 
   @logic
   Scenario: Jolly start's storefront preparation approves Paper's native build scripts

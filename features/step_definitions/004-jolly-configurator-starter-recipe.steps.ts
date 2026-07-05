@@ -701,7 +701,7 @@ Given(
 When(
   "the run reaches the configurator-deploy stage without `--dry-run`",
   function (this: JollyWorld) {
-    this.runCli(["start", "--yes", "--json"], {
+    this.runCli(["recipe", "--yes", "--json"], {
       env: absentCredentialsEnv(),
       timeoutMs: 240_000,
     });
@@ -1170,9 +1170,9 @@ When(
     // event loop and the server could never answer). Point the run's Saleor
     // GraphQL endpoint at the stand-in and supply the SALEOR_TOKEN the stock stage
     // authenticates with (STAND_IN_TOKEN — the stand-in does not validate it).
-    // Generous timeout: start clones Paper + pnpm-installs before reaching the
-    // stock stage, plus the retry backoff.
-    await this.runCliAsync(["start", "--yes", "--json"], {
+    // Run the stock stage alone (`jolly stock`) against the stand-in — the retry
+    // resilience is the stock stage's, not the whole pipeline's.
+    await this.runCliAsync(["stock", "--yes", "--json"], {
       env: absentCredentialsEnv({
         NEXT_PUBLIC_SALEOR_API_URL: String(this.notes.stockRateLimitEndpoint),
         SALEOR_TOKEN: STAND_IN_TOKEN,
