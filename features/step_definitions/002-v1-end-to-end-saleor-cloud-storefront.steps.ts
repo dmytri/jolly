@@ -958,18 +958,16 @@ Then(
 
 // --- Scenario: The deployed storefront serves the Saleor catalog and a working cart (@sandbox) ---
 //
-// Live operational-readiness acceptance for the DEPLOYED storefront. The deployed
-// URL only exists after a full (human-gated) `jolly start` runs `npx vercel`, so
-// the harness cannot derive it. The scenario therefore gates on a harness knob:
-//   - HARNESS_DEPLOYED_STOREFRONT_URL — the live storefront URL, and
-//   - NEXT_PUBLIC_SALEOR_API_URL — the Saleor store it serves.
-// Absent the URL, the scenario SKIPS (never fails) — exactly the credential-gate
-// discipline. When provided: opening the URL must respond; the served store's
-// catalog must list products; and the cart mechanism the storefront uses (a
-// Saleor checkout) must update when a product is added — verified at the same
-// Saleor data layer the storefront reads/writes, against the live store, with
-// the ephemeral checkout deleted in teardown (harmless by design). Optional
-// HARNESS_STOREFRONT_CHANNEL overrides the channel slug (default "default-channel").
+// Live operational-readiness acceptance for the DEPLOYED storefront. The Given
+// produces the precondition for real: a full `jolly start --yes` provisions a
+// store, deploys the storefront to Vercel under the fitting-out Vercel session,
+// and reports the live *.vercel.app URL. Then opening the URL must respond; the
+// served store's catalog must list products; and the cart mechanism the
+// storefront uses (a Saleor checkout) must update when a product is added —
+// verified at the same Saleor data layer the storefront reads/writes, against
+// the live store, with the ephemeral checkout deleted in teardown (harmless by
+// design). Optional HARNESS_STOREFRONT_CHANNEL overrides the channel slug (the
+// starter recipe seeds the "us" channel).
 
 const STOREFRONT_TIMEOUT_MS = 30_000;
 
@@ -985,20 +983,45 @@ async function fetchWithTimeout(url: string, ms: number): Promise<Response> {
 
 Given(
   "`jolly start` has deployed the storefront to Vercel against the configured Saleor Cloud store",
-  function (this: JollyWorld) {
-    // The live deployed storefront URL and the Saleor store it serves are present
-    // by fitting-out; the harness reads them from the environment.
-    assert.ok(
-      process.env["HARNESS_DEPLOYED_STOREFRONT_URL"],
-      "a live deployed storefront URL (HARNESS_DEPLOYED_STOREFRONT_URL) must be present",
-    );
-    assert.ok(
-      process.env["NEXT_PUBLIC_SALEOR_API_URL"],
-      "the served Saleor store (NEXT_PUBLIC_SALEOR_API_URL) must be present",
-    );
-    this.notes.deployedUrl = process.env["HARNESS_DEPLOYED_STOREFRONT_URL"];
-    this.notes.storeEndpoint = process.env["NEXT_PUBLIC_SALEOR_API_URL"];
-    this.notes.channel = process.env["HARNESS_STOREFRONT_CHANNEL"] ?? "default-channel";
+  { timeout: 900_000 },
+  async function (this: JollyWorld) {
+    // Produce the precondition for real. Reclaim capacity, register teardown of
+    // the created environment and Vercel project, then run a full `jolly start
+    // --yes`: it provisions a store and deploys the storefront to Vercel under
+    // the fitting-out Vercel session (no isolated config), reporting the live
+    // *.vercel.app URL. HARNESS_DEPLOYED_STOREFRONT_URL, when set, names an
+    // already-deployed storefront to verify instead.
+    const preset = process.env["HARNESS_DEPLOYED_STOREFRONT_URL"];
+    if (preset) {
+      this.notes.deployedUrl = preset;
+      const endpoint = process.env["NEXT_PUBLIC_SALEOR_API_URL"];
+      assert.ok(endpoint, "the served Saleor store (NEXT_PUBLIC_SALEOR_API_URL) must be present");
+      this.notes.storeEndpoint = endpoint;
+    } else {
+      await reclaimLeftoverEnvironments(makeNamespace(this.runId));
+      await registerAutoProvisionTeardown(this);
+      this.runCli(["start", "--yes", "--json"], {
+        env: absentCredentialsEnv({
+          JOLLY_SALEOR_CLOUD_TOKEN: process.env["JOLLY_SALEOR_CLOUD_TOKEN"],
+          JOLLY_STORE_NAME: makeNamespace(this.runId),
+          JOLLY_VERCEL_PROJECT: workerNamespace(),
+        }),
+        timeoutMs: 840_000,
+      });
+      const deploy = realRunStages(this).find((s) => s.stage === "deploy");
+      assert.equal(
+        deploy?.status,
+        "completed",
+        `the deploy stage must complete a real Vercel deploy; got "${deploy?.status}"`,
+      );
+      const match = /https:\/\/[a-z0-9-]+\.vercel\.app/i.exec(JSON.stringify(this.envelope));
+      assert.ok(match, `the run must report the deployed *.vercel.app storefront URL`);
+      this.notes.deployedUrl = match[0];
+      const endpoint = loadEnvValues(this.lastRun!.cwd)["NEXT_PUBLIC_SALEOR_API_URL"];
+      assert.ok(endpoint, "the provisioned store endpoint must be written to .env");
+      this.notes.storeEndpoint = endpoint;
+    }
+    this.notes.channel = process.env["HARNESS_STOREFRONT_CHANNEL"] ?? "us";
   },
 );
 
