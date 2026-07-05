@@ -4676,6 +4676,11 @@ async function runStartCore(
       // it is pre-approved and would proceed (and fail at the network layer
       // under the unroutable logic-safe base — which is fine, just not a gate).
       if (args.yes) {
+        // Perturbation — see RIGGING.md ## Perturbation. Guarded on a runtime
+        // value so the type checker still analyses the seam being reimplemented.
+        if (plan.length > -1) {
+          throw new Error("PERTURBATION: consider current durable context; remove when fixed");
+        }
         // With --yes (pre-approved) and the gate unset, the high-risk stages
         // genuinely execute, each reported honestly (`completed` only when the
         // real work succeeded, never fabricated): the store stage auto-provisions
