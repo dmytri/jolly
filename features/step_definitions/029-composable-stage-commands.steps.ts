@@ -17,6 +17,11 @@ import { loadEnvValues, writeEnvValues } from "../../src/lib/env-file.ts";
 import { saleorGraphql } from "../support/saleor-graphql.ts";
 import { addVercelProject, removeVercelProject, workerNamespace } from "../support/sandbox.ts";
 import type { JollyWorld } from "../support/world.ts";
+// src/index.ts runs the CLI on import; import its runtime seams dynamically in
+// the composition step under JOLLY_NO_MAIN. The type is erased, so a type-only
+// import is import-safe.
+import type { StageRunner } from "../../src/index.ts";
+import { STAND_IN_TOKEN } from "../support/creds-env.ts";
 
 // The shared store's runtime values (set into process.env by the @sandbox
 // Before hook). Written into a scenario project `.env` so the stage command
@@ -372,6 +377,73 @@ Then(
     assert.ok(
       this.findCheck("stripe") !== undefined,
       "no stripe check reporting the app-install attempt",
+    );
+  },
+);
+
+// --- Scenario: jolly start composes the stage seams in order (@logic @exceptional-double) ---
+//
+// @exceptional-double: proving the orchestrator CALLS each stage seam in order,
+// with its gates and state hand-off, does not require re-running the real heavy
+// stages — their behaviour is verified by the jolly <stage> command scenarios
+// above. So the seams are replaced with recording spies and runStartCore is
+// driven in-process; only the composition (call order) is asserted.
+
+const SIDE_EFFECTING_STAGES = ["store", "recipe", "stock", "storefront", "stripe", "deploy"];
+
+Given("the stage seams are replaced with recording spies", function (this: JollyWorld) {
+  const order: string[] = [];
+  this.notes.spyOrder = order;
+  const spies: Record<string, StageRunner> = {};
+  for (const stage of SIDE_EFFECTING_STAGES) {
+    spies[stage] = async () => {
+      order.push(stage);
+      return { status: "completed" as const };
+    };
+  }
+  this.notes.spyRunners = spies;
+});
+
+When(
+  "`jolly start --yes` runs its orchestration",
+  { timeout: 120_000 },
+  async function (this: JollyWorld) {
+    // A fresh project dir with a Cloud token (so the auth stage completes and the
+    // run reaches the side-effecting stages) and no store endpoint (so the store
+    // stage is not skipped as already-satisfied). JOLLY_PROJECT_DIR points Jolly at
+    // it without a process-wide chdir; restored in finally. JOLLY_NO_MAIN keeps the
+    // dynamic import from executing the CLI against cucumber's argv.
+    const dir = this.newTempDir("compose");
+    writeEnvValues(dir, { JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN });
+    const previous = process.env["JOLLY_PROJECT_DIR"];
+    const previousNoMain = process.env["JOLLY_NO_MAIN"];
+    process.env["JOLLY_PROJECT_DIR"] = dir;
+    process.env["JOLLY_NO_MAIN"] = "1";
+    try {
+      const { runStartCore, parseArgs } = await import("../../src/index.ts");
+      const args = parseArgs(["start", "--yes", "--json"]);
+      await runStartCore(
+        args,
+        undefined,
+        undefined,
+        this.notes.spyRunners as Record<string, StageRunner>,
+      );
+    } finally {
+      if (previous === undefined) delete process.env["JOLLY_PROJECT_DIR"];
+      else process.env["JOLLY_PROJECT_DIR"] = previous;
+      if (previousNoMain === undefined) delete process.env["JOLLY_NO_MAIN"];
+      else process.env["JOLLY_NO_MAIN"] = previousNoMain;
+    }
+  },
+);
+
+Then(
+  "it should invoke the store, storefront, recipe, stock, deploy, and stripe seams in that order",
+  function (this: JollyWorld) {
+    assert.deepEqual(
+      this.notes.spyOrder,
+      ["store", "storefront", "recipe", "stock", "deploy", "stripe"],
+      `jolly start must compose the stage seams in plan order; got ${JSON.stringify(this.notes.spyOrder)}`,
     );
   },
 );

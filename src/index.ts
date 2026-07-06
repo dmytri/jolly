@@ -183,7 +183,7 @@ const KNOWN_FLAGS = new Set<string>([
  * @planks("When the agent runs `jolly doctor` with stdout not a terminal")
  * @planks("When the agent runs `jolly login --json` with an invalid JOLLY_SALEOR_CLOUD_TOKEN")
  */
-function parseArgs(argv: string[]): ParsedArgs {
+export function parseArgs(argv: string[]): ParsedArgs {
   const parsed = parseBombArgs(argv, {
     boolean: [...GLOBAL_BOOLEAN_FLAGS, ...EXTRA_BOOLEAN_FLAGS],
     string: [...VALUE_FLAGS],
@@ -480,7 +480,7 @@ function emit(env: Envelope, args: ParsedArgs): number {
  * @planks("When the agent runs `<command>`")
  */
 function projectDir(): string {
-  return process.cwd();
+  return process.env["JOLLY_PROJECT_DIR"] ?? process.cwd();
 }
 
 /**
@@ -4566,7 +4566,7 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
  * spies, without running the real heavy stages (feature 029): the stages'
  * behaviour is proven by their own command scenarios.
  */
-type StageRunner = (checks: Check[], args: ParsedArgs) => Promise<StageOutcome>;
+export type StageRunner = (checks: Check[], args: ParsedArgs) => Promise<StageOutcome>;
 
 const DEFAULT_STAGE_RUNNERS: Record<string, StageRunner> = {
   store: (checks, args) => {
@@ -4584,7 +4584,7 @@ const DEFAULT_STAGE_RUNNERS: Record<string, StageRunner> = {
   deploy: (checks) => runDeployStage(checks),
 };
 
-async function runStartCore(
+export async function runStartCore(
   args: ParsedArgs,
   onStage?: (stage: string, status: StageStatus) => void,
   onStageStart?: (stage: string) => void,
@@ -5207,4 +5207,7 @@ async function main(): Promise<void> {
   process.exit(exitCode);
 }
 
-void main();
+// Run the CLI when invoked as a program. Suppressed under JOLLY_NO_MAIN so the
+// module can be imported to drive runStartCore in-process for the composition
+// test without executing the CLI against the importer argv.
+if (!process.env["JOLLY_NO_MAIN"]) void main();

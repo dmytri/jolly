@@ -43,6 +43,12 @@ Feature: Composable stage commands
     Then the `stripe` stage should report "completed" or "blocked" honestly, having attempted the Saleor app install for the Stripe payment app
     And it should not deploy or run any other stage
 
+  @logic @exceptional-double
+  Scenario: jolly start composes the stage seams in order
+    Given the stage seams are replaced with recording spies
+    When `jolly start --yes` runs its orchestration
+    Then it should invoke the store, storefront, recipe, stock, deploy, and stripe seams in that order
+
   Rule: A stage command runs exactly one stage
     - Each command performs only its own stage against preconditions the caller has already met (a configured store, a prepared storefront, a deployed recipe), and never triggers another stage — so it is fast, independently runnable, and testable in isolation.
     - `jolly start` remains the orchestrator: it composes these same stage seams in order and behaves exactly as before. These commands add composability; they do not change `jolly start`.
