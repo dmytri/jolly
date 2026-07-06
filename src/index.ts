@@ -4551,15 +4551,6 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
 }
 
 /**
- * @planks("When the agent runs `jolly start --json` with no store URL")
- * @planks("When the agent runs `jolly start --json` in a non-interactive shell")
- * @planks("When the agent runs `jolly start --yes --json`")
- * @planks("When the agent runs `jolly start --dry-run --json`")
- * @planks("Then it should perform and report only the stages it actually completed (the local bootstrap — skills, scaffold, doctor)")
- * @planks("Then the data should include a per-stage plan of intended effects: directories created, files written, network hosts contacted, and repositories cloned")
- * @planks("When the agent runs `jolly start` again")
- */
-/**
  * A start stage's executor. `jolly start` composes these — the same seams the
  * narrow `jolly <stage>` commands run. Injectable so the orchestration's
  * composition (call order, gates, state hand-off) is verifiable with recording
@@ -4584,6 +4575,18 @@ const DEFAULT_STAGE_RUNNERS: Record<string, StageRunner> = {
   deploy: (checks) => runDeployStage(checks),
 };
 
+/**
+ * Orchestrate `jolly start`: run each stage in order, report only the stages
+ * actually performed, and carry the per-stage plan of intended effects.
+ *
+ * @planks("When the agent runs `jolly start --json` with no store URL")
+ * @planks("When the agent runs `jolly start --json` in a non-interactive shell")
+ * @planks("When the agent runs `jolly start --yes --json`")
+ * @planks("When the agent runs `jolly start --dry-run --json`")
+ * @planks("Then it should perform and report only the stages it actually completed (the local bootstrap — skills, scaffold, doctor)")
+ * @planks("Then the data should include a per-stage plan of intended effects: directories created, files written, network hosts contacted, and repositories cloned")
+ * @planks("When the agent runs `jolly start` again")
+ */
 export async function runStartCore(
   args: ParsedArgs,
   onStage?: (stage: string, status: StageStatus) => void,
@@ -5084,6 +5087,16 @@ async function commandStage(
   });
 }
 
+/**
+ * Route a parsed invocation to its command handler. Owns the top-level `--help`
+ * routing, the unknown-command error that names the supported surface, and the
+ * unknown auth-subcommand error.
+ *
+ * @planks("When the agent runs `jolly frobnicate --json`")
+ * @planks("Then the error should name the supported commands login, logout, auth status, init, start, doctor, upgrade, skills, create, and completion")
+ * @planks("When the agent runs `jolly auth frobnicate --json`")
+ * @planks(`Then the envelope status should be "error" with the stable code `UNKNOWN_AUTH_SUBCOMMAND``)
+ */
 async function dispatch(args: ParsedArgs): Promise<Envelope> {
   const cmd = args.positionals[0];
 

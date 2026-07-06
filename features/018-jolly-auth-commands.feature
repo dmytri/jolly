@@ -181,6 +181,13 @@ Feature: Jolly auth commands
       And it should not request a device code and should not write to .env
       And the output should include a nextSteps array with at least one step
 
+    @logic @captain
+    Scenario: jolly auth with an unknown subcommand fails clearly and names the only subcommand
+      When the agent runs `jolly auth frobnicate --json`
+      Then the envelope status should be "error" with the stable code `UNKNOWN_AUTH_SUBCOMMAND`
+      And the error message should state that the only auth subcommand is status
+      And the remediation should tell the caller to run `jolly auth status`
+
   Rule: The .env Jolly writes is private and shell-safe
     - Every .env Jolly creates or updates (the Cloud token, refresh token, the projected store
       SALEOR_TOKEN, organization name, storefront variables — under a Jolly-managed

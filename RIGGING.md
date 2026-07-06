@@ -24,6 +24,7 @@ Procedure lives in the skills. Every role reads this on open.
 - coverage: `npx c8 --reporter=text --reporter=json -- npx cucumber-js -p logic --tags "@logic and not @captain"`
 - coverage-sandbox: `NODE_OPTIONS=--max-old-space-size=8192 npx c8 --clean=false --reporter=text --reporter=json -- npx cucumber-js -p sandbox --tags "@sandbox and not @captain"`
 - step-usage: `npx cucumber-js --format usage --tags "not @captain"`
+- plank-inventory: `grep -rn '@planks' src/`
 - typecheck: `npm run typecheck`
 - lint: `npx gplint "features/*.feature"`
 
@@ -34,8 +35,8 @@ Procedure lives in the skills. Every role reads this on open.
 
 ## Tiers
 
-- default: @logic. Fast behaviour tier, run in parallel. Exercises real behaviour against the `.env` test env per the live-by-design policy in `AGENTS.md`. Skips a target when its credential or capability is absent.
-- sandbox: @sandbox. Requires `JOLLY_SALEOR_CLOUD_TOKEN` and a Vercel CLI session in the environment. The harness provisions disposable `jolly-cannon-fodder`-namespaced Saleor Cloud and Vercel resources and tears them down.
+- default: @logic. Fast behaviour tier, run in parallel. Exercises real behaviour against the `.env` test env per the live-by-design policy in `AGENTS.md`. Credentials are present by fitting-out; verification reads them from the environment and runs every target. A target whose credential or capability is absent fails as a fitting-out blocker, naming what fitting-out must provide.
+- sandbox: @sandbox. Requires `JOLLY_SALEOR_CLOUD_TOKEN` and a Vercel CLI session, both present by fitting-out and read from the environment; verification runs every target and never gates on credential presence. A target whose credential is absent fails as a fitting-out blocker. The harness provisions disposable `jolly-cannon-fodder`-namespaced Saleor Cloud and Vercel resources and tears them down.
 - eval: @eval. Opt-in model-behaviour evaluation. Requires `HARNESS_OPENROUTER_API_KEY` and `HARNESS_EVAL_MODEL`. Excluded from default and broad runs.
 
 ## Dependencies
