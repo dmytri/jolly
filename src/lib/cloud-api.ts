@@ -391,7 +391,7 @@ export interface TaskStatus {
 /** The poll URL for a task: GET /platform/api/service/task-status/{task_id}.
  * @planks(`Then Jolly should poll GET /platform/api/service/task-status/{task_id} until status is "SUCCEEDED"`)
  */
-export function taskStatusUrl(taskId: string): string {
+function taskStatusUrl(taskId: string): string {
   return `${cloudApiBase()}/service/task-status/${taskId}/`;
 }
 
