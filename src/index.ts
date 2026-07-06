@@ -3967,6 +3967,18 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
   // Signed in: a prior run's pending sign-in (if any) completed.
   clearPendingVercel();
 
+  // Pin the Next.js framework so Vercel serves the storefront. Vercel auto-detects
+  // the framework only when it creates the project during deploy; deploying into a
+  // pre-existing project (e.g. a named `--project` target) uses that project's
+  // framework preset, which is null/Other on a bare project and overrides
+  // detection — producing a built-but-unrouted NOT_FOUND deployment. A vercel.json
+  // framework pin forces the Next.js build regardless of the project preset
+  // (feature 002). Paper ships no vercel.json, so this never clobbers user config.
+  const vercelConfigPath = join(dir, "vercel.json");
+  if (!existsSync(vercelConfigPath)) {
+    writeFileSync(vercelConfigPath, JSON.stringify({ framework: "nextjs" }, null, 2) + "\n");
+  }
+
   // Deploy to production via the official Vercel CLI under its own session,
   // configuring the required build env vars through the CLI (feature 002 Rule).
   // No JOLLY_VERCEL_TOKEN is read or passed; Jolly's own code contacts no host.
