@@ -1025,3 +1025,43 @@ Then("Jolly should not print any token value", function (this: JollyWorld) {
     );
   }
 });
+
+// ─── Scenario: jolly auth with an unknown subcommand fails clearly (feature 018) ───
+
+When("the agent runs `jolly auth frobnicate --json`", function (this: JollyWorld) {
+  this.runCli(["auth", "frobnicate", "--json"]);
+});
+
+Then(
+  'the envelope status should be "error" with the stable code `UNKNOWN_AUTH_SUBCOMMAND`',
+  function (this: JollyWorld) {
+    assert.equal(this.envelope.status, "error", "unknown auth subcommand must be an error");
+    assert.equal(
+      this.envelope.errors[0]?.code,
+      "UNKNOWN_AUTH_SUBCOMMAND",
+      `expected UNKNOWN_AUTH_SUBCOMMAND, got ${JSON.stringify(this.envelope.errors)}`,
+    );
+  },
+);
+
+Then(
+  "the error message should state that the only auth subcommand is status",
+  function (this: JollyWorld) {
+    assert.match(
+      String(this.envelope.errors[0]?.message ?? ""),
+      /only auth subcommand is "status"/i,
+      `error message should name status as the only subcommand: ${this.envelope.errors[0]?.message}`,
+    );
+  },
+);
+
+Then(
+  "the remediation should tell the caller to run `jolly auth status`",
+  function (this: JollyWorld) {
+    assert.match(
+      String(this.envelope.errors[0]?.remediation ?? ""),
+      /jolly auth status/i,
+      `remediation should point to jolly auth status: ${this.envelope.errors[0]?.remediation}`,
+    );
+  },
+);

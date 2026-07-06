@@ -4095,6 +4095,40 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
     // Write the store channel to the project `.env` so the local storefront and a
     // re-deploy read NEXT_PUBLIC_DEFAULT_CHANNEL with no key juggling (feature 029).
     writeEnvValues(projectDir(), { NEXT_PUBLIC_DEFAULT_CHANNEL: channel });
+    // Confirm the deployed storefront actually serves before reporting completed
+    // (mirrors the store readiness gate): a fresh production deployment can take a
+    // moment to route. Poll the deployed URL, following the root redirect to the
+    // channel home, until it answers within a budget; report the deployment as
+    // still propagating otherwise, never a fabricated completion (feature 002).
+    if (deployedUrl) {
+      const readinessDeadline = Date.now() + 180_000;
+      let serving = false;
+      while (Date.now() < readinessDeadline) {
+        try {
+          const response = await fetch(deployedUrl, { method: "GET", redirect: "follow" });
+          if (response.status < 400) {
+            serving = true;
+            break;
+          }
+        } catch {
+          // Not reachable yet; the deployment is still propagating.
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+      }
+      checks.push({
+        id: "deployed-storefront-serving",
+        status: serving ? "pass" : "warning",
+        description: serving
+          ? `The deployed storefront ${deployedUrl} answers a live HTTP probe.`
+          : `The deployed storefront ${deployedUrl} did not answer within the readiness budget; the Vercel deployment may still be propagating. Re-run \`jolly start\` to resume.`,
+      });
+      if (!serving) {
+        return {
+          status: "blocked",
+          data: { deploymentUrl: deployedUrl, storefrontUrl: deployedUrl },
+        };
+      }
+    }
     return {
       status: "completed",
       data: deployedUrl ? { deploymentUrl: deployedUrl, storefrontUrl: deployedUrl } : {},
