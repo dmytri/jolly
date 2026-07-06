@@ -99,3 +99,18 @@ Open product question (dk to decide): the Paper storefront build needs `NEXT_PUB
 ## File-placement principle
 
 `features/*.feature` + `assets/**` = binding product intent. `CAPTAIN.md` = non-binding notes. `AGENTS.md` = Shipshape/tooling-generic config (all test/harness methodology, so QM/Crew see it). The one admitted product-spec exception about the verification layer is 026's `@property` "no forbidden double" — testability, not subject, decides what may be a scenario. `CLAUDE.md` is a thin pointer to `AGENTS.md`.
+
+## Shipshape 0.9.0 refit + cleanup (upstream taxonomy, 2026-07-06)
+
+Non-binding. Creates no work; verification governs. Do this at the NEXT harbour, not mid-voyage. Upstream `~/shipshape` moved to a 0.9.0 taxonomy; Jolly's `RIGGING.md` is now a superseded shape. Refit re-derives it to the current shape (no backward-compat migration — Shipwright reshapes and drops superseded slots). Run `/shipwright` refit in harbour.
+
+- **Outbound becomes per-target.** `## Outbound` is now one entry per target: name / ship / verify against the LIVE artifact. Jolly's two targets:
+  - npm `@dk/jolly` — ship `npm publish --access public`; verify a clean-tree install of the published package runs.
+  - homepage `jolly.cool` — ship `cd assets/homepage && npx vercel deploy --prod --yes`; verify live `/setup` matches the shipped `assets/homepage/setup.md`. **This live-verify retires the [[homepage-deploy-separate-from-npm]] footgun** — a forgotten redeploy now fails a check instead of silently rotting the site.
+- **Homepage STAYS an asset.** It is human-owned brochure + bootstrap craft under Captain custody; that classification is correct. Do NOT monorepo it. Its only problem was outbound visibility, fixed by the target entry above.
+- **implementation lists every planked-seam dir.** `implementation:` must name every directory that can hold a `@planks` seam; `plank-inventory` scans exactly those. Check for planked code outside `src/` (e.g. `bin/`) and add it.
+- **scantlings** — new optional `Directories` key for machine-readable contracts (OpenAPI/JSON Schema/GraphQL), renamed from "standard contract". Jolly carries none today; relevant only if one is ever adopted. Captain authors, vendored read-only, custody-gated Captain-only.
+- **rigging custody** — the config files (`package.json`, `tsconfig`, `.gplintrc`, `cucumber.js`) are "the rigging" `RIGGING.md` documents. Boatswain tends them, Captain selects dependencies, Crew installs. Custody clarity, no Jolly action.
+- **RIGGING grammar** — `- key: value` per line, key repeated for multi-value, command values backticked, path values bare.
+- **Cleanup, the wake.** Transient build/verification output at root — `coverage/`, `dist/`, `report.html`, `report.json`, `.sandbox-rerun.txt` — is "the wake": git-ignore it, keep it off the canon layer beside `features/`/`assets/`. `.sandbox-rerun.txt` looks like persisted retry state; confirm it is git-ignored or drop it.
+- **`SCENARIO_WRITING.md`** duplicates the shipshape skill's scenario-writing agreement. Defer to the skill; drop the local copy when the reusable scenario-writing skill lands upstream.
