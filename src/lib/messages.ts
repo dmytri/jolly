@@ -23,7 +23,7 @@ function catalogPath(): string {
 }
 
 /**
- * @planks("When the CLI renders the `start.usingOrg` message with organization \"acme-co\"")
+ * @planks(`When the CLI renders the `start.usingOrg` message with organization "acme-co"`)
  */
 export function cliMessage(
   key: string,

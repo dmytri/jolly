@@ -98,7 +98,9 @@ Test tiers:
 
 - `@logic` — fast assertions about behavior and output (envelope/output shape, redaction, host enumeration, pure helpers), run against the real `.env` test env — never dummy or forced-safe credentials. A `@logic` scenario that would create or mutate a real resource belongs in `@sandbox`.
 - `@sandbox` — real-account, side-effecting behavior against real services; runtime `JOLLY_*` credentials only; every created resource namespaced and torn down per harmless-by-design.
-- `@eval` — opt-in skill-affordance evaluation; excluded from default worklist; its agent/model credential is present by fitting-out; never a green/red gate.
+- `@eval` — skill-affordance evaluation driving the live baseline agent; a **required green/red gate** that MUST run and pass, its agent/model credential present by fitting-out. A persistent eval failure is a real defect to fix, never a tolerated flake and never skipped. Because a live agent varies run to run, the eval verification MAY retry the agent within a bounded budget so a single hiccup does not red the gate; exhausting that budget reds.
+
+**Zero tolerated failures, zero skips — every tier, every run.** The standard is a fully green suite across `@logic`, `@sandbox`, and `@eval`, with no skipped scenarios anywhere. A skipped `@sandbox` or `@eval` scenario is un-verified, and un-verified is a failure, never a pass: verification runs every scenario, and a scenario it cannot run reds as a fitting-out blocker naming what to provide, rather than self-skipping. A recurring "false failure" — a cold-start not-yet-serving store, a leaked environment at the capacity limit, a teardown crash, a parallel timing race — is a harness defect to engineer out (a longer readiness gate, robust reclaim, a retrying teardown, serial isolation), not a documented excuse to re-run past. The suite is not green until it is green with nothing skipped and nothing tolerated.
 
 **Tests that create or mutate real resources must be harmless by design — production-safe — and this applies to every such test (`@sandbox` and the live `@eval`) on every feature.** When you write or run one:
 
@@ -124,11 +126,13 @@ Sandbox harness mechanics (the machinery in `features/support/`):
 
 Prefer fast focused checks and isolated slow checks, and run independent checks in parallel for fast worklists/status. The logic tier runs in parallel: `cucumber-js -p logic` (configured in `cucumber.js`). Cached verification may be used only when project tooling defines it; reports must distinguish fresh results from cache-backed results.
 
-Before treating a verification failure as a product defect, rule out the known false-failure modes first:
+A recurring non-product failure is a harness defect to engineer out, not an excuse to tolerate. When a failure is not a product defect, fix the harness so it stops recurring — never re-run past it:
 
-- A `-p logic` (parallel) failure may be a PTY/loopback timing race, not a defect — re-run the target **serially** to confirm before acting (the failing scenario moving between runs is the tell).
-- A `@sandbox` failure may be a stale `.env` pointing at a deleted `jolly-cannon-fodder` store (404) — probe store reachability before treating it as a defect.
-- After an outbound publish, verify against the local clean tree, not the freshly-published registry tarball — CDN propagation can return an empty or stale tarball for minutes.
+- A `-p logic` (parallel) failure from a PTY/loopback timing race — make the target robust to parallel timing, or isolate it, so it passes in parallel. A target that only passes when re-run serially is not yet fixed.
+- A `@sandbox` failure from a stale `.env` pointing at a deleted `jolly-cannon-fodder` store (404) — the harness MUST validate or refresh the store endpoint before the run, so a stale `.env` never reaches a scenario.
+- A `@sandbox` cold-start failure (a freshly-provisioned store or fresh Vercel deploy not yet serving within the readiness budget) — the readiness gate MUST poll long enough that the store/deploy reliably serves before the stage completes. A budget too short to ride out a real cold start is the defect.
+- A `@sandbox` capacity failure (org at its environment limit from a leaked `jolly-cannon-fodder` env) — reclaim MUST remove every leaked `jolly-cannon-fodder` env before provisioning, so a run never starts against a full org.
+- After an outbound publish, verify against the local clean tree while CDN propagation settles, then verify the published artifact — a stale-tarball window is expected and rides through, not a release failure.
 
 ## Scenario writing
 

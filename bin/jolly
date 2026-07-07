@@ -19,6 +19,10 @@
 // parse it and reach the version guard below instead of dying with a raw
 // syntax or module error.
 
+/**
+ * @planks("When the published `jolly` launcher runs")
+ * @planks("Then it should exit with an error naming the minimum Node version")
+ */
 var MIN_NODE_MAJOR = 20;
 var MIN_NODE_LABEL = "20.12.0";
 

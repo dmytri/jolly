@@ -19,6 +19,20 @@ Captain-only, **non-binding** working memory. Binding behaviour lives in `featur
 
 The suite runs against **real services** in a production-shaped test env (the `JOLLY_*` `.env` credentials), every tier including `@logic`. Never mock/fake (no fake CLIs, dummy creds, `.invalid` endpoints). Creating real resources is expected; safety is **harmless-by-design** — namespace every created resource + idempotent teardown + never touch what the run did not create (AGENTS.md). Produce failures from real bad input. The only doubles are inline `@exceptional-double`s for conditions the real env can't produce on demand (current set: `ENVIRONMENT_LIMIT_REACHED`, the unverifiable-endpoint "stored, not verified" path, and the device-grant human-approve via the local fake auth host). Enforced by 026's `@property` "no forbidden double". A persistently-skipping `@sandbox` scenario is un-verified, not done ([[skip-mask-sandbox-unverified]]).
 
+## Standard: zero tolerated failures, zero skips (dk, 2026-07-07)
+
+Extends `[[skip-mask-sandbox-unverified]]` to a hard bar: a green voyage means **every tier green — `@logic`, `@sandbox`, AND `@eval` — with zero skips anywhere and zero tolerated flakes.** dk's call this session, after the harbour boundary kept excusing `@sandbox`/`@eval` reds as documented flakes. Direction is **fix, do not delete** (dk chose fix + purge-tolerance over deleting the offenders): keep the feature-002 cold-start trio and the `@eval` tier, make them genuinely reliable, and gut the tolerance apparatus.
+
+Encoded durably this session (`AGENTS.md`): `@eval` is now a required green/red gate (was "never a gate"); added the zero-fail/zero-skip standard; reframed "known false-failure modes" as harness defects to engineer out (readiness budget, reclaim, teardown retry, parallel-robustness), not excuses to re-run past.
+
+Routed, not Captain's to write:
+- **Shipwright (RIGGING refit) — DONE this session:** purged `## Known false-failure modes` (-> `none`, pointer to the AGENTS defect-to-engineer policy); made `@eval` a required gated tier (never skipped, bounded-retry allowance); moved the genuine CDN-window note into `## Outbound`. RIGGING already stated fail-not-skip for every tier, so no self-skip policy remained to drop (the self-skip lives in the harness, QM below).
+- **QM/Crew (fresh cycle):** discover the failing trio + eval and fix at the harness/production layer, and derive + negative-test the two executable methodology checks there (they are coupled to the harness signal, so they cannot be proven until the harness stops self-skipping): (1) readiness/serving budget so the cold-start trio (`002:50/309/317`) reliably completes, not "blocked"; (2) remove the `@sandbox`/`@eval` self-skip so a missing-cred scenario reds as a fitting-out blocker; (3) close the `deleteEnvironment` `fetch`-throw teardown gap (`features/support/cloud.ts:102`, the half-closed AGENTS ~line 120 guard); (4) give `@eval` a bounded agent-retry budget so a single live-agent timeout does not red the gate — persistent failure still reds; (5) a **zero-skip** check (a tier run reporting any skipped scenario reds) and an **eval-gate** check (the boundary includes `@eval` and fails if it does not pass), each negative-tested — plant a skip / a skipped eval, confirm red, remove.
+
+Residual risk (eyes open): `@eval` drives a live LLM agent; a hard 0-fail gate carries inherent variance. Mitigation is the bounded in-scenario retry, not tolerance. If it proves un-gateable in practice, revisit drop-vs-keep.
+
+Evidence this session: full `@sandbox` serial 36/39 (the trio) with capacity clear; isolated trio retry **2/3 failed even at full capacity** — NOT a clean transient, a real readiness-budget defect. `@eval` red on baseline-agent timeout. `@logic` 172/172, `@sandbox`-light 13/13 green.
+
 ## Pending outbound
 
 **Harbour requires only `git push`, NOT npm publish or homepage deploy (dk, this session).** So the harbour-entry guard is met once `main` is pushed and the tree is clean. Push to `origin/main` is standing-approved (dk) and is DONE (`main` level with `origin/main`).

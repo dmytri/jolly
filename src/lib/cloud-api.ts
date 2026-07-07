@@ -636,9 +636,9 @@ export interface RecipeIdentifiers {
  * customer's; {@link seedRecipeStock} seeds stock into the derived warehouse.
  * @planks("When the cloud-api module derives the recipe identifiers from that asset")
  * @planks("When the cloud-api module derives the recipe identifiers from it")
- * @planks("Then the warehouse slug it uses should be \"test-anchorage\"")
- * @planks("Then the product slugs it uses should be \"first-mate\" and \"second-mate\"")
- * @planks("Then the \"crew-picks\" collection it assigns should contain \"first-mate\"")
+ * @planks(`Then the warehouse slug it uses should be "test-anchorage"`)
+ * @planks(`Then the product slugs it uses should be "first-mate" and "second-mate"`)
+ * @planks(`Then the "crew-picks" collection it assigns should contain "first-mate"`)
  */
 export function deriveRecipeIdentifiers(recipeYamlPath: string): RecipeIdentifiers {
   const recipe = parse(readFileSync(recipeYamlPath, "utf8")) as {
