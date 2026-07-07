@@ -34,5 +34,6 @@
   "start.close.keepBuilding": "Keep building:",
   "start.close.keepStorefront": "storefront/ — your storefront, live on Vercel (pnpm dev, npx vercel)",
   "start.close.keepRecipe": "recipe.yml — your catalog & store config as code (npx @saleor/configurator)",
-  "start.close.guides": "Guides: github.com/saleor/storefront · github.com/saleor/configurator · docs.saleor.io"
+  "start.close.guides": "Guides: github.com/saleor/storefront · github.com/saleor/configurator · docs.saleor.io",
+  "saleorUrl.clarification": "That doesn't look like a Saleor URL I can use. Could you paste your Saleor Dashboard URL, GraphQL API URL, or root Saleor Cloud URL (for example https://your-store.eu.saleor.cloud)?"
 }
