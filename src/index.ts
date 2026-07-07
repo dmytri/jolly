@@ -5026,6 +5026,7 @@ export async function runStartCore(
 
 /**
  * @planks("When the agent inspects `jolly --help`")
+ * @planks("When the agent runs `jolly --help`")
  */
 function commandHelp(): Envelope {
   return envelope({
@@ -5043,7 +5044,7 @@ function commandHelp(): Envelope {
         "doctor",
         "upgrade",
         "skills",
-        "create store",
+        "create",
         "completion",
       ],
       globalFlags: ["--json", "--quiet", "--yes/-y", "--dry-run"],
