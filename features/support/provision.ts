@@ -1,17 +1,26 @@
-// Shared per-run Saleor environment provisioning (features 023 + 012).
+// Shared Saleor environment provisioning (features 023 + 012).
 //
 // When a @sandbox scenario needs NEXT_PUBLIC_SALEOR_API_URL /
 // SALEOR_TOKEN and they are not configured but
 // JOLLY_SALEOR_CLOUD_TOKEN is present, the harness provisions ONE shared
-// environment for the whole run — through Jolly's own
-// `create store --create-environment` with the `--name`/`--domain-label`
-// overrides carrying the per-run jolly-cannon-fodder namespace — derives both values
-// from it, and tears it down when the run ends (AfterAll in hooks.ts).
+// store per worker — through Jolly's own `create store --create-environment`
+// with a STABLE `--name`/`--domain-label` (SHARED_STORE_PREFIX, not a
+// per-run id). Jolly's own reuse-by-label logic (feature 012) means a
+// healthy store from a PRIOR cucumber invocation is reused rather than
+// recreated, cutting the minutes-long create+deploy cost for every run that
+// does not itself test store creation. The store is never torn down; it
+// persists across invocations by design (see reclaimStaleResources below for
+// what DOES get cleaned up, and hooks.ts for why AfterAll no longer touches
+// it).
 //
-// Leftover jolly-cannon-fodder environments from previous runs are RECLAIMED before
-// creating, never skipped: the jolly-cannon-fodder- prefix is the protection boundary
-// (AGENTS.md "Leftover handling"), so they are this dedicated test org's
-// disposable resources and are deleted freely to free capacity.
+// Reclaiming leftovers from crashed/interrupted runs is a separate, PROACTIVE
+// concern handled by reclaimStaleResources(), invoked once from an
+// unconditional BeforeAll (hooks.ts) regardless of which tier/tags a given
+// cucumber invocation selects — so leftovers from a run that only ever
+// exercised one tier don't silently survive until someone happens to run a
+// different tier later. The jolly-cannon-fodder- prefix is the protection
+// boundary (AGENTS.md "Leftover handling"); SHARED_STORE_PREFIX is carved out
+// of that reclaim so the persistent store is never mistaken for a leftover.
 //
 // Every provisioning failure is a real failure and throws, so a run that cannot
 // stand up its store surfaces the fault loudly. The Cloud token is present by
@@ -20,7 +29,13 @@ import { spawnSync } from "node:child_process";
 import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { deleteEnvironment, listAllEnvironments } from "./cloud.ts";
+import {
+  deleteEnvironment,
+  leftoverTestEnvironments,
+  listAllEnvironments,
+  SHARED_STORE_PREFIX,
+  type CloudEnvironment,
+} from "./cloud.ts";
 import { findEnvelope, type Envelope } from "./envelope.ts";
 import { CleanupRegistry, makeNamespace, runId, workerNamespace, type CleanupFailure } from "./sandbox.ts";
 import { REPO_ROOT } from "./world.ts";
@@ -117,38 +132,25 @@ export async function teardownSharedEnvironment(): Promise<CleanupFailure[]> {
 }
 
 /**
- * The un-memoized provisioning logic: reclaim leftover jolly-cannon-fodder environments,
- * then create the run's shared environment and derive its runtime values.
- * `ensureSharedEnvironment` wraps this once-per-run; the feature 026 @sandbox
- * conformance scenario drives it directly to exercise the provision path fresh,
- * regardless of suite order.
+ * Delete every OTHER run's jolly-cannon-fodder-namespaced Cloud environment and
+ * local scratch dir, sparing this run's own namespace and the persistent
+ * SHARED_STORE_PREFIX store. This is the harness's own janitor: called once
+ * per cucumber invocation from an unconditional BeforeAll (hooks.ts), so
+ * leftovers from a crashed/interrupted/killed run are reclaimed proactively —
+ * regardless of which tier/tags the NEXT invocation happens to select —
+ * rather than only when someone next runs the same tier that leaked them.
+ * The jolly-cannon-fodder- prefix is the protection boundary (AGENTS.md
+ * "Leftover handling"): only that namespace is ever touched.
  */
-export async function provisionSharedEnvironment(): Promise<ProvisionOutcome> {
-  const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? "";
-
-  // Reclaim every OTHER run's jolly-cannon-fodder environments before creating.
-  // They are this dedicated test org's disposable cannon fodder, positively
-  // marked by the jolly-cannon-fodder- prefix (AGENTS.md "Leftover handling"),
-  // so ownership is irrelevant and they are deleted freely to free capacity —
-  // this reclaim IS the run's teardown. Nothing tears the shared store down
-  // mid-run (that would race a sibling worker, since cucumber's AfterAll runs
-  // per worker), so a later run wipes the slate. The current run's namespace is
-  // spared so the reclaim never deletes the live store this run is using; an
-  // environment lacking the prefix is never touched.
+export async function reclaimStaleResources(
+  token: string = process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? "",
+): Promise<CloudEnvironment[]> {
+  if (token.trim() === "") return [];
   const runNamespace = makeNamespace(runId());
-  const before = await listAllEnvironments(cloudToken);
-  for (const env of before) {
-    if (env.name.startsWith("jolly-cannon-fodder-") && !env.name.startsWith(runNamespace)) {
-      await deleteEnvironment(cloudToken, env.org, env.key);
-    }
+  const leftovers = leftoverTestEnvironments(await listAllEnvironments(token), runNamespace);
+  for (const env of leftovers) {
+    await deleteEnvironment(token, env.org, env.key);
   }
-
-  // Reclaim leaked LOCAL scratch dirs from other runs the same way. The
-  // per-scenario temp dirs (world.ts newTempDir) are jolly-cannon-fodder-<run>
-  // namespaced and removed in teardown, but a crashed or cut-off teardown leaks
-  // them until they fill the disk (ENOSPC). Delete every jolly-cannon-fodder tmp
-  // entry outside this run's namespace, sparing the shared package cache. Mirrors
-  // the Cloud reclaim: a later run wipes what a crash left behind.
   for (const entry of readdirSync(tmpdir())) {
     if (
       entry.startsWith("jolly-cannon-fodder-") &&
@@ -158,23 +160,30 @@ export async function provisionSharedEnvironment(): Promise<ProvisionOutcome> {
       rmSync(join(tmpdir(), entry), { recursive: true, force: true });
     }
   }
+  return leftovers;
+}
 
-  // Scratch project directory: the CLI writes the derived values to its
-  // .env. Kept (and removed in teardown) rather than scenario-scoped — the
-  // environment is shared by the whole run.
+/**
+ * Create (or, via Jolly's own reuse-by-label logic, feature 012, adopt) the
+ * stable-named shared store and derive its runtime values from the scratch
+ * project directory's `.env`. Does not probe readiness — callers do that, so
+ * a stale cached store's unreachability can be told apart from a fresh
+ * create's cold start.
+ */
+async function createOrReuseSharedStore(
+  name: string,
+): Promise<{ url: string; token: string }> {
   const scratchDir = mkdtempSync(join(tmpdir(), `${workerNamespace()}-`));
   teardownRegistry.register(`scratch directory ${scratchDir}`, () => {
     rmSync(scratchDir, { recursive: true, force: true });
   });
 
-  const name = workerNamespace();
   const runtime = process.env.HARNESS_CLI_RUNTIME ?? "node";
 
-  // Create the environment, waiting out a transient org environment-limit. Under
-  // a parallel run the limit is consumed by sibling workers' live stores, which
-  // they tear down as their scenarios finish, freeing a slot. Run-scoped
-  // reclamation never deletes a sibling's live store, so capacity is recovered by
-  // waiting and retrying, not by deleting. Skip only after the wait budget.
+  // Create-or-reuse, waiting out a transient org environment-limit. Under a
+  // parallel run the limit is consumed by sibling workers' live stores, which
+  // they tear down as their scenarios finish, freeing a slot. Skip only after
+  // the wait budget.
   const limitDeadline = Date.now() + 540_000;
   let envelope: Envelope;
   for (;;) {
@@ -195,14 +204,14 @@ export async function provisionSharedEnvironment(): Promise<ProvisionOutcome> {
     );
     if (spawned.error) {
       throw new Error(
-        `failed to invoke Jolly CLI for shared-environment provisioning via "${runtime}": ${spawned.error.message}`,
+        `failed to invoke Jolly CLI for shared-store provisioning via "${runtime}": ${spawned.error.message}`,
       );
     }
     const stdout = spawned.stdout ?? "";
     const parsed = findEnvelope(stdout);
     if (!parsed) {
       throw new Error(
-        `shared-environment provisioning produced no output envelope ` +
+        `shared-store provisioning produced no output envelope ` +
           `(exit ${spawned.status}).\nstdout:\n${stdout}\nstderr:\n${spawned.stderr}`,
       );
     }
@@ -217,70 +226,98 @@ export async function provisionSharedEnvironment(): Promise<ProvisionOutcome> {
     break;
   }
 
-  // No teardown is registered for the shared store: tearing it down would run in
-  // a per-worker AfterAll and could delete the store while a sibling worker is
-  // still using it. The store is reclaimed by the next run's delete-every-other-
-  // run's-cannon-fodder pass above, so teardown effectively happens after all
-  // tiers, by construction.
-  const data = envelope.data;
-
   if (
     envelope.status === "error" &&
     envelope.errors.some((e) => e.code === "ENVIRONMENT_LIMIT_REACHED")
   ) {
     throw new Error(
-      "Cloud API still rejected environment creation with ENVIRONMENT_LIMIT_REACHED " +
+      "Cloud API still rejected store creation with ENVIRONMENT_LIMIT_REACHED " +
         "after waiting for a sibling worker to free a slot (organization sandbox " +
         "limit). Raise the org's environment limit or lower the sandbox worker count.",
     );
   }
   if (envelope.status !== "success") {
     throw new Error(
-      `shared-environment provisioning failed: ${envelope.summary}\n` +
+      `shared-store provisioning failed: ${envelope.summary}\n` +
         JSON.stringify(envelope.errors),
     );
   }
 
-  // The created environment must be positively identifiable as this run's:
-  // Jolly must have honored the --name/--domain-label overrides.
-  if (data.environmentName !== name) {
+  // The environment must be positively identifiable: Jolly must have honored
+  // the --name/--domain-label overrides whether it created fresh or reused.
+  if (envelope.data.environmentName !== name) {
     throw new Error(
-      `provisioned environment does not carry the per-run namespace: ` +
-        `expected name "${name}", got "${data.environmentName}" — ` +
+      `provisioned environment does not carry the configured name: ` +
+        `expected "${name}", got "${envelope.data.environmentName}" — ` +
         `jolly create store --create-environment must honor --name/--domain-label`,
     );
   }
 
-  // Derive the runtime values for the whole run from the CLI's .env.
   const values = loadEnvValues(scratchDir);
   const url = values["NEXT_PUBLIC_SALEOR_API_URL"];
   const saleorToken = values["SALEOR_TOKEN"];
   if (!url || !saleorToken) {
     throw new Error(
-      "shared-environment provisioning did not yield both " +
+      "shared-store provisioning did not yield both " +
         "NEXT_PUBLIC_SALEOR_API_URL and SALEOR_TOKEN in .env",
     );
   }
+  return { url, token: saleorToken };
+}
+
+/** Poll until the store's GraphQL endpoint actually serves, or return false
+ * having waited out the budget. A freshly created store's platform task
+ * reporting SUCCEEDED means the environment RECORD exists, not that its
+ * instance is serving yet (cold start); a cached store from a prior
+ * invocation should normally answer immediately. */
+async function waitForReady(url: string, budgetMs: number): Promise<boolean> {
+  const deadline = Date.now() + budgetMs;
+  for (;;) {
+    if ((await probeEndpointConnectivity(url)).kind === "reachable") return true;
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 5_000));
+  }
+}
+
+/**
+ * The un-memoized provisioning logic: create-or-reuse the stable-named shared
+ * store (features 023 + 012) and derive its runtime values. Leftover
+ * reclamation is no longer done here — see reclaimStaleResources(), run
+ * unconditionally from hooks.ts's BeforeAll. `ensureSharedEnvironment` wraps
+ * this once-per-run; the feature 026 @sandbox conformance scenario drives it
+ * directly to exercise the provision path fresh, regardless of suite order.
+ */
+export async function provisionSharedEnvironment(): Promise<ProvisionOutcome> {
+  const name = SHARED_STORE_PREFIX;
+
+  // Reclaim here too (not just from hooks.ts's BeforeAll): this function is
+  // also driven directly by the feature 026 conformance scenario to exercise
+  // the provision path fresh regardless of suite order, so reclaiming must be
+  // an observable effect of provisioning itself, not only of having started
+  // this cucumber invocation.
+  await reclaimStaleResources();
+
+  let { url, token: saleorToken } = await createOrReuseSharedStore(name);
   process.env["NEXT_PUBLIC_SALEOR_API_URL"] = url;
   process.env["SALEOR_TOKEN"] = saleorToken;
 
-  // Readiness gate. The platform task reporting SUCCEEDED means the environment
-  // RECORD exists, not that its GraphQL endpoint is serving yet: a freshly
-  // provisioned Saleor store answers 404 / 5xx until its instance stands up.
-  // Poll until it actually serves before handing off, so the run's heavy
-  // scenarios never race a cold store — the configurator, which does not retry,
-  // would otherwise fail its deploy against a not-yet-serving endpoint. Bounded;
-  // a store that never becomes reachable is a real fault, so it throws.
-  const readinessDeadline = Date.now() + 180_000;
-  for (;;) {
-    if ((await probeEndpointConnectivity(url)).kind === "reachable") break;
-    if (Date.now() >= readinessDeadline) {
-      throw new Error(
-        `provisioned store ${url} did not become reachable within 180s ` +
-          `(cold-start readiness budget exceeded)`,
-      );
-    }
-    await new Promise((resolve) => setTimeout(resolve, 5_000));
-  }
-  return { status: "ready" };
+  if (await waitForReady(url, 180_000)) return { status: "ready" };
+
+  // The cached store never became reachable — treat it as broken rather than
+  // merely cold, delete it, and provision fresh once under the same stable
+  // name. A store that still isn't reachable after recreating is a real
+  // fault, not a stale cache, so it throws.
+  const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? "";
+  const stale = (await listAllEnvironments(cloudToken)).find((env) => env.name === name);
+  if (stale) await deleteEnvironment(cloudToken, stale.org, stale.key);
+
+  ({ url, token: saleorToken } = await createOrReuseSharedStore(name));
+  process.env["NEXT_PUBLIC_SALEOR_API_URL"] = url;
+  process.env["SALEOR_TOKEN"] = saleorToken;
+
+  if (await waitForReady(url, 180_000)) return { status: "ready" };
+  throw new Error(
+    `provisioned store ${url} did not become reachable within 180s, even after ` +
+      `recreating the cached shared store (cold-start readiness budget exceeded)`,
+  );
 }

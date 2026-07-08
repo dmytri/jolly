@@ -1,10 +1,21 @@
 // Cucumber hooks (feature 023).
 //
-// Before @sandbox: provision the run's one shared jolly-cannon-fodder store and
-// export its derived endpoint + SALEOR_TOKEN for the scenario, then track the
-// derived secret for output-safety. Credentials for every tier are present by
-// fitting-out; the underlying provisioner reads the Cloud token from the
-// environment. Assume they are present.
+// BeforeAll (unconditional, every invocation regardless of tags): reclaim
+// stale jolly-cannon-fodder leftovers — Cloud environments and local scratch
+// dirs — from any PRIOR run, crashed or clean, that didn't get reclaimed by
+// its own tier running again. This used to be buried inside @sandbox's and
+// @eval's own provisioning paths, so a leftover from one tier only got
+// cleaned up the next time THAT SAME tier happened to run — which could be
+// days or weeks if the other tier was the one being iterated on. Running it
+// here, unconditionally, up front, means every invocation of any tier cleans
+// house first.
+//
+// Before @sandbox: ensure the run's stable-named shared jolly-cannon-fodder
+// store exists (created fresh, or reused from a prior invocation if still
+// healthy — see provision.ts) and export its derived endpoint + SALEOR_TOKEN
+// for the scenario, then track the derived secret for output-safety.
+// Credentials for every tier are present by fitting-out; the underlying
+// provisioner reads the Cloud token from the environment. Assume present.
 //
 // Before @eval: build the published-shape CLI bundle the shimmed bin/jolly imports.
 //
@@ -12,14 +23,21 @@
 // and report anything it could not remove by its namespaced identifier
 // (feature 023 "Harmless by design"). Teardown failures are reported, never
 // swallowed silently — the scenario fails so leaked resources are visible.
-import { After, AfterAll, Before } from "@cucumber/cucumber";
+// Note this never touches the shared store itself — it's deliberately
+// long-lived (provision.ts), not scenario- or run-scoped cleanup.
+import { After, AfterAll, Before, BeforeAll } from "@cucumber/cucumber";
 import { ensureCliBundle } from "./eval.ts";
 import {
   derivedSecrets,
   ensureSharedEnvironment,
+  reclaimStaleResources,
   teardownSharedEnvironment,
 } from "./provision.ts";
 import type { JollyWorld } from "./world.ts";
+
+BeforeAll({ timeout: 120_000 }, async function () {
+  await reclaimStaleResources();
+});
 
 // Provision the run's one shared jolly-cannon-fodder store (endpoint + SALEOR_TOKEN
 // derived from the Cloud token) and track the derived secret so output-safety
@@ -60,9 +78,12 @@ After({ timeout: 300_000 }, async function (this: JollyWorld) {
   }
 });
 
-// Run-end teardown of the shared provisioned environment (features 023 +
-// 012: deleted right after the run; a test run never permanently consumes a
-// sandbox slot). Same long timeout and same loud-failure rule as After.
+// Run-end teardown of local scratch state only (the scratch project
+// directory the shared-store provisioning wrote its derived .env into). The
+// shared Cloud store itself is intentionally NOT torn down here — it's a
+// deliberately long-lived, stable-named resource (provision.ts) reused by the
+// next invocation; cleanup of genuine leftovers is the BeforeAll reclaim
+// above, not this hook. Same long timeout and same loud-failure rule as After.
 AfterAll({ timeout: 300_000 }, async function () {
   const failures = await teardownSharedEnvironment();
   if (failures.length > 0) {

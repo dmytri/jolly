@@ -4,6 +4,19 @@
 
 export const CLOUD_API = "https://cloud.saleor.io/platform/api";
 
+/**
+ * Stable name prefix for the long-lived, cross-run shared sandbox store
+ * (features 023 + 012): reused across cucumber invocations when still
+ * healthy, recreated only when missing or unreachable, and never torn down
+ * or treated as a reclaimable leftover — the run-scoped reclaim passes
+ * exempt this prefix explicitly.
+ */
+export const SHARED_STORE_PREFIX = "jolly-cannon-fodder-shared";
+
+export function isSharedStoreName(name: string): boolean {
+  return name.startsWith(SHARED_STORE_PREFIX);
+}
+
 export interface CloudEnvironment {
   org: string;
   key: string;
@@ -127,6 +140,7 @@ export function leftoverTestEnvironments(
   return environments.filter(
     (env) =>
       env.name.startsWith("jolly-cannon-fodder-") &&
-      !env.name.startsWith(currentRunNamespace),
+      !env.name.startsWith(currentRunNamespace) &&
+      !isSharedStoreName(env.name),
   );
 }

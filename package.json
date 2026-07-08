@@ -30,6 +30,7 @@
     "test:logic": "cucumber-js -p logic",
     "test:sandbox": "cucumber-js -p sandbox",
     "test:eval": "cucumber-js -p eval",
+    "reclaim": "node features/support/reclaim-cli.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
