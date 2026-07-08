@@ -38,7 +38,7 @@ import {
 } from "./cloud.ts";
 import { findEnvelope, type Envelope } from "./envelope.ts";
 import { CleanupRegistry, makeNamespace, runId, workerNamespace, type CleanupFailure } from "./sandbox.ts";
-import { REPO_ROOT } from "./world.ts";
+import { REPO_ROOT } from "./repo-root.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
 import { probeEndpointConnectivity } from "../../src/lib/cloud-api.ts";
 

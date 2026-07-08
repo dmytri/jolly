@@ -6,16 +6,16 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import {
   findEnvelope,
   assertEnvelopeShape,
   type Envelope,
 } from "./envelope.ts";
 import { CleanupRegistry, makeNamespace, runId, workerId } from "./sandbox.ts";
+import { REPO_ROOT } from "./repo-root.ts";
 
-export const REPO_ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
+export { REPO_ROOT };
 const CLI_ENTRY = join(REPO_ROOT, "src", "index.ts");
 
 // A warm, shared pnpm store + npm/npx download cache across all scenarios. A real

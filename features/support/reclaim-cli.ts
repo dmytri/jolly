@@ -4,6 +4,7 @@
 // BeforeAll (hooks.ts) on every cucumber invocation; this entrypoint exists
 // so it can be run on its own — e.g. before kicking off a verification
 // session — per RIGGING.md's Commands convention.
+import "./dotenv.ts";
 import { reclaimStaleResources } from "./provision.ts";
 
 const reclaimed = await reclaimStaleResources();
