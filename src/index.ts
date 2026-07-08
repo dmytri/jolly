@@ -3072,16 +3072,19 @@ async function runStoreStage(
     // retry, so it would fail its deploy with "unable to connect"). A reused
     // environment is already serving, so only a newly created one needs the wait.
     if (result.environmentCreated && result.graphqlApiUrl) {
-      // 300s, not 180s: observed real cold starts occasionally exceed 180s
-      // (AGENTS.md — a recurring cold-start false-failure calls for a longer
-      // readiness gate, not a tolerated flake).
-      const readinessDeadline = Date.now() + 300_000;
+      // 600s: observed real cold starts occasionally exceed both 180s and
+      // 300s, especially when several environments are provisioned in quick
+      // succession for the same org — the Nth creation's readiness appears to
+      // queue behind earlier ones on Saleor Cloud's side (AGENTS.md — a
+      // recurring cold-start false-failure calls for a longer readiness gate,
+      // not a tolerated flake).
+      const readinessDeadline = Date.now() + 600_000;
       while ((await probeEndpointConnectivity(result.graphqlApiUrl)).kind !== "reachable") {
         if (Date.now() >= readinessDeadline) {
           checks.push({
             id: "store-provisioned",
             status: "fail",
-            description: `Provisioned Saleor Cloud environment "${result.environmentName}" in "${selectedOrg}", but its Saleor endpoint did not become reachable within 300s.`,
+            description: `Provisioned Saleor Cloud environment "${result.environmentName}" in "${selectedOrg}", but its Saleor endpoint did not become reachable within 600s.`,
             remediation: "The store may still be starting up. Re-run jolly start --yes in a few moments.",
           });
           return { status: "blocked" };
