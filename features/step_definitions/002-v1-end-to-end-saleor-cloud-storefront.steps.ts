@@ -778,7 +778,7 @@ When(
     this.runCli(["start", "--yes", "--json"], {
       env: absentCredentialsEnv({
         JOLLY_SALEOR_CLOUD_TOKEN: process.env["JOLLY_SALEOR_CLOUD_TOKEN"],
-        JOLLY_STORE_NAME: makeNamespace(this.runId),
+        JOLLY_STORE_NAME: this.namespace,
         JOLLY_VERCEL_PROJECT: workerNamespace(),
         ...xdg,
       }),
@@ -1004,7 +1004,7 @@ Given(
       this.runCli(["start", "--yes", "--json"], {
         env: absentCredentialsEnv({
           JOLLY_SALEOR_CLOUD_TOKEN: process.env["JOLLY_SALEOR_CLOUD_TOKEN"],
-          JOLLY_STORE_NAME: makeNamespace(this.runId),
+          JOLLY_STORE_NAME: this.namespace,
           JOLLY_VERCEL_PROJECT: workerNamespace(),
         }),
         timeoutMs: 840_000,
@@ -1239,7 +1239,7 @@ Given(
     // the configured name, exactly as it passes `--name` to `jolly create store`.
     this.notes.startEnv = absentCredentialsEnv({
       JOLLY_SALEOR_CLOUD_TOKEN: cloudToken,
-      JOLLY_STORE_NAME: makeNamespace(this.runId),
+      JOLLY_STORE_NAME: this.namespace,
       // Namespace the Vercel project per worker, so a deploy is jolly-cannon-fodder
       // cannon fodder the teardown reclaims and no two workers share a project
       // (harmless-by-design + per-worker isolation).
@@ -1269,7 +1269,7 @@ Given(
     const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? STAND_IN_TOKEN;
     this.notes.startEnv = absentCredentialsEnv({
       JOLLY_SALEOR_CLOUD_TOKEN: cloudToken,
-      JOLLY_STORE_NAME: makeNamespace(this.runId),
+      JOLLY_STORE_NAME: this.namespace,
       JOLLY_VERCEL_PROJECT: workerNamespace(),
     });
   },
@@ -1713,7 +1713,7 @@ async function runStartToDeployStage(world: JollyWorld): Promise<void> {
   world.runCli(["start", "--yes", "--json"], {
     env: absentCredentialsEnv({
       JOLLY_SALEOR_CLOUD_TOKEN: process.env["JOLLY_SALEOR_CLOUD_TOKEN"],
-      JOLLY_STORE_NAME: makeNamespace(world.runId),
+      JOLLY_STORE_NAME: world.namespace,
       JOLLY_VERCEL_PROJECT: workerNamespace(),
       ...xdg,
     }),
@@ -1895,7 +1895,7 @@ When("the store stage runs", { timeout: 900_000 }, async function (this: JollyWo
       env: absentCredentialsEnv({
         JOLLY_SALEOR_CLOUD_API_URL: cold.harness!.baseUrl,
         JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN,
-        JOLLY_STORE_NAME: makeNamespace(this.runId),
+        JOLLY_STORE_NAME: this.namespace,
         JOLLY_VERCEL_PROJECT: workerNamespace(),
         ...vercelXdg,
       }),
@@ -1912,7 +1912,7 @@ When("the store stage runs", { timeout: 900_000 }, async function (this: JollyWo
   this.runCli(["start", "--yes", "--json"], {
     env: absentCredentialsEnv({
       JOLLY_SALEOR_CLOUD_TOKEN: process.env["JOLLY_SALEOR_CLOUD_TOKEN"],
-      JOLLY_STORE_NAME: makeNamespace(this.runId),
+      JOLLY_STORE_NAME: this.namespace,
       JOLLY_VERCEL_PROJECT: workerNamespace(),
       ...vercelXdg,
     }),
