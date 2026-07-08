@@ -101,14 +101,17 @@ function evalTimeoutMs(): number {
 /**
  * Per-Jolly-invocation timeout for the PATH shims. A full `jolly start --yes`
  * runs every remaining stage (store provisioning + poll, storefront clone +
- * `pnpm install`, recipe, deploy, …) in one process, which far exceeds the
- * default. HARNESS_EVAL_CLI_TIMEOUT_MS raises the cap so the live-by-design run
- * can actually complete the store/deploy stages it is meant to exercise.
+ * `pnpm install`, recipe, deploy, …) in one process, which can run as long as
+ * the agent's own overall run budget (`evalTimeoutMs`). A shim timeout shorter
+ * than that budget kills the single real invocation mid-stage before it can
+ * finish, so the default here tracks `evalTimeoutMs()` rather than an
+ * arbitrary shorter constant. HARNESS_EVAL_CLI_TIMEOUT_MS overrides directly
+ * when a narrower per-invocation cap is wanted.
  */
 function evalCliTimeoutMs(): number {
   const raw = process.env.HARNESS_EVAL_CLI_TIMEOUT_MS;
   const n = raw ? Number.parseInt(raw, 10) : NaN;
-  return Number.isFinite(n) && n > 0 ? n : 120_000;
+  return Number.isFinite(n) && n > 0 ? n : evalTimeoutMs();
 }
 
 /** The OpenRouter model key the underlying agent reads to reach the model. */

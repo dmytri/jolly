@@ -4632,6 +4632,7 @@ const DEFAULT_STAGE_RUNNERS: Record<string, StageRunner> = {
  * @planks("Then it should perform and report only the stages it actually completed (the local bootstrap — skills, scaffold, doctor)")
  * @planks("Then the data should include a per-stage plan of intended effects: directories created, files written, network hosts contacted, and repositories cloned")
  * @planks("When the agent runs `jolly start` again")
+ * @planks("Then the run should report only outcomes it actually achieved, stopping honestly at any remaining human gate without fabricating success")
  */
 export async function runStartCore(
   args: ParsedArgs,
@@ -4870,9 +4871,31 @@ export async function runStartCore(
   // THIS pass — `commandInit` merged it during bootstrap (before the store
   // stage), so without this the entry keeps the init-time placeholder until a
   // re-run (feature 019 "live store access from the moment setup completes").
-  if (loadEnvValues(projectDir())["NEXT_PUBLIC_SALEOR_API_URL"]) {
+  const postStageEnvValues = loadEnvValues(projectDir());
+  if (postStageEnvValues["NEXT_PUBLIC_SALEOR_API_URL"]) {
     mergeMcpJson();
   }
+
+  // Doctor ran during bootstrap, before any stage executed, so its checks
+  // (store endpoint/token, storefront presence, deployment status, and so on)
+  // describe pre-provisioning state. Re-run it now that the stages have
+  // executed and replace the stale `doctor-*` checks with the fresh read, so a
+  // completed run's checks never contradict the run's own success with a
+  // check that describes state from before the run created it (feature
+  // 001/020 no-fabrication invariant applies both ways: no fabricated
+  // success, no stale failure either).
+  const finalDoctorEnv = await commandDoctor({
+    ...args,
+    positionals: ["doctor"],
+    json: true,
+    dryRun: false,
+  });
+  const nonDoctorChecks = checks.filter((c) => !c.id.startsWith("doctor-"));
+  checks.length = 0;
+  checks.push(
+    ...nonDoctorChecks,
+    ...finalDoctorEnv.checks.map((c) => ({ ...c, id: `doctor-${c.id}` })),
+  );
 
   // A run that drove every side-effecting stage to completion — the store is
   // provisioned, configured, and DEPLOYED (live) — is a SUCCESS, even though
