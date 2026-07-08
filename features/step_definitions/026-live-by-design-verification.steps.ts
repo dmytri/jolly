@@ -34,6 +34,7 @@ import {
 import { makeNamespace } from "../support/sandbox.ts";
 import {
   provisionSharedEnvironment,
+  readSharedStoreMarker,
   type ProvisionOutcome,
 } from "../support/provision.ts";
 
@@ -324,9 +325,12 @@ async function seedNamespacedEnvironment(world: JollyWorld, name: string) {
     result.envelope.errors.some((e) => e.code === "ENVIRONMENT_LIMIT_REACHED") &&
     Date.now() < deadline
   ) {
+    const marker = readSharedStoreMarker();
+    const spareNames = marker ? new Set([marker.name]) : new Set<string>();
     for (const env of leftoverTestEnvironments(
       await listAllEnvironments(token),
       makeNamespace(world.runId),
+      spareNames,
     )) {
       await deleteEnvironment(token, env.org, env.key);
     }
