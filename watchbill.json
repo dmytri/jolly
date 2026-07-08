@@ -1,8 +1,0 @@
-{
-  "watch1": {
-    "scenarios": [
-      "features/002-v1-end-to-end-saleor-cloud-storefront.feature:The deployed storefront serves the Saleor catalog and a working cart",
-      "features/002-v1-end-to-end-saleor-cloud-storefront.feature:A re-run before Vercel approval reuses the same pending sign-in URL until it expires"
-    ]
-  }
-}
