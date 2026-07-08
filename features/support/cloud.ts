@@ -5,17 +5,14 @@
 export const CLOUD_API = "https://cloud.saleor.io/platform/api";
 
 /**
- * Stable name prefix for the long-lived, cross-run shared sandbox store
- * (features 023 + 012): reused across cucumber invocations when still
- * healthy, recreated only when missing or unreachable, and never torn down
- * or treated as a reclaimable leftover — the run-scoped reclaim passes
- * exempt this prefix explicitly.
+ * Name prefix for the long-lived, cross-run shared sandbox store (features
+ * 023 + 012): each store this harness creates gets PREFIX-<random> (a fixed
+ * name alone hit a real DOMAIN_LABEL_TAKEN collision — see provision.ts), and
+ * the CURRENT one is protected from reclaim by exact name via the marker
+ * file, not by this prefix — an orphaned former shared-store must still be
+ * reclaimable, or it would leak silently forever.
  */
 export const SHARED_STORE_PREFIX = "jolly-cannon-fodder-shared";
-
-export function isSharedStoreName(name: string): boolean {
-  return name.startsWith(SHARED_STORE_PREFIX);
-}
 
 export interface CloudEnvironment {
   org: string;
@@ -132,15 +129,24 @@ export async function deleteEnvironment(
  * do not belong to the given run namespace. Feature 012: a leftover blocks
  * creation — non-interactive runs skip, naming it; it is never auto-deleted
  * here because this run cannot positively attribute it to itself.
+ *
+ * `spareNames` exempts specific names by exact match — used to protect the
+ * ONE currently-cached shared store (features/support/provision.ts's marker
+ * file) without blanket-exempting the whole SHARED_STORE_PREFIX: an earlier
+ * design exempted any name matching that prefix, which meant an orphaned
+ * shared-store from a stale marker (superseded by self-heal, or a race
+ * between overlapping invocations) could never be reclaimed and would
+ * silently accumulate — the exact leak this reclaim exists to prevent.
  */
 export function leftoverTestEnvironments(
   environments: CloudEnvironment[],
   currentRunNamespace: string,
+  spareNames: ReadonlySet<string> = new Set(),
 ): CloudEnvironment[] {
   return environments.filter(
     (env) =>
       env.name.startsWith("jolly-cannon-fodder-") &&
       !env.name.startsWith(currentRunNamespace) &&
-      !isSharedStoreName(env.name),
+      !spareNames.has(env.name),
   );
 }

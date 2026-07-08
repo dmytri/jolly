@@ -142,21 +142,32 @@ export async function teardownSharedEnvironment(): Promise<CleanupFailure[]> {
 
 /**
  * Delete every OTHER run's jolly-cannon-fodder-namespaced Cloud environment and
- * local scratch dir, sparing this run's own namespace and the persistent
- * SHARED_STORE_PREFIX store. This is the harness's own janitor: called once
- * per cucumber invocation from an unconditional BeforeAll (hooks.ts), so
- * leftovers from a crashed/interrupted/killed run are reclaimed proactively —
- * regardless of which tier/tags the NEXT invocation happens to select —
- * rather than only when someone next runs the same tier that leaked them.
- * The jolly-cannon-fodder- prefix is the protection boundary (AGENTS.md
- * "Leftover handling"): only that namespace is ever touched.
+ * local scratch dir, sparing this run's own namespace and — by EXACT name,
+ * not by prefix — the one shared store the current marker file names. This
+ * is the harness's own janitor: called once per cucumber invocation from an
+ * unconditional BeforeAll (hooks.ts), so leftovers from a crashed/
+ * interrupted/killed run are reclaimed proactively — regardless of which
+ * tier/tags the NEXT invocation happens to select — rather than only when
+ * someone next runs the same tier that leaked them. The jolly-cannon-fodder-
+ * prefix is the protection boundary (AGENTS.md "Leftover handling"): only
+ * that namespace is ever touched. An earlier design exempted the whole
+ * SHARED_STORE_PREFIX from reclaim, which meant an orphaned FORMER shared
+ * store (superseded by self-heal, or a race between overlapping invocations)
+ * could never be reclaimed and would silently accumulate, consuming the
+ * org's sandbox cap exactly like the leak this function exists to prevent.
  */
 export async function reclaimStaleResources(
   token: string = process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? "",
 ): Promise<CloudEnvironment[]> {
   if (token.trim() === "") return [];
   const runNamespace = makeNamespace(runId());
-  const leftovers = leftoverTestEnvironments(await listAllEnvironments(token), runNamespace);
+  const marker = readSharedStoreMarker();
+  const spareNames = marker ? new Set([marker.name]) : new Set<string>();
+  const leftovers = leftoverTestEnvironments(
+    await listAllEnvironments(token),
+    runNamespace,
+    spareNames,
+  );
   for (const env of leftovers) {
     await deleteEnvironment(token, env.org, env.key);
   }
@@ -188,7 +199,7 @@ interface SharedStoreMarker {
   token: string;
 }
 
-function readSharedStoreMarker(): SharedStoreMarker | undefined {
+export function readSharedStoreMarker(): SharedStoreMarker | undefined {
   try {
     return JSON.parse(readFileSync(sharedStoreMarkerPath(), "utf8")) as SharedStoreMarker;
   } catch {
