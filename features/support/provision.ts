@@ -3,15 +3,24 @@
 // When a @sandbox scenario needs NEXT_PUBLIC_SALEOR_API_URL /
 // SALEOR_TOKEN and they are not configured but
 // JOLLY_SALEOR_CLOUD_TOKEN is present, the harness provisions ONE shared
-// store per worker — through Jolly's own `create store --create-environment`
-// with a STABLE `--name`/`--domain-label` (SHARED_STORE_PREFIX, not a
-// per-run id). Jolly's own reuse-by-label logic (feature 012) means a
-// healthy store from a PRIOR cucumber invocation is reused rather than
-// recreated, cutting the minutes-long create+deploy cost for every run that
-// does not itself test store creation. The store is never torn down; it
-// persists across invocations by design (see reclaimStaleResources below for
-// what DOES get cleaned up, and hooks.ts for why AfterAll no longer touches
-// it).
+// store and caches it ACROSS cucumber invocations (not just within a run) via
+// a persistent marker file (sharedStoreMarkerPath), so a run that doesn't
+// itself test store creation skips the minutes-long create+deploy cost.
+//
+// The store's name is NOT a fixed, human-readable string: *.saleor.cloud
+// domain labels turned out to be namespaced more broadly than this org's own
+// environment list (creating "jolly-cannon-fodder-shared" failed
+// DOMAIN_LABEL_TAKEN even though GET .../environments/ showed zero
+// environments — some other collision, possibly platform-wide, made the
+// literal string unusable). So each store this harness creates gets a fresh
+// SHARED_STORE_PREFIX-<random> name (guaranteed available, same as the
+// original per-run design), and the marker file remembers THAT specific
+// store's name/url/token so the next invocation can find and reuse it by
+// probing reachability, rather than recreating one under a name it already
+// knows. The store is never torn down by AfterAll; it persists by design
+// (see reclaimStaleResources below for what DOES get cleaned up, and hooks.ts
+// for why AfterAll no longer touches it) — replaced only when the marker's
+// store is gone or unreachable.
 //
 // Reclaiming leftovers from crashed/interrupted runs is a separate, PROACTIVE
 // concern handled by reclaimStaleResources(), invoked once from an
@@ -163,16 +172,55 @@ export async function reclaimStaleResources(
   return leftovers;
 }
 
+/** The persistent cross-invocation marker recording the last known-good
+ * shared store, independent of any single run's id so a LATER invocation can
+ * find it. Lives in tmpdir alongside the run-scoped lock/state files but
+ * carries no run id in its own path. */
+function sharedStoreMarkerPath(): string {
+  return join(tmpdir(), "jolly-cannon-fodder-shared-store-marker.json");
+}
+
+interface SharedStoreMarker {
+  org: string;
+  key: string;
+  name: string;
+  url: string;
+  token: string;
+}
+
+function readSharedStoreMarker(): SharedStoreMarker | undefined {
+  try {
+    return JSON.parse(readFileSync(sharedStoreMarkerPath(), "utf8")) as SharedStoreMarker;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeSharedStoreMarker(marker: SharedStoreMarker): void {
+  writeFileSync(sharedStoreMarkerPath(), JSON.stringify(marker));
+}
+
+/** A fresh name guaranteed not to collide with an existing domain label (the
+ * fixed SHARED_STORE_PREFIX string alone was not enough — see the file-level
+ * comment). Still exempted from generic leftover reclaim by its prefix. */
+function freshSharedStoreName(): string {
+  const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  return `${SHARED_STORE_PREFIX}-${suffix}`;
+}
+
 /**
- * Create (or, via Jolly's own reuse-by-label logic, feature 012, adopt) the
- * stable-named shared store and derive its runtime values from the scratch
- * project directory's `.env`. Does not probe readiness — callers do that, so
- * a stale cached store's unreachability can be told apart from a fresh
- * create's cold start.
+ * Create a NEW shared store, starting from the given name but minting ANOTHER
+ * fresh one on a domain-label collision (rare — see freshSharedStoreName —
+ * but a collision on a name we just picked is never a genuine conflict with a
+ * live resource of ours worth waiting out, unlike ENVIRONMENT_LIMIT_REACHED,
+ * so retry with a different name rather than backing off on the same one).
+ * Derives runtime values from the scratch project directory's `.env`. Does
+ * not probe readiness — callers do that, so a stale cached store's
+ * unreachability can be told apart from a fresh create's cold start.
  */
-async function createOrReuseSharedStore(
-  name: string,
-): Promise<{ url: string; token: string }> {
+async function createSharedStore(
+  initialName: string,
+): Promise<{ name: string; org: string; key: string; url: string; token: string }> {
   const scratchDir = mkdtempSync(join(tmpdir(), `${workerNamespace()}-`));
   teardownRegistry.register(`scratch directory ${scratchDir}`, () => {
     rmSync(scratchDir, { recursive: true, force: true });
@@ -180,13 +228,15 @@ async function createOrReuseSharedStore(
 
   const runtime = process.env.HARNESS_CLI_RUNTIME ?? "node";
 
-  // Create-or-reuse, waiting out a transient org environment-limit. Under a
-  // parallel run the limit is consumed by sibling workers' live stores, which
-  // they tear down as their scenarios finish, freeing a slot. Skip only after
-  // the wait budget.
+  // Waiting out ENVIRONMENT_LIMIT_REACHED: under a parallel run the org's
+  // sandbox cap is consumed by sibling workers' live stores, which they tear
+  // down as their scenarios finish, freeing a slot. Skip only after the wait
+  // budget. A DOMAIN_LABEL_TAKEN collision instead mints a fresh name and
+  // retries immediately (bounded attempts, not a time budget).
   const limitDeadline = Date.now() + 540_000;
+  let name = initialName;
   let envelope: Envelope;
-  for (;;) {
+  for (let labelAttempts = 0; ; ) {
     const spawned = spawnSync(
       runtime,
       [
@@ -222,6 +272,14 @@ async function createOrReuseSharedStore(
       await new Promise((resolve) => setTimeout(resolve, 15_000));
       continue;
     }
+    const labelTaken =
+      parsed.status === "error" &&
+      parsed.errors.some((e) => e.code === "DOMAIN_LABEL_TAKEN");
+    if (labelTaken && labelAttempts < 5) {
+      labelAttempts++;
+      name = freshSharedStoreName();
+      continue;
+    }
     envelope = parsed;
     break;
   }
@@ -244,7 +302,7 @@ async function createOrReuseSharedStore(
   }
 
   // The environment must be positively identifiable: Jolly must have honored
-  // the --name/--domain-label overrides whether it created fresh or reused.
+  // the --name/--domain-label overrides.
   if (envelope.data.environmentName !== name) {
     throw new Error(
       `provisioned environment does not carry the configured name: ` +
@@ -262,7 +320,9 @@ async function createOrReuseSharedStore(
         "NEXT_PUBLIC_SALEOR_API_URL and SALEOR_TOKEN in .env",
     );
   }
-  return { url, token: saleorToken };
+  const org = typeof envelope.data.organization === "string" ? envelope.data.organization : "";
+  const key = typeof envelope.data.environmentKey === "string" ? envelope.data.environmentKey : "";
+  return { name, org, key, url, token: saleorToken };
 }
 
 /** Poll until the store's GraphQL endpoint actually serves, or return false
@@ -280,16 +340,15 @@ async function waitForReady(url: string, budgetMs: number): Promise<boolean> {
 }
 
 /**
- * The un-memoized provisioning logic: create-or-reuse the stable-named shared
- * store (features 023 + 012) and derive its runtime values. Leftover
- * reclamation is no longer done here — see reclaimStaleResources(), run
- * unconditionally from hooks.ts's BeforeAll. `ensureSharedEnvironment` wraps
- * this once-per-run; the feature 026 @sandbox conformance scenario drives it
- * directly to exercise the provision path fresh, regardless of suite order.
+ * The un-memoized provisioning logic: adopt the marker's cached shared store
+ * if it's still reachable, otherwise create a fresh one and cache it for the
+ * NEXT invocation (features 023 + 012). Leftover reclamation is no longer
+ * done here — see reclaimStaleResources(), run unconditionally from
+ * hooks.ts's BeforeAll. `ensureSharedEnvironment` wraps this once-per-run;
+ * the feature 026 @sandbox conformance scenario drives it directly to
+ * exercise the provision path fresh, regardless of suite order.
  */
 export async function provisionSharedEnvironment(): Promise<ProvisionOutcome> {
-  const name = SHARED_STORE_PREFIX;
-
   // Reclaim here too (not just from hooks.ts's BeforeAll): this function is
   // also driven directly by the feature 026 conformance scenario to exercise
   // the provision path fresh regardless of suite order, so reclaiming must be
@@ -297,27 +356,42 @@ export async function provisionSharedEnvironment(): Promise<ProvisionOutcome> {
   // this cucumber invocation.
   await reclaimStaleResources();
 
-  let { url, token: saleorToken } = await createOrReuseSharedStore(name);
-  process.env["NEXT_PUBLIC_SALEOR_API_URL"] = url;
-  process.env["SALEOR_TOKEN"] = saleorToken;
-
-  if (await waitForReady(url, 180_000)) return { status: "ready" };
-
-  // The cached store never became reachable — treat it as broken rather than
-  // merely cold, delete it, and provision fresh once under the same stable
-  // name. A store that still isn't reachable after recreating is a real
-  // fault, not a stale cache, so it throws.
   const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? "";
-  const stale = (await listAllEnvironments(cloudToken)).find((env) => env.name === name);
-  if (stale) await deleteEnvironment(cloudToken, stale.org, stale.key);
+  const marker = readSharedStoreMarker();
+  if (marker && (await probeEndpointConnectivity(marker.url)).kind === "reachable") {
+    process.env["NEXT_PUBLIC_SALEOR_API_URL"] = marker.url;
+    process.env["SALEOR_TOKEN"] = marker.token;
+    return { status: "ready" };
+  }
+  // The marker is absent, or its store is gone/unreachable — best-effort
+  // clean it up (deleteEnvironment 404s harmlessly if it's already gone)
+  // before replacing it, so a broken cached store never lingers occupying a
+  // sandbox slot.
+  if (marker) {
+    try {
+      await deleteEnvironment(cloudToken, marker.org, marker.key);
+    } catch {
+      // Best-effort: the replacement below is what matters.
+    }
+  }
 
-  ({ url, token: saleorToken } = await createOrReuseSharedStore(name));
-  process.env["NEXT_PUBLIC_SALEOR_API_URL"] = url;
-  process.env["SALEOR_TOKEN"] = saleorToken;
+  const created = await createSharedStore(freshSharedStoreName());
+  process.env["NEXT_PUBLIC_SALEOR_API_URL"] = created.url;
+  process.env["SALEOR_TOKEN"] = created.token;
 
-  if (await waitForReady(url, 180_000)) return { status: "ready" };
-  throw new Error(
-    `provisioned store ${url} did not become reachable within 180s, even after ` +
-      `recreating the cached shared store (cold-start readiness budget exceeded)`,
-  );
+  if (!(await waitForReady(created.url, 180_000))) {
+    throw new Error(
+      `provisioned store ${created.url} did not become reachable within 180s ` +
+        `(cold-start readiness budget exceeded)`,
+    );
+  }
+
+  writeSharedStoreMarker({
+    org: created.org,
+    key: created.key,
+    name: created.name,
+    url: created.url,
+    token: created.token,
+  });
+  return { status: "ready" };
 }
