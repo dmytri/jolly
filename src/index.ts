@@ -1502,7 +1502,11 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
     });
   }
 
-  // Real provisioning: create-or-reuse project, create env, poll, write .env
+  // Real provisioning: create-or-reuse project, create env, poll, write .env.
+  // provisionStore() itself waits for a freshly-created environment to
+  // actually serve before returning (a reused one is already serving) — so
+  // this command never claims "ready" for a store that hasn't answered a
+  // live probe yet.
   try {
     const result = await provisionStore(token, selectedOrg, {
       name: effectiveName,
@@ -1511,8 +1515,10 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
     });
     return envelope({
       command,
-      status: "success",
-      summary: `Saleor Cloud environment ready in "${selectedOrg}".`,
+      status: result.readinessTimedOut ? "warning" : "success",
+      summary: result.readinessTimedOut
+        ? `Saleor Cloud environment "${result.environmentName}" created in "${selectedOrg}", but its endpoint did not become reachable within the readiness budget.`
+        : `Saleor Cloud environment ready in "${selectedOrg}".`,
       data: {
         organization: selectedOrg,
         organizationSlug: selectedOrg,
@@ -1529,10 +1535,15 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
       checks: [
         {
           id: "environment-provisioned",
-          status: "pass",
-          description: result.environmentCreated
-            ? "Environment created and verified via task status."
-            : "Existing environment reused.",
+          status: result.readinessTimedOut ? "fail" : "pass",
+          description: result.readinessTimedOut
+            ? "Environment created, but its Saleor endpoint did not become reachable within the readiness budget."
+            : result.environmentCreated
+              ? "Environment created and verified via task status."
+              : "Existing environment reused.",
+          ...(result.readinessTimedOut
+            ? { remediation: "The store may still be starting up. Re-run in a few moments to confirm." }
+            : {}),
         },
       ],
     });
@@ -1550,6 +1561,13 @@ interface StoreProvisionResult {
   environmentKey?: string;
   projectCreated: boolean;
   environmentCreated: boolean;
+  /** True when a freshly-created environment never answered a live GraphQL
+   * probe within the readiness budget. Only meaningful when
+   * environmentCreated is true — a reused environment is already serving.
+   * Each caller (jolly start's store stage, jolly create store) translates
+   * this into its own envelope shape rather than provisionStore() picking
+   * one representation for both. */
+  readinessTimedOut: boolean;
 }
 
 /**
@@ -1650,6 +1668,29 @@ async function provisionStore(
   // downstream recipe/stock/deploy stages of the same `jolly start` run).
   for (const [k, v] of Object.entries(values)) process.env[k] = v;
 
+  // A freshly-created Saleor environment answers 404/5xx until its store
+  // instance stands up — a reused environment is already serving, so only a
+  // newly created one needs the wait. Every caller of provisionStore (jolly
+  // start's store stage, jolly create store --create-environment) needs this
+  // guarantee: neither should claim a store is ready before it actually
+  // answers, so the wait lives here once rather than being duplicated (or,
+  // as it was, present in one caller and silently absent from the other).
+  // 600s: real cold starts have been observed to occasionally exceed both
+  // 180s and 300s, especially when several environments are provisioned in
+  // quick succession for the same org (AGENTS.md — a recurring cold-start
+  // false-failure calls for a longer readiness gate, not a tolerated flake).
+  let readinessTimedOut = false;
+  if (environmentCreated) {
+    const readinessDeadline = Date.now() + 600_000;
+    while ((await probeEndpointConnectivity(domainUrl)).kind !== "reachable") {
+      if (Date.now() >= readinessDeadline) {
+        readinessTimedOut = true;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+    }
+  }
+
   return {
     graphqlApiUrl: domainUrl,
     dashboardUrl: new URL("/dashboard/", domainUrl).href,
@@ -1658,6 +1699,7 @@ async function provisionStore(
     environmentKey,
     projectCreated,
     environmentCreated,
+    readinessTimedOut,
   };
 }
 
@@ -3065,32 +3107,19 @@ async function runStoreStage(
       domainLabel,
       region: "us-east-1",
     });
-    // A freshly-created Saleor environment answers 404/5xx until its store
-    // instance stands up. Wait for it to actually serve before reporting the
-    // stage completed, so the recipe/deploy stages that immediately follow this
-    // one do not run against a cold endpoint (the spawned configurator does not
-    // retry, so it would fail its deploy with "unable to connect"). A reused
-    // environment is already serving, so only a newly created one needs the wait.
-    if (result.environmentCreated && result.graphqlApiUrl) {
-      // 600s: observed real cold starts occasionally exceed both 180s and
-      // 300s, especially when several environments are provisioned in quick
-      // succession for the same org — the Nth creation's readiness appears to
-      // queue behind earlier ones on Saleor Cloud's side (AGENTS.md — a
-      // recurring cold-start false-failure calls for a longer readiness gate,
-      // not a tolerated flake).
-      const readinessDeadline = Date.now() + 600_000;
-      while ((await probeEndpointConnectivity(result.graphqlApiUrl)).kind !== "reachable") {
-        if (Date.now() >= readinessDeadline) {
-          checks.push({
-            id: "store-provisioned",
-            status: "fail",
-            description: `Provisioned Saleor Cloud environment "${result.environmentName}" in "${selectedOrg}", but its Saleor endpoint did not become reachable within 600s.`,
-            remediation: "The store may still be starting up. Re-run jolly start --yes in a few moments.",
-          });
-          return { status: "blocked" };
-        }
-        await new Promise((resolve) => setTimeout(resolve, 5_000));
-      }
+    // provisionStore() itself waits for a freshly-created environment to
+    // actually serve before returning (a reused environment is already
+    // serving) — so the recipe/deploy stages that immediately follow this one
+    // never run against a cold endpoint (the spawned configurator does not
+    // retry, so it would fail its deploy with "unable to connect").
+    if (result.readinessTimedOut) {
+      checks.push({
+        id: "store-provisioned",
+        status: "fail",
+        description: `Provisioned Saleor Cloud environment "${result.environmentName}" in "${selectedOrg}", but its Saleor endpoint did not become reachable within the readiness budget.`,
+        remediation: "The store may still be starting up. Re-run jolly start --yes in a few moments.",
+      });
+      return { status: "blocked" };
     }
     checks.push({
       id: "store-provisioned",
