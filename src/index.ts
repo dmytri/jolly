@@ -3979,6 +3979,23 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
     writeFileSync(vercelConfigPath, JSON.stringify({ framework: "nextjs" }, null, 2) + "\n");
   }
 
+  // `vercel deploy --project <name>` requires an ALREADY-EXISTING project —
+  // it looks the name up in the account scope and fails "not found" rather
+  // than creating one, unlike a plain `vercel deploy` (no --project), which
+  // auto-creates a project from the directory name. So a configured name that
+  // does not yet exist as a Vercel project must be created first via
+  // `vercel project add`, which is idempotent (exit 0, "Success! ... added"
+  // even when the project already exists) — safe to call unconditionally
+  // rather than probing existence first.
+  if (vercelProject) {
+    spawnSync("npx", ["--yes", VERCEL_PKG, "project", "add", vercelProject], {
+      cwd: dir,
+      encoding: "utf8",
+      timeout: 60_000,
+      env: { ...process.env },
+    });
+  }
+
   // Deploy to production via the official Vercel CLI under its own session,
   // configuring the required build env vars through the CLI (feature 002 Rule).
   // No JOLLY_VERCEL_TOKEN is read or passed; Jolly's own code contacts no host.
@@ -4876,27 +4893,6 @@ export async function runStartCore(
     mergeMcpJson();
   }
 
-  // Doctor ran during bootstrap, before any stage executed, so its checks
-  // (store endpoint/token, storefront presence, deployment status, and so on)
-  // describe pre-provisioning state. Re-run it now that the stages have
-  // executed and replace the stale `doctor-*` checks with the fresh read, so a
-  // completed run's checks never contradict the run's own success with a
-  // check that describes state from before the run created it (feature
-  // 001/020 no-fabrication invariant applies both ways: no fabricated
-  // success, no stale failure either).
-  const finalDoctorEnv = await commandDoctor({
-    ...args,
-    positionals: ["doctor"],
-    json: true,
-    dryRun: false,
-  });
-  const nonDoctorChecks = checks.filter((c) => !c.id.startsWith("doctor-"));
-  checks.length = 0;
-  checks.push(
-    ...nonDoctorChecks,
-    ...finalDoctorEnv.checks.map((c) => ({ ...c, id: `doctor-${c.id}` })),
-  );
-
   // A run that drove every side-effecting stage to completion — the store is
   // provisioned, configured, and DEPLOYED (live) — is a SUCCESS, even though
   // the human's remaining Stripe-keys Dashboard step is surfaced as a nextStep
@@ -4907,6 +4903,37 @@ export async function runStartCore(
   const allStagesDone = stages.every(
     (s) => !SIDE_EFFECTING_STAGES.includes(s.stage) || s.status === "completed",
   );
+
+  // Doctor ran during bootstrap, before any stage executed, so its checks
+  // (store endpoint/token, storefront presence, deployment status, and so on)
+  // describe pre-provisioning state. Re-run it now that the stages have
+  // executed and replace the stale `doctor-*` checks with the fresh read, so a
+  // completed run's checks never contradict the run's own success with a
+  // check that describes state from before the run created it (feature
+  // 001/020 no-fabrication invariant applies both ways: no fabricated
+  // success, no stale failure either). This only matters for a run that is
+  // about to report `success` (`allStagesDone`) — a paused/blocked/pending run
+  // never claims success, so its bootstrap-time doctor checks are not stale in
+  // a way that contradicts the envelope. Skipping the re-probe otherwise avoids
+  // piling a second full live-network doctor sweep (Cloud API, Saleor
+  // connectivity/purchasability, Vercel `whoami`, a live Stripe checkout
+  // probe) onto every mid-flow re-run (e.g. one still waiting on a human
+  // sign-in gate), which could push an already-long real end-to-end run past
+  // its time budget for no observable benefit.
+  if (allStagesDone && !bootstrapFailed) {
+    const finalDoctorEnv = await commandDoctor({
+      ...args,
+      positionals: ["doctor"],
+      json: true,
+      dryRun: false,
+    });
+    const nonDoctorChecks = checks.filter((c) => !c.id.startsWith("doctor-"));
+    checks.length = 0;
+    checks.push(
+      ...nonDoctorChecks,
+      ...finalDoctorEnv.checks.map((c) => ({ ...c, id: `doctor-${c.id}` })),
+    );
+  }
   const status: EnvelopeStatus = bootstrapFailed
     ? "error"
     : allStagesDone
