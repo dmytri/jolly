@@ -1,7 +1,0 @@
-{
-  "watch1": {
-    "scenarios": [
-      "features/025-agent-skill-affordance-eval.feature:A baseline agent follows the published /setup entry point to set up a project"
-    ]
-  }
-}
