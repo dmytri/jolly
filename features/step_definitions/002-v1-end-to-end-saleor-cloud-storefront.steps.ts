@@ -27,7 +27,8 @@ import { loadEnvValues, writeEnvValues } from "../../src/lib/env-file.ts";
 import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 import { startColdStoreCloudApi, type ColdStoreHarness } from "../support/cold-store-cloud-api.ts";
 import { probeEndpointConnectivity } from "../../src/lib/cloud-api.ts";
-import { deleteEnvironment, listAllEnvironments } from "../support/cloud.ts";
+import { deleteEnvironment, leftoverTestEnvironments, listAllEnvironments } from "../support/cloud.ts";
+import { readSharedStoreMarker } from "../support/provision.ts";
 import { findRiskContexts, assertRiskContextShape } from "../support/envelope.ts";
 import { saleorGraphql } from "../support/saleor-graphql.ts";
 import {
@@ -1824,15 +1825,19 @@ interface ColdStoreNotes {
 
 /** Reclaim leftover jolly-cannon-fodder environments so the org's shared sandbox
  * environment limit does not reject this run's real provision. Spares this run's
- * own namespace so a sibling parallel worker's live store is never deleted
- * (mirrors the suite-start reclaim in provision.ts). */
+ * own namespace (so a sibling parallel worker's live store is never deleted) and
+ * the @sandbox tier's currently-cached shared store by exact name via its marker
+ * file (mirrors the suite-start reclaim in provision.ts) — without that, this
+ * scenario's own reclaim would delete the shared store other scenarios in the
+ * same run rely on, forcing an unplanned recreation. */
 async function reclaimLeftoverEnvironments(runNamespace: string): Promise<void> {
   const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
   if (!cloudToken) return;
-  for (const env of await listAllEnvironments(cloudToken)) {
-    if (env.name.startsWith("jolly-cannon-fodder-") && !env.name.startsWith(runNamespace)) {
-      await deleteEnvironment(cloudToken, env.org, env.key);
-    }
+  const marker = readSharedStoreMarker();
+  const spareNames = marker ? new Set([marker.name]) : new Set<string>();
+  const all = await listAllEnvironments(cloudToken);
+  for (const env of leftoverTestEnvironments(all, runNamespace, spareNames)) {
+    await deleteEnvironment(cloudToken, env.org, env.key);
   }
 }
 

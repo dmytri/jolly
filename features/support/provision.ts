@@ -390,9 +390,11 @@ export async function provisionSharedEnvironment(): Promise<ProvisionOutcome> {
   process.env["NEXT_PUBLIC_SALEOR_API_URL"] = created.url;
   process.env["SALEOR_TOKEN"] = created.token;
 
-  if (!(await waitForReady(created.url, 180_000))) {
+  // 300s, not 180s: matches src/index.ts's own store readiness gate — real
+  // cold starts have been observed to occasionally exceed 180s.
+  if (!(await waitForReady(created.url, 300_000))) {
     throw new Error(
-      `provisioned store ${created.url} did not become reachable within 180s ` +
+      `provisioned store ${created.url} did not become reachable within 300s ` +
         `(cold-start readiness budget exceeded)`,
     );
   }
