@@ -3894,7 +3894,7 @@ function clearPendingVercel(): void {
  */
 function vercelSignInNextStep(deviceUrl: string): NextStep {
   return {
-    description: `Hand this link to your human to approve the Vercel sign-in in their browser: ${deviceUrl}. Tell them to reply "done" once they've approved; then re-run \`jolly start --yes\` and I deploy.`,
+    description: `Hand this link to your human to approve the Vercel sign-in in their browser: ${deviceUrl}. The \`command\` below resumes and deploys once it's approved.`,
     url: deviceUrl,
     command: "jolly start --yes",
   };
