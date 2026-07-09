@@ -155,6 +155,10 @@ When("the agent runs `jolly create store --create-environment --json`", { timeou
   //     never-serving endpoint so provisionStore's readiness gate times out.
   const coldEnv = this.notes.coldEnvHarness as ColdStoreHarness | undefined;
   if (coldEnv) {
+    // env-factory-exception: drives the cold-store loopback Cloud API (a
+    // 127.0.0.1 fake), which creates no real resource, so it is a justified
+    // exception recorded at its site, not a second creation seam. The double is
+    // justified at features/support/cold-store-cloud-api.ts (@exceptional-double).
     await this.runCliAsync(
       ["create", "store", "--create-environment", "--json"],
       {
@@ -170,6 +174,10 @@ When("the agent runs `jolly create store --create-environment --json`", { timeou
   }
   const limitHarness = this.notes.limitHarness as { baseUrl: string } | undefined;
   if (limitHarness) {
+    // env-factory-exception: drives the limit-rejecting loopback Cloud API (a
+    // 127.0.0.1 fake), which creates no real resource, so it is a justified
+    // exception recorded at its site, not a second creation seam. The double is
+    // justified at features/support/limit-cloud-api.ts (@exceptional-double).
     await this.runCliAsync(
       ["create", "store", "--create-environment", "--json"],
       {

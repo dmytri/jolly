@@ -22,6 +22,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
+import { createEnvironment } from "../support/env-factory.ts";
 import {
   reclaimLeftoverTestEnvironments,
   SEEDED_CREDENTIAL_VARS,
@@ -29,7 +30,6 @@ import {
 import {
   type CloudEnvironment,
   deleteEnvironment,
-  leftoverTestEnvironments,
   listAllEnvironments,
 } from "../support/cloud.ts";
 import { makeNamespace } from "../support/sandbox.ts";
@@ -307,37 +307,24 @@ Then(
  */
 async function seedNamespacedEnvironment(world: JollyWorld, name: string) {
   const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"]!;
-  const attempt = () =>
-    world.runCliAsync(
-      [
-        "create", "store", "--create-environment",
-        "--name", name, "--domain-label", name, "--json",
-      ],
-      { timeoutMs: 540_000 },
-    );
-  // Wait out a transient org environment-limit the same way the provisioner does:
-  // under a parallel run a sibling worker frees a slot when its scenario tears
-  // down. Reclaim any prior-run leftover that frees capacity without touching this
-  // run's live environments, then wait and retry until the budget.
-  const deadline = Date.now() + 540_000;
-  let result = await attempt();
-  while (
-    result.envelope?.status === "error" &&
-    result.envelope.errors.some((e) => e.code === "ENVIRONMENT_LIMIT_REACHED") &&
-    Date.now() < deadline
-  ) {
-    const marker = readSharedStoreMarker();
-    const spareNames = marker ? new Set([marker.name]) : new Set<string>();
-    for (const env of leftoverTestEnvironments(
-      await listAllEnvironments(token),
-      makeNamespace(world.runId),
-      spareNames,
-    )) {
-      await deleteEnvironment(token, env.org, env.key);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 15_000));
-    result = await attempt();
-  }
+  // Route through the single env-creation seam rather than re-implementing the
+  // create-and-wait-out-the-limit flow. Wait out a transient org environment
+  // limit the same way the provisioner does (under a parallel run a sibling
+  // worker frees a slot when its scenario tears down), and reclaim a slot by
+  // deleting any prior-run leftover that frees capacity without touching this
+  // run's live environments or the cached shared store.
+  const marker = readSharedStoreMarker();
+  const spareNames = marker ? new Set([marker.name]) : new Set<string>();
+  const result = await createEnvironment(
+    (args, options) => world.runCliAsync(args, options),
+    {
+      name,
+      domainLabel: name,
+      runOptions: { timeoutMs: 540_000 },
+      limitBudgetMs: 540_000,
+      reclaim: { token, runNamespace: makeNamespace(world.runId), spareNames },
+    },
+  );
   assert.equal(
     result.envelope?.status,
     "success",

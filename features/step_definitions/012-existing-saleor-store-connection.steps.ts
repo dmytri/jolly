@@ -33,6 +33,7 @@ import { join } from "node:path";
 import { normalizeSaleorUrl } from "../../src/lib/saleor-url.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
 import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
+import { createEnvironment } from "../support/env-factory.ts";
 import {
   deleteEnvironment,
   leftoverTestEnvironments,
@@ -465,13 +466,18 @@ Given(
         }
       }
     });
-    // Create the first environment carrying the namespaced domain label.
-    const first = await this.runCliAsync(
-      ["create", "store", "--create-environment", "--name", label, "--domain-label", label, "--json"],
-      // Real environment creation polls async job status and can exceed the
-      // 120s runCliAsync default; allow the full step budget so a slow Cloud
-      // provision yields its envelope rather than being SIGKILLed mid-create.
-      { timeoutMs: 540_000 },
+    // Create the first environment carrying the namespaced domain label, via
+    // the single env-creation seam.
+    const first = await createEnvironment(
+      (args, options) => this.runCliAsync(args, options),
+      {
+        name: label,
+        domainLabel: label,
+        // Real environment creation polls async job status and can exceed the
+        // 120s runCliAsync default; allow the full step budget so a slow Cloud
+        // provision yields its envelope rather than being SIGKILLed mid-create.
+        runOptions: { timeoutMs: 540_000 },
+      },
     );
     assert.equal(first.envelope?.status, "success", "the first environment must be created");
   },
@@ -482,9 +488,11 @@ When(
   { timeout: 540_000 },
   async function (this: JollyWorld) {
     const label = String(this.notes.collisionLabel);
-    const second = await this.runCliAsync(
-      ["create", "store", "--create-environment", "--name", label, "--domain-label", label, "--json"],
-      { timeoutMs: 540_000 },
+    // Request another environment with the same domain label via the single
+    // env-creation seam; the CLI reuses the existing one rather than duplicating.
+    const second = await createEnvironment(
+      (args, options) => this.runCliAsync(args, options),
+      { name: label, domainLabel: label, runOptions: { timeoutMs: 540_000 } },
     );
     this.notes.reuseEnvelope = second.envelope;
   },
@@ -588,6 +596,8 @@ When(
   "the agent runs `jolly create store --create-environment` without `--organization`",
   function (this: JollyWorld) {
     const mock = String(this.notes.mockOrgs ?? "org-one,org-two");
+    // env-factory-exception: the injected org list warns before any create, so
+    // this drives no real resource creation — not a second creation seam.
     // @exceptional-double: a Cloud token that resolves MORE THAN ONE organization
     // cannot be produced on demand from the single-org test account, so the
     // multi-org selection warning is driven by an injected org list. The real
@@ -735,9 +745,10 @@ When(
         }
       }
     });
-    await this.runCliAsync(
-      ["create", "store", "--create-environment", "--name", name, "--domain-label", name, "--json"],
-      { timeoutMs: 540_000 },
+    // Create via the single env-creation seam.
+    await createEnvironment(
+      (args, options) => this.runCliAsync(args, options),
+      { name, domainLabel: name, runOptions: { timeoutMs: 540_000 } },
     );
   },
 );

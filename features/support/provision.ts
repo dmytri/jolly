@@ -46,6 +46,7 @@ import {
   type CloudEnvironment,
 } from "./cloud.ts";
 import { findEnvelope, type Envelope } from "./envelope.ts";
+import { createEnvironment, type CliRunner } from "./env-factory.ts";
 import { CleanupRegistry, makeNamespace, runId, workerNamespace, type CleanupFailure } from "./sandbox.ts";
 import { REPO_ROOT } from "./repo-root.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
@@ -239,28 +240,15 @@ async function createSharedStore(
 
   const runtime = process.env.HARNESS_CLI_RUNTIME ?? "node";
 
-  // Waiting out ENVIRONMENT_LIMIT_REACHED: under a parallel run the org's
-  // sandbox cap is consumed by sibling workers' live stores, which they tear
-  // down as their scenarios finish, freeing a slot. Skip only after the wait
-  // budget. A DOMAIN_LABEL_TAKEN collision instead mints a fresh name and
-  // retries immediately (bounded attempts, not a time budget).
-  const limitDeadline = Date.now() + 540_000;
-  let name = initialName;
-  let envelope: Envelope;
-  for (let labelAttempts = 0; ; ) {
+  // Spawn the Jolly CLI in the scratch project directory. The create-store
+  // argument shape and the ENVIRONMENT_LIMIT_REACHED wait-out flow live in the
+  // env-factory seam; this runner supplies only the spawn mechanism (a
+  // standalone spawnSync, since shared-store provisioning runs outside a
+  // scenario World).
+  const run: CliRunner = (args) => {
     const spawned = spawnSync(
       runtime,
-      [
-        join(REPO_ROOT, "src", "index.ts"),
-        "create",
-        "store",
-        "--create-environment",
-        "--name",
-        name,
-        "--domain-label",
-        name,
-        "--json",
-      ],
+      [join(REPO_ROOT, "src", "index.ts"), ...args],
       { cwd: scratchDir, env: { ...process.env }, encoding: "utf8", timeout: 540_000 },
     );
     if (spawned.error) {
@@ -269,19 +257,35 @@ async function createSharedStore(
       );
     }
     const stdout = spawned.stdout ?? "";
-    const parsed = findEnvelope(stdout);
+    return Promise.resolve({
+      args,
+      cwd: scratchDir,
+      exitCode: spawned.status ?? -1,
+      stdout,
+      stderr: spawned.stderr ?? "",
+      envelope: findEnvelope(stdout),
+    });
+  };
+
+  // Waiting out ENVIRONMENT_LIMIT_REACHED (under a parallel run a sibling worker
+  // frees a slot) is the seam's job, given the 540s budget. A DOMAIN_LABEL_TAKEN
+  // collision on a name we just minted is never a genuine conflict with a live
+  // resource worth waiting out, so mint a fresh name and retry immediately
+  // (bounded attempts, not a time budget) here at the caller.
+  let name = initialName;
+  let envelope: Envelope;
+  for (let labelAttempts = 0; ; ) {
+    const result = await createEnvironment(run, {
+      name,
+      domainLabel: name,
+      limitBudgetMs: 540_000,
+    });
+    const parsed = result.envelope;
     if (!parsed) {
       throw new Error(
         `shared-store provisioning produced no output envelope ` +
-          `(exit ${spawned.status}).\nstdout:\n${stdout}\nstderr:\n${spawned.stderr}`,
+          `(exit ${result.exitCode}).\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
       );
-    }
-    const atLimit =
-      parsed.status === "error" &&
-      parsed.errors.some((e) => e.code === "ENVIRONMENT_LIMIT_REACHED");
-    if (atLimit && Date.now() < limitDeadline) {
-      await new Promise((resolve) => setTimeout(resolve, 15_000));
-      continue;
     }
     const labelTaken =
       parsed.status === "error" &&
