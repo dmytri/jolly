@@ -1190,6 +1190,7 @@ async function inferStoreLocation(
  * @planks("When the agent runs `jolly create store --create-environment` without `--organization`")
  * @planks("When the agent runs `jolly create store --url https://evil.example.com/graphql/ --json`")
  * @planks("When `jolly start` reaches the storefront clone stage")
+ * @planks(`Then the `environment-provisioned` check should report "fail" with a remediation to re-run in a few moments to confirm`)
  */
 async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
   const command = "create store";
@@ -3051,7 +3052,6 @@ interface StageOutcome {
  * when an environment was actually created or reused; `blocked` (with an
  * explaining check) when no Cloud token is configured or provisioning failed —
  * never a fabricated completion.
- * @planks(`Then the `store` stage status should be "completed", not "pending"`)
  * @planks("Then the envelope `data` should include the new store's `*.saleor.cloud` GraphQL API URL and its Saleor Dashboard URL ending in `.saleor.cloud/dashboard/`")
  * @planks("Then `jolly start` should write that `NEXT_PUBLIC_SALEOR_API_URL` (mirrored to `SALEOR_URL`) and the resolved `SALEOR_TOKEN` to `.env`")
  * @planks(`Then the `store` stage should report "completed" only once the endpoint answers a live GraphQL probe`)

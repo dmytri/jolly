@@ -55,6 +55,14 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     Then the `store` stage status should be "blocked", not "completed"
     And the remediation should tell the human the store may still be starting up and to re-run `jolly start`
 
+  @sandbox @heavy @exceptional-double
+  Scenario: jolly create store --create-environment reports a warning when the new environment never becomes reachable
+    Given `JOLLY_SALEOR_CLOUD_TOKEN` is set for an organization with no project
+    And a freshly-created Saleor Cloud environment's GraphQL endpoint stays unreachable past the readiness budget
+    When the agent runs `jolly create store --create-environment --json`
+    Then the envelope status should be "warning", not "success"
+    And the `environment-provisioned` check should report "fail" with a remediation to re-run in a few moments to confirm
+
   @logic
   Scenario: jolly start --dry-run plans to provision a store when none is configured
     Given `JOLLY_SALEOR_CLOUD_TOKEN` is set and no `NEXT_PUBLIC_SALEOR_API_URL` is configured

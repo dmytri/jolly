@@ -25,7 +25,7 @@ Procedure lives in the skills. Every role reads this on open.
 - broad: `npx cucumber-js -p logic --tags "@logic and not @captain"`
 - coverage: `npx c8 --reporter=text --reporter=json -- npx cucumber-js -p logic --tags "@logic and not @captain"`
 - coverage-sandbox: `NODE_OPTIONS=--max-old-space-size=8192 npx c8 --clean=false --reporter=text --reporter=json -- npx cucumber-js -p sandbox --tags "@sandbox and not @captain"`
-- step-usage: `npx cucumber-js --format usage --tags "not @captain"`
+- step-usage: `npx cucumber-js --dry-run --format usage-json --tags "not @captain"`
 - reclaim: `npm run reclaim` — standalone preflight that deletes stale `jolly-cannon-fodder`-namespaced leftovers (Cloud environments + local scratch dirs) without running any tier; the same reclamation also runs automatically at the start of every cucumber invocation (BeforeAll, `features/support/hooks.ts`)
 - plank-inventory: `grep -rn '@planks' src/ bin/`
 - typecheck: `npm run typecheck`
@@ -34,7 +34,7 @@ Procedure lives in the skills. Every role reads this on open.
 ## Perturbation
 
 - message: `PERTURBATION: consider current durable context; remove when fixed`
-- fail-fast: `throw new Error("PERTURBATION: consider current durable context; remove when fixed");`
+- perturb: `throw new Error("PERTURBATION: consider current durable context; remove when fixed");`
 
 ## Tiers
 
@@ -50,7 +50,7 @@ Procedure lives in the skills. Every role reads this on open.
 ## Outbound
 
 - target: npm - ship `npm publish` (the `prepublishOnly` script builds `dist/index.js` first); verify `npm view @dk/jolly version` reports the released version and the installed `npx @dk/jolly --help` runs the published bundle
-- target: vercel-homepage - ship `npx vercel@latest --prod` from `assets/homepage` (Vercel project `homepage`, linked via `assets/homepage/.vercel/project.json`); verify the deployed `*.vercel.app` homepage serves and its `/setup` rewrite returns the setup guide
+- target: vercel-homepage - ship `cd assets/homepage && npx vercel deploy --prod --yes` (Vercel project `homepage`, linked via `assets/homepage/.vercel/project.json`); verify the deployed `*.vercel.app` homepage serves and its `/setup` rewrite matches the shipped `assets/homepage/setup.md`
 - policy: verify the published artifact and the deployed homepage, not only the local tree. After npm publish, verify against the local clean tree while CDN propagation settles (a stale-tarball window is expected and rides through), then verify the published package.
 
 ## Known false-failure modes

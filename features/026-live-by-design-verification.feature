@@ -31,6 +31,13 @@ Feature: Live-by-design verification conformance
     Then it should reclaim the leftover `jolly-cannon-fodder`-namespaced environment and provision the run's environment, not skip the run
     And every environment lacking the `jolly-cannon-fodder` prefix should still be present afterward
 
+  @logic @property
+  Scenario: The standalone reclaim entrypoint runs only when invoked directly, never as an import side effect
+    Given cucumber's support-file glob, which imports every file under `features/support/`
+    When `features/support/reclaim-cli.ts` is loaded because a cucumber invocation imports it, rather than run standalone via `npm run reclaim`
+    Then it should perform no reclaim call and no console output as a result of merely being imported
+    And a cucumber invocation's reclamation should happen exactly once, from the `BeforeAll` hook alone
+
   Rule: Live-by-design conformance
     - Binding test methodology lives in AGENTS.md ("Real services always — never mock or fake"); this feature makes its one testable invariant executable, so a suite that is green while still carrying a forbidden double fails here instead of passing silently.
     - A forbidden double is any stand-in for the normal path: a fake CLI replacing a real one, a dummy or forced-safe credential, or an unroutable endpoint replacing a real service.
