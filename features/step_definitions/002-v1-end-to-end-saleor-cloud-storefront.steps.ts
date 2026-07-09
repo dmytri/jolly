@@ -120,8 +120,24 @@ Given("`JOLLY_SALEOR_CLOUD_TOKEN` is set for an organization with no project", f
   this.notes.registerBranch = true;
 });
 
-When("the agent runs `jolly create store --create-environment --json`", async function (this: JollyWorld) {
-  // Two scenarios share this exact step text:
+Given(
+  "a freshly-created Saleor Cloud environment's GraphQL endpoint stays unreachable past the readiness budget",
+  async function (this: JollyWorld) {
+    // @exceptional-double: a real freshly-created environment cold-starts and
+    // then serves; it cannot be held unreachable on demand. The cold-store
+    // loopback Cloud API drives the REAL create-environment path to
+    // environmentCreated = true and hands back a namespaced endpoint that never
+    // answers a live GraphQL probe, so provisionStore's readiness gate runs out
+    // its budget and reports the environment provisioned-but-unreachable. The
+    // double is justified where it is defined (features/support/cold-store-cloud-api.ts);
+    // the sibling real path (a genuine auto-provision that cold-starts then
+    // serves) keeps normal-path real coverage.
+    this.notes.coldEnvHarness = await startColdStoreCloudApi(this);
+  },
+);
+
+When("the agent runs `jolly create store --create-environment --json`", { timeout: 900_000 }, async function (this: JollyWorld) {
+  // Three scenarios share this exact step text:
   //   - 002 "register a new store" (@sandbox): a Jolly-observable PREVIEW of the
   //     registration plumbing — run as --dry-run so the preview never provisions
   //     (the real path is exercised by features 012/024), against the scenario's
@@ -133,6 +149,25 @@ When("the agent runs `jolly create store --create-environment --json`", async fu
   //     against that harness with the runtime credentials unset and STAND_IN_TOKEN
   //     supplied (so the loopback fixture is reached, no real account is touched)
   //     via runCliAsync (loopback server → spawnSync would deadlock).
+  //   - 002 "reports a warning when the new environment never becomes reachable"
+  //     (@sandbox @heavy @exceptional-double): the REAL create path against the
+  //     cold-store loopback, which SUCCEEDS the create POST but hands back a
+  //     never-serving endpoint so provisionStore's readiness gate times out.
+  const coldEnv = this.notes.coldEnvHarness as ColdStoreHarness | undefined;
+  if (coldEnv) {
+    await this.runCliAsync(
+      ["create", "store", "--create-environment", "--json"],
+      {
+        env: absentCredentialsEnv({
+          JOLLY_SALEOR_CLOUD_API_URL: coldEnv.baseUrl,
+          JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN,
+          JOLLY_STORE_NAME: this.namespace,
+        }),
+        timeoutMs: 840_000,
+      },
+    );
+    return;
+  }
   const limitHarness = this.notes.limitHarness as { baseUrl: string } | undefined;
   if (limitHarness) {
     await this.runCliAsync(
@@ -180,6 +215,44 @@ Then(
     assert.ok(
       /https:\/\/[a-z0-9-]+\.saleor\.cloud\/dashboard\//i.test(blob),
       `create store data must include the store's Saleor Dashboard URL ending in .saleor.cloud/dashboard/: ${blob}`,
+    );
+  },
+);
+
+Then(
+  'the envelope status should be "warning", not "success"',
+  function (this: JollyWorld) {
+    // provisionStore's readiness gate timed out against the never-serving endpoint
+    // (readinessTimedOut = true), so create store reports a warning, not success:
+    // the environment record exists but its store has not yet answered a probe.
+    assert.equal(
+      this.envelope.status,
+      "warning",
+      `create store --create-environment must report "warning" when the new ` +
+        `environment never becomes reachable; got "${this.envelope.status}"`,
+    );
+  },
+);
+
+Then(
+  'the `environment-provisioned` check should report "fail" with a remediation to re-run in a few moments to confirm',
+  function (this: JollyWorld) {
+    const check = this.envelope.checks.find((c) => c.id === "environment-provisioned");
+    assert.ok(
+      check,
+      `the envelope must carry an environment-provisioned check: ${JSON.stringify(this.envelope.checks)}`,
+    );
+    assert.equal(
+      check!.status,
+      "fail",
+      `environment-provisioned must report "fail" when the endpoint never becomes ` +
+        `reachable within the readiness budget; got "${check!.status}"`,
+    );
+    assert.match(
+      String(check!.remediation ?? ""),
+      /re-run in a few moments to confirm/i,
+      `environment-provisioned must carry a remediation telling the human to re-run ` +
+        `in a few moments to confirm: ${JSON.stringify(check)}`,
     );
   },
 );

@@ -18,7 +18,8 @@
 // own file so its detection-pattern literals are never self-flagged.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
 import {
@@ -493,6 +494,119 @@ Then(
       wrongful,
       [],
       "reclamation must delete only jolly-cannon-fodder-namespaced environments",
+    );
+  },
+);
+
+// Feature 026 — fifth scenario (@logic @property): the standalone reclaim
+// entrypoint runs ONLY when invoked directly (`npm run reclaim`), never as an
+// import side effect. cucumber.js seeds every invocation with the support-file
+// glob (`import: features/support/**/*.ts`), so features/support/reclaim-cli.ts
+// is imported on EVERY cucumber run. Without an entrypoint guard its body would
+// fire reclaimStaleResources — and print — a SECOND time on every invocation,
+// on top of the once-per-invocation BeforeAll reclaim (hooks.ts), doubling the
+// per-invocation reclamation the janitor is meant to run exactly once.
+//
+// The observable: a mere support-glob import (reproduced by a real cucumber
+// `--dry-run`, which imports every support file but executes no BeforeAll and no
+// step) must trigger no reclaim call and print nothing. reclaim-cli.ts prints
+// exactly one summary line whenever its body runs, so the ABSENCE of that line
+// from a dry-run's output proves the import performed no reclaim and no console
+// output. The token is blanked for the probe so the check is hermetic and fast:
+// the console tell is present either way, but a blank token keeps the reclaim
+// off the real Cloud API. Real by design — the real reclaim-cli.ts loaded by a
+// real cucumber invocation, no stand-in.
+
+const RECLAIM_CLI = join("features", "support", "reclaim-cli.ts");
+/** reclaim-cli.ts prints exactly one of these lines whenever its body runs. */
+const RECLAIM_SIGNATURE = /No stale jolly-cannon-fodder leftovers found\.|Reclaimed \d+ leftover environment/;
+/** A tag no scenario carries, so the probe invocation selects and runs nothing. */
+const NO_MATCH_TAG = "@__reclaim_import_probe_no_match__";
+
+Given(
+  // Regex, not a Cucumber-expression string: the literal `/` in `features/support/`
+  // is alternation syntax in a string pattern and would break the match.
+  /^cucumber's support-file glob, which imports every file under `features\/support\/`$/,
+  function (this: JollyWorld) {
+    // The mechanism under conformance: cucumber.js declares the support glob, so
+    // reclaim-cli.ts is imported by every cucumber invocation.
+    const config = readFileSync(join(REPO_ROOT, "cucumber.js"), "utf8");
+    assert.match(
+      config,
+      /features\/support\/\*\*\/\*\.ts/,
+      "cucumber.js must import every file under features/support/ (the support glob)",
+    );
+    assert.ok(
+      existsSync(join(REPO_ROOT, RECLAIM_CLI)),
+      `${RECLAIM_CLI} must exist under the support glob to be imported`,
+    );
+  },
+);
+
+When(
+  /^`features\/support\/reclaim-cli\.ts` is loaded because a cucumber invocation imports it, rather than run standalone via `npm run reclaim`$/,
+  { timeout: 120_000 },
+  function (this: JollyWorld) {
+    // Reproduce a mere support-glob import: a real cucumber --dry-run imports
+    // every support file (running reclaim-cli.ts's module body) but executes no
+    // BeforeAll hook and no step. Any reclaim console output therefore comes
+    // solely from the import side effect, never from BeforeAll. The unmatched tag
+    // keeps the invocation from running any scenario; the blank Cloud token keeps
+    // the probe hermetic.
+    const probe = spawnSync(
+      "npx",
+      ["cucumber-js", "--dry-run", "--tags", NO_MATCH_TAG],
+      {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+        timeout: 120_000,
+        env: { ...process.env, JOLLY_SALEOR_CLOUD_TOKEN: "" },
+      },
+    );
+    if (probe.error) {
+      throw new Error(`failed to run the cucumber import probe: ${probe.error.message}`);
+    }
+    this.notes.importProbeOutput = `${probe.stdout ?? ""}\n${probe.stderr ?? ""}`;
+  },
+);
+
+Then(
+  "it should perform no reclaim call and no console output as a result of merely being imported",
+  function (this: JollyWorld) {
+    const output = this.notes.importProbeOutput as string;
+    assert.doesNotMatch(
+      output,
+      RECLAIM_SIGNATURE,
+      `merely importing ${RECLAIM_CLI} through cucumber's support glob triggered a ` +
+        `reclaim and printed its summary; the reclaim body must be guarded to run only ` +
+        `when the module is the process entrypoint (\`npm run reclaim\`). Probe output:\n${output}`,
+    );
+  },
+);
+
+Then(
+  "a cucumber invocation's reclamation should happen exactly once, from the `BeforeAll` hook alone",
+  function (this: JollyWorld) {
+    // The import contributes zero reclamations (proven behaviorally above by the
+    // dry-run probe: no reclaim-cli signature). The one per-invocation reclamation
+    // is the unconditional BeforeAll in hooks.ts — assert it is the single site
+    // that fires reclaimStaleResources on every invocation.
+    const output = this.notes.importProbeOutput as string;
+    const importReclamations = (output.match(new RegExp(RECLAIM_SIGNATURE, "g")) ?? []).length;
+    assert.equal(
+      importReclamations,
+      0,
+      "the support-glob import must contribute no reclamation; BeforeAll is the sole per-invocation site",
+    );
+
+    const hooks = readFileSync(join(REPO_ROOT, "features", "support", "hooks.ts"), "utf8");
+    const beforeAllReclaims = (
+      hooks.match(/BeforeAll\([\s\S]*?reclaimStaleResources\(/g) ?? []
+    ).length;
+    assert.equal(
+      beforeAllReclaims,
+      1,
+      "hooks.ts must run reclaimStaleResources exactly once, from a single BeforeAll hook",
     );
   },
 );

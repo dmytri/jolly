@@ -37,6 +37,7 @@
     "@cucumber/cucumber": "^11.3.0",
     "@earendil-works/pi-coding-agent": "^0.79.1",
     "@types/node": "^22.10.0",
+    "dependency-cruiser": "^18.0.0",
     "esbuild": "^0.24.0",
     "happy-dom": "^15.11.0",
     "typescript": "^5.7.0"
