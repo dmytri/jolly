@@ -567,6 +567,28 @@ When(
       throw new Error(`failed to run the cucumber import probe: ${probe.error.message}`);
     }
     this.notes.importProbeOutput = `${probe.stdout ?? ""}\n${probe.stderr ?? ""}`;
+
+    // The foil the scenario names ("rather than run standalone via `npm run
+    // reclaim`"): run reclaim-cli.ts directly as the process entrypoint. Its body
+    // MUST fire here — the guard suppresses the import side only, never the
+    // entrypoint. This pins the positive side so a guard that wrongly suppressed
+    // both (e.g. one keyed on a Node feature above the runtime floor) cannot pass.
+    // The blank token keeps the reclaim off the real Cloud; the console tell fires
+    // regardless (an empty reclaim still prints "No stale ... found.").
+    const standalone = spawnSync(
+      process.env.HARNESS_CLI_RUNTIME ?? "node",
+      [join(REPO_ROOT, RECLAIM_CLI)],
+      {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+        timeout: 120_000,
+        env: { ...process.env, JOLLY_SALEOR_CLOUD_TOKEN: "" },
+      },
+    );
+    if (standalone.error) {
+      throw new Error(`failed to run the standalone reclaim probe: ${standalone.error.message}`);
+    }
+    this.notes.standaloneProbeOutput = `${standalone.stdout ?? ""}\n${standalone.stderr ?? ""}`;
   },
 );
 
@@ -607,6 +629,19 @@ Then(
       beforeAllReclaims,
       1,
       "hooks.ts must run reclaimStaleResources exactly once, from a single BeforeAll hook",
+    );
+
+    // The guard suppresses the import side ONLY: run standalone via `npm run
+    // reclaim`, reclaim-cli.ts's body still fires (it prints its summary). Without
+    // this, a guard that suppressed both import AND entrypoint would satisfy the
+    // suppression asserts above yet silently break `npm run reclaim`.
+    const standaloneOutput = this.notes.standaloneProbeOutput as string;
+    assert.match(
+      standaloneOutput,
+      RECLAIM_SIGNATURE,
+      `running reclaim-cli.ts standalone (as \`npm run reclaim\` does) must still perform ` +
+        `the reclaim and print its summary; the entrypoint guard must suppress the import ` +
+        `side only. Standalone output:\n${standaloneOutput}`,
     );
   },
 );

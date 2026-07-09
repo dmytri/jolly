@@ -5,6 +5,9 @@
 // so it can be run on its own — e.g. before kicking off a verification
 // session — per RIGGING.md's Commands convention.
 import "./dotenv.ts";
+import { argv } from "node:process";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { reclaimStaleResources } from "./provision.ts";
 
 // Reclaim only when this module is the process entrypoint — i.e. run standalone
@@ -14,7 +17,15 @@ import { reclaimStaleResources } from "./provision.ts";
 // would fire the reclaim a SECOND time — and print — on every cucumber run, on
 // top of the once-per-invocation BeforeAll reclaim (hooks.ts). The guard keeps a
 // cucumber invocation's reclamation to exactly one, from BeforeAll alone.
-if (import.meta.main) {
+//
+// Compare the resolved entrypoint path to this module's URL rather than using
+// `import.meta.main`, which Node added in v24.2 — above this project's declared
+// runtime floor (RIGGING.md `runtime: node@20`, package.json engines >=20.12).
+// The comparison holds from Node 20, so `npm run reclaim` fires on every
+// conformant runtime, not only Node >=24.2.
+const invokedDirectly =
+  argv[1] !== undefined && import.meta.url === pathToFileURL(resolve(argv[1])).href;
+if (invokedDirectly) {
   const reclaimed = await reclaimStaleResources();
   if (reclaimed.length === 0) {
     console.log("No stale jolly-cannon-fodder leftovers found.");
