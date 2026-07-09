@@ -16,7 +16,7 @@ Procedure lives in the skills. Every role reads this on open.
 - specs: features/
 - verification: features/step_definitions/, features/support/
 - assets: assets/
-- scantlings: none
+- scantlings: .dependency-cruiser.mjs
 
 ## Commands
 
@@ -30,6 +30,7 @@ Procedure lives in the skills. Every role reads this on open.
 - plank-inventory: `grep -rn '@planks' src/ bin/`
 - typecheck: `npm run typecheck`
 - lint: `npx gplint "features/*.feature"`
+- conformance: `npx depcruise --config .dependency-cruiser.mjs src bin`
 
 ## Perturbation
 
@@ -46,6 +47,7 @@ Procedure lives in the skills. Every role reads this on open.
 
 - policy: locked. Add a new dependency only when a spec requires it.
 - yaml: runtime parser for `assets/skills/jolly/recipe.yml`, required by feature `recipe-identifiers-from-asset` (`deriveRecipeIdentifiers`). Version constraint lives in `package.json`.
+- dependency-cruiser: dev-only boundary-scantling validator, required by feature `module-boundary-conformance` (the `conformance` command). Not a runtime dependency of the shipped CLI.
 
 ## Outbound
 
