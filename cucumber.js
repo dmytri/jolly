@@ -18,15 +18,17 @@ const common = {
   import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],
 };
 
-// Default: the product worklist. Excludes @eval (the opt-in skill-behavior
-// affordance evaluation, feature 025, which drives a live baseline agent —
-// non-deterministic, credentialed, slow, and never a green/red gate). @sandbox
-// scenarios self-skip when the runtime JOLLY_* credentials they need are absent
-// (see features/support/hooks.ts) — there is no test-only credential namespace;
-// @eval self-skips without its model key.
+// Default: the product worklist. Excludes @eval (the opt-in skill-affordance
+// evaluation, feature 025, which drives a live baseline agent — non-deterministic,
+// credentialed, and slow), which runs on its own profile as a required green/red
+// gate at the boundary rather than on every default run. Credentials for @sandbox
+// and @eval are present by fitting-out; the CLIs and API clients read them from the
+// environment. Verification runs every target and never branches on credential
+// presence: a scenario whose credential is absent fails as a fitting-out blocker,
+// so the gap is visible.
 export default { ...common, tags: "not @eval" };
 
-// Targeted profiles: `cucumber-js -p logic` / `-p sandbox` / `-p sandboxCreatesEnv` / `-p eval`.
+// Targeted profiles: `cucumber-js -p logic` / `-p sandbox` / `-p sandboxSerial` / `-p eval`.
 // The logic tier is pure local behavior with no shared external state, so it runs
 // in parallel for fast status/worklist feedback. The sandbox tier gives EACH
 // worker its own isolated jolly-cannon-fodder environment, namespaced by run id +

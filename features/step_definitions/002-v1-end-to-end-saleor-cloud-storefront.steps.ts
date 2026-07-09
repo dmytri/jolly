@@ -166,6 +166,13 @@ When("the agent runs `jolly create store --create-environment --json`", { timeou
           JOLLY_SALEOR_CLOUD_API_URL: coldEnv.baseUrl,
           JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN,
           JOLLY_STORE_NAME: this.namespace,
+          // The never-serving endpoint is loopback-refused instantly, so the
+          // outcome under test (readiness gate times out → "warning") is
+          // independent of the budget's duration. Squeeze the budget/poll to
+          // sub-second so this scenario times out in well under a second instead
+          // of burning the full production 600s clock.
+          JOLLY_READINESS_BUDGET_MS: "200",
+          JOLLY_READINESS_POLL_MS: "50",
         }),
         timeoutMs: 840_000,
       },
@@ -1978,6 +1985,13 @@ When("the store stage runs", { timeout: 900_000 }, async function (this: JollyWo
         JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN,
         JOLLY_STORE_NAME: this.namespace,
         JOLLY_VERCEL_PROJECT: workerNamespace(),
+        // The never-serving endpoint is loopback-refused instantly, so the
+        // outcome under test (readiness gate times out → store stage "blocked")
+        // is independent of the budget's duration. Squeeze the budget/poll to
+        // sub-second so this scenario times out in well under a second instead
+        // of burning the full production 600s clock.
+        JOLLY_READINESS_BUDGET_MS: "200",
+        JOLLY_READINESS_POLL_MS: "50",
         ...vercelXdg,
       }),
       timeoutMs: 840_000,

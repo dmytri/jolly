@@ -26,6 +26,10 @@ import { absentCredentialsEnv } from "../support/creds-env.ts";
 import { ptyAvailable, runUnderPty } from "../support/pty.ts";
 import { REPO_ROOT } from "../support/world.ts";
 import type { JollyWorld } from "../support/world.ts";
+import {
+  findGlobalOutputFlagViolations,
+  type Violation,
+} from "../support/module-conformance.ts";
 
 /**
  * Scan PATH for a genuine Node.js >= 20 binary, skipping Bun (and Bun shims
@@ -518,6 +522,56 @@ Then(
     assert.ok(
       typeof envelope.command === "string" && envelope.command.length > 0,
       "the --json envelope must name the command",
+    );
+  },
+);
+
+// --- @property: the global output flags live at the single parser seam ------
+// Structural conformance in the family of module-boundary-conformance and
+// single-creation-seam: one owned ts-morph checker
+// (features/support/module-conformance.ts) proves the global output flags
+// (`--json`, `--quiet`, `--yes`) are declared ONCE, in GLOBAL_BOOLEAN_FLAGS,
+// and reach every command through the one @bomb.sh/args parser call in
+// src/index.ts — never a per-command parser that omits or overrides them. The
+// scenario names the source, runs the checker, and asserts no per-command
+// divergence. Drop a flag from GLOBAL_BOOLEAN_FLAGS and the checker reds.
+
+Given(
+  "the Jolly CLI source at {string}",
+  function (this: JollyWorld, sourcePath: string) {
+    assert.ok(
+      existsSync(join(REPO_ROOT, sourcePath)),
+      `the Jolly CLI source ${sourcePath} must exist to check`,
+    );
+    this.notes.cliSourcePath = sourcePath;
+  },
+);
+
+When(
+  "the verifier checks the command surface for the global output flags",
+  function (this: JollyWorld) {
+    this.notes.globalFlagViolations = findGlobalOutputFlagViolations();
+  },
+);
+
+Then(
+  "every command should accept {string}, {string}, and {string} through the one Bombshell parser, with no per-command divergence",
+  function (this: JollyWorld, json: string, quiet: string, yes: string) {
+    // The Then names the flags it guards; assert the checker covers exactly them
+    // so the prose and the structural check cannot drift apart.
+    assert.deepEqual(
+      [json, quiet, yes],
+      ["--json", "--quiet", "--yes"],
+      "this scenario guards the --json, --quiet, and --yes global output flags",
+    );
+    const violations = this.notes.globalFlagViolations as Violation[];
+    assert.equal(
+      violations.length,
+      0,
+      `the global output flags must be declared once at the single Bombshell parser seam, ` +
+        `with no per-command divergence:\n${violations
+          .map((violation) => `  - ${violation.message}`)
+          .join("\n")}`,
     );
   },
 );

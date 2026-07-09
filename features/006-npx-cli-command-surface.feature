@@ -45,36 +45,11 @@ Feature: Npx-first Jolly CLI command surface
     And `jolly create --help` should list only the subcommand `store`
     And no `deployment`, `deploy`, `recipe`, or `storefront` subcommand should appear anywhere in the surface
 
-  @logic
-  Scenario Outline: Every command accepts the global output flags
-    Given the published Jolly CLI
-    When the agent runs `jolly <command> <flag>`
-    Then the flag should be accepted, not rejected as unknown
-    And `jolly <command> --json` should emit the output envelope on stdout per feature 020
-
-    Examples:
-      | command           | flag      |
-      | login             | --json    |
-      | login             | --quiet   |
-      | login             | --yes     |
-      | init              | --json    |
-      | init              | --quiet   |
-      | init              | --yes     |
-      | start             | --json    |
-      | start             | --quiet   |
-      | start             | --yes     |
-      | doctor            | --json    |
-      | doctor            | --quiet   |
-      | doctor            | --yes     |
-      | upgrade           | --json    |
-      | upgrade           | --quiet   |
-      | upgrade           | --yes     |
-      | skills            | --json    |
-      | skills            | --quiet   |
-      | skills            | --yes     |
-      | create store      | --json    |
-      | create store      | --quiet   |
-      | create store      | --yes     |
+  @logic @property
+  Scenario: Every command declares the global output flags at the single parser seam
+    Given the Jolly CLI source at "src/index.ts"
+    When the verifier checks the command surface for the global output flags
+    Then every command should accept "--json", "--quiet", and "--yes" through the one Bombshell parser, with no per-command divergence
 
   @logic
   Scenario: The launcher fails clearly on an unsupported Node version

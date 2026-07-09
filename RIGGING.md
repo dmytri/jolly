@@ -29,7 +29,7 @@ Procedure lives in the skills. Every role reads this on open.
 - plank-inventory: `grep -rn '@planks' src/ bin/`
 - typecheck: `npm run typecheck`
 - lint: `npx gplint "features/*.feature"`
-- conformance: `npx cucumber-js --profile logic --tags "@logic and @property and not @captain"` — runs the structural `@property` scenarios (module-layering boundaries, single env-creation seam, live-by-design) discharged by the ts-morph conformance checker in the verification layer
+- conformance: `npx cucumber-js --profile logic --tags "@logic and @property and not @captain"` — runs the structural `@property` scenarios (module-layering boundaries, single env-creation seam, single command-surface parser seam for the global output flags, live-by-design) discharged by the ts-morph conformance checker in the verification layer
 
 ## Perturbation
 
@@ -46,7 +46,7 @@ Procedure lives in the skills. Every role reads this on open.
 
 - policy: locked. Add a new dependency only when a spec requires it.
 - yaml: runtime parser for `assets/skills/jolly/recipe.yml`, required by feature `recipe-identifiers-from-asset` (`deriveRecipeIdentifiers`). Version constraint lives in `package.json`.
-- ts-morph: dev-only TypeScript-AST library backing the verification layer's structural conformance checker, required by features `module-boundary-conformance` and `single-creation-seam`. The checker (verification support) walks the source with ts-morph to enforce the module-layering import boundaries (resolution-accurate, via resolved import source files) and the single env-creation seam (the `create store --create-environment` CLI-spawn call pattern that a module-graph tool cannot see). Not a runtime dependency of the shipped CLI.
+- ts-morph: dev-only TypeScript-AST library backing the verification layer's structural conformance checker, required by features `module-boundary-conformance`, `single-creation-seam`, and feature 006's global-output-flags `@property` scenario. The checker (verification support) walks the source with ts-morph to enforce the module-layering import boundaries (resolution-accurate, via resolved import source files), the single env-creation seam (the `create store --create-environment` CLI-spawn call pattern that a module-graph tool cannot see), and the single command-surface parser seam (the global output flags `--json`/`--quiet`/`--yes` are declared once in `GLOBAL_BOOLEAN_FLAGS` and reach every command through the one `@bomb.sh/args` parser call in `src/index.ts`). Not a runtime dependency of the shipped CLI.
 
 ## Outbound
 

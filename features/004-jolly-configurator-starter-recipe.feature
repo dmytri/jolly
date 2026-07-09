@@ -75,8 +75,7 @@ Feature: Jolly Configurator starter recipe
 
   @sandbox @heavy
   Scenario: Jolly start deploys the starter recipe with @saleor/configurator
-    Given a freshly created blank Saleor Cloud environment
-    When Jolly start runs the configurator-deploy stage with approval
+    Given a freshly created Saleor Cloud environment with the starter recipe deployed
     Then Jolly should spawn `npx @saleor/configurator@latest deploy` of its bundled starter recipe against the store, never reimplementing it against raw APIs
     And the bootstrap deploy should record a successful configurator deployment report and the recipe's catalog entities should exist in the store
     And the stage should be reported completed only when the configurator's deployment report records success
@@ -91,8 +90,7 @@ Feature: Jolly Configurator starter recipe
 
   @sandbox @heavy
   Scenario: Jolly start confirms the recipe's featured collection exists before reporting the recipe stage completed
-    Given a freshly created blank Saleor Cloud environment
-    When Jolly start runs the configurator-deploy stage with approval
+    Given a freshly created Saleor Cloud environment with the starter recipe deployed
     Then the recipe's `featured-products` collection should exist in the store holding its declared products
     And the recipe stage should be reported "completed" only after Jolly reads the store back and confirms the recipe's declared catalog entities exist there, not from the configurator's summary counts alone
     And the `recipe-deployed` check should derive its status from that store read-back, so it cannot report "pass" while a sibling check reports a declared entity such as the `featured-products` collection is absent

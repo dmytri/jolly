@@ -48,6 +48,7 @@ import {
 import { findEnvelope, type Envelope } from "./envelope.ts";
 import { createEnvironment, type CliRunner } from "./env-factory.ts";
 import { CleanupRegistry, makeNamespace, runId, workerNamespace, type CleanupFailure } from "./sandbox.ts";
+import { readRecipeStoreMarker } from "./recipe-fixture.ts";
 import { REPO_ROOT } from "./repo-root.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
 import { probeEndpointConnectivity } from "../../src/lib/cloud-api.ts";
@@ -163,7 +164,15 @@ export async function reclaimStaleResources(
   if (token.trim() === "") return [];
   const runNamespace = makeNamespace(runId());
   const marker = readSharedStoreMarker();
-  const spareNames = marker ? new Set([marker.name]) : new Set<string>();
+  // Spare BOTH long-lived cached stores by exact current name (mirroring the
+  // shared-store convention): the primary shared store (provision marker) and
+  // the feature-004 recipe-deployed store (recipe-fixture marker). An orphaned
+  // FORMER store of either kind — its name changed by self-heal — is not spared
+  // and is still reclaimed by the jolly-cannon-fodder- prefix.
+  const recipeMarker = readRecipeStoreMarker();
+  const spareNames = new Set<string>();
+  if (marker) spareNames.add(marker.name);
+  if (recipeMarker) spareNames.add(recipeMarker.name);
   const leftovers = leftoverTestEnvironments(
     await listAllEnvironments(token),
     runNamespace,

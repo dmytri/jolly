@@ -881,10 +881,19 @@ Then(
 // --- Scenario: An unexpected internal error surfaces as a stable envelope ----
 //
 // An unexpected internal throw (feature 020 Rule) must be caught at the top level
-// and rendered as the shared error envelope with the stable UNEXPECTED_ERROR
-// code, never a raw stack trace on stdout. The Given (feature 002 steps) plants a
-// malformed storefront/package.json so a real `jolly start --yes --json` run
-// throws deep in the storefront stage.
+// (main()'s try/catch around dispatch, src/index.ts) and rendered as the shared
+// error envelope with the stable UNEXPECTED_ERROR code, never a raw stack trace on
+// stdout. The Given (feature 002 steps) plants a malformed storefront/package.json;
+// the narrow `jolly storefront` stage command (feature 029) then parses that
+// package.json to approve Paper's build scripts and throws on the malformed JSON —
+// the SAME top-level envelope-wrapping code path a full `jolly start` would reach
+// through the storefront stage, but induced locally in milliseconds with no cloud,
+// so this is a @logic check (no real account is touched: the throw fires before any
+// clone/install/network).
+
+When("the agent runs `jolly storefront --json`", function (this: JollyWorld) {
+  this.runCli(["storefront", "--json"], { env: absentCredentialsEnv() });
+});
 
 Then(
   "the envelope status should be {string} with the stable `code` {string}",

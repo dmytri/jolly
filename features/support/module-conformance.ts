@@ -1,8 +1,9 @@
-// Structural conformance checker for Jolly's module layering and its single
-// env-creation seam (features module-boundary-conformance and
-// single-creation-seam, @logic @property).
+// Structural conformance checker for Jolly's module layering, its single
+// env-creation seam, and its single command-surface parser seam (features
+// module-boundary-conformance, single-creation-seam, and the feature 006
+// global-output-flags @property scenario — all @logic @property).
 //
-// One owned ts-morph checker covers two facets a module-graph tool alone
+// One owned ts-morph checker covers three facets a module-graph tool alone
 // cannot:
 //   - Module-layering boundaries, resolved by real module resolution (each
 //     import is resolved to its source file, not matched as a specifier string):
@@ -14,6 +15,10 @@
 //     `--dry-run` array creates nothing (a preview) and is excluded; a loopback
 //     fake array marked `env-factory-exception:` at its site creates no real
 //     resource and is excluded.
+//   - The single command-surface parser seam: the global output flags
+//     (`--json`, `--quiet`, `--yes`) are declared once in GLOBAL_BOOLEAN_FLAGS
+//     and reach every command through the one @bomb.sh/args parser call in
+//     src/index.ts — never a per-command parser that omits or overrides them.
 //
 // This file excludes itself from the seam scan so its own pattern literals are
 // never self-flagged.
@@ -32,6 +37,15 @@ const CHECKER_FILE = "features/support/module-conformance.ts";
 const EXCEPTION_MARKER = "env-factory-exception";
 const CREATE_STORE_LITERALS = ["create", "store", "--create-environment"];
 const DRY_RUN = "--dry-run";
+
+const CLI_ENTRY = "src/index.ts";
+const BOMB_ARGS_MODULE = "@bomb.sh/args";
+const BOMB_ARGS_EXPORT = "parse";
+const GLOBAL_FLAGS_DECL = "GLOBAL_BOOLEAN_FLAGS";
+// The three global OUTPUT flags every command must accept through the one
+// parser seam (feature 006 Rule "Thin command surface"). GLOBAL_BOOLEAN_FLAGS
+// carries more (`dry-run`, `help`); these are the ones this scenario guards.
+const REQUIRED_GLOBAL_FLAGS = ["json", "quiet", "yes"];
 
 let cachedProject: Project | undefined;
 
@@ -158,5 +172,128 @@ export function findCreationSeamViolations(): Violation[] {
       });
     }
   }
+  return violations;
+}
+
+/**
+ * Global-output-flag seam violations: the command surface declares `--json`,
+ * `--quiet`, and `--yes` ONCE, at the single @bomb.sh/args parser seam in
+ * src/index.ts, with no per-command divergence.
+ *
+ * The single parser seam is checkable, not conventional:
+ *   - src/index.ts imports the parser from @bomb.sh/args and calls it exactly
+ *     once (a second call would be a per-command parse path diverging from the
+ *     seam).
+ *   - GLOBAL_BOOLEAN_FLAGS declares "json", "quiet", and "yes" (drop one and a
+ *     command can no longer accept that flag through the one parser).
+ *   - That single parser call feeds its `boolean` set from GLOBAL_BOOLEAN_FLAGS,
+ *     so the global flags reach every command uniformly rather than being
+ *     re-declared per command.
+ * Each missing piece would let a command diverge from the shared flag surface,
+ * so each is reported as a violation.
+ */
+export function findGlobalOutputFlagViolations(): Violation[] {
+  const violations: Violation[] = [];
+  const source = project().getSourceFile(
+    (file) => repoRelative(file.getFilePath()) === CLI_ENTRY,
+  );
+  if (!source) {
+    violations.push({
+      file: CLI_ENTRY,
+      line: 0,
+      message: `${CLI_ENTRY} not found — cannot check the command surface for the global output flags`,
+    });
+    return violations;
+  }
+
+  // Resolve the local name the single Bombshell parser is imported under
+  // (`import { parse as parseBombArgs } from "@bomb.sh/args"`).
+  let parserName: string | undefined;
+  for (const importDeclaration of source.getImportDeclarations()) {
+    if (importDeclaration.getModuleSpecifierValue() !== BOMB_ARGS_MODULE) continue;
+    for (const named of importDeclaration.getNamedImports()) {
+      if (named.getName() !== BOMB_ARGS_EXPORT) continue;
+      parserName = named.getAliasNode()?.getText() ?? named.getName();
+    }
+  }
+  if (!parserName) {
+    violations.push({
+      file: CLI_ENTRY,
+      line: 0,
+      message: `${CLI_ENTRY} does not import the ${BOMB_ARGS_MODULE} parser — the single Bombshell parser seam is missing`,
+    });
+    return violations;
+  }
+
+  // The one parser seam: exactly one call to that parser. Zero means no seam;
+  // more than one means a per-command parse path has diverged from the seam.
+  const parserCalls = source
+    .getDescendantsOfKind(SyntaxKind.CallExpression)
+    .filter((call) => {
+      const expression = call.getExpression();
+      return Node.isIdentifier(expression) && expression.getText() === parserName;
+    });
+  if (parserCalls.length === 0) {
+    violations.push({
+      file: CLI_ENTRY,
+      line: 0,
+      message: `${CLI_ENTRY} never calls the Bombshell parser ${parserName}() — the single command-surface parser seam is missing`,
+    });
+    return violations;
+  }
+  for (const extra of parserCalls.slice(1)) {
+    const line = extra.getStartLineNumber();
+    violations.push({
+      file: CLI_ENTRY,
+      line,
+      message: `${CLI_ENTRY}:${line} calls the Bombshell parser a second time — a per-command parse path diverges from the single parser seam`,
+    });
+  }
+  const seam = parserCalls[0]!;
+
+  // The global output flags are declared once, in GLOBAL_BOOLEAN_FLAGS.
+  const declaration = source.getVariableDeclaration(GLOBAL_FLAGS_DECL);
+  if (!declaration) {
+    violations.push({
+      file: CLI_ENTRY,
+      line: 0,
+      message: `${CLI_ENTRY} has no ${GLOBAL_FLAGS_DECL} declaration — the global output flags are not declared at one seam`,
+    });
+    return violations;
+  }
+  const initializer = declaration.getInitializer();
+  // Unwrap a trailing `as const` so the array literal is reached.
+  const arrayNode =
+    initializer && Node.isAsExpression(initializer)
+      ? initializer.getExpression()
+      : initializer;
+  const globalFlags = arrayNode ? stringElements(arrayNode) : [];
+  const declarationLine = declaration.getStartLineNumber();
+  for (const flag of REQUIRED_GLOBAL_FLAGS) {
+    if (globalFlags.includes(flag)) continue;
+    violations.push({
+      file: CLI_ENTRY,
+      line: declarationLine,
+      message: `${CLI_ENTRY}:${declarationLine} ${GLOBAL_FLAGS_DECL} omits "${flag}" — no command could accept --${flag} through the single parser seam`,
+    });
+  }
+
+  // The single parser call feeds its boolean set from GLOBAL_BOOLEAN_FLAGS, so
+  // the global flags reach every command uniformly (no per-command override).
+  const optionsArg = seam.getArguments()[1];
+  const feedsFromGlobal =
+    optionsArg !== undefined &&
+    optionsArg
+      .getDescendantsOfKind(SyntaxKind.Identifier)
+      .some((identifier) => identifier.getText() === GLOBAL_FLAGS_DECL);
+  if (!feedsFromGlobal) {
+    const line = seam.getStartLineNumber();
+    violations.push({
+      file: CLI_ENTRY,
+      line,
+      message: `${CLI_ENTRY}:${line} the single Bombshell parser does not feed its boolean set from ${GLOBAL_FLAGS_DECL} — the global output flags may not reach every command uniformly`,
+    });
+  }
+
   return violations;
 }

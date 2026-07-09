@@ -1572,6 +1572,20 @@ interface StoreProvisionResult {
 }
 
 /**
+ * Read a positive-integer millisecond budget from the environment, falling back
+ * to `fallback` when the variable is unset, empty, non-numeric, or non-positive.
+ * Lets the readiness gate's budget and poll interval be tuned (e.g. squeezed to
+ * sub-second in a never-serves test) without changing real behaviour: the
+ * defaults are the production values, so an absent/invalid override is a no-op.
+ */
+function readPositiveIntEnvMs(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined) return fallback;
+  const parsed = Number.parseInt(raw.trim(), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/**
  * Create-or-reuse a Saleor Cloud project + environment via the Cloud API, poll
  * until ready, and write the resulting NEXT_PUBLIC_SALEOR_API_URL + the
  * agent-facing SALEOR_URL/SALEOR_TOKEN to `.env` (and into this process so
@@ -1682,13 +1696,18 @@ async function provisionStore(
   // false-failure calls for a longer readiness gate, not a tolerated flake).
   let readinessTimedOut = false;
   if (environmentCreated) {
-    const readinessDeadline = Date.now() + 600_000;
+    // Budget/poll interval default to the production values above and are only
+    // overridable via env for tests that must exercise the timeout path without
+    // burning the full real budget (a missing/invalid value falls back).
+    const readinessBudgetMs = readPositiveIntEnvMs("JOLLY_READINESS_BUDGET_MS", 600_000);
+    const readinessPollMs = readPositiveIntEnvMs("JOLLY_READINESS_POLL_MS", 5_000);
+    const readinessDeadline = Date.now() + readinessBudgetMs;
     while ((await probeEndpointConnectivity(domainUrl)).kind !== "reachable") {
       if (Date.now() >= readinessDeadline) {
         readinessTimedOut = true;
         break;
       }
-      await new Promise((resolve) => setTimeout(resolve, 5_000));
+      await new Promise((resolve) => setTimeout(resolve, readinessPollMs));
     }
   }
 
