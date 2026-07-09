@@ -1,22 +1,17 @@
 @eval
-# Opt-in skill-behavior evaluation. NOT part of the default green/red worklist:
-# it drives a live baseline agent over the shipped Jolly skill, so it is
-# non-deterministic, credentialed, and slow. Tagged @eval and EXCLUDED from the
-# default profile (cucumber.js: `not @eval`); it runs only via an
-# explicit `eval` profile/command. It is a separate opt-in tier, never a gate on
-# normal CI.
 Feature: Agent skill affordance evaluation
   As the maintainer of the Jolly skill
   I want to check that a baseline agent, given only the documented skill and CLI,
   can actually discover and drive Jolly
   So that the skill's usability is measured, not just assumed by real use
 
-  # Why "affordance", not "outcome": a live LLM agent varies run to run, so this
-  # eval asserts that the skill gave the agent the AFFORDANCES to use Jolly —
-  # that it found and invoked Jolly's documented commands and reached the
-  # documented local project state — not that it produced a perfect, deployed
-  # store. The skill's editorial quality stays a real-use concern outside normal
-  # deterministic testing; this tier tests the agent's ability to ACT on it.
+  Rule: Affordance, not outcome
+    - A live LLM agent varies run to run, so this eval asserts that the skill
+      gave the agent the AFFORDANCES to use Jolly: it found and invoked Jolly's
+      documented commands and reached the documented local project state. It does
+      not assert that the agent produced a perfect, deployed store.
+    - The skill's editorial quality stays a real-use concern outside normal
+      deterministic testing; this tier tests the agent's ability to ACT on it.
 
   Rule: Opt-in, outside the default worklist
     - The eval is tagged `@eval` and excluded from the default BDD profile; it
