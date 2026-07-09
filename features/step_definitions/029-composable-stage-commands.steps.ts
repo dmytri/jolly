@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { loadEnvValues, writeEnvValues } from "../../src/lib/env-file.ts";
 import { saleorGraphql } from "../support/saleor-graphql.ts";
 import { addVercelProject, removeVercelProject, workerNamespace } from "../support/sandbox.ts";
+import { ensureRecipeDeployedStore } from "../support/recipe-fixture.ts";
 import type { JollyWorld } from "../support/world.ts";
 // src/index.ts runs the CLI on import; import its runtime seams dynamically in
 // the composition step under JOLLY_NO_MAIN. The type is erased, so a type-only
@@ -237,26 +238,41 @@ Then(
   },
 );
 
-// ─── jolly recipe ───────────────────────────────────────────────────────────
+// ─── jolly recipe / jolly stock ─────────────────────────────────────────────
+//
+// These two scenarios prove `jolly recipe` and `jolly stock` each run standalone.
+// Rather than re-deploy, they adopt the run's ONE recipe-deployed store
+// (features/support/recipe-fixture.ts): its state is built ONCE per run by a
+// standalone `jolly recipe --yes --json` then `jolly stock --yes --json` chain,
+// both captured. Each scenario reads back the SAME captured run its Given names —
+// the recipe run for the recipe scenario, the stock run for the stock scenario —
+// and its Thens assert the captured envelope's single completed stage plus a live
+// GraphQL read-back of the outcome. This is the identical isolation evidence the
+// old When-based Thens asserted (exactly one stage ran; the store/deploy checks
+// are absent), read from the shared standalone runs instead of a fresh one.
+
+async function useRecipeStandaloneRun(
+  world: JollyWorld,
+  run: "recipe" | "stock",
+): Promise<void> {
+  const fixture = await ensureRecipeDeployedStore();
+  world.notes.storeEndpoint = fixture.endpoint;
+  world.notes.storeToken = fixture.token;
+  if (fixture.token) world.trackSecret(fixture.token);
+  world.previousRun = world.lastRun;
+  world.lastRun = run === "recipe" ? fixture.recipeResult : fixture.stockResult;
+}
 
 Given(
-  "a configured Saleor store with a resolvable token",
-  function (this: JollyWorld) {
-    writeStoreEnv(this);
-  },
-);
-
-When(
-  "the agent runs `jolly recipe --yes --json`",
+  "the shared recipe store, whose starter recipe was deployed by a single `jolly recipe --yes --json` run against a freshly configured store",
   { timeout: HEAVY },
-  function (this: JollyWorld) {
-    this.notes["stageUnderTest"] = "recipe";
-    this.runCli(["recipe", "--yes", "--json"], { timeoutMs: HEAVY });
+  async function (this: JollyWorld) {
+    await useRecipeStandaloneRun(this, "recipe");
   },
 );
 
 Then(
-  'the `recipe` stage should report "completed", having deployed the bundled starter recipe through `@saleor\\/configurator`',
+  'that run should report the `recipe` stage "completed", having deployed the bundled starter recipe through `@saleor\\/configurator`',
   { timeout: 120_000 },
   async function (this: JollyWorld) {
     assert.equal(
@@ -265,8 +281,9 @@ Then(
       `recipe stage not completed: ${JSON.stringify(this.envelope.data)}`,
     );
     // The starter recipe deploys product types; their presence proves a real
-    // configurator deploy landed against the store.
-    const { endpoint, token } = storeCreds();
+    // configurator deploy landed against the recipe store.
+    const endpoint = String(this.notes.storeEndpoint);
+    const token = this.notes.storeToken as string | undefined;
     const result = await saleorGraphql(
       endpoint,
       token,
@@ -278,46 +295,27 @@ Then(
 );
 
 Then(
-  "it should not provision a store, prepare the storefront, or deploy",
+  "that run should not have provisioned a store, prepared the storefront, or deployed",
   function (this: JollyWorld) {
+    // The captured recipe run carries exactly one stage — recipe — so it ran no
+    // store, storefront, stock, or deploy stage; and no store-provisioned or
+    // vercel-deployed check appears in its envelope.
     onlyStageIs(this, "recipe");
     assert.equal(this.findCheck("store-provisioned"), undefined, "recipe provisioned a store");
-    assert.ok(
-      !existsSync(join(this.projectDir, "storefront", "package.json")),
-      "recipe prepared the storefront",
-    );
     assert.equal(this.findCheck("vercel-deployed"), undefined, "recipe deployed to Vercel");
   },
 );
 
-// ─── jolly stock ────────────────────────────────────────────────────────────
-
 Given(
-  "a configured Saleor store whose recipe catalog is deployed",
+  "the shared recipe store, whose stock was seeded by a single `jolly stock --yes --json` run after its recipe was deployed",
   { timeout: HEAVY },
-  function (this: JollyWorld) {
-    writeStoreEnv(this);
-    // Deploy the recipe catalog by composing the recipe stage command.
-    this.runCli(["recipe", "--yes", "--json"], { timeoutMs: HEAVY });
-    assert.equal(
-      stageStatus(this, "recipe"),
-      "completed",
-      `recipe precondition did not complete: ${JSON.stringify(this.lastRun?.envelope ?? this.lastRun?.stdout)}`,
-    );
-  },
-);
-
-When(
-  "the agent runs `jolly stock --yes --json`",
-  { timeout: HEAVY },
-  function (this: JollyWorld) {
-    this.notes["stageUnderTest"] = "stock";
-    this.runCli(["stock", "--yes", "--json"], { timeoutMs: HEAVY });
+  async function (this: JollyWorld) {
+    await useRecipeStandaloneRun(this, "stock");
   },
 );
 
 Then(
-  'the `stock` stage should report "completed", having seeded stock for the recipe variants through Saleor GraphQL',
+  'that run should report the `stock` stage "completed", having seeded stock for the recipe variants through Saleor GraphQL',
   { timeout: 120_000 },
   async function (this: JollyWorld) {
     assert.equal(
@@ -325,7 +323,8 @@ Then(
       "completed",
       `stock stage not completed: ${JSON.stringify(this.envelope.data)}`,
     );
-    const { endpoint, token } = storeCreds();
+    const endpoint = String(this.notes.storeEndpoint);
+    const token = this.notes.storeToken as string | undefined;
     const result = await saleorGraphql(
       endpoint,
       token,
@@ -335,6 +334,16 @@ Then(
       (result.data?.["productVariants"] as { edges?: Array<{ node?: { stocks?: Array<{ quantity?: number }> } }> } | undefined)?.edges ?? [];
     const seeded = edges.some((e) => (e.node?.stocks ?? []).some((s) => (s.quantity ?? 0) > 0));
     assert.ok(seeded, "no recipe variant carries seeded stock after the stock stage");
+  },
+);
+
+Then(
+  "that run should not have deployed or run any other stage",
+  function (this: JollyWorld) {
+    // The captured stock run carries exactly one stage — stock — and no
+    // vercel-deployed check.
+    onlyStageIs(this, "stock");
+    assert.equal(this.findCheck("vercel-deployed"), undefined, "the stock stage deployed to Vercel");
   },
 );
 

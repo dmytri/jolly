@@ -20,19 +20,23 @@ import type { JollyWorld } from "../support/world.ts";
 
 // Adopt the run's ONE recipe-deployed store (features/support/recipe-fixture.ts):
 // the starter recipe is deployed to a SEPARATE cached jolly-cannon-fodder store
-// ONCE per run — never the primary shared store — and the state-compatible
-// @sandbox scenarios below read their fact back from it via real GraphQL queries
-// instead of each re-deploying. Loads the captured `jolly start --yes --json`
-// envelope into this scenario's lastRun (so the Jolly-observable Thens read the
-// real deploy result) and the store creds into notes (so the store-read Thens
-// query the live recipe store).
+// ONCE per run — never the primary shared store — via a standalone `jolly recipe`
+// then `jolly stock` chain, and the state-compatible @sandbox scenarios below read
+// their fact back from it via real GraphQL queries instead of each re-deploying.
+// Loads the captured `jolly recipe --yes --json` envelope into this scenario's
+// lastRun (so the Jolly-observable recipe-deploy Thens read the real deploy
+// result) and the store creds into notes (so the store-read Thens query the live
+// recipe store). The `jolly stock --yes --json` result is stashed in notes for
+// completeness; these scenarios verify the stock outcome via live GraphQL, not its
+// envelope.
 async function useRecipeDeployedStore(world: JollyWorld): Promise<void> {
   const fixture = await ensureRecipeDeployedStore();
   world.notes.storeEndpoint = fixture.endpoint;
   world.notes.storeToken = fixture.token;
+  world.notes.stockRun = fixture.stockResult;
   if (fixture.token) world.trackSecret(fixture.token);
   world.previousRun = world.lastRun;
-  world.lastRun = fixture.result;
+  world.lastRun = fixture.recipeResult;
 }
 
 // The Jolly starter recipe's warehouse (assets/skills/jolly/recipe.yml) and the
@@ -439,9 +443,9 @@ Given(
   { timeout: 900_000 },
   async function (this: JollyWorld) {
     // Adopt the run's ONE recipe-deployed store (recipe-fixture.ts): the recipe
-    // was deployed and stock seeded ONCE per run by a real `jolly start --yes
-    // --json`, whose envelope is loaded here. The stock stage ran before the
-    // Vercel deploy, so a missing Vercel session does not prevent seeding; this
+    // was deployed and stock seeded ONCE per run by a real standalone `jolly
+    // recipe` then `jolly stock` chain; the recipe run's envelope is loaded here.
+    // The stock stage seeds via Saleor GraphQL and needs no Vercel session; this
     // scenario asserts only the live stock outcome against that store.
     await useRecipeDeployedStore(this);
     assert.ok(this.notes.storeEndpoint, "a Saleor GraphQL endpoint must be configured/derived");
@@ -797,13 +801,14 @@ Then(
 //     (@sandbox) ────────────────────────────────────────────────────────────
 //
 // Verifies the FIRST spawned-CLI `jolly start` stage genuinely executing:
-// `jolly start --yes` SPAWNS `npx @saleor/configurator deploy` of Jolly's bundled
-// recipe; the additive apply exits 0 so the recipe's catalog entities exist and
-// the stage is reported `completed`; a re-deploy reconciles to a no-op diff (no
-// duplicate entities). The deploy ran ONCE this run against the shared
-// recipe-deployed store (recipe-fixture.ts); it is this scenario's PRECONDITION,
-// adopted by the shared `Given` above, so the scenario is a Given+Then that reads
-// the captured envelope and the live store back — no action step of its own.
+// the standalone `jolly recipe` run SPAWNS `npx @saleor/configurator deploy` of
+// Jolly's bundled recipe; the additive apply exits 0 so the recipe's catalog
+// entities exist and the stage is reported `completed`; a re-deploy reconciles to
+// a no-op diff (no duplicate entities). The deploy ran ONCE this run against the
+// shared recipe-deployed store (recipe-fixture.ts); it is this scenario's
+// PRECONDITION, adopted by the shared `Given` above, so the scenario is a
+// Given+Then that reads the captured recipe envelope and the live store back — no
+// action step of its own.
 
 interface ResultStage {
   stage: string;
@@ -835,16 +840,27 @@ async function productCount(
 Then(
   "Jolly should spawn `npx @saleor\\/configurator@latest deploy` of its bundled starter recipe against the store, never reimplementing it against raw APIs",
   function (this: JollyWorld) {
-    // Jolly-observable: a recipe-deploy check confirms the configurator was
+    // Jolly-observable: the recipe-deployed check confirms the configurator was
     // spawned (Jolly never reimplements the configurator against raw APIs — the
-    // recipe stage's only side effect is spawning the official CLI).
+    // recipe stage's only side effect is spawning the official CLI). The
+    // configurator-spawn evidence lives in this check's description (src/index.ts
+    // runRecipeStage), which records "@saleor/configurator deploy" on a `pass`
+    // regardless of whether the run was a fresh deploy or a no-op reconcile of the
+    // cached recipe store — the standalone recipe stage's `data.stages` entry is
+    // thin (stage + status only), so the check is the stable observable.
     const stages = (this.envelope.data.stages ?? []) as ResultStage[];
     const recipe = stages.find((s) => s.stage === "recipe");
     assert.ok(recipe, "the orchestrated stages must include the recipe stage");
-    const blob = JSON.stringify(recipe);
+    const recipeDeployed = this.findCheck("recipe-deployed");
+    assert.ok(recipeDeployed, "the recipe stage must emit a recipe-deployed check");
+    assert.equal(
+      recipeDeployed!.status,
+      "pass",
+      "a successful recipe deploy must report the recipe-deployed check as pass",
+    );
     assert.ok(
-      /configurator/i.test(blob),
-      "the recipe stage must record the spawned @saleor/configurator deploy",
+      /configurator/i.test(JSON.stringify(recipeDeployed)),
+      "the recipe-deployed check must record the spawned @saleor/configurator deploy",
     );
   },
 );

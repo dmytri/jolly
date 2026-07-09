@@ -9,9 +9,17 @@
 // Each used to run its own full `jolly start --yes --json` — a real
 // @saleor/configurator deploy plus stock seed — so the recipe was deployed to a
 // fresh store five times per run (~20 min). But those three assert the RESULT of
-// a recipe-deployed store, not the act of deploying, so this fixture deploys the
-// recipe to ONE separate, cached store ONCE per run and the scenarios read their
+// a recipe-deployed store, not the act of deploying, so this fixture builds that
+// state on ONE separate, cached store ONCE per run and the scenarios read their
 // fact back from it via real GraphQL queries.
+//
+// The state is built with the STANDALONE stage commands, not `jolly start`: a
+// single `jolly recipe --yes --json` run deploys the starter recipe, then a
+// single `jolly stock --yes --json` run seeds stock for its variants (stock needs
+// the recipe deployed first, so the order is fixed). Both runs target the SAME
+// dedicated store and are captured as separate results — this doubles as feature
+// 029's proof that `jolly recipe`/`jolly stock` each run standalone, so 029 reads
+// these same two captured runs instead of re-deploying.
 //
 // It deliberately mirrors provision.ts's shared-store conventions: a persistent
 // cross-invocation marker (its OWN, distinct from the shared store's), a
@@ -50,12 +58,16 @@ import { probeEndpointConnectivity } from "../../src/lib/cloud-api.ts";
  * the jolly-cannon-fodder- protection/reclaim boundary. */
 export const RECIPE_STORE_PREFIX = "jolly-cannon-fodder-recipe";
 
-/** The recipe-deployed store plus the captured envelope of the ONE
- * `jolly start --yes --json` run that deployed the recipe to it this run. */
+/** The recipe-deployed store plus the captured envelopes of the ONE standalone
+ * chain that produced its state this run: a `jolly recipe --yes --json` run that
+ * deployed the starter recipe, then a `jolly stock --yes --json` run that seeded
+ * stock for the recipe variants. Two separate real runs against the SAME store,
+ * captured as separate results so consumers read the right run's evidence. */
 export interface RecipeFixture {
   endpoint: string;
   token: string;
-  result: CliResult;
+  recipeResult: CliResult;
+  stockResult: CliResult;
 }
 
 interface RecipeStoreMarker {
@@ -107,22 +119,54 @@ function freshRecipeStoreName(): string {
 let ensuring: Promise<RecipeFixture> | undefined;
 
 /**
- * Ensure the run's ONE recipe-deployed store exists and the recipe has been
- * deployed to it once this run; return its derived creds + the captured deploy
- * envelope. Exactly one worker across the whole run deploys (whoever wins the
- * filesystem lock); every other worker reads the derived values the winner
- * publishes to the state file. Memoized per worker.
+ * Ensure the run's ONE recipe-deployed store exists and its state has been built
+ * once this run (standalone `jolly recipe` then `jolly stock`); return its
+ * derived creds + BOTH captured run results. Exactly one worker across the whole
+ * run builds it (whoever wins the filesystem lock); every other worker reads the
+ * derived values the winner publishes to the state file. Memoized per worker.
  */
 export function ensureRecipeDeployedStore(): Promise<RecipeFixture> {
   ensuring ??= coordinateRecipeStore();
   return ensuring;
 }
 
+/** The subset of a CliResult carried across workers via the state file; the
+ * envelope is reconstructed from stdout on the reading side (findEnvelope). */
+interface SerializedResult {
+  args: string[];
+  cwd: string;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
+function serializeResult(result: CliResult): SerializedResult {
+  return {
+    args: result.args,
+    cwd: result.cwd,
+    exitCode: result.exitCode,
+    stdout: result.stdout,
+    stderr: result.stderr,
+  };
+}
+
+function deserializeResult(state: SerializedResult): CliResult {
+  return {
+    args: state.args,
+    cwd: state.cwd,
+    exitCode: state.exitCode,
+    stdout: state.stdout,
+    stderr: state.stderr,
+    envelope: findEnvelope(state.stdout),
+  };
+}
+
 /**
  * Cross-worker coordination, mirroring provision.ts's coordinateSharedEnvironment.
- * The lock winner provisions/reuses the recipe store, deploys the recipe once,
- * and publishes the derived creds + captured stdout; the rest wait for the state
- * file and reconstruct the result from the published stdout.
+ * The lock winner provisions/reuses the recipe store, runs the standalone
+ * recipe-then-stock chain once, and publishes the derived creds + BOTH runs'
+ * captured stdout; the rest wait for the state file and reconstruct both results
+ * (each envelope re-parsed from the published stdout).
  */
 async function coordinateRecipeStore(): Promise<RecipeFixture> {
   let owner = false;
@@ -139,11 +183,8 @@ async function coordinateRecipeStore(): Promise<RecipeFixture> {
       JSON.stringify({
         endpoint: fixture.endpoint,
         token: fixture.token,
-        args: fixture.result.args,
-        cwd: fixture.result.cwd,
-        exitCode: fixture.result.exitCode,
-        stdout: fixture.result.stdout,
-        stderr: fixture.result.stderr,
+        recipe: serializeResult(fixture.recipeResult),
+        stock: serializeResult(fixture.stockResult),
       }),
     );
     return fixture;
@@ -154,23 +195,14 @@ async function coordinateRecipeStore(): Promise<RecipeFixture> {
       const state = JSON.parse(readFileSync(recipeStatePath(), "utf8")) as {
         endpoint: string;
         token: string;
-        args: string[];
-        cwd: string;
-        exitCode: number;
-        stdout: string;
-        stderr: string;
+        recipe: SerializedResult;
+        stock: SerializedResult;
       };
       return {
         endpoint: state.endpoint,
         token: state.token,
-        result: {
-          args: state.args,
-          cwd: state.cwd,
-          exitCode: state.exitCode,
-          stdout: state.stdout,
-          stderr: state.stderr,
-          envelope: findEnvelope(state.stdout),
-        },
+        recipeResult: deserializeResult(state.recipe),
+        stockResult: deserializeResult(state.stock),
       };
     }
     if (Date.now() >= deadline) {
@@ -184,9 +216,9 @@ async function coordinateRecipeStore(): Promise<RecipeFixture> {
 
 /**
  * Adopt the marker's cached recipe store if still reachable, otherwise create a
- * fresh one and cache it for the NEXT invocation; then deploy the recipe to it
- * ONCE via `jolly start --yes --json`, capturing the envelope. Mirrors
- * provision.ts's provisionSharedEnvironment, minus the leftover reclamation
+ * fresh one and cache it for the NEXT invocation; then build its state ONCE via
+ * the standalone `jolly recipe` then `jolly stock` chain, capturing both
+ * envelopes. Mirrors provision.ts's provisionSharedEnvironment, minus the leftover reclamation
  * (that stays owned by provision.ts's reclaimStaleResources, run unconditionally
  * from hooks.ts's BeforeAll, which now spares this marker too).
  */
@@ -229,8 +261,8 @@ async function provisionRecipeStore(): Promise<RecipeFixture> {
     token = created.token;
   }
 
-  const result = deployRecipe(endpoint, token);
-  return { endpoint, token, result };
+  const { recipeResult, stockResult } = deployRecipe(endpoint, token);
+  return { endpoint, token, recipeResult, stockResult };
 }
 
 /** Poll until the store's GraphQL endpoint actually serves, or return false
@@ -245,16 +277,23 @@ async function waitForReady(url: string, budgetMs: number): Promise<boolean> {
 }
 
 /**
- * Run `jolly start --yes --json` ONCE against the recipe store to deploy the
- * starter recipe and seed stock, capturing the envelope. Runs in a throwaway
- * scratch project directory (removed immediately after — nothing here is reused)
- * with the store creds passed in the child's env, so the recipe/stock stages
+ * Build the recipe store's state ONCE with the STANDALONE stage commands: run
+ * `jolly recipe --yes --json` to deploy the starter recipe, then `jolly stock
+ * --yes --json` to seed stock for its variants (stock needs the recipe deployed,
+ * so the order is fixed). Returns BOTH runs' captured results. Each runs in the
+ * same throwaway scratch project directory (removed immediately after — nothing
+ * here is reused) with the store creds passed in the child's env, so the stages
  * (src/index.ts read process.env first) target THIS store, never the primary
- * shared store. Uses the same warm pnpm/npm cache the World does, so the
- * storefront clone+install tail is not re-fetched. A standalone spawnSync
- * (recipe deploy runs outside a scenario World), mirroring provision.ts.
+ * shared store whose creds the @sandbox Before hook left in process.env. Uses the
+ * same warm pnpm/npm cache the World does. This mirrors how feature 029's old
+ * When steps invoked `jolly recipe`/`jolly stock` directly — so the standalone
+ * commands run here exactly as they did when 029 tested them one-off. A standalone
+ * spawnSync (this runs outside a scenario World), mirroring provision.ts.
  */
-function deployRecipe(endpoint: string, token: string): CliResult {
+function deployRecipe(
+  endpoint: string,
+  token: string,
+): { recipeResult: CliResult; stockResult: CliResult } {
   const scratchDir = mkdtempSync(join(tmpdir(), `${workerNamespace()}-recipe-`));
   try {
     const runtime = process.env.HARNESS_CLI_RUNTIME ?? "node";
@@ -278,31 +317,41 @@ function deployRecipe(endpoint: string, token: string): CliResult {
     if (!env.npm_config_cache) env.npm_config_cache = npmCache;
     if (!env.HARNESS_AGENT_POLL_WINDOW_SECONDS) env.HARNESS_AGENT_POLL_WINDOW_SECONDS = "1";
 
-    const args = ["start", "--yes", "--json"];
-    // Observability: the recipe is deployed exactly once per run, here. This
-    // marker line lets a verification run confirm the once-per-run contract
-    // (the scenarios below adopt the memoized result, never re-deploying).
-    process.stderr.write(`[recipe-fixture] deploying starter recipe to ${endpoint}\n`);
-    const spawned = spawnSync(runtime, [join(REPO_ROOT, "src", "index.ts"), ...args], {
-      cwd: scratchDir,
-      env,
-      encoding: "utf8",
-      timeout: 840_000,
-    });
-    if (spawned.error) {
-      throw new Error(
-        `failed to invoke Jolly CLI for recipe-store deploy via "${runtime}": ${spawned.error.message}`,
-      );
-    }
-    const stdout = spawned.stdout ?? "";
-    return {
-      args,
-      cwd: scratchDir,
-      exitCode: spawned.status ?? -1,
-      stdout,
-      stderr: spawned.stderr ?? "",
-      envelope: findEnvelope(stdout),
+    // Run one standalone stage command against the recipe store, capturing its
+    // result exactly as world.runCli would (same runtime, cwd, env, envelope
+    // parse). Faithful to 029's old `this.runCli(["recipe"/"stock", ...])`.
+    const runStage = (args: string[]): CliResult => {
+      const spawned = spawnSync(runtime, [join(REPO_ROOT, "src", "index.ts"), ...args], {
+        cwd: scratchDir,
+        env,
+        encoding: "utf8",
+        timeout: 840_000,
+      });
+      if (spawned.error) {
+        throw new Error(
+          `failed to invoke Jolly CLI for recipe-store \`${args.join(" ")}\` via "${runtime}": ` +
+            spawned.error.message,
+        );
+      }
+      const stdout = spawned.stdout ?? "";
+      return {
+        args,
+        cwd: scratchDir,
+        exitCode: spawned.status ?? -1,
+        stdout,
+        stderr: spawned.stderr ?? "",
+        envelope: findEnvelope(stdout),
+      };
     };
+
+    // Observability: the recipe store's state is built exactly once per run,
+    // here. These marker lines let a verification run confirm the once-per-run
+    // contract (the scenarios below adopt the memoized results, never re-running).
+    process.stderr.write(`[recipe-fixture] deploying starter recipe to ${endpoint}\n`);
+    const recipeResult = runStage(["recipe", "--yes", "--json"]);
+    process.stderr.write(`[recipe-fixture] seeding recipe stock on ${endpoint}\n`);
+    const stockResult = runStage(["stock", "--yes", "--json"]);
+    return { recipeResult, stockResult };
   } finally {
     rmSync(scratchDir, { recursive: true, force: true });
   }

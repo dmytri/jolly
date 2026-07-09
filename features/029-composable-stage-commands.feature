@@ -24,17 +24,15 @@ Feature: Composable stage commands
 
   @sandbox @heavy
   Scenario: jolly recipe deploys the starter recipe alone
-    Given a configured Saleor store with a resolvable token
-    When the agent runs `jolly recipe --yes --json`
-    Then the `recipe` stage should report "completed", having deployed the bundled starter recipe through `@saleor/configurator`
-    And it should not provision a store, prepare the storefront, or deploy
+    Given the shared recipe store, whose starter recipe was deployed by a single `jolly recipe --yes --json` run against a freshly configured store
+    Then that run should report the `recipe` stage "completed", having deployed the bundled starter recipe through `@saleor/configurator`
+    And that run should not have provisioned a store, prepared the storefront, or deployed
 
   @sandbox @heavy
   Scenario: jolly stock seeds the recipe stock alone
-    Given a configured Saleor store whose recipe catalog is deployed
-    When the agent runs `jolly stock --yes --json`
-    Then the `stock` stage should report "completed", having seeded stock for the recipe variants through Saleor GraphQL
-    And it should not deploy or run any other stage
+    Given the shared recipe store, whose stock was seeded by a single `jolly stock --yes --json` run after its recipe was deployed
+    Then that run should report the `stock` stage "completed", having seeded stock for the recipe variants through Saleor GraphQL
+    And that run should not have deployed or run any other stage
 
   @sandbox @heavy
   Scenario: jolly stripe installs the Stripe app alone
