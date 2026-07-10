@@ -256,6 +256,17 @@ dk chose "go deeper: 029-as-producer" over the reverify gate. An Explore map shr
 
 **Standing state: main is now 2 commits ahead of origin (6e1014c Cycle-1 batch + this reorg), tree clean, still UNPUSHED and NOT full-tier boundary-reverified — dk deferred reverify+push twice this session.** This reorg's heavy run incidentally reverified the Cycle-1 batch's recipe-fixture path.
 
+### UPDATE 2026-07-10: single-seam invariant EXTENDED to the CLI-spawn creates
+
+dk: extend the env single-creation-seam principle to every real external resource. Explore map finding: creation is ALREADY single-seam for every type by construction — the harness drives the real `jolly` CLI rather than re-implementing creates, so only env needs its own harness spawn (env-factory). So the work was EXECUTABLE ENFORCEMENT, not consolidation. dk chose scope = the CLI-spawn creates (NOT the GraphQL-mutation creates).
+
+Landed (committed `332add4`) via the PROPER red-driven QM channel (Captain wrote @property scenarios -> real undefined targets -> fresh QM implemented -> Boatswain committed; not the mechanism-gap workaround the reorg needed): 4 new `@logic @property` attestation scenarios in `single-creation-seam.feature` + ts-morph checker extensions in `module-conformance.ts` (`findVercelProjectSeamViolations`, `locateProductionSpawnSeams`/`enclosingSeam`). Seams: harness `vercel project add` -> `features/support/sandbox.ts` (file-scoped); prod `vercel deploy --prod` -> runDeployStage, `npx @saleor/configurator deploy` -> runRecipeStage, Paper `git clone` -> runStorefrontStage (function-scoped — all stages share src/index.ts so a file check cannot distinguish). Production already conformed (no Crew). TEETH PROVEN: QM planted a second seam for each, all 4 reddened, reverted clean. `@logic @property` 23 -> 27 green.
+
+- **NOT enforced, deliberate:** the GraphQL-mutation creates (stock `productVariantStocksCreate`, Stripe `appInstall`) — already single-caller in src/, lower drift, different mechanism. Revisit only if scatter appears.
+- **HARBOUR/RIGGING candidates (dk raised 2026-07-10, PARKED — Shipwright fits at refit, NOT product spec):** (1) **knip** — dead-src/unused-dep sweep (mechanizes the manual grep + c8); does NOT catch orphaned STEP DEFS (cucumber registrations, not exports -> use existing `step-usage`); needs cucumber entry-point config or it false-positives the glob-loaded harness. (2) **GritQL/Biome** — already evaluated + passed over for ts-morph (2026-07-09); the single-seam checks correctly EXTEND ts-morph, not a second DSL; reconsider only if adopting Biome as the general JS/TS linter (none today). (3) **CAPTAIN.md trim** — many resolved DONE sections + upstream notes; trim at next harbour once upstream notes exported.
+
+**Standing state after 332add4: main is 3 commits ahead of origin (6e1014c + 3d84ae0 + 332add4), UNPUSHED and still NOT full-tier boundary-reverified. Spent watchbill struck.**
+
 ### (earlier this session)
 
 Long session hit a reset boundary. State for the next Captain:
