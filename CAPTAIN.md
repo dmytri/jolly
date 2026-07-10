@@ -267,6 +267,16 @@ Landed (committed `332add4`) via the PROPER red-driven QM channel (Captain wrote
 
 **Standing state after 332add4: main is 3 commits ahead of origin (6e1014c + 3d84ae0 + 332add4), UNPUSHED and still NOT full-tier boundary-reverified. Spent watchbill struck.**
 
+### UPDATE 2026-07-10: full boundary reverify RAN + capacity root-fix (store consolidation)
+
+Ran the deferred full `@sandbox @heavy`+`@creates-env` boundary (the reverify gate). It caught a real cross-scenario defect the isolation-green reorg hid: the recipe-fixture store vs `@creates-env` reclaim. Root cause: **the test org's env limit is 2, and TWO persistent cached fixtures (shared store + recipe store) exhausted it**, so `@creates-env` (012/026 — creation IS their assertion) had zero free slots -> `ENVIRONMENT_LIMIT_REACHED`. QM's first fix (spare recipe everywhere) fixed the 404s but tightened capacity (026 flipped red) — net-neutral, because sparing keeps the recipe store alive.
+
+**dk's insight settled it: one creation seam => no reason for >1 persistent fixture.** Pivoted from a self-heal fallback to CONSOLIDATION: deploy the recipe onto the SHARED store once (lazily, from the 004/029 Givens — NOT the Before hook, protecting 026:28 + light-only runs), so the shared store IS the recipe-deployed store. Dropped the separate recipe store entirely (`recipe-fixture.ts` -> `recipe-on-shared.ts`; `cachedStoreSpareNames` down to one store). Feasibility pass confirmed SAFE: no scenario needs a blank shared store, no recipe-entity deletion, zero order/checkout completions (stock never deducted), all shared-store mutations additive/idempotent.
+
+**Result: ONE persistent env + 1 free slot for `@creates-env` (fits limit 2); recipe create amortized to once/run. Full heavy boundary GREEN 38/38 (51m33s), recipe/stock markers fired once.** First clean full boundary this session. NOTE the env limit is a real fitting-out ceiling: a bump to >=3-4 would remove the constraint and re-enable a cached recipe store, but consolidation is the zero-cost fix and is preferable regardless.
+
+**STILL AHEAD (autonomous latency campaign, dk full authority):** the deploy/clone/stripe amortization Batches 0/A/B/C (blueprint in the session) — convert the ~9 full-`jolly start`-asserting-one-stage scenarios to standalone-command-against-shared-store, keeping launch-bar/@creates-env/standalone-isolation/interactive-close earned. Heavy tier still ~51min; the batches are where the big cuts come.
+
 ### (earlier this session)
 
 Long session hit a reset boundary. State for the next Captain:
