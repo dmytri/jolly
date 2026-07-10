@@ -424,7 +424,62 @@ Then(
 // deployment as spawn-run (skipped, not fabricated) and verifies the deployed
 // storefront can reach Saleor.
 
+/**
+ * Fast-forward the store + storefront stages of a real `jolly start` so a
+ * @heavy Vercel-sign-in scenario reaches the REAL deploy stage cheaply — without
+ * a fresh store provision + real Paper clone, neither of which is the behaviour
+ * under test here (the store provision + cold-start gate is covered for real by
+ * 002:41/002:51, and the Paper clone/install by 002:90/002:103 and feature 029).
+ * This is minimal-sufficient setup, not a fake of the assertion: the deploy
+ * stage's real no-Vercel-session sign-in gate is still exercised for real.
+ *
+ * Mirrors 002:41's neutralization (the "When the store stage runs" step):
+ *   - write the shared @sandbox store's endpoint + token (surfaced into
+ *     process.env by the @sandbox Before hook → provision.ts) into the project
+ *     `.env`, so runStoreStage sees an already-configured NEXT_PUBLIC_SALEOR_API_URL
+ *     and REUSES it — it returns the store stage `completed` without any Cloud API
+ *     `create` (src/index.ts runStoreStage: an existing endpoint short-circuits to
+ *     reuse before the provision path; runStartCore's already-satisfied store skip);
+ *   - pre-create storefront/ + node_modules + package.json so runStorefrontStage
+ *     takes its idempotent reuse path and skips the real `git clone` + `pnpm install`
+ *     (src/index.ts runStorefrontStage: node_modules + package.json present ⇒
+ *     "Reused the already-cloned storefront/" ⇒ completed).
+ * The store(reuse) → storefront(present) → recipe/stock(idempotent reconcile
+ * against the shared store) → deploy(sign-in gate) chain then runs cheaply.
+ */
+function prepareFastForwardDeployStart(world: JollyWorld): void {
+  const endpoint = process.env["NEXT_PUBLIC_SALEOR_API_URL"];
+  const token = process.env["SALEOR_TOKEN"];
+  assert.ok(
+    endpoint && token,
+    "the @sandbox Before hook must have provisioned the shared store " +
+      "(NEXT_PUBLIC_SALEOR_API_URL + SALEOR_TOKEN in process.env) so the store " +
+      "stage can reuse it instead of provisioning a fresh one",
+  );
+  // Reuse the shared store: an already-configured endpoint (mirrored to SALEOR_URL)
+  // plus its SALEOR_TOKEN in .env makes runStoreStage report the store stage
+  // completed without provisioning, and lets the recipe/stock stages reconcile.
+  writeEnvValues(world.projectDir, {
+    NEXT_PUBLIC_SALEOR_API_URL: endpoint!,
+    SALEOR_URL: endpoint!,
+    SALEOR_TOKEN: token!,
+  });
+  // Skip the real Paper clone: a present storefront/ with node_modules +
+  // package.json takes runStorefrontStage's idempotent reuse path.
+  const storefront = join(world.projectDir, "storefront");
+  mkdirSync(join(storefront, "node_modules"), { recursive: true });
+  writeFileSync(
+    join(storefront, "package.json"),
+    JSON.stringify({ name: "paper", version: "0.0.0" }),
+  );
+}
+
 Given("the storefront is ready for deployment", function (this: JollyWorld) {
+  // Prepare the fast-forward preconditions so a real `jolly start` reuses the
+  // shared store and the present storefront/ and reaches its REAL deploy stage
+  // cheaply (see prepareFastForwardDeployStart). The deploy stage's no-Vercel-
+  // session sign-in gate — the behaviour under test — is still exercised for real.
+  prepareFastForwardDeployStart(this);
   this.notes.deployReady = true;
 });
 
@@ -1821,6 +1876,13 @@ Given(
       XDG_CONFIG_HOME: join(dir, "config"),
       XDG_DATA_HOME: join(dir, "data"),
     };
+    // Fast-forward the store + storefront stages so each of this scenario's three
+    // `jolly start` runs (this Given, the When, the expiry Then) reaches the REAL
+    // deploy stage cheaply, reusing the shared store and the present storefront/
+    // in this stable project dir rather than re-provisioning + re-cloning each time
+    // (see prepareFastForwardDeployStart). The `.env` + storefront/ persist across
+    // the re-runs alongside the pending-Vercel file whose reuse is under test.
+    prepareFastForwardDeployStart(this);
     await registerSaleorEnvTeardown(this);
     await runStartToDeployStage(this);
     const url = surfacedVercelDeviceUrl(this);
