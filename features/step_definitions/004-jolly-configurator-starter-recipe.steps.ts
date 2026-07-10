@@ -15,22 +15,21 @@ import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 import { findRiskContexts, assertRiskContextShape } from "../support/envelope.ts";
 import { saleorGraphql } from "../support/saleor-graphql.ts";
 import { makeNamespace } from "../support/sandbox.ts";
-import { ensureRecipeDeployedStore } from "../support/recipe-fixture.ts";
+import { ensureRecipeOnSharedStore } from "../support/recipe-on-shared.ts";
 import type { JollyWorld } from "../support/world.ts";
 
-// Adopt the run's ONE recipe-deployed store (features/support/recipe-fixture.ts):
-// the starter recipe is deployed to a SEPARATE cached jolly-cannon-fodder store
-// ONCE per run — never the primary shared store — via a standalone `jolly recipe`
-// then `jolly stock` chain, and the state-compatible @sandbox scenarios below read
-// their fact back from it via real GraphQL queries instead of each re-deploying.
-// Loads the captured `jolly recipe --yes --json` envelope into this scenario's
-// lastRun (so the Jolly-observable recipe-deploy Thens read the real deploy
-// result) and the store creds into notes (so the store-read Thens query the live
-// recipe store). The `jolly stock --yes --json` result is stashed in notes for
-// completeness; these scenarios verify the stock outcome via live GraphQL, not its
-// envelope.
+// Adopt the run's recipe deploy onto the PRIMARY SHARED store
+// (features/support/recipe-on-shared.ts): the starter recipe is deployed onto the
+// shared store ONCE per run via a standalone `jolly recipe` then `jolly stock`
+// chain, and the state-compatible @sandbox scenarios below read their fact back
+// from it via real GraphQL queries instead of each re-deploying. Loads the
+// captured `jolly recipe --yes --json` envelope into this scenario's lastRun (so
+// the Jolly-observable recipe-deploy Thens read the real deploy result) and the
+// store creds into notes (so the store-read Thens query the live shared store).
+// The `jolly stock --yes --json` result is stashed in notes for completeness;
+// these scenarios verify the stock outcome via live GraphQL, not its envelope.
 async function useRecipeDeployedStore(world: JollyWorld): Promise<void> {
-  const fixture = await ensureRecipeDeployedStore();
+  const fixture = await ensureRecipeOnSharedStore();
   world.notes.storeEndpoint = fixture.endpoint;
   world.notes.storeToken = fixture.token;
   world.notes.stockRun = fixture.stockResult;
@@ -442,9 +441,10 @@ Given(
   "a freshly created Saleor Cloud environment with the starter recipe deployed",
   { timeout: 900_000 },
   async function (this: JollyWorld) {
-    // Adopt the run's ONE recipe-deployed store (recipe-fixture.ts): the recipe
-    // was deployed and stock seeded ONCE per run by a real standalone `jolly
-    // recipe` then `jolly stock` chain; the recipe run's envelope is loaded here.
+    // Adopt the run's recipe deploy onto the shared store (recipe-on-shared.ts):
+    // the recipe was deployed and stock seeded ONCE per run by a real standalone
+    // `jolly recipe` then `jolly stock` chain; the recipe run's envelope is loaded
+    // here.
     // The stock stage seeds via Saleor GraphQL and needs no Vercel session; this
     // scenario asserts only the live stock outcome against that store.
     await useRecipeDeployedStore(this);
@@ -453,7 +453,7 @@ Given(
 );
 
 When("Jolly start completes the recipe stage", function (this: JollyWorld) {
-  // The shared recipe deploy ran once this run (recipe-fixture.ts). The recipe
+  // The shared recipe deploy ran once this run (recipe-on-shared.ts). The recipe
   // must deploy for there to be variants to seed, so the only premise this
   // scenario genuinely cannot construct is the @saleor/configurator binary
   // failing to spawn (npx fetch/network) — an environmental inability the real
@@ -804,8 +804,8 @@ Then(
 // the standalone `jolly recipe` run SPAWNS `npx @saleor/configurator deploy` of
 // Jolly's bundled recipe; the additive apply exits 0 so the recipe's catalog
 // entities exist and the stage is reported `completed`; a re-deploy reconciles to
-// a no-op diff (no duplicate entities). The deploy ran ONCE this run against the
-// shared recipe-deployed store (recipe-fixture.ts); it is this scenario's
+// a no-op diff (no duplicate entities). The deploy ran ONCE this run onto the
+// primary shared store (recipe-on-shared.ts); it is this scenario's
 // PRECONDITION, adopted by the shared `Given` above, so the scenario is a
 // Given+Then that reads the captured recipe envelope and the live store back — no
 // action step of its own.
@@ -832,7 +832,7 @@ async function productCount(
 
 // The precondition — a recipe-deployed store — is adopted by the shared
 // `Given("a freshly created Saleor Cloud environment with the starter recipe
-// deployed")` above (the run's ONE recipe-deployed store, recipe-fixture.ts).
+// deployed")` above (the run's recipe deploy onto the shared store, recipe-on-shared.ts).
 // These scenarios are Given+Then state assertions: they read Jolly's observable
 // deploy outcome (the captured envelope) and the live store back, with no action
 // step of their own, so no `When` re-invokes the shared fixture.

@@ -54,7 +54,7 @@ import {
   type CloudEnvironment,
 } from "./cloud.ts";
 import { findEnvelope, type Envelope } from "./envelope.ts";
-import { readSharedStoreMarker } from "./provision.ts";
+import { cachedStoreSpareNames } from "./provision.ts";
 import { makeNamespace, runId } from "./sandbox.ts";
 
 const REPO_ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -347,11 +347,11 @@ export async function reclaimLeftoverTestEnvironments(
   // namespace). At eval reclaim time this run has provisioned nothing yet, so
   // this clears every standing leftover exactly as before — and under a parallel
   // @sandbox run it never deletes a sibling worker's live environment. Also
-  // spares the @sandbox tier's currently-cached shared store (by exact name,
-  // via its marker file) so an eval run never tears down a store a concurrent
-  // or later @sandbox run is relying on.
-  const marker = readSharedStoreMarker();
-  const spareNames = marker ? new Set([marker.name]) : new Set<string>();
+  // spares BOTH the @sandbox tier's currently-cached shared store and the
+  // feature-004 recipe-deployed store (by exact name, via their marker files) so
+  // an eval run never tears down a store a concurrent or later @sandbox run is
+  // relying on.
+  const spareNames = cachedStoreSpareNames();
   const leftovers = leftoverTestEnvironments(all, makeNamespace(runId()), spareNames);
   for (const env of leftovers) {
     await deleteEnvironment(token, env.org, env.key);

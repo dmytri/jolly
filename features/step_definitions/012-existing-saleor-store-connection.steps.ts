@@ -39,7 +39,7 @@ import {
   leftoverTestEnvironments,
   listAllEnvironments,
 } from "../support/cloud.ts";
-import { readSharedStoreMarker } from "../support/provision.ts";
+import { cachedStoreSpareNames } from "../support/provision.ts";
 import { makeNamespace } from "../support/sandbox.ts";
 import { startLimitRejectingCloudApi } from "../support/limit-cloud-api.ts";
 import type { JollyWorld } from "../support/world.ts";
@@ -714,11 +714,11 @@ Given(
     // Use the RUN-level namespace (jolly-cannon-fodder-<runId>), not this.namespace (the
     // per-scenario suffix): the run's own shared/sibling environments share the
     // run prefix and must not be misread as leftovers from a previous run. Also
-    // spare the @sandbox tier's currently-cached shared store by exact name (its
-    // marker file) — it is this run's own live resource, not a leftover, even
-    // though it doesn't carry this run's namespace prefix.
-    const marker = readSharedStoreMarker();
-    const spareNames = marker ? new Set([marker.name]) : new Set<string>();
+    // spare BOTH the @sandbox tier's currently-cached shared store and the
+    // feature-004 recipe-deployed store by exact name (their marker files) — each
+    // is this run's own live resource, not a leftover, even though it does not
+    // carry this run's namespace prefix.
+    const spareNames = cachedStoreSpareNames();
     const leftovers = leftoverTestEnvironments(all, makeNamespace(this.runId), spareNames);
     assert.equal(
       leftovers.length,

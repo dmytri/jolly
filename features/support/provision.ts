@@ -48,7 +48,6 @@ import {
 import { findEnvelope, type Envelope } from "./envelope.ts";
 import { createEnvironment, type CliRunner } from "./env-factory.ts";
 import { CleanupRegistry, makeNamespace, runId, workerNamespace, type CleanupFailure } from "./sandbox.ts";
-import { readRecipeStoreMarker } from "./recipe-fixture.ts";
 import { REPO_ROOT } from "./repo-root.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
 import { probeEndpointConnectivity } from "../../src/lib/cloud-api.ts";
@@ -158,21 +157,30 @@ export async function teardownSharedEnvironment(): Promise<CleanupFailure[]> {
  * could never be reclaimed and would silently accumulate, consuming the
  * org's sandbox cap exactly like the leak this function exists to prevent.
  */
+/**
+ * The exact current name of the ONE long-lived cross-run cached store this org
+ * keeps alive: the primary shared store (provision marker). Every
+ * leftover-reclaim and leftover-assertion path spares this set by EXACT name, so
+ * the run's own live cached store is never misread as a previous-run leftover and
+ * deleted. An orphaned FORMER shared store — its name changed by self-heal — is
+ * absent from this set and stays reclaimable by the jolly-cannon-fodder- prefix.
+ * The starter recipe is now deployed ONTO this same shared store
+ * (recipe-on-shared.ts), so there is no longer a separate recipe store to spare —
+ * one persistent env serves both roles, leaving the org's slots for @creates-env.
+ */
+export function cachedStoreSpareNames(): Set<string> {
+  const spareNames = new Set<string>();
+  const shared = readSharedStoreMarker();
+  if (shared) spareNames.add(shared.name);
+  return spareNames;
+}
+
 export async function reclaimStaleResources(
   token: string = process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? "",
 ): Promise<CloudEnvironment[]> {
   if (token.trim() === "") return [];
   const runNamespace = makeNamespace(runId());
-  const marker = readSharedStoreMarker();
-  // Spare BOTH long-lived cached stores by exact current name (mirroring the
-  // shared-store convention): the primary shared store (provision marker) and
-  // the feature-004 recipe-deployed store (recipe-fixture marker). An orphaned
-  // FORMER store of either kind — its name changed by self-heal — is not spared
-  // and is still reclaimed by the jolly-cannon-fodder- prefix.
-  const recipeMarker = readRecipeStoreMarker();
-  const spareNames = new Set<string>();
-  if (marker) spareNames.add(marker.name);
-  if (recipeMarker) spareNames.add(recipeMarker.name);
+  const spareNames = cachedStoreSpareNames();
   const leftovers = leftoverTestEnvironments(
     await listAllEnvironments(token),
     runNamespace,

@@ -34,8 +34,8 @@ import {
 } from "../support/cloud.ts";
 import { makeNamespace } from "../support/sandbox.ts";
 import {
+  cachedStoreSpareNames,
   provisionSharedEnvironment,
-  readSharedStoreMarker,
   type ProvisionOutcome,
 } from "../support/provision.ts";
 
@@ -312,9 +312,8 @@ async function seedNamespacedEnvironment(world: JollyWorld, name: string) {
   // limit the same way the provisioner does (under a parallel run a sibling
   // worker frees a slot when its scenario tears down), and reclaim a slot by
   // deleting any prior-run leftover that frees capacity without touching this
-  // run's live environments or the cached shared store.
-  const marker = readSharedStoreMarker();
-  const spareNames = marker ? new Set([marker.name]) : new Set<string>();
+  // run's live environments or either cached store (shared and recipe).
+  const spareNames = cachedStoreSpareNames();
   const result = await createEnvironment(
     (args, options) => world.runCliAsync(args, options),
     {

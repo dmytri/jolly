@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { loadEnvValues, writeEnvValues } from "../../src/lib/env-file.ts";
 import { saleorGraphql } from "../support/saleor-graphql.ts";
 import { addVercelProject, removeVercelProject, workerNamespace } from "../support/sandbox.ts";
-import { ensureRecipeDeployedStore } from "../support/recipe-fixture.ts";
+import { ensureRecipeOnSharedStore } from "../support/recipe-on-shared.ts";
 import type { JollyWorld } from "../support/world.ts";
 // src/index.ts runs the CLI on import; import its runtime seams dynamically in
 // the composition step under JOLLY_NO_MAIN. The type is erased, so a type-only
@@ -241,9 +241,10 @@ Then(
 // ─── jolly recipe / jolly stock ─────────────────────────────────────────────
 //
 // These two scenarios prove `jolly recipe` and `jolly stock` each run standalone.
-// Rather than re-deploy, they adopt the run's ONE recipe-deployed store
-// (features/support/recipe-fixture.ts): its state is built ONCE per run by a
-// standalone `jolly recipe --yes --json` then `jolly stock --yes --json` chain,
+// Rather than re-deploy, they adopt the run's recipe deploy onto the primary
+// shared store (features/support/recipe-on-shared.ts): the recipe is deployed
+// ONCE per run by a standalone `jolly recipe --yes --json` then `jolly stock
+// --yes --json` chain,
 // both captured. Each scenario reads back the SAME captured run its Given names —
 // the recipe run for the recipe scenario, the stock run for the stock scenario —
 // and its Thens assert the captured envelope's single completed stage plus a live
@@ -255,7 +256,7 @@ async function useRecipeStandaloneRun(
   world: JollyWorld,
   run: "recipe" | "stock",
 ): Promise<void> {
-  const fixture = await ensureRecipeDeployedStore();
+  const fixture = await ensureRecipeOnSharedStore();
   world.notes.storeEndpoint = fixture.endpoint;
   world.notes.storeToken = fixture.token;
   if (fixture.token) world.trackSecret(fixture.token);
