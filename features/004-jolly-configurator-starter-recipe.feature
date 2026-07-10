@@ -15,7 +15,7 @@ Feature: Jolly Configurator starter recipe
   @sandbox @heavy
   Scenario: Jolly blocks a recipe re-deploy over a pre-existing store's destructive diff
     Given a Saleor Cloud environment that already holds catalog data
-    When the agent runs `jolly start --yes` to apply the starter recipe to Saleor Cloud
+    When the agent runs `jolly recipe --yes --json` to apply the starter recipe to Saleor Cloud
     Then the recipe stage should pass `--failOnDelete` to `npx @saleor/configurator@latest deploy`
     And the configurator should exit 6 for deletions
     And Jolly should report the recipe stage as "blocked", not "completed"
@@ -39,15 +39,6 @@ Feature: Jolly Configurator starter recipe
 
   @logic @exceptional-double
   Scenario: A transient Saleor rate-limit during the stock stage retries instead of reporting a false blocked
-    # @exceptional-double: an HTTP 429 rate-limit cannot be produced on demand
-    # against the real Saleor Cloud env, so this lone scenario points the stock
-    # stage at a Saleor GraphQL endpoint that returns 429 once and then succeeds
-    # with the recipe catalog in stock. It is the only double here and never the
-    # normal path — the real seeding is the @sandbox scenario above; this pins
-    # the resilience the idempotent re-run depends on so a momentary rate-limit
-    # never degrades an otherwise-successful stock stage to a false blocked. The
-    # same transient-429 retry contract holds for every backend Saleor request
-    # (Rule "Backend Saleor requests retry a transient failure").
     Given the stock stage's Saleor GraphQL endpoint returns HTTP 429 once and then succeeds with the recipe catalog in stock
     When the agent runs `jolly start --yes --json` and the stock stage runs against that endpoint
     Then the stock stage should be reported completed, having retried the rate-limited request
@@ -82,9 +73,8 @@ Feature: Jolly Configurator starter recipe
     And re-running the stage should reconcile to a no-op diff rather than creating duplicate entities
 
   @sandbox @heavy
-  Scenario: Jolly start deploys the recipe over the stock defaults of a store created by a prior create-store command
-    Given a blank Saleor Cloud environment created by a prior `jolly create store --create-environment` and recorded in `.env`
-    When the agent runs `jolly start --yes` and the run reaches the configurator-deploy stage
+  Scenario: The recipe deploy reports completed and activates the `us` channel over a create-store environment
+    Given a freshly created Saleor Cloud environment with the starter recipe deployed
     Then the recipe stage should be reported "completed", not "blocked"
     And the recipe's `us` channel should exist and be active in the store
 

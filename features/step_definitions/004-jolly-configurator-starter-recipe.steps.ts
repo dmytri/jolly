@@ -196,16 +196,18 @@ Given(
 );
 
 When(
-  "the agent runs `jolly start --yes` to apply the starter recipe to Saleor Cloud",
+  "the agent runs `jolly recipe --yes --json` to apply the starter recipe to Saleor Cloud",
   { timeout: 900_000 },
   function (this: JollyWorld) {
     // Over a store that already holds customer catalog (the Given), Jolly's recipe
     // deploy passes `--failOnDelete`, so the spawned `npx @saleor/configurator
     // deploy` detects the destructive diff and exits 6; Jolly reports the recipe
     // stage `blocked` (feature 004 Rule "Configurator deploy"; src/index.ts
-    // runRecipeStage exit-6 path). Run the real orchestrated apply and capture the
+    // runRecipeStage exit-6 path). The standalone `jolly recipe` run drives exactly
+    // the recipe stage — same exit-6/blocked behaviour as a full `jolly start`,
+    // without its storefront/deploy/stripe collateral. Run it and capture the
     // envelope the Thens assert against.
-    this.runCli(["start", "--yes", "--json"], { timeoutMs: 840_000 });
+    this.runCli(["recipe", "--yes", "--json"], { timeoutMs: 840_000 });
     // Narrow environmental escape ONLY (mirrors 004's other recipe scenarios): the
     // @saleor/configurator binary could genuinely not be spawned here (npx
     // fetch/network) — a condition the real test env cannot produce on demand — so
@@ -933,20 +935,19 @@ Then(
   },
 );
 
-// ─── Scenario: Jolly start deploys the recipe over the stock defaults of a
-//     store created by a prior create-store command (@sandbox) ─────────────────
+// ─── Scenario: The recipe deploy reports completed and activates the `us`
+//     channel over a create-store environment (@sandbox) ────────────────────────
 //
-// Verifies the bootstrap path: against the blank create-store-provisioned
-// environment, `jolly start --yes` SPAWNS the configurator deploy of Jolly's
-// bundled recipe; the declarative apply reconciles the store to the recipe,
-// ADDING the recipe's active `us` channel (feature 004 Rule "Recipe targets a
-// clean environment"). Saleor protects some stock defaults — notably the default
-// channel — from deletion, so they may remain; the observable is that the
-// recipe's own `us` channel exists and is active, not that the default was
-// removed. The scenario skips ONLY when the configurator binary could not be
-// spawned (an environmental inability the real test env cannot produce on
-// demand); a destructive-diff block over the blank store is the behaviour under
-// test and MUST fail, never skip.
+// Verifies the bootstrap path outcome: the declarative recipe apply reconciles
+// the store to the recipe, ADDING the recipe's active `us` channel (feature 004
+// Rule "Recipe targets a clean environment"). Saleor protects some stock defaults
+// — notably the default channel — from deletion, so they may remain; the
+// observable is that the recipe's own `us` channel exists and is active, not that
+// the default was removed. Converted to a CONSUMER of the shared recipe-deployed
+// store (recipe-on-shared.ts, adopted by the shared Given above): a Given+Then
+// state assertion that reads the captured `jolly recipe` envelope (recipe stage
+// `completed`) and the live store back (`us` channel active), with no action step
+// of its own.
 
 async function recipeChannels(
   endpoint: string,
@@ -957,47 +958,6 @@ async function recipeChannels(
     (result.data?.channels as Array<{ slug: string; isActive: boolean }> | undefined) ?? []
   );
 }
-
-Given(
-  "a blank Saleor Cloud environment created by a prior `jolly create store --create-environment` and recorded in `.env`",
-  function (this: JollyWorld) {
-    // The @sandbox harness provisions the shared per-run environment THROUGH
-    // `jolly create store --create-environment` (provision.ts) and records its
-    // NEXT_PUBLIC_SALEOR_API_URL / SALEOR_TOKEN — exactly the blank,
-    // create-store-bootstrapped environment this scenario starts from.
-    const creds = storeCreds();
-    assert.ok(
-      creds.endpoint,
-      "a blank store endpoint must be derived from the prior create-store",
-    );
-    this.notes.storeEndpoint = creds.endpoint;
-    this.notes.storeToken = creds.token;
-  },
-);
-
-When(
-  "the agent runs `jolly start --yes` and the run reaches the configurator-deploy stage",
-  { timeout: 900_000 },
-  function (this: JollyWorld) {
-    // --yes pre-approves the high-risk gate so the run reaches and executes the
-    // configurator-deploy (recipe) stage; the deploy can take minutes.
-    this.runCli(["start", "--yes", "--json"], { timeoutMs: 840_000 });
-    // Narrow environmental escape ONLY: the @saleor/configurator binary could
-    // genuinely not be spawned here (npx fetch/network) — a condition the real
-    // test env cannot produce on demand — so the bootstrap premise was not
-    // reachable and the scenario skips. A recipe stage `blocked` for ANY other
-    // reason — in particular the `--failOnDelete` destructive-diff guard firing
-    // over the blank store's Saleor stock defaults — is exactly the behaviour
-    // under test (the store was provisioned blank, so the premise HOLDS) and
-    // MUST fail the Then.
-    assert.ok(
-      !/could not be spawned/i.test(
-        String(this.findCheck("recipe-deployed")?.description ?? ""),
-      ),
-      "the @saleor/configurator binary must be spawnable via npx",
-    );
-  },
-);
 
 Then(
   "the recipe stage should be reported {string}, not {string}",
