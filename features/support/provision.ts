@@ -49,6 +49,7 @@ import { findEnvelope, type Envelope } from "./envelope.ts";
 import { createEnvironment, type CliRunner } from "./env-factory.ts";
 import { CleanupRegistry, makeNamespace, runId, workerNamespace, type CleanupFailure } from "./sandbox.ts";
 import { REPO_ROOT } from "./repo-root.ts";
+import { STOREFRONT_TEMPLATE_DIRNAME } from "./storefront-fixture.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
 import { probeEndpointConnectivity } from "../../src/lib/cloud-api.ts";
 
@@ -193,7 +194,8 @@ export async function reclaimStaleResources(
     if (
       entry.startsWith("jolly-cannon-fodder-") &&
       !entry.startsWith(runNamespace) &&
-      entry !== "jolly-cannon-fodder-pkg-cache"
+      entry !== "jolly-cannon-fodder-pkg-cache" &&
+      entry !== STOREFRONT_TEMPLATE_DIRNAME
     ) {
       rmSync(join(tmpdir(), entry), { recursive: true, force: true });
     }

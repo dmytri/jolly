@@ -17,6 +17,7 @@ import { loadEnvValues, writeEnvValues } from "../../src/lib/env-file.ts";
 import { saleorGraphql } from "../support/saleor-graphql.ts";
 import { addVercelProject, removeVercelProject, workerNamespace } from "../support/sandbox.ts";
 import { ensureRecipeOnSharedStore } from "../support/recipe-on-shared.ts";
+import { materializePreparedStorefront } from "../support/storefront-fixture.ts";
 import type { JollyWorld } from "../support/world.ts";
 // src/index.ts runs the CLI on import; import its runtime seams dynamically in
 // the composition step under JOLLY_NO_MAIN. The type is erased, so a type-only
@@ -87,19 +88,21 @@ Given(
 Given(
   "a prepared storefront directory and a configured Saleor store",
   { timeout: HEAVY },
-  function (this: JollyWorld) {
+  async function (this: JollyWorld) {
     writeStoreEnv(this);
-    // Prepare the storefront by composing the storefront stage command — not the
-    // `jolly start` pipeline.
-    this.runCli(["storefront", "--yes", "--json"], { timeoutMs: HEAVY });
-    assert.equal(
-      stageStatus(this, "storefront"),
-      "completed",
-      `storefront precondition did not complete: ${JSON.stringify(this.lastRun?.envelope ?? this.lastRun?.stdout)}`,
-    );
+    // Prepare the storefront by materializing the shared prepared-storefront
+    // template (a real Paper clone + pnpm install built ONCE per run) into this
+    // scenario's storefront/ — not a fresh `jolly storefront` clone and not the
+    // `jolly start` pipeline. The deploy under test still runs for real against a
+    // real prepared Paper tree; only the clone is shared.
+    await materializePreparedStorefront(join(this.projectDir, "storefront"));
     assert.ok(
       existsSync(join(this.projectDir, "storefront", "package.json")),
       "storefront/ was not prepared",
+    );
+    assert.ok(
+      existsSync(join(this.projectDir, "storefront", "node_modules")),
+      "storefront/ dependencies were not materialized",
     );
     // A disposable, namespaced Vercel project so the deploy is cannon fodder we
     // tear down.
