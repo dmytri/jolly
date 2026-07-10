@@ -33,9 +33,12 @@ export interface Violation {
 }
 
 const ENV_FACTORY = "features/support/env-factory.ts";
+const SANDBOX_SEAM = "features/support/sandbox.ts";
 const CHECKER_FILE = "features/support/module-conformance.ts";
 const EXCEPTION_MARKER = "env-factory-exception";
+const SINGLE_SEAM_EXCEPTION = "single-seam-exception";
 const CREATE_STORE_LITERALS = ["create", "store", "--create-environment"];
+const VERCEL_PROJECT_ADD_LITERALS = ["vercel", "project", "add"];
 const DRY_RUN = "--dry-run";
 
 const CLI_ENTRY = "src/index.ts";
@@ -173,6 +176,124 @@ export function findCreationSeamViolations(): Violation[] {
     }
   }
   return violations;
+}
+
+/**
+ * Single Vercel-project-seam violations: real `vercel project add` CLI spawns in
+ * the verification layer located outside features/support/sandbox.ts. A
+ * `--dry-run` array (a preview that creates nothing) and an array whose site
+ * carries a `single-seam-exception:` marker (a loopback fake) are not real
+ * creations. `project add` is the discriminator, so the sibling `vercel project
+ * remove` and `vercel whoami` spawns are not flagged.
+ */
+export function findVercelProjectSeamViolations(): Violation[] {
+  const violations: Violation[] = [];
+  for (const source of project().getSourceFiles()) {
+    const file = repoRelative(source.getFilePath());
+    if (!file.startsWith("features/")) continue;
+    if (file === CHECKER_FILE) continue;
+    for (const array of source.getDescendantsOfKind(
+      SyntaxKind.ArrayLiteralExpression,
+    )) {
+      const literals = stringElements(array);
+      if (
+        !VERCEL_PROJECT_ADD_LITERALS.every((literal) =>
+          literals.includes(literal),
+        )
+      ) {
+        continue;
+      }
+      if (literals.includes(DRY_RUN)) continue;
+      if (file === SANDBOX_SEAM) continue;
+      if (markerText(array).includes(SINGLE_SEAM_EXCEPTION)) continue;
+      const line = array.getStartLineNumber();
+      violations.push({
+        file,
+        line,
+        message:
+          `${file}:${line} spawns a real \`vercel project add\` outside the single ` +
+          `Vercel-project seam ${SANDBOX_SEAM}. Route it through the sandbox helper, or, ` +
+          `if it only drives a loopback fake and creates no real resource, record a ` +
+          `${SINGLE_SEAM_EXCEPTION}: marker at its site.`,
+      });
+    }
+  }
+  return violations;
+}
+
+export interface SeamLocation {
+  file: string;
+  line: number;
+  seamKey: string;
+  seamLabel: string;
+}
+
+function enclosingFunctionName(node: Node): string {
+  if (Node.isFunctionDeclaration(node) || Node.isMethodDeclaration(node)) {
+    return node.getName() ?? "<anonymous>";
+  }
+  const parent = node.getParent();
+  if (parent && Node.isVariableDeclaration(parent)) return parent.getName();
+  if (parent && Node.isPropertyAssignment(parent)) return parent.getName();
+  return "<anonymous>";
+}
+
+/**
+ * The enclosing production seam of a spawn array: the nearest function that
+ * contains it. Two spawns in the same function share one seam key; spawns in
+ * different functions have different keys. A top-level array keys to module
+ * scope.
+ */
+function enclosingSeam(array: Node): { key: string; label: string } {
+  let node: Node | undefined = array.getParent();
+  while (node) {
+    if (
+      Node.isFunctionDeclaration(node) ||
+      Node.isFunctionExpression(node) ||
+      Node.isArrowFunction(node) ||
+      Node.isMethodDeclaration(node)
+    ) {
+      const file = repoRelative(node.getSourceFile().getFilePath());
+      const line = node.getStartLineNumber();
+      const name = enclosingFunctionName(node);
+      return { key: `${file}:${line}`, label: `${name} (${file}:${line})` };
+    }
+    node = node.getParent();
+  }
+  const file = repoRelative(array.getSourceFile().getFilePath());
+  return { key: `${file}:module`, label: `module scope of ${file}` };
+}
+
+/**
+ * Production spawn-seam locations: every real CLI-spawn array in src/ whose
+ * string literals include all of `literals`, each mapped to its enclosing
+ * production seam. A `--dry-run` preview array and an array whose site carries a
+ * `single-seam-exception:` marker create no real resource and are excluded. When
+ * every located spawn shares one enclosing seam, the resource is created at a
+ * single seam.
+ */
+export function locateProductionSpawnSeams(literals: string[]): SeamLocation[] {
+  const locations: SeamLocation[] = [];
+  for (const source of project().getSourceFiles()) {
+    const file = repoRelative(source.getFilePath());
+    if (!file.startsWith("src/")) continue;
+    for (const array of source.getDescendantsOfKind(
+      SyntaxKind.ArrayLiteralExpression,
+    )) {
+      const found = stringElements(array);
+      if (!literals.every((literal) => found.includes(literal))) continue;
+      if (found.includes(DRY_RUN)) continue;
+      if (markerText(array).includes(SINGLE_SEAM_EXCEPTION)) continue;
+      const { key, label } = enclosingSeam(array);
+      locations.push({
+        file,
+        line: array.getStartLineNumber(),
+        seamKey: key,
+        seamLabel: label,
+      });
+    }
+  }
+  return locations;
 }
 
 /**

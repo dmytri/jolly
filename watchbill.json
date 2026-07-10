@@ -1,0 +1,10 @@
+{
+  "watch1": {
+    "scenarios": [
+      "features/single-creation-seam.feature:Real Vercel project creation lives at a single seam",
+      "features/single-creation-seam.feature:The production Vercel deployment happens at a single seam",
+      "features/single-creation-seam.feature:The starter-recipe configurator deploy happens at a single seam",
+      "features/single-creation-seam.feature:The Paper storefront clone happens at a single seam"
+    ]
+  }
+}

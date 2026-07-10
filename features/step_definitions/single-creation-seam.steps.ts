@@ -15,6 +15,9 @@ import { join } from "node:path";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
 import {
   findCreationSeamViolations,
+  findVercelProjectSeamViolations,
+  locateProductionSpawnSeams,
+  type SeamLocation,
   type Violation,
 } from "../support/module-conformance.ts";
 
@@ -46,6 +49,88 @@ Then(
       0,
       `real \`create store --create-environment\` invocations outside ${seam}:\n${violations
         .map((violation) => `  - ${violation.message}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+When(
+  "its real `vercel project add` invocations are located",
+  function (this: JollyWorld) {
+    this.notes.vercelProjectViolations = findVercelProjectSeamViolations();
+  },
+);
+
+Then(
+  "every one lives in the single Vercel-project seam {string}",
+  function (this: JollyWorld, seam: string) {
+    assert.ok(
+      existsSync(join(REPO_ROOT, seam)),
+      `the single Vercel-project seam ${seam} must exist`,
+    );
+    const violations = this.notes.vercelProjectViolations as Violation[];
+    assert.equal(
+      violations.length,
+      0,
+      `real \`vercel project add\` invocations outside ${seam}:\n${violations
+        .map((violation) => `  - ${violation.message}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Given("Jolly's production source", function (this: JollyWorld) {
+  assert.ok(
+    existsSync(join(REPO_ROOT, "src", "index.ts")),
+    "the production source (src/) must exist to check",
+  );
+});
+
+When(
+  "its real `vercel deploy --prod` invocations are located",
+  function (this: JollyWorld) {
+    this.notes.seamLocations = locateProductionSpawnSeams(["deploy", "--prod"]);
+  },
+);
+
+When(
+  "its real `npx @saleor\\/configurator deploy` invocations are located",
+  function (this: JollyWorld) {
+    this.notes.seamLocations = locateProductionSpawnSeams([
+      "@saleor/configurator",
+      "deploy",
+    ]);
+  },
+);
+
+When(
+  "its real Paper storefront `git clone` invocations are located",
+  function (this: JollyWorld) {
+    this.notes.seamLocations = locateProductionSpawnSeams([
+      "clone",
+      "https://github.com/saleor/storefront.git",
+    ]);
+  },
+);
+
+Then(
+  "every one shares a single enclosing production seam",
+  function (this: JollyWorld) {
+    const locations = this.notes.seamLocations as SeamLocation[];
+    assert.ok(
+      locations.length >= 1,
+      "no real invocation located — the creation seam is missing from production source",
+    );
+    const seams = new Map(
+      locations.map((location) => [location.seamKey, location.seamLabel]),
+    );
+    assert.equal(
+      seams.size,
+      1,
+      `real invocations spread across ${seams.size} enclosing seams instead of one:\n${[
+        ...seams.values(),
+      ]
+        .map((label) => `  - ${label}`)
         .join("\n")}`,
     );
   },
