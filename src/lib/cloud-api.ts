@@ -542,7 +542,7 @@ async function graphqlFetch(
 }
 
 /** query GetApps { apps(first: 100) { edges { node { id name } } } }
- * @planks("When Jolly start reaches the Stripe stage")
+ * @planks("When `jolly stripe` runs the Stripe app-install stage against that store")
  */
 export async function queryGetApps(
   graphqlUrl: string,
@@ -1020,7 +1020,7 @@ export interface InstallStripeAppResult {
  * name matches /stripe/i instead of installing a duplicate. Surfaces GraphQL/
  * payload errors as CloudApiError with a stable code. Fails fast against an
  * unroutable endpoint (the underlying fetch rejects rather than hanging).
- * @planks("When Jolly start reaches the Stripe stage")
+ * @planks("When `jolly stripe` runs the Stripe app-install stage against that store")
  * @planks("Then it should install the Saleor Stripe app via Saleor GraphQL `appInstall` using the Cloud staff token and the current Stripe app manifest")
  */
 export async function installStripeApp(

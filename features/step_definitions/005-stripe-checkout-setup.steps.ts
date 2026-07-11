@@ -19,10 +19,7 @@ import { join } from "node:path";
 import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 import { findRiskContexts, assertRiskContextShape } from "../support/envelope.ts";
 import { saleorGraphql } from "../support/saleor-graphql.ts";
-import {
-  isolatedVercelXdg,
-  prepareFastForwardDeployStart,
-} from "../support/fast-forward-deploy.ts";
+import { prepareFastForwardDeployStart } from "../support/fast-forward-deploy.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 // --- Background (capability statements) -------------------------------------
@@ -301,39 +298,40 @@ async function installedStripeApps(
     .filter((a) => /stripe/i.test(a.identifier ?? "") || /stripe/i.test(a.name ?? ""));
 }
 
-/** A real `jolly start --yes` fast-forwarded to the Stripe app-install stage:
- * the shared store is reused (no provision), storefront/ is present (no clone),
- * and the deploy stage pends at its session-less Vercel sign-in gate (no real
- * deploy) — so the run proceeds under --yes past the pending deploy to the REAL
- * stripe stage, which installs the Saleor Stripe app via Saleor GraphQL appInstall
- * with the Cloud staff token (verified src/index.ts runStartCore: a pending deploy
- * sets no gate, so the loop reaches `stripe`). Only the store provision, Paper
- * clone, and Vercel deploy are neutralized as minimal-sufficient setup — each
- * covered for real elsewhere (002/012/026 provision, 029 clone, 002/029 deploy);
- * the Stripe install under test still runs for real. Both of this scenario's runs
- * share this project dir + shared store, so the re-run reuses the same install. */
-function runStartFastForwardToStripe(world: JollyWorld): void {
-  prepareFastForwardDeployStart(world);
-  const xdg = isolatedVercelXdg(world);
-  world.runCli(["start", "--yes", "--json"], {
+/** Run the Stripe app-install stage in isolation via the composable `jolly stripe`
+ * stage command (feature 029), against the shared @sandbox store: the store's
+ * endpoint is written to the project .env by the Given (prepareFastForwardDeployStart)
+ * and the Cloud staff token reaches the stage through the run env, so runStripeStage
+ * installs the Saleor Stripe app via Saleor GraphQL appInstall for real. This runs
+ * ONLY the Stripe stage — it does NOT re-reconcile the store/recipe/stock stages the
+ * shared store already carries, which is the redundant per-run latency the previous
+ * fast-forward `jolly start` paid (it re-ran the recipe + stock reconcile each time
+ * just to reach the Stripe stage). `jolly start` composes this same Stripe seam and
+ * announces the SAME keys+channel gate through a shared builder (src/index.ts), and
+ * @logic (005 "does not fabricate Stripe stage completion") pins that composition —
+ * so this @sandbox pin stays on the real install + gate alone. Both of this
+ * scenario's runs share this project dir + shared store, so the re-run reuses the
+ * same install. */
+function runStripeStageCommand(world: JollyWorld): void {
+  world.runCli(["stripe", "--yes", "--json"], {
     env: absentCredentialsEnv({
       JOLLY_SALEOR_CLOUD_TOKEN: process.env["JOLLY_SALEOR_CLOUD_TOKEN"],
-      ...xdg,
     }),
-    timeoutMs: 840_000,
+    timeoutMs: 180_000,
   });
 }
 
 Given(
-  "a Saleor Cloud environment with the starter recipe deployed and the Cloud token available",
-  { timeout: 900_000 },
+  "a configured Saleor Cloud store with a resolvable Cloud staff token",
   function (this: JollyWorld) {
-    // Pre-grant per-stage approvals so the orchestrated run reaches and performs
-    // the Stripe app-install stage without interactive pauses (feature 021). The
-    // run is fast-forwarded (shared store reused, storefront/ present, deploy
-    // pended at its session-less Vercel sign-in gate) so it reaches the REAL
-    // stripe stage cheaply; the Stripe appInstall under test still runs for real.
-    runStartFastForwardToStripe(this);
+    // The shared @sandbox store (provisioned by the Before hook) is the real,
+    // reachable Saleor Cloud environment. Write its endpoint into the project
+    // .env so the isolated `jolly stripe` stage command resolves it (the Cloud
+    // staff token reaches the stage through the run env), and stash the endpoint
+    // + Cloud staff token for the post-run app-listing assertions. Only the .env
+    // endpoint write is needed here; the storefront fast-forward it also does is
+    // harmless for the Stripe stage, which touches no storefront.
+    prepareFastForwardDeployStart(this);
     const creds = stripeStoreCreds();
     assert.ok(creds.endpoint, "a Saleor GraphQL endpoint must be configured/derived");
     this.notes.storeEndpoint = creds.endpoint;
@@ -341,17 +339,22 @@ Given(
   },
 );
 
-When("Jolly start reaches the Stripe stage", function (this: JollyWorld) {
-  // The genuinely-executing outcome to verify is the Stripe stage reporting
-  // `completed` (the app installed via appInstall). The store and Cloud staff
-  // token are present by fitting-out, so the stage installs the app for real.
-  const stages = (this.envelope.data.stages ?? []) as StartStage[];
-  const stripe = findStripeStage(stages);
-  assert.ok(
-    stripe && stripe.status === "completed",
-    `the Stripe app-install stage must complete (status: ${stripe?.status ?? "absent"})`,
-  );
-});
+When(
+  "`jolly stripe` runs the Stripe app-install stage against that store",
+  { timeout: 180_000 },
+  function (this: JollyWorld) {
+    // The composable stage command runs ONLY the Stripe app-install stage against
+    // the configured store — the real appInstall under test — skipping the
+    // store/recipe/stock reconcile the full `jolly start` pipeline re-ran each run.
+    runStripeStageCommand(this);
+    const stages = (this.envelope.data.stages ?? []) as StartStage[];
+    const stripe = findStripeStage(stages);
+    assert.ok(
+      stripe && stripe.status === "completed",
+      `the Stripe app-install stage must complete (status: ${stripe?.status ?? "absent"})`,
+    );
+  },
+);
 
 Then(
   "it should install the Saleor Stripe app via Saleor GraphQL `appInstall` using the Cloud staff token and the current Stripe app manifest",
@@ -372,12 +375,11 @@ Then(
   "re-running the stage should reuse the existing installation rather than installing a duplicate",
   { timeout: 900_000 },
   async function (this: JollyWorld) {
-    // Re-run the orchestrated stage; the install must be idempotent (feature
-    // 022) — it detects the existing Stripe app and reuses it. Same fast-forward
-    // as the first run (shared store reused, storefront/ present, deploy pended),
+    // Re-run the isolated stage; the install must be idempotent (feature 022) —
+    // it detects the existing Stripe app and reuses it. Same `jolly stripe` run
     // in the same project dir + shared store, so the stripe stage runs for real
     // again and reuses the existing install rather than installing a duplicate.
-    runStartFastForwardToStripe(this);
+    runStripeStageCommand(this);
     const endpoint = String(this.notes.storeEndpoint);
     const token = this.notes.storeToken as string | undefined;
     const apps = await installedStripeApps(endpoint, token);

@@ -3555,7 +3555,7 @@ async function runStockStage(checks: Check[]): Promise<StageStatus> {
  * throwing. The keys + `us`-channel mapping stay a human gate announced by the
  * caller regardless of the install outcome.
  * @planks("When the agent runs `jolly start --dry-run --json`")
- * @planks("When Jolly start reaches the Stripe stage")
+ * @planks("When `jolly stripe` runs the Stripe app-install stage against that store")
  * @planks("Then it should install the Saleor Stripe app via Saleor GraphQL `appInstall` using the Cloud staff token and the current Stripe app manifest")
  */
 async function runStripeStage(checks: Check[]): Promise<StageStatus> {
@@ -3600,6 +3600,23 @@ async function runStripeStage(checks: Check[]): Promise<StageStatus> {
     });
     return "blocked";
   }
+}
+
+/**
+ * The keys + `us`-channel Dashboard mapping human gate (feature 005 Rule): once
+ * the Stripe stage has been reached (the app install attempted), the human pastes
+ * the publishable + restricted keys into the installed Stripe app's Dashboard
+ * config and maps the configuration to the recipe's `us` channel — a guided gate
+ * Jolly does NOT perform (no stable public API). Keys referenced by name only,
+ * never printed. Shared by `jolly start`'s orchestration (runStartCore) and the
+ * standalone `jolly stripe` stage command (commandStage) so both announce the
+ * SAME gate whenever the Stripe stage runs — the two entry points cannot drift.
+ */
+function stripeKeysChannelGateStep(): NextStep {
+  return {
+    description:
+      "Open the installed Stripe app's configuration in the Saleor Dashboard, paste the publishable key and the Stripe restricted key, and map the configuration to the `us` channel (keys referenced by name only — Jolly does not perform this guided human gate).",
+  };
 }
 
 /**
@@ -5041,10 +5058,7 @@ export async function runStartCore(
   // `us` channel. Keys referenced by name only — never printed. This step has
   // no stable public API, so it stays a guided human gate Jolly does not perform.
   if (stripeStageReached) {
-    nextSteps.push({
-      description:
-        "Open the installed Stripe app's configuration in the Saleor Dashboard, paste the publishable key and the Stripe restricted key, and map the configuration to the `us` channel (keys referenced by name only — Jolly does not perform this guided human gate).",
-    });
+    nextSteps.push(stripeKeysChannelGateStep());
   }
 
   // On a fully completed run, orient the agent to what setup left on disk so it
@@ -5226,6 +5240,12 @@ async function commandStage(
       : outcome.status === "error"
         ? "error"
         : "warning";
+  // Whenever the Stripe stage runs — via `jolly stripe` here or `jolly start`'s
+  // orchestration — the run announces the keys + `us`-channel Dashboard gate the
+  // human must clear (feature 005 Rule; shared with runStartCore so the two entry
+  // points cannot drift). Announced whether the install completed or blocked: the
+  // gate is the stage's remaining human step, not contingent on the install.
+  const nextSteps: NextStep[] = stage === "stripe" ? [stripeKeysChannelGateStep()] : [];
   return envelope({
     command: stage,
     status,
@@ -5235,6 +5255,7 @@ async function commandStage(
       ...(stage === "deploy" && outcome.data ? { deploy: outcome.data } : {}),
     },
     checks,
+    ...(nextSteps.length > 0 ? { nextSteps } : {}),
   });
 }
 

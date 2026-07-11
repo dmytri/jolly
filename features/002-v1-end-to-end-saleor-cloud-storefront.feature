@@ -316,10 +316,10 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And adding a product to the cart should update the cart
 
   @sandbox @heavy
-  Scenario: A re-run before Vercel approval reuses the same pending sign-in URL until it expires
-    Given `jolly start` reached the deploy stage without `--dry-run` and surfaced a Vercel device sign-in URL
+  Scenario: A re-run of the deploy stage before Vercel approval reuses the same pending sign-in URL until it expires
+    Given `jolly deploy` reached its Vercel sign-in gate without `--dry-run` and surfaced a Vercel device sign-in URL
     And the human has not yet approved the Vercel sign-in
-    When the agent runs `jolly start` again while the sign-in URL is within its lifetime
+    When the agent runs `jolly deploy` again while the sign-in URL is within its lifetime
     Then the deploy stage should surface the same Vercel sign-in URL rather than spawning a new login
     But a re-run after the sign-in URL is past its lifetime should discard it and spawn a fresh Vercel login
 

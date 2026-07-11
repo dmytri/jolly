@@ -28,9 +28,9 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     And it must not claim that checkout is ready or that the Stripe keys were configured
 
   @sandbox @heavy
-  Scenario: Jolly start installs the Stripe app and surfaces the keys and channel gate
-    Given a Saleor Cloud environment with the starter recipe deployed and the Cloud token available
-    When Jolly start reaches the Stripe stage
+  Scenario: The Stripe stage installs the Stripe app and surfaces the keys and channel gate
+    Given a configured Saleor Cloud store with a resolvable Cloud staff token
+    When `jolly stripe` runs the Stripe app-install stage against that store
     Then it should install the Saleor Stripe app via Saleor GraphQL `appInstall` using the Cloud staff token and the current Stripe app manifest
     And re-running the stage should reuse the existing installation rather than installing a duplicate
     And it should announce the guided gate to paste the keys and map the configuration to the `us` channel, referencing the keys by name only
@@ -38,13 +38,6 @@ Feature: Stripe checkout setup for the Jolly starter storefront
 
   @logic @exceptional-double
   Scenario: A transient Saleor rate-limit during the Stripe stage retries instead of reporting a false blocked
-    # @exceptional-double: an HTTP 429 rate-limit cannot be produced on demand
-    # against the real Saleor Cloud env, so this lone scenario points the Stripe
-    # stage at a Saleor GraphQL endpoint that returns 429 once and then succeeds
-    # with the Stripe app already present. It is the only double here and never
-    # the normal path — the real install is the @sandbox scenario above; this
-    # pins the resilience the idempotent re-run depends on so a momentary
-    # rate-limit never degrades an already-installed stage to a false blocked.
     Given the Stripe stage's Saleor GraphQL endpoint returns HTTP 429 once and then succeeds with the Stripe app already installed
     When the agent runs `jolly start --yes --json` and the Stripe stage runs against that endpoint
     Then the Stripe stage should be reported completed, having retried the rate-limited request
@@ -118,7 +111,12 @@ Feature: Stripe checkout setup for the Jolly starter storefront
          production configuration changes; the install is reversible via app uninstall), gates for
          the agent's approval like the other high-risk stages, and `jolly start --yes` pre-approves
          it. Idempotent and resumable (feature 022): a re-run detects the already-installed Stripe
-         app and reuses it rather than installing a duplicate.
+         app and reuses it rather than installing a duplicate. Resilient to a momentary Saleor
+         GraphQL rate-limit (HTTP 429) during the install's idempotency query — it is retried, never
+         reported as a false blocked. Because a 429 cannot be produced on demand against real Saleor
+         Cloud, that resilience is pinned by a single @exceptional-double (a Saleor GraphQL endpoint
+         that returns 429 once then succeeds with the app already present) — never the normal path;
+         the real install is the @sandbox scenario.
       2. **Channel payment flow — configurator/recipe** already sets it on the `us` channel.
       3. **Keys + channel-config mapping — the agent runs a guided walk-through** with the
          `stripe-best-practices` skill (the announce-and-wait human gate): after the install Jolly

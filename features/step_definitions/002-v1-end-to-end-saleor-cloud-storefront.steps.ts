@@ -1778,64 +1778,68 @@ Then(
 
 // ─── Scenario: pending Vercel sign-in URL reuse until it expires (@sandbox) ───
 //
-// A real deploy-stage run with NO Vercel session makes Jolly spawn the device
-// sign-in and persist its URL to `.jolly-pending-vercel.json` in the project
-// dir. A re-run within the URL's lifetime reuses the persisted URL rather than
-// spawning a fresh `vercel login`; a re-run after the lifetime discards it and
-// spawns a fresh login. Cloud token only (["saleorCloud"]): the run
-// auto-provisions the store and reaches deploy; the no-session condition comes
-// from the isolated XDG dirs, never a double.
+// The saved-URL reuse is the DEPLOY STAGE's own persistence behaviour, so it is
+// exercised directly through the composable `jolly deploy` stage command (feature
+// 029) rather than the full `jolly start` pipeline — which would re-reconcile the
+// store/recipe/stock stages the shared store already carries on every one of this
+// scenario's three runs, pure redundant latency. A real deploy-stage run with NO
+// Vercel session makes Jolly spawn the device sign-in and persist its URL to
+// `.jolly-pending-vercel.json` in the project dir; the URL is reported on the run's
+// deploy outcome (data.deploy.vercelSignInUrl). A re-run within the URL's lifetime
+// reuses the persisted URL rather than spawning a fresh `vercel login`; a re-run
+// after the lifetime discards it and spawns a fresh login. The store endpoint +
+// present storefront/ are fast-forwarded so `jolly deploy` reaches its sign-in gate
+// (the store provision/clone are covered for real elsewhere), and the no-session
+// condition comes from the isolated XDG dirs, never a double. `jolly start`
+// composes this same deploy seam (029), so the reuse holds there too.
 const PENDING_VERCEL_FILE = ".jolly-pending-vercel.json";
 const VERCEL_SIGNIN_LIFETIME_SECONDS = 600;
 
-/** The Vercel device sign-in URL surfaced in the run's nextSteps, or undefined. */
+/** The Vercel device sign-in URL reported on the deploy stage's outcome
+ * (data.deploy.vercelSignInUrl) when there is no Vercel session, or undefined. */
 function surfacedVercelDeviceUrl(world: JollyWorld): string | undefined {
-  const steps = (world.envelope.nextSteps ?? []) as Array<Record<string, unknown>>;
-  for (const step of steps) {
-    const blob = `${String(step.url ?? "")} ${String(step.description ?? "")}`;
-    const match = blob.match(/https:\/\/vercel\.com\/oauth\/device[^\s"']*/i);
-    if (match) return match[0];
-  }
-  return undefined;
+  const deploy = (world.envelope.data as { deploy?: { vercelSignInUrl?: unknown } } | undefined)
+    ?.deploy;
+  const url = deploy?.vercelSignInUrl;
+  return typeof url === "string" && url.length > 0 ? url : undefined;
 }
 
-/** A real `jolly start --yes` auto-provision run reaching the deploy stage with
- * the scenario's no-session XDG, in the scenario's stable project dir (so the
- * pending-Vercel file persists across re-runs). */
-async function runStartToDeployStage(world: JollyWorld): Promise<void> {
+/** A real `jolly deploy` run (deploy stage only) against the fast-forwarded store
+ * endpoint + present storefront/, with the scenario's no-session XDG, in the
+ * scenario's stable project dir (so the pending-Vercel file persists across
+ * re-runs). Runs ONLY the deploy stage — no store/recipe/stock reconcile. */
+async function runDeployStageCommand(world: JollyWorld): Promise<void> {
   const xdg = (world.notes.vercelXdg as Record<string, string>) ?? {};
-  world.runCli(["start", "--yes", "--json"], {
+  world.runCli(["deploy", "--yes", "--json"], {
     env: absentCredentialsEnv({
-      JOLLY_SALEOR_CLOUD_TOKEN: process.env["JOLLY_SALEOR_CLOUD_TOKEN"],
-      JOLLY_STORE_NAME: world.namespace,
       JOLLY_VERCEL_PROJECT: workerNamespace(),
       ...xdg,
     }),
-    timeoutMs: 840_000,
+    timeoutMs: 180_000,
   });
 }
 
 Given(
-  "`jolly start` reached the deploy stage without `--dry-run` and surfaced a Vercel device sign-in URL",
+  "`jolly deploy` reached its Vercel sign-in gate without `--dry-run` and surfaced a Vercel device sign-in URL",
   { timeout: 900_000 },
   async function (this: JollyWorld) {
     // Real, producible no-session condition (not a double): isolated empty XDG
     // config/data dirs hold no Vercel auth, so the deploy stage spawns the device
     // sign-in and surfaces its URL.
     isolatedVercelXdg(this);
-    // Fast-forward the store + storefront stages so each of this scenario's three
-    // `jolly start` runs (this Given, the When, the expiry Then) reaches the REAL
-    // deploy stage cheaply, reusing the shared store and the present storefront/
-    // in this stable project dir rather than re-provisioning + re-cloning each time
-    // (see prepareFastForwardDeployStart). The `.env` + storefront/ persist across
+    // Fast-forward the store endpoint (.env) + present storefront/ so each of this
+    // scenario's three `jolly deploy` runs (this Given, the When, the expiry Then)
+    // reaches the deploy stage's sign-in gate directly, reusing the shared store's
+    // endpoint and the present storefront/ in this stable project dir (see
+    // prepareFastForwardDeployStart). `jolly deploy` runs only the deploy stage, so
+    // no store/recipe/stock reconcile runs. The `.env` + storefront/ persist across
     // the re-runs alongside the pending-Vercel file whose reuse is under test.
     prepareFastForwardDeployStart(this);
-    await registerSaleorEnvTeardown(this);
-    await runStartToDeployStage(this);
+    await runDeployStageCommand(this);
     const url = surfacedVercelDeviceUrl(this);
     assert.ok(
       url,
-      `the first run must surface a Vercel device sign-in URL; got: ${JSON.stringify(this.envelope.nextSteps)}`,
+      `the first run must surface a Vercel device sign-in URL; got: ${JSON.stringify(this.envelope.data)}`,
     );
     this.notes.firstVercelUrl = url;
   },
@@ -1851,10 +1855,10 @@ Given("the human has not yet approved the Vercel sign-in", function (this: Jolly
 });
 
 When(
-  "the agent runs `jolly start` again while the sign-in URL is within its lifetime",
+  "the agent runs `jolly deploy` again while the sign-in URL is within its lifetime",
   { timeout: 900_000 },
   async function (this: JollyWorld) {
-    await runStartToDeployStage(this);
+    await runDeployStageCommand(this);
     this.notes.secondVercelUrl = surfacedVercelDeviceUrl(this);
   },
 );
@@ -1883,11 +1887,11 @@ Then(
     };
     saved.savedAt = Date.now() - (VERCEL_SIGNIN_LIFETIME_SECONDS + 60) * 1000;
     writeFileSync(pending, JSON.stringify(saved));
-    await runStartToDeployStage(this);
+    await runDeployStageCommand(this);
     const fresh = surfacedVercelDeviceUrl(this);
     assert.ok(
       fresh,
-      `a re-run past the lifetime must spawn a fresh Vercel login and surface a new URL; got: ${JSON.stringify(this.envelope.nextSteps)}`,
+      `a re-run past the lifetime must spawn a fresh Vercel login and surface a new URL; got: ${JSON.stringify(this.envelope.data)}`,
     );
     assert.notEqual(
       fresh,
