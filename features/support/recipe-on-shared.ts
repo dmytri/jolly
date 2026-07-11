@@ -51,8 +51,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { findEnvelope } from "./envelope.ts";
 import { ensureSharedEnvironment } from "./provision.ts";
+import { saleorGraphql } from "./saleor-graphql.ts";
 import { makeNamespace, runId, workerNamespace } from "./sandbox.ts";
 import { REPO_ROOT } from "./repo-root.ts";
+import { deriveRecipeIdentifiers } from "../../src/lib/cloud-api.ts";
 import type { CliResult } from "./world.ts";
 
 /** The shared store's creds plus the captured envelopes of the ONE standalone
@@ -189,8 +191,70 @@ async function deployRecipeOnShared(): Promise<RecipeOnSharedFixture> {
   await ensureSharedEnvironment();
   const endpoint = process.env["NEXT_PUBLIC_SALEOR_API_URL"] ?? "";
   const token = process.env["SALEOR_TOKEN"] ?? "";
+  // Fail LOUD on a polluted shared store BEFORE paying for a deploy that would
+  // block on --failOnDelete and then cascade a misleading "recipe stage not
+  // completed" across every 004/029 consumer (Fix 4 cleanliness diagnostic).
+  await assertSharedStoreClean(endpoint, token);
   const { recipeResult, stockResult } = deployRecipe(endpoint, token);
   return { endpoint, token, recipeResult, stockResult };
+}
+
+/**
+ * Pre-deploy cleanliness DIAGNOSTIC (detect, never auto-delete — AGENTS.md
+ * forbids deleting a resource this run did not create): one cheap GraphQL read of
+ * the shared store's product slugs, reusing the {@link deriveRecipeIdentifiers} /
+ * storeHoldsForeignCatalog shape src/index.ts uses to decide `--failOnDelete`. If
+ * any product slug lies OUTSIDE the recipe's declared slugs, the shared store is
+ * polluted (most likely a leaked foreign product from an aborted scenario) and the
+ * recipe deploy would block on exit 6 — so throw NOW naming the exact foreign
+ * slug(s), turning a silent 10-scenario cascade into one clear failure that names
+ * the polluting condition at the fixture.
+ */
+async function assertSharedStoreClean(
+  endpoint: string,
+  token: string,
+): Promise<void> {
+  const recipeYaml = join(REPO_ROOT, "assets", "skills", "jolly", "recipe.yml");
+  const { productSlugs } = deriveRecipeIdentifiers(recipeYaml);
+  const declared = new Set(productSlugs);
+  const result = await saleorGraphql(
+    endpoint,
+    token,
+    `query { products(first: 100) { edges { node { slug } } } }`,
+  );
+  const edges =
+    (result.data?.products as { edges?: Array<{ node: { slug: string } }> } | undefined)
+      ?.edges ?? [];
+  const foreign = edges.map((edge) => edge.node.slug).filter((slug) => !declared.has(slug));
+  if (foreign.length > 0) {
+    throw new Error(
+      `[recipe-on-shared] shared store polluted by ${foreign
+        .map((slug) => `"${slug}"`)
+        .join(", ")} (likely a leaked foreign product) — ` +
+        `product slug(s) outside the starter recipe's declared catalog. A recipe ` +
+        `deploy would hit --failOnDelete (exit 6) and cascade a misleading ` +
+        `"recipe stage not completed" across every 004/029 consumer. Detected, NOT ` +
+        `auto-deleted (AGENTS.md forbids deleting what this run did not create): ` +
+        `remove the foreign product(s) from the shared store, then re-run.`,
+    );
+  }
+}
+
+/** A standalone stage command's status from its envelope: commandStage
+ * (src/index.ts) reports `data.stages` as a single `{ stage, status }`. */
+function stageStatus(result: CliResult, stage: string): string | undefined {
+  const stages = (result.envelope?.data.stages ?? []) as Array<{
+    stage: string;
+    status: string;
+  }>;
+  return stages.find((entry) => entry.stage === stage)?.status;
+}
+
+/** A stage command's diagnostic check description (the recipe-deployed check
+ * already carries the --failOnDelete/deletions-blocked reason, src/index.ts). */
+function stageCheckDescription(result: CliResult, checkId: string): string {
+  const check = result.envelope?.checks.find((entry) => entry.id === checkId);
+  return String(check?.description ?? "(no check description in envelope)");
 }
 
 /**
@@ -268,8 +332,32 @@ function deployRecipe(
     // never re-running).
     process.stderr.write(`[recipe-on-shared] deploying starter recipe to ${endpoint}\n`);
     const recipeResult = runStage(["recipe", "--yes", "--json"]);
+    // Fail LOUD: a blocked (exit 6 / --failOnDelete) recipe deploy must NEVER be
+    // memoized silently — every 004/029 consumer would then red with a misleading
+    // "recipe stage not completed." Throw here naming WHY (the recipe-deployed
+    // check's own reason plus the exit code), so a 10-scenario cascade collapses
+    // into ONE clear failure at the fixture that names the polluting condition.
+    const recipeStageStatus = stageStatus(recipeResult, "recipe");
+    if (recipeStageStatus !== "completed") {
+      throw new Error(
+        `[recipe-on-shared] the shared-store recipe deploy did not complete: recipe ` +
+          `stage status "${recipeStageStatus ?? "unknown"}" (exit ${recipeResult.exitCode}). ` +
+          `recipe-deployed check: ${stageCheckDescription(recipeResult, "recipe-deployed")}`,
+      );
+    }
     process.stderr.write(`[recipe-on-shared] seeding recipe stock on ${endpoint}\n`);
     const stockResult = runStage(["stock", "--yes", "--json"]);
+    // Same fail-loud contract for the stock seed: a blocked stock stage memoized
+    // silently would red every stock-reading consumer with a misleading message,
+    // so throw here naming the stock-seeded check's reason plus the exit code.
+    const stockStageStatus = stageStatus(stockResult, "stock");
+    if (stockStageStatus !== "completed") {
+      throw new Error(
+        `[recipe-on-shared] the shared-store stock seed did not complete: stock ` +
+          `stage status "${stockStageStatus ?? "unknown"}" (exit ${stockResult.exitCode}). ` +
+          `stock-seeded check: ${stageCheckDescription(stockResult, "stock-seeded")}`,
+      );
+    }
     return { recipeResult, stockResult };
   } finally {
     rmSync(scratchDir, { recursive: true, force: true });

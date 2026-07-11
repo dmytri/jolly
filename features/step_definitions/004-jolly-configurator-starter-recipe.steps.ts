@@ -15,7 +15,11 @@ import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 import { findRiskContexts, assertRiskContextShape } from "../support/envelope.ts";
 import { saleorGraphql } from "../support/saleor-graphql.ts";
 import { makeNamespace } from "../support/sandbox.ts";
+import { createEnvironment } from "../support/env-factory.ts";
+import { deleteEnvironment, listAllEnvironments } from "../support/cloud.ts";
+import { cachedStoreSpareNames } from "../support/provision.ts";
 import { ensureRecipeOnSharedStore } from "../support/recipe-on-shared.ts";
+import { loadEnvValues } from "../../src/lib/env-file.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 // Adopt the run's recipe deploy onto the PRIMARY SHARED store
@@ -125,22 +129,83 @@ Then(
 
 Given(
   "a Saleor Cloud environment that already holds catalog data",
-  { timeout: 120_000 },
+  // Real disposable environment creation against the live Cloud API (the CLI
+  // polls async job status) plus a foreign-product seed — well beyond the default
+  // step timeout, and a real limit-reclaim budget on top.
+  { timeout: 900_000 },
   async function (this: JollyWorld) {
-    // The destructive-diff block is only reachable when the store already holds
-    // a product the recipe does not declare: production passes `--failOnDelete`
-    // exactly when `storeHoldsForeignCatalog` is true (src/lib/cloud-api.ts — any
-    // product slug outside the recipe's). Seed one real foreign product into the
-    // provisioned store so the subsequent recipe deploy detects a deletion and
-    // the configurator exits 6. Harmless by design: the product and its type are
-    // `jolly-cannon-fodder`-namespaced and torn down LIFO.
-    const { endpoint, token } = storeCreds();
-    assert.ok(endpoint, "a Saleor GraphQL endpoint must be configured/derived");
+    // ISOLATE this destructive-diff scenario on its OWN disposable @creates-env
+    // environment (mirrors feature 012/026's @creates-env creators) instead of
+    // seeding a FOREIGN product into the SHARED store's catalog. The old
+    // shared-store seed's single-attempt teardown lagged under load, left the
+    // foreign product on the shared store, and cascaded --failOnDelete blocks
+    // across every recipe-on-shared consumer. Here the WHOLE env is torn down, so
+    // the foreign catalog can never leak onto a store other scenarios reuse.
+    //
+    // The block is reachable the moment the store holds a product the recipe does
+    // not declare (`storeHoldsForeignCatalog`, src/lib/cloud-api.ts; the
+    // `allowDeletes` gate, src/index.ts) — the recipe need NOT be pre-deployed.
+    // Seed one real foreign product into THIS env, then the When's `jolly recipe`
+    // detects the deletion and the configurator exits 6.
+    const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
+    assert.ok(token, "requires JOLLY_SALEOR_CLOUD_TOKEN");
+    const envName = `${this.namespace}-recipe-block`;
+    this.notes.blockEnvName = envName;
+    // Teardown registered BEFORE creation (a crash mid-create stays cleanable):
+    // delete every environment carrying this scenario's namespace via
+    // `deleteEnvironment`, which retries transient faults (cloudFetchRetry).
+    this.cleanup.register(`created environment ${envName}`, async () => {
+      for (const env of await listAllEnvironments(token)) {
+        if (env.name.startsWith(this.namespace)) {
+          await deleteEnvironment(token, env.org, env.key);
+        }
+      }
+    });
+    // Create the disposable env via the single env-creation seam (env-factory.ts),
+    // reclaiming an org slot if at the limit. Env limit is 2 = shared store (1) +
+    // this transient (1); the @creates-env tag keeps this scenario in the serial
+    // group (cucumber.js `sandboxSerial`, parallel 1), so the slot is available.
+    const created = await createEnvironment(
+      (args, options) => this.runCliAsync(args, options),
+      {
+        name: envName,
+        domainLabel: envName,
+        runOptions: { timeoutMs: 540_000 },
+        limitBudgetMs: 540_000,
+        reclaim: {
+          token,
+          runNamespace: makeNamespace(this.runId),
+          spareNames: cachedStoreSpareNames(),
+        },
+      },
+    );
+    assert.equal(
+      created.envelope?.status,
+      "success",
+      "the disposable recipe-block environment must be created (live by design)",
+    );
+    // Read the created env's endpoint + SALEOR_TOKEN from its written `.env` (as
+    // feature 012 does) into notes — NOT process.env, whose shared-store creds
+    // must stay untouched. The When points `jolly recipe` at these.
+    const values = loadEnvValues(created.cwd);
+    const endpoint = values["NEXT_PUBLIC_SALEOR_API_URL"];
+    const storeToken = values["SALEOR_TOKEN"];
+    assert.ok(endpoint, "the created env's .env must carry NEXT_PUBLIC_SALEOR_API_URL");
+    assert.ok(storeToken, "the created env's .env must carry SALEOR_TOKEN");
+    this.notes.blockEnvEndpoint = endpoint;
+    this.notes.blockEnvToken = storeToken;
+    this.trackSecret(storeToken);
+
+    // Seed one real FOREIGN product (a productType the recipe does not declare)
+    // into THIS disposable env's endpoint/token. LIFO teardown is registered but
+    // harmless — the whole env is torn down. `saleorGraphql` already retries a
+    // transient `fetch failed`/cold-instance 404/5xx, so the seed also rides out
+    // the freshly-provisioned store's warmup.
     const slug = `${makeNamespace()}-foreign`;
     const name = `Jolly Test Foreign ${slug}`;
     const typeResult = await saleorGraphql(
       endpoint,
-      token,
+      storeToken,
       `mutation($name: String!) {
          productTypeCreate(input: { name: $name, kind: NORMAL, hasVariants: false }) {
            productType { id }
@@ -160,14 +225,14 @@ Given(
     this.cleanup.register(`product type ${productTypeId}`, async () => {
       await saleorGraphql(
         endpoint,
-        token,
+        storeToken,
         `mutation($id: ID!) { productTypeDelete(id: $id) { errors { code } } }`,
         { id: productTypeId },
       );
     });
     const productResult = await saleorGraphql(
       endpoint,
-      token,
+      storeToken,
       `mutation($name: String!, $slug: String!, $productType: ID!) {
          productCreate(input: { name: $name, slug: $slug, productType: $productType }) {
            product { id }
@@ -187,7 +252,7 @@ Given(
     this.cleanup.register(`product ${productId}`, async () => {
       await saleorGraphql(
         endpoint,
-        token,
+        storeToken,
         `mutation($id: ID!) { productDelete(id: $id) { errors { code } } }`,
         { id: productId },
       );
@@ -207,7 +272,20 @@ When(
     // the recipe stage — same exit-6/blocked behaviour as a full `jolly start`,
     // without its storefront/deploy/stripe collateral. Run it and capture the
     // envelope the Thens assert against.
-    this.runCli(["recipe", "--yes", "--json"], { timeoutMs: 840_000 });
+    //
+    // Point the run at the DISPOSABLE env explicitly by overriding the store creds
+    // in the child env: runRecipeStage reads process.env's NEXT_PUBLIC_SALEOR_API_URL
+    // / SALEOR_TOKEN FIRST, and the @sandbox Before hook left the SHARED store's
+    // creds there — so without this override the block would be exercised against
+    // the shared store (the exact pollution this scenario was converted to avoid).
+    this.runCli(["recipe", "--yes", "--json"], {
+      timeoutMs: 840_000,
+      env: {
+        NEXT_PUBLIC_SALEOR_API_URL: String(this.notes.blockEnvEndpoint),
+        SALEOR_URL: String(this.notes.blockEnvEndpoint),
+        SALEOR_TOKEN: String(this.notes.blockEnvToken),
+      },
+    });
     // Narrow environmental escape ONLY (mirrors 004's other recipe scenarios): the
     // @saleor/configurator binary could genuinely not be spawned here (npx
     // fetch/network) — a condition the real test env cannot produce on demand — so
@@ -405,13 +483,6 @@ Then("the preview should not perform any mutation", function (this: JollyWorld) 
 // stock in the recipe warehouse, a `us` checkout is not blocked by
 // INSUFFICIENT_STOCK, and re-running updates quantities idempotently rather than
 // creating duplicate stock.
-
-function storeCreds(): { endpoint: string; token: string | undefined } {
-  return {
-    endpoint: process.env.NEXT_PUBLIC_SALEOR_API_URL ?? "",
-    token: process.env.SALEOR_TOKEN,
-  };
-}
 
 interface VariantNode {
   id: string;

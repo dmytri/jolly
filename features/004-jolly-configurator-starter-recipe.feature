@@ -12,7 +12,7 @@ Feature: Jolly Configurator starter recipe
     And the plan should deploy it by spawning `npx @saleor/configurator@latest deploy`
     And the plan should name the deploy token as `SALEOR_TOKEN` (the resolved store token Jolly holds)
 
-  @sandbox @heavy
+  @sandbox @heavy @creates-env
   Scenario: Jolly blocks a recipe re-deploy over a pre-existing store's destructive diff
     Given a Saleor Cloud environment that already holds catalog data
     When the agent runs `jolly recipe --yes --json` to apply the starter recipe to Saleor Cloud

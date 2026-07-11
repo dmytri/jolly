@@ -23,6 +23,11 @@ import { join } from "node:path";
 import { absentCredentialsEnv } from "../support/creds-env.ts";
 import type { JollyWorld } from "../support/world.ts";
 
+// Must stay in sync with src/index.ts DEFAULT_SKILLS. If this list is missing a
+// skill, `jolly init` runs a REAL `npx skills add` for the gap, which writes a
+// `.claude/skills/` compat dir and makes detectAgent() self-detect "claude" —
+// polluting the no-agent-marker precondition. Seeding the full set keeps init
+// install-free so the detection scenarios are hermetic.
 const DEFAULT_SKILL_IDS = [
   "jolly",
   "saleor-storefront",
@@ -30,6 +35,7 @@ const DEFAULT_SKILL_IDS = [
   "storefront-builder",
   "saleor-core",
   "saleor-app",
+  "stripe-best-practices",
 ];
 
 function skillsBaseDir(world: JollyWorld): string {
