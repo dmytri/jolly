@@ -247,6 +247,20 @@ Long autonomous verification-economy campaign (dk full authority), landed + comm
 
 **Follow-ups (deferred):** (1) re-plank stale `@planks` in `src/index.ts` (3175/3204/3206 + 3205) citing step text the 004/002 conversions changed — seams still exercised, harbour re-points. (2) PARKED harbour/rigging: knip (dead-src/unused-dep sweep; does NOT catch orphaned step defs -> use `step-usage`), GritQL/Biome (evaluated + passed over for ts-morph). (3) deferred npm publish + homepage deploy release (green-first-then-ship). (4) env limit 2 is a real fitting-out ceiling — a bump to >=3-4 gives headroom, but consolidation is the zero-cost fix.
 
+### UPDATE 2026-07-11: RELIABILITY FIX — the campaign was flaky-green, now proven reliable
+
+A full ALL-TIER boundary run (@logic + @sandbox light + @sandbox heavy + @eval, with per-scenario play-by-play) exposed the amortization campaign as **flaky-green**: the heavy-ONLY runs I gated the push on passed 38/38, but the full boundary (light-first, this ordering, clean org) RED at 13 — 10 of them a **shared-store poisoning cascade**. Root: the consolidation put 004:16's destructive-diff test (seeds a FOREIGN product on the shared store) on the SAME store as the recipe-on-shared fixture; under full-run load 004:16's single-attempt foreign-product teardown lagged, so the fixture's `jolly recipe` hit `--failOnDelete` → blocked → and `recipe-on-shared.ts` **silently propagated the blocked deploy** (never asserted completed) → 10 consumers red with a misleading "recipe stage not completed."
+
+**THE LESSON (durable): heavy-only != full boundary. The full boundary is the real pre-push gate.** I pushed on heavy-only 38/38 evidence — premature; the light-first full-tier ordering is what surfaced the flaky interaction. Always full-boundary-gate (and prove reliability with a REPEAT green, since a flaky pass hides) before an outbound push.
+
+Fixes (all verification-layer except the seed-list drift, which is a real correction):
+- **Fix 1 — isolate 004:16** to its own disposable `@creates-env` env (retagged `@sandbox @heavy @creates-env`; creates env via env-factory, seeds the foreign product THERE, tears the env down with retrying `deleteEnvironment`). The shared store is never touched → the poison vector is gone at the source. Capacity holds: shared(1) + one serial `@creates-env` transient(1) = 2 = the org limit.
+- **Fix 4 — `recipe-on-shared.ts` FAILS LOUD:** throws naming the `--failOnDelete`/blocked reason if the recipe/stock stage isn't completed, + a pre-deploy cleanliness diagnostic (`assertSharedStoreClean`: detects foreign catalog by slug, throws — never auto-deletes). A future pollution becomes ONE clear failure at the fixture, not a silent 10-scenario cascade.
+- **Fix 3 — 009 seed list synced 6->7** (added `stripe-best-practices`): `jolly init` no longer runs a real `npx skills add` that writes `.claude/skills/` and self-detects "claude" — the no-agent-marker scenario is now hermetic. (Open product question: should `init`'s own `.claude/skills/` compat dir count as a customer agent marker? detectAgent runs AFTER the install loop, src/index.ts:2022 — a real customer `jolly init` self-detects "claude". Route to Crew if it's a real bug.)
+- **Fix 2 — Paper `main` break was transient**, recovered on its own (002:102/311 green in both re-verify runs). No pin. If it recurs, pinning is a Captain product decision (contradicts features 003:93/94 + 002 preview; no known-good ref recorded).
+
+**PROVEN: two consecutive full-boundary GREEN runs, 214/214, 0 failed, same tree.** Reliability > the ~2min the isolated-04:16 env-create adds. Play-by-play runner + parser live in the session scratchpad (`pbp-runner.sh`/`pbp-parser.js`); the runner streams cucumber `message` NDJSON through a parser that narrates slow(>=10s)/failed scenarios + tier tallies.
+
 ### Session detail (landed work, this session)
 
 ### UPDATE 2026-07-09 (continuation): 029-as-producer reorg (recipe+stock) LANDED + VERIFIED
