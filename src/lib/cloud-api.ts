@@ -1070,7 +1070,61 @@ export async function installStripeApp(
       "STRIPE_APP_INSTALL_FAILED",
     );
   }
+  // appInstall enqueues an async installation: the returned appInstallation
+  // starts PENDING and a Saleor worker fetches the manifest and creates the App,
+  // so the app appears in `apps` only once the job reaches SUCCESS. Gate on that
+  // readiness — poll until the Stripe app is present, and fail fast if the
+  // installation reports FAILED — so the stage reports completed only once the
+  // app is genuinely installed.
+  await waitForStripeAppInstalled(
+    graphqlUrl,
+    cloudToken,
+    String(installation.id),
+  );
   return { reused: false };
+}
+
+/**
+ * Poll until the just-enqueued Stripe app installation observably completes: the
+ * Stripe app is present in `apps`. Fail fast on a FAILED installation, and fail
+ * with the last observed state when the deadline passes.
+ * @planks("When `jolly stripe` runs the Stripe app-install stage against that store")
+ * @planks("Then it should install the Saleor Stripe app via Saleor GraphQL `appInstall` using the Cloud staff token and the current Stripe app manifest")
+ */
+async function waitForStripeAppInstalled(
+  graphqlUrl: string,
+  cloudToken: string,
+  installationId: string,
+): Promise<void> {
+  const deadline = Date.now() + 120_000;
+  for (;;) {
+    const apps = await queryGetApps(graphqlUrl, cloudToken);
+    if (apps.some((app) => /stripe/i.test(app.name ?? ""))) {
+      return;
+    }
+    const data = await graphqlFetch(
+      graphqlUrl,
+      cloudToken,
+      `query { appsInstallations { id status message } }`,
+    );
+    const installations = (data.appsInstallations ?? []) as Array<
+      Record<string, unknown>
+    >;
+    const current = installations.find((i) => i.id === installationId);
+    if (current && current.status === "FAILED") {
+      throw new CloudApiError(
+        `Stripe app installation failed: ${String(current.message ?? "unknown error")}`,
+        "STRIPE_APP_INSTALL_FAILED",
+      );
+    }
+    if (Date.now() >= deadline) {
+      throw new CloudApiError(
+        `Stripe app installation did not complete within the deadline (last status: ${String(current?.status ?? "unknown")})`,
+        "STRIPE_APP_INSTALL_FAILED",
+      );
+    }
+    await sleep(3_000);
+  }
 }
 
 // ── Checkout-readiness probe (feature 005 Rule "Checkout-readiness verify probe")
