@@ -18,8 +18,9 @@
 // directory.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { absentCredentialsEnv } from "../support/creds-env.ts";
 import type { JollyWorld } from "../support/world.ts";
 
@@ -125,6 +126,209 @@ Then(
     const skills = this.envelope.data.skills as string[];
     assert.ok(Array.isArray(skills), "installed skills must be reported in the envelope");
     assert.ok(this.envelope.checks.length > 0, "per-skill state must be reported as checks");
+  },
+);
+
+// ─── Scenario: Jolly installs the default skill set concurrently ─────────────
+//
+// Real by default vs the network: `npx skills add` reaches a registry the @logic
+// harness cannot reach (same condition the sibling scenarios handle by seeding
+// skills on disk). Here the substitution is a real `npx` PATH shim — a genuine
+// subprocess Jolly spawns exactly as it spawns the real installer — that records
+// its own wall-clock interval, lands the skill under `.agents/skills/<id>/`, and
+// appends the id to the lock file with an atomic O_APPEND write. Only the
+// unreachable registry fetch is replaced; the concurrency under observation is
+// Jolly's own orchestration of those spawns, exercised for real.
+//
+// Sequential production (a blocking `spawnSync` per skill) yields disjoint
+// intervals — no overlap. Concurrent production yields a later spawn beginning
+// before an earlier one finishes. The overlap is the observable that separates
+// the two, read from the spawns' recorded timing.
+
+// Maps the exact `add` source Jolly passes to the installed skill id. Only the
+// stripe ref needs it (its id is not the ref's basename); the Jolly skill spawns
+// from its bundled absolute path whose basename is already `jolly`, and every
+// Saleor ref's basename is its id. Must stay in sync with src/index.ts
+// DEFAULT_SKILLS, like DEFAULT_SKILL_IDS above.
+const SKILL_REF_TO_ID: Record<string, string> = {
+  "dmytri/jolly": "jolly",
+  "https://github.com/saleor/agent-skills/tree/main/skills/saleor-storefront": "saleor-storefront",
+  "https://github.com/saleor/agent-skills/tree/main/skills/saleor-configurator": "saleor-configurator",
+  "https://github.com/saleor/agent-skills/tree/main/skills/storefront-builder": "storefront-builder",
+  "https://github.com/saleor/agent-skills/tree/main/skills/saleor-core": "saleor-core",
+  "https://github.com/saleor/agent-skills/tree/main/skills/saleor-app": "saleor-app",
+  "stripe/ai@stripe-best-practices": "stripe-best-practices",
+};
+
+/** Each shimmed install holds its skill dir for this long, so a concurrent
+ * spawn's start lands inside an earlier spawn's interval and a sequential one
+ * does not. Comfortably longer than the ms-resolution wall clock the shim reads. */
+const SHIM_INSTALL_MS = 300;
+
+interface InstallInterval {
+  id: string;
+  start: number;
+  end: number;
+}
+
+/** Resolve the real `npx` before the shim dir shadows it on PATH, so the shim
+ * can fall through to it for any non-`skills add` invocation. */
+function realNpxPath(): string {
+  const which = spawnSync(process.platform === "win32" ? "where" : "which", ["npx"], {
+    encoding: "utf8",
+  });
+  const first = (which.stdout ?? "").split(/\r?\n/).find((l) => l.trim() !== "");
+  return first?.trim() || "npx";
+}
+
+/** Write a real `npx` PATH shim that intercepts `skills add`, records its
+ * wall-clock interval, lands the skill on disk, and appends the id to the lock
+ * file with an atomic O_APPEND write. All paths are baked in, so it needs no
+ * env of its own; only PATH must place the shim first. */
+function writeSkillsAddShim(
+  shimDir: string,
+  traceFile: string,
+  lockFile: string,
+  skillsDir: string,
+): void {
+  const shim = `#!/usr/bin/env node
+"use strict";
+const fs = require("node:fs");
+const path = require("node:path");
+const { spawnSync } = require("node:child_process");
+const argv = process.argv.slice(2);
+const addIdx = argv.indexOf("add");
+if (!(argv.includes("skills") && addIdx !== -1)) {
+  const r = spawnSync(${JSON.stringify(realNpxPath())}, argv, { stdio: "inherit" });
+  process.exit(r.status == null ? 1 : r.status);
+}
+const source = argv[addIdx + 1] || "";
+const map = ${JSON.stringify(SKILL_REF_TO_ID)};
+const id = map[source] || path.basename(source);
+const start = Date.now();
+Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${SHIM_INSTALL_MS});
+const dir = path.join(${JSON.stringify(skillsDir)}, id);
+fs.mkdirSync(dir, { recursive: true });
+fs.writeFileSync(path.join(dir, "SKILL.md"), "# " + id + "\\n");
+fs.appendFileSync(${JSON.stringify(lockFile)}, id + "\\n");
+const end = Date.now();
+fs.appendFileSync(${JSON.stringify(traceFile)}, JSON.stringify({ id, start, end }) + "\\n");
+process.exit(0);
+`;
+  writeFileSync(join(shimDir, "npx"), shim, { mode: 0o755 });
+}
+
+function installIntervals(world: JollyWorld): InstallInterval[] {
+  const traceFile = world.notes.skillsTraceFile as string;
+  if (!existsSync(traceFile)) return [];
+  return readFileSync(traceFile, "utf8")
+    .split("\n")
+    .filter((l) => l.trim() !== "")
+    .map((l) => JSON.parse(l) as InstallInterval);
+}
+
+Given(
+  "the agent invokes `jolly skills install` in a project missing several default skills",
+  function (this: JollyWorld) {
+    // No skills seeded: every default skill is missing, so `skills install`
+    // spawns the installer for each one and the concurrency is exercised across
+    // the full set. Stand up the shim dir, trace, and lock, baking their paths
+    // into the shim so the spawned installs record real timing offline.
+    const shimDir = this.newTempDir("npx-shim");
+    const traceFile = join(this.newTempDir("skills-trace"), "installs.jsonl");
+    const skillsDir = join(this.projectDir, ".agents", "skills");
+    const lockFile = join(skillsDir, "installed.lock");
+    mkdirSync(skillsDir, { recursive: true });
+    writeSkillsAddShim(shimDir, traceFile, lockFile, skillsDir);
+    this.notes.skillsShimDir = shimDir;
+    this.notes.skillsTraceFile = traceFile;
+    this.notes.skillsLockFile = lockFile;
+  },
+);
+
+When(
+  "Jolly installs the default skill set via `npx skills add`",
+  function (this: JollyWorld) {
+    // Real absence of credentials, and the shim dir first on PATH so Jolly's own
+    // `npx skills add` spawns resolve to the interval-recording shim.
+    const shimDir = this.notes.skillsShimDir as string;
+    this.runCli(["skills", "install", "--json"], {
+      env: absentCredentialsEnv({
+        PATH: `${shimDir}${delimiter}${process.env.PATH ?? ""}`,
+      }),
+    });
+  },
+);
+
+Then(
+  "the skill installs should run concurrently, a later skill's install beginning before an earlier skill's install finishes",
+  function (this: JollyWorld) {
+    const intervals = installIntervals(this);
+    assert.ok(
+      intervals.length >= 2,
+      `at least two skills must install for concurrency to be observable; ` +
+        `recorded ${intervals.length}`,
+    );
+    // Sort by start; an overlap exists when some install begins before the
+    // latest end seen among the installs that started earlier.
+    const byStart = [...intervals].sort((a, b) => a.start - b.start);
+    let maxEnd = byStart[0].end;
+    let overlap = false;
+    for (let i = 1; i < byStart.length; i++) {
+      if (byStart[i].start < maxEnd) overlap = true;
+      if (byStart[i].end > maxEnd) maxEnd = byStart[i].end;
+    }
+    assert.ok(
+      overlap,
+      `installs ran sequentially, no overlap: a later install must begin before ` +
+        `an earlier one finishes. intervals=${JSON.stringify(byStart)}`,
+    );
+  },
+);
+
+Then(
+  "every default skill should still land under `.agents\\/skills\\/<id>\\/`",
+  function (this: JollyWorld) {
+    const base = join(this.projectDir, ".agents", "skills");
+    for (const id of DEFAULT_SKILL_IDS) {
+      assert.ok(
+        existsSync(join(base, id)),
+        `skill "${id}" must land under .agents/skills/${id}/ after a concurrent install`,
+      );
+    }
+    // Jolly's own envelope must report the concurrent install as a clean success.
+    assert.equal(
+      this.envelope.status,
+      "success",
+      `concurrent install of every default skill must report success; got ` +
+        `${this.envelope.status}: ${this.envelope.summary}`,
+    );
+  },
+);
+
+Then(
+  "the skills lock\\/metadata file should record every installed skill id without corruption",
+  function (this: JollyWorld) {
+    const lockFile = this.notes.skillsLockFile as string;
+    assert.ok(existsSync(lockFile), "the installer must write the skills lock/metadata file");
+    const lines = readFileSync(lockFile, "utf8").split("\n").filter((l) => l !== "");
+    // No corruption: every line is a clean, recognized skill id, and every
+    // default skill appears exactly once despite the concurrent appends.
+    for (const line of lines) {
+      assert.ok(
+        DEFAULT_SKILL_IDS.includes(line),
+        `lock file holds a corrupt or interleaved entry: ${JSON.stringify(line)}`,
+      );
+    }
+    const recorded = new Set(lines);
+    for (const id of DEFAULT_SKILL_IDS) {
+      assert.ok(recorded.has(id), `lock file must record installed skill id "${id}"`);
+    }
+    assert.equal(
+      lines.length,
+      recorded.size,
+      `lock file must record each skill id once, no duplicate appends: ${JSON.stringify(lines)}`,
+    );
   },
 );
 

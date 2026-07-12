@@ -1857,6 +1857,27 @@ function installSkill(skill: SkillSpec): { installed: boolean; stderr?: string }
 }
 
 /**
+ * Concurrent form of installSkill: spawn the installer without blocking so the
+ * whole default set installs in parallel. Each returned promise resolves when
+ * its own `npx skills add` exits, so a later skill's install begins before an
+ * earlier one finishes. On-disk verification remains the contract.
+ * @planks("Then the skill installs should run concurrently, a later skill's install beginning before an earlier skill's install finishes")
+ * @planks("Then every default skill should still land under `.agents/skills/<id>/`")
+ * @planks("Then the skills lock/metadata file should record every installed skill id without corruption")
+ */
+function installSkillAsync(skill: SkillSpec): Promise<void> {
+  const source = skill.id === "jolly" ? bundledJollySkillPath() : skill.ref;
+  return new Promise((resolve) => {
+    const child = spawn(
+      "npx",
+      ["--yes", "skills", "add", source, "--yes", "--skill", "*"],
+      { cwd: projectDir(), stdio: "ignore" },
+    );
+    child.on("close", () => resolve());
+  });
+}
+
+/**
  * @planks("When the agent invokes `jolly init`")
  * @planks("Then it should merge, not replace, any existing .mcp.json, adding the Jolly MCP server entry to the existing servers object rather than writing a fresh object")
  * @planks("When the agent runs `jolly doctor init --json`")
@@ -2603,15 +2624,21 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
 /**
  * @planks("When the agent invokes `jolly skills install`")
  * @planks("When the agent invokes `jolly skills update`")
+ * @planks("When Jolly installs the default skill set via `npx skills add`")
+ * @planks("Then the skill installs should run concurrently, a later skill's install beginning before an earlier skill's install finishes")
  */
-function commandSkills(args: ParsedArgs): Envelope {
+async function commandSkills(args: ParsedArgs): Promise<Envelope> {
   const command = "skills";
   const sub = args.positionals[1];
 
   if (sub === "install" || sub === "update") {
+    // Install every missing skill concurrently: fire all spawns, then await
+    // the whole set so a later install begins before an earlier one finishes.
+    if (sub === "install") {
+      const missing = DEFAULT_SKILLS.filter((skill) => !skillInstalledOnDisk(skill));
+      await Promise.all(missing.map((skill) => installSkillAsync(skill)));
+    }
     const checks: Check[] = DEFAULT_SKILLS.map((skill) => {
-      const already = skillInstalledOnDisk(skill);
-      if (!already && sub === "install") installSkill(skill);
       const present = skillInstalledOnDisk(skill);
       return {
         id: `skill-${skill.id}`,
@@ -3926,10 +3953,11 @@ function clearPendingVercel(): void {
  * @planks("When the run reaches the deploy stage without `--dry-run`")
  * @planks("When the agent runs `jolly deploy` without `--dry-run`")
  * @planks("Then the pending sign-in nextStep should resume by re-running `jolly deploy`, the command that reached the gate")
+ * @planks("Then the nextStep should instruct the human to open the URL, approve it, reply \"done\", and re-run `jolly deploy` to continue, the same pause-and-resume contract as the Saleor sign-in gate")
  */
 function vercelSignInNextStep(deviceUrl: string, resumeCommand: string): NextStep {
   return {
-    description: `Hand this link to your human to approve the Vercel sign-in in their browser: ${deviceUrl}. The \`command\` below resumes and deploys once it's approved.`,
+    description: `Hand this link to your human to open and approve the Vercel sign-in in their browser: ${deviceUrl}. Tell them to reply "done" once they've approved; then re-run \`${resumeCommand}\` and I continue.`,
     url: deviceUrl,
     command: resumeCommand,
   };

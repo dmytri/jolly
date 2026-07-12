@@ -13,6 +13,14 @@ Feature: Agent skill installation targets
     And it should record the installed skill ids and versions in the skills lock/metadata file written by `npx skills add`
 
   @logic
+  Scenario: Jolly installs the default skill set concurrently
+    Given the agent invokes `jolly skills install` in a project missing several default skills
+    When Jolly installs the default skill set via `npx skills add`
+    Then the skill installs should run concurrently, a later skill's install beginning before an earlier skill's install finishes
+    And every default skill should still land under `.agents/skills/<id>/`
+    And the skills lock/metadata file should record every installed skill id without corruption
+
+  @logic
   Scenario: Jolly adds agent-specific glue
     Given the default skill set has been installed under `.agents/skills/`
     When the agent invokes `jolly skills install` in a project with a CLAUDE.md file

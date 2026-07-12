@@ -933,6 +933,71 @@ Then(
   },
 );
 
+/** The pending Vercel sign-in nextStep: the entry whose structured `url` field
+ * carries the Vercel device-authorization URL. */
+function vercelSignInNextStep(world: JollyWorld): Record<string, unknown> | undefined {
+  const steps = (world.envelope.nextSteps ?? []) as Array<Record<string, unknown>>;
+  return steps.find((s) => /https:\/\/vercel\.com\/oauth\/device/i.test(String(s.url ?? "")));
+}
+
+Then(
+  "the nextStep should present the sign-in URL as its own structured, clickable field, so the human never has to find it in the Vercel CLI's raw output",
+  function (this: JollyWorld) {
+    const step = vercelSignInNextStep(this);
+    assert.ok(
+      step,
+      `the sign-in URL must ride a nextStep's structured \`url\` field, not be buried in ` +
+        `the Vercel CLI's raw output; nextSteps: ${JSON.stringify(this.envelope.nextSteps)}`,
+    );
+    // Structured/clickable: the URL is the `url` field's whole value (an agent
+    // renders it as a link), not a fragment the human must extract from prose.
+    assert.match(
+      String(step!.url),
+      /^https:\/\/vercel\.com\/oauth\/device\?[^\s]+$/i,
+      `the \`url\` field must be the sign-in URL itself: ${JSON.stringify(step!.url)}`,
+    );
+    // The URL must not be relayed on the machine-readable stdout envelope's
+    // surrounding noise nor as an OSC 8 escape (agent path is plain JSON).
+    assert.ok(
+      // eslint-disable-next-line no-control-regex
+      !/\x1b\]8;;/.test(this.lastRun!.stdout),
+      `agent (--json) stdout must carry no OSC 8 hyperlink escape:\n${JSON.stringify(this.lastRun!.stdout)}`,
+    );
+  },
+);
+
+Then(
+  "the nextStep should instruct the human to open the URL, approve it, reply \"done\", and re-run `jolly deploy` to continue, the same pause-and-resume contract as the Saleor sign-in gate",
+  function (this: JollyWorld) {
+    const step = vercelSignInNextStep(this);
+    assert.ok(step, "the pending Vercel sign-in nextStep must be present");
+    const blob = `${String(step!.description ?? "")} ${String(step!.command ?? "")}`.toLowerCase();
+    // Open + approve the sign-in.
+    assert.match(
+      blob,
+      /approve/,
+      `the nextStep must instruct the human to approve the sign-in: ${JSON.stringify(step)}`,
+    );
+    // Reply "done" once approved — the Saleor gate's pause token.
+    assert.match(
+      blob,
+      /reply\s+"?done"?|"done"/,
+      `the nextStep must instruct the human to reply "done" once approved, ` +
+        `the same pause token as the Saleor sign-in gate: ${JSON.stringify(step)}`,
+    );
+    // Re-run `jolly deploy` to continue — the resume half of the contract.
+    assert.ok(
+      blob.includes("jolly deploy"),
+      `the nextStep must instruct re-running \`jolly deploy\` to continue: ${JSON.stringify(step)}`,
+    );
+    assert.equal(
+      step!.command,
+      "jolly deploy",
+      `the nextStep's resume \`command\` must be \`jolly deploy\`: ${JSON.stringify(step)}`,
+    );
+  },
+);
+
 Then(
   "the deploy stage should report a pending Vercel sign-in gate that states Jolly runs the Vercel sign-in together with the human, not a deploy `failed`",
   function (this: JollyWorld) {

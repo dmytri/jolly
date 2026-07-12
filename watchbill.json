@@ -1,0 +1,14 @@
+{
+  "watch1": {
+    "scenarios": [
+      "features/009-agent-skill-installation-targets.feature:Jolly installs the default skill set concurrently"
+    ]
+  },
+  "watch2": {
+    "scenarios": [
+      "features/002-v1-end-to-end-saleor-cloud-storefront.feature:jolly deploy spawns the Vercel sign-in itself when there is no Vercel session",
+      "features/002-v1-end-to-end-saleor-cloud-storefront.feature:Jolly start prepares the storefront concurrently with the Saleor Cloud stages",
+      "features/004-jolly-configurator-starter-recipe.feature:Jolly start seeds stock and assigns collections with concurrent Saleor requests"
+    ]
+  }
+}

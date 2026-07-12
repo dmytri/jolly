@@ -121,12 +121,22 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And `nextSteps` should list the remaining human gates
 
   @sandbox @heavy
+  Scenario: Jolly start prepares the storefront concurrently with the Saleor Cloud stages
+    Given the agent runs `jolly start --yes` on a fresh project that needs a new store
+    When the run executes the store, recipe, and storefront stages
+    Then the storefront clone and install should run concurrently with the Saleor Cloud provisioning and recipe deploy, beginning before the store stage reports completed
+    And the deploy stage should wait for the storefront preparation to finish before it deploys
+    And each stage should still report its own honest status, never a fabricated completion
+    And the store, recipe, and deploy stages should still each emit their feature 021 `riskContext`
+
+  @sandbox @heavy
   Scenario: jolly deploy spawns the Vercel sign-in itself when there is no Vercel session
     Given the storefront is ready for deployment
     And the Vercel CLI is pointed at an isolated config with no signed-in session
     When the agent runs `jolly deploy` without `--dry-run`
     Then Jolly should itself spawn `npx vercel@latest login` and surface its device-authorization URL before attempting any deploy
-    And a nextStep should carry the Vercel sign-in URL for the human to open and approve
+    And the nextStep should present the sign-in URL as its own structured, clickable field, so the human never has to find it in the Vercel CLI's raw output
+    And the nextStep should instruct the human to open the URL, approve it, reply "done", and re-run `jolly deploy` to continue, the same pause-and-resume contract as the Saleor sign-in gate
     And the deploy stage should report a pending Vercel sign-in gate that states Jolly runs the Vercel sign-in together with the human, not a deploy `failed`
     And no deploy or vercel check should report `fail` when the only obstacle is the missing Vercel sign-in
     And Jolly's own code should send no request to api.vercel.com and hold no Vercel token while doing so
@@ -220,7 +230,10 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
       lets the Vercel CLI's device grant COMPLETE — exit 0 means the session exists and the deploy
       proceeds unattended. On the agent path (`--json`, `--yes`/`-y`, or no interactive terminal)
       Jolly cannot complete a human authorization, so it captures the device-authorization URL, routes
-      it to stderr (never stdout) for the relaying agent, and reports the deploy stage as a `pending`
+      it to stderr (never stdout) for the relaying agent, and surfaces that URL as a structured,
+      clickable `nextStep` field carrying a reply-"done"-then-re-run-`jolly deploy` resume contract —
+      the same pause-and-resume shape as the Saleor device-grant gate, never leaving the human to dig
+      the URL out of the Vercel CLI's raw output. It reports the deploy stage as a `pending`
       human sign-in gate that states Jolly runs the Vercel sign-in together with the human — bounded,
       never blocking indefinitely on a human authorization the device flow cannot auto-complete in a
       non-interactive context. A missing session is therefore a pending sign-in gate, never a deploy

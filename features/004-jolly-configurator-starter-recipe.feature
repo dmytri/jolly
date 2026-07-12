@@ -37,6 +37,15 @@ Feature: Jolly Configurator starter recipe
     And a checkout in the `us` channel should not be blocked by INSUFFICIENT_STOCK
     And re-running the stage should update the quantities idempotently rather than creating duplicate stock
 
+  @sandbox @heavy
+  Scenario: Jolly start seeds stock and assigns collections with concurrent Saleor requests
+    Given a freshly created Saleor Cloud environment with the starter recipe deployed
+    When Jolly start runs the stock stage over the recipe's variants and collections
+    Then the per-variant stock mutations should run concurrently rather than one variant at a time
+    And the per-collection product assignments should run concurrently rather than one collection at a time
+    And every recipe product variant should have stock in the recipe warehouse afterwards
+    And re-running the stage should update the quantities idempotently rather than creating duplicate stock
+
   @logic @exceptional-double
   Scenario: A transient Saleor rate-limit during the stock stage retries instead of reporting a false blocked
     Given the stock stage's Saleor GraphQL endpoint returns HTTP 429 once and then succeeds with the recipe catalog in stock
