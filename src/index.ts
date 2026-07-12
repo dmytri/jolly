@@ -174,8 +174,6 @@ const KNOWN_FLAGS = new Set<string>([
 /**
  * @planks("When the agent runs `<command>`")
  * @planks("When the agent runs `jolly doctor --json`")
- * @planks("When the agent runs `jolly auth status --json`")
- * @planks("When the agent runs `jolly create store --dry-run --json`")
  * @planks("When the agent runs `jolly doctor`")
  * @planks("When the agent runs `jolly start --dry-run --quiet`")
  * @planks("When the agent runs `jolly create store --url https://evil.example.com/graphql/ --quiet`")
@@ -1180,8 +1178,8 @@ async function inferStoreLocation(
 
 /**
  * @planks("When the agent runs `jolly create store --url https://test-shop.saleor.cloud/graphql/`")
- * @planks("Given a pasted Saleor URL https://my-shop.saleor.cloud/dashboard/")
- * @planks("When the agent runs `jolly create store --url https://my-shop.saleor.cloud/dashboard/ --json`")
+ * @planks("Given a pasted Saleor URL <pasted>")
+ * @planks("When the agent runs `jolly create store --url <pasted> --json`")
  * @planks("When the agent runs `jolly create store --url https://shop.saleor.cloud/graphql/ --dry-run --json`")
  * @planks("When the agent runs `jolly create store --create-environment --dry-run --json`")
  * @planks("When the agent previews environment creation with `jolly create store --create-environment --dry-run --json`")
@@ -3172,7 +3170,7 @@ async function runStoreStage(
  * the published bundle (`dist/index.js`): both sit one level under the package
  * root, and `assets/skills/` ships in package `files`.
  * @planks("When the agent runs `jolly start --dry-run --json`")
- * @planks("When the agent runs `jolly start --yes` to apply the starter recipe to Saleor Cloud")
+ * @planks("When the agent runs `jolly recipe --yes --json` to apply the starter recipe to Saleor Cloud")
  */
 function bundledRecipePath(): string {
   return fileURLToPath(new URL("../assets/skills/jolly/recipe.yml", import.meta.url));
@@ -3201,9 +3199,8 @@ function bundledRecipePath(): string {
  * error) on any non-zero exit or a configurator that cannot be spawned — never a
  * fabricated deploy.
  * @planks("When the agent runs `jolly start --dry-run --json`")
- * @planks("When the agent runs `jolly start --yes` to apply the starter recipe to Saleor Cloud")
- * @planks("When Jolly start runs the configurator-deploy stage with approval")
- * @planks("When the agent runs `jolly start --yes` and the run reaches the configurator-deploy stage")
+ * @planks("When the agent runs `jolly recipe --yes --json` to apply the starter recipe to Saleor Cloud")
+ * @planks("When the run reaches the configurator-deploy stage without `--dry-run`")
  */
 async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
   const values = loadEnvValues(projectDir());
@@ -3760,7 +3757,7 @@ async function runStorefrontStage(checks: Check[]): Promise<StageStatus> {
  */
 /**
  * The Vercel device-authorization URL the CLI prints when it signs in, or undefined.
- * @planks("When `jolly start` reaches the deploy stage without `--dry-run`")
+ * @planks("When the run reaches the deploy stage without `--dry-run`")
  */
 function extractDeviceUrl(text: string): string | undefined {
   const m = text.match(/https:\/\/vercel\.com\/oauth\/device\?[^\s]+/i);
@@ -3776,7 +3773,7 @@ function extractDeviceUrl(text: string): string | undefined {
  * moment that marker appears, killing the probe so nothing is left polling.
  * Jolly reads no Vercel token; it only asks the CLI under its own auth.
  * @planks("When `jolly start` deploys to Vercel")
- * @planks("When `jolly start` reaches the deploy stage without `--dry-run`")
+ * @planks("When the run reaches the deploy stage without `--dry-run`")
  */
 async function probeVercelSession(): Promise<{ signedIn: boolean; account: string }> {
   return new Promise((resolve) => {
@@ -3833,7 +3830,7 @@ const VERCEL_SIGNIN_URL_TIMEOUT_MS = 60_000;
 // the human approves (the bug the old kill-after-capture version had). Returns
 // the captured device URL, or undefined. Jolly holds no Vercel token.
 /**
- * @planks("When `jolly start` reaches the deploy stage without `--dry-run`")
+ * @planks("When the run reaches the deploy stage without `--dry-run`")
  */
 async function spawnVercelSignIn(): Promise<{ deviceUrl?: string }> {
   const logPath = join(tmpdir(), `jolly-vercel-login-${process.pid}-${Date.now()}.log`);
@@ -3879,7 +3876,7 @@ function pendingVercelPath(): string {
 }
 
 /**
- * @planks("When the agent runs `jolly start` again while the sign-in URL is within its lifetime")
+ * @planks("When the agent runs `jolly deploy` again while the sign-in URL is within its lifetime")
  */
 function loadPendingVercelUrl(): string | undefined {
   try {
@@ -3902,7 +3899,7 @@ function loadPendingVercelUrl(): string | undefined {
 }
 
 /**
- * @planks("When `jolly start` reaches the deploy stage without `--dry-run`")
+ * @planks("When the run reaches the deploy stage without `--dry-run`")
  */
 function savePendingVercel(deviceUrl: string): void {
   try {
@@ -3926,7 +3923,7 @@ function clearPendingVercel(): void {
 // The nextStep that hands the human the clickable Vercel verification URL and
 // tells the agent to re-run once approved (feature 002).
 /**
- * @planks("When `jolly start` reaches the deploy stage without `--dry-run`")
+ * @planks("When the run reaches the deploy stage without `--dry-run`")
  * @planks("When the agent runs `jolly deploy` without `--dry-run`")
  * @planks("Then the pending sign-in nextStep should resume by re-running `jolly deploy`, the command that reached the gate")
  */
@@ -3967,7 +3964,7 @@ async function runInteractiveVercelSignIn(): Promise<void> {
 
 /**
  * @planks("When `jolly start` deploys to Vercel")
- * @planks("When `jolly start` reaches the deploy stage without `--dry-run`")
+ * @planks("When the run reaches the deploy stage without `--dry-run`")
  * @planks(`Then the `deploy` stage should report "completed" with the deployed `*.vercel.app` URL captured from the Vercel CLI's output`)
  * @planks("Then it should persist `NEXT_PUBLIC_SALEOR_API_URL` and `NEXT_PUBLIC_DEFAULT_CHANNEL` on the Vercel project through the Vercel CLI, so a plain `npx vercel deploy` re-deploy also builds them")
  * @planks("Then it should write `NEXT_PUBLIC_DEFAULT_CHANNEL` to `.env`, so the local storefront and a re-deploy read the store channel with no key juggling")
@@ -4674,7 +4671,7 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
 /**
  * @planks("When the agent runs `jolly start --json` with no store URL")
  * @planks("When the agent runs `jolly start --json` in a non-interactive shell")
- * @planks("When the agent runs `jolly start --yes --json`")
+ * @planks("When `jolly start --yes` runs its orchestration")
  * @planks("When the agent runs `jolly start --dry-run --json`")
  * @planks("When `jolly start --dry-run` runs in an interactive terminal with no flag beyond `--dry-run`")
  * @planks("When `jolly start --dry-run` runs in an interactive terminal")
@@ -4717,7 +4714,7 @@ const DEFAULT_STAGE_RUNNERS: Record<string, StageRunner> = {
  *
  * @planks("When the agent runs `jolly start --json` with no store URL")
  * @planks("When the agent runs `jolly start --json` in a non-interactive shell")
- * @planks("When the agent runs `jolly start --yes --json`")
+ * @planks("When `jolly start --yes` runs its orchestration")
  * @planks("When the agent runs `jolly start --dry-run --json`")
  * @planks("Then it should perform and report only the stages it actually completed (the local bootstrap — skills, scaffold, doctor)")
  * @planks("Then the data should include a per-stage plan of intended effects: directories created, files written, network hosts contacted, and repositories cloned")
@@ -5199,14 +5196,6 @@ function commandUsage(args: ParsedArgs): Envelope {
   });
 }
 
-/**
- * @planks("When the agent runs `jolly frobnicate --json`")
- * @planks("When the agent runs `jolly start --frobnicate --json`")
- * @planks("When the agent runs `jolly start --json` with no store URL")
- * @planks("When the agent runs `jolly start --json` in a non-interactive shell")
- * @planks("When the agent runs `jolly start --yes --json`")
- * @planks("When the agent runs `jolly start --dry-run --json`")
- */
 // ─── Composable stage commands (feature 029) ────────────────────────────────
 
 // Run exactly one side-effecting stage as its own first-class `jolly` command,
@@ -5218,16 +5207,15 @@ function commandUsage(args: ParsedArgs): Envelope {
 /**
  * @planks("When the agent runs `jolly deploy --yes --json`")
  * @planks("When the agent runs `jolly storefront --yes --json`")
- * @planks("When the agent runs `jolly recipe --yes --json`")
- * @planks("When the agent runs `jolly stock --yes --json`")
+ * @planks("When the agent runs `jolly recipe --yes --json` to apply the starter recipe to Saleor Cloud")
  * @planks("When the agent runs `jolly stripe --yes --json`")
  * @planks(`Then the `storefront` stage should report "completed", backed by a real cloned Paper storefront with installed dependencies on disk`)
- * @planks(`Then the `recipe` stage should report "completed", having deployed the bundled starter recipe through `@saleor/configurator``)
- * @planks(`Then the `stock` stage should report "completed", having seeded stock for the recipe variants through Saleor GraphQL`)
+ * @planks(`Then that run should report the `recipe` stage "completed", having deployed the bundled starter recipe through `@saleor/configurator``)
+ * @planks(`Then that run should report the `stock` stage "completed", having seeded stock for the recipe variants through Saleor GraphQL`)
  * @planks(`Then the `stripe` stage should report "completed" or "blocked" honestly, having attempted the Saleor app install for the Stripe payment app`)
  * @planks("Then it should not provision a store, clone the storefront, or run any other stage")
  * @planks("Then it should not provision a store, deploy, or run any other stage")
- * @planks("Then it should not provision a store, prepare the storefront, or deploy")
+ * @planks("Then that run should not have provisioned a store, prepared the storefront, or deployed")
  * @planks("Then it should not deploy or run any other stage")
  * @planks("When the agent runs `jolly deploy` without `--dry-run`")
  * @planks("Then Jolly should itself spawn `npx vercel@latest login` and surface its device-authorization URL before attempting any deploy")

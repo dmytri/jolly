@@ -19,17 +19,17 @@ Procedure lives in the skills. Every role reads this on open.
 
 ## Commands
 
-- discover: `npx cucumber-js --dry-run --tags "not @captain"`
-- focused: `npx cucumber-js "{scenario}" --tags "not @captain"`
-- broad: `npx cucumber-js -p logic --tags "@logic and not @captain"`
-- coverage: `npx c8 --reporter=text --reporter=json -- npx cucumber-js -p logic --tags "@logic and not @captain"`
-- coverage-sandbox: `NODE_OPTIONS=--max-old-space-size=8192 npx c8 --clean=false --reporter=text --reporter=json -- npx cucumber-js -p sandbox --tags "@sandbox and not @captain"`
-- step-usage: `npx cucumber-js --dry-run --format usage-json --tags "not @captain"`
+- discover: `npx cucumber-js --dry-run --tags "not @captain and not @shipwright"`
+- focused: `sh -c 'f="$1"; npx cucumber-js "${f%%:*}" --name "^${f#*:}$" --tags "not @captain and not @shipwright"' _ "{scenario}"`
+- broad: `npx cucumber-js -p logic --tags "@logic and not @captain and not @shipwright"`
+- coverage: `npx c8 --reporter=text --reporter=json -- npx cucumber-js -p logic --tags "@logic and not @captain and not @shipwright"`
+- coverage-sandbox: `NODE_OPTIONS=--max-old-space-size=8192 npx c8 --clean=false --reporter=text --reporter=json -- npx cucumber-js -p sandbox --tags "@sandbox and not @captain and not @shipwright"`
+- step-usage: `npx cucumber-js --dry-run --format usage-json --tags "not @captain and not @shipwright"`
 - reclaim: `npm run reclaim` — standalone preflight that deletes stale `jolly-cannon-fodder`-namespaced leftovers (Cloud environments + local scratch dirs) without running any tier; the same reclamation also runs automatically at the start of every cucumber invocation (BeforeAll, `features/support/hooks.ts`)
 - plank-inventory: `grep -rn '@planks' src/ bin/`
 - typecheck: `npm run typecheck`
 - lint: `npx gplint "features/*.feature"`
-- conformance: `npx cucumber-js --profile logic --tags "@logic and @property and not @captain"` — runs the structural `@property` scenarios (module-layering boundaries, single env-creation seam, single command-surface parser seam for the global output flags, live-by-design) discharged by the ts-morph conformance checker in the verification layer
+- conformance: `npx cucumber-js --profile logic --tags "@logic and @property and not @captain and not @shipwright"` — runs the structural `@property` scenarios (module-layering boundaries, single env-creation seam, single command-surface parser seam for the global output flags, live-by-design) discharged by the ts-morph conformance checker in the verification layer
 
 ## Perturbation
 
