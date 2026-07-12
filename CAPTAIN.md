@@ -261,6 +261,19 @@ Fixes (all verification-layer except the seed-list drift, which is a real correc
 
 **PROVEN: two consecutive full-boundary GREEN runs, 214/214, 0 failed, same tree.** Reliability > the ~2min the isolated-04:16 env-create adds. Play-by-play runner + parser live in the session scratchpad (`pbp-runner.sh`/`pbp-parser.js`); the runner streams cucumber `message` NDJSON through a parser that narrates slow(>=10s)/failed scenarios + tier tallies.
 
+### UPDATE 2026-07-12: deploy/stripe stage scenarios via composable commands — SHIPPED (`a27b87e`, PUSHED to origin/main)
+
+dk "look deeper: it should not take that long" -> deep step-level profile (session `extract-timings.js` over full-boundary NDJSON) CONFIRMED the fast-forward `jolly start` scenarios re-run the recipe+stock reconcile (~55-70s) on EVERY run just to reach a downstream stage — the "duplicate creation" dk sensed. Iteration 1 (PUSHED `a27b87e`, `4ad0f78..a27b87e`):
+- **005:31 -> `jolly stripe`** (composable stage command, feature 029) instead of fast-forward `jolly start`: **~150s -> ~2s.** Real appInstall + idempotent reuse + keys/channel gate preserved.
+- **002:319 -> `jolly deploy` x3** instead of `jolly start` x3: **~224s -> ~8s.** Saved-URL reuse is pure deploy-stage state; asserts via `data.deploy.vercelSignInUrl`.
+- **Production (additive, correctness-neutral):** extracted shared `stripeKeysChannelGateStep()` (src/index.ts) — `commandStage("stripe")` now surfaces the keys+`us`-channel gate nextStep, so standalone `jolly stripe` announces it same as `jolly start` (can't drift). Coverage preserved: composition pinned by 029:45 + @logic 005:22; the shared builder keeps both entry points' gates identical.
+- **Planks:** the 005:31 step rename left 3 stale `@planks("When Jolly start reaches the Stripe stage")` (index.ts:3558, cloud-api.ts:545/1023) -> repointed to the renamed step. New seam `stripeKeysChannelGateStep()` is UNPLANKED (pre-existing gap for 005:36; conformance green without it) -> **harbour/Shipwright**.
+- **VERIFIED: TWO consecutive light-first full boundaries** (reclaim->@sandbox light->@sandbox heavy->@eval), both 52/52 (0 failed); @logic 162/162; conformance 27/27. Converted scenarios stable across both (8.4/8.3s, 1.9/2.3s). Heavy tier now ~33.5min (2009/2011s). Session runner `boundary-runner.sh` omits @logic (verified separately); full 214-count includes @logic.
+
+**ITERATION-2 BACKLOG (deferred; real but trade-off-laden — dk full latency authority stands):**
+- **@creates-env readiness squeeze (~484s, BIGGEST remaining lever):** `provisionStore` (src/index.ts:1698-1704) blocks every freshly-created env on cold-start readiness (`JOLLY_READINESS_BUDGET_MS` default 600s, 5s poll). The @creates-env scenarios never squeeze it (012:88 76s, 012:64-Given 81s, 004:15 156s, 026:20 83s, 002:31 88s). TRADE-OFF: squeezing -> `commandCreateStore` status "warning" + check "fail" (readinessTimedOut path, :1519/:1539), so 012:88 (verifies create->serve) can't blind-squeeze without losing create->serve coverage that only 002:41 otherwise holds. Design per-scenario: squeeze where serving is NOT the behaviour under test (reuse/reclaim/isolation Givens), keep where create->serve IS the point.
+- **002:123/179 -> `jolly deploy` (~166s):** the two Vercel-sign-in scenarios I KEPT as fast-forward `jolly start` (they still reconcile). Deploy-stage behaviour, convertible — but needs a PARAMETERIZED sign-in nextStep builder: `vercelSignInNextStep()` (src/index.ts:3931) hardcodes `command: "jolly start --yes"`, and `commandStage("deploy")` surfaces no nextStep today, so it needs the symmetric deploy production change (surface the sign-in gate per entry point). More involved than 002:319 was.
+
 ### Session detail (landed work, this session)
 
 ### UPDATE 2026-07-09 (continuation): 029-as-producer reorg (recipe+stock) LANDED + VERIFIED
