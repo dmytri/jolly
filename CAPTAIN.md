@@ -35,7 +35,7 @@ Evidence this session: full `@sandbox` serial 36/39 (the trio) with capacity cle
 
 ## Pending outbound
 
-**Harbour requires only `git push`, NOT npm publish or homepage deploy (dk, this session).** So the harbour-entry guard is met once `main` is pushed and the tree is clean. Push to `origin/main` is standing-approved (dk) and is DONE (`main` level with `origin/main`).
+**Harbour requires only `git push`, NOT npm publish or homepage deploy (dk, this session).** So the harbour-entry guard is met once `main` is pushed and the tree is clean. Push to `origin/main` is standing-approved (dk) and is DONE — `main` level with `origin/main` at `14358cb` (2026-07-12, after the pre-outbound 216/216 all-tier green).
 
 The `@dk/jolly` npm publish + homepage deploy are a SEPARATE, deferred release, NOT a harbour blocker. When we choose to cut it, go **green-first, then ship** (dk decision, this session): land the teardown-retry fix + all tiers green, THEN bump/publish/deploy and verify the published npm package and the live homepage. The `--external:yaml` build fix must ride in that eventual release.
 
@@ -43,12 +43,18 @@ The teardown-retry harness fix is directed durably in `AGENTS.md` ("Sandbox harn
 
 ## Harbour status
 
-**Entering harbour 2026-07-12 (post-voyage `fc6c53f`).** This voyage moved feature-002's two Vercel-sign-in scenarios from `jolly start` to the composable `jolly deploy` command (Captain spec edit). QM made the new/reworded steps executable; Crew fixed `commandStage` so `jolly deploy` surfaces the pending Vercel sign-in `nextStep` resuming `jolly deploy` (was dropped). 012/026 reuse/reclamation reworded to pin registry-keying (not env serving) — already green, no production change. Watchbill spent, struck. Harbour agenda (QM/Boatswain deferred findings, re-derivable from signals; carried here for the harbour review):
+**Harbour CLOSED 2026-07-12 — pushed to `origin/main` at `14358cb`.** Post-voyage `fc6c53f` (feature-002's two Vercel-sign-in scenarios moved from `jolly start` to composable `jolly deploy`; Crew fixed `commandStage` to surface the pending sign-in `nextStep` resuming `jolly deploy`). This harbour:
 
-- **RIGGING refit — `focused` selection form.** `focused`'s `{scenario}` takes a `<spec>.feature:<Scenario Name>` reference, but that colon-name form selects 0 scenarios in this cucumber build (the colon is read as a line spec). QM ran every target via `--name` instead. Shipwright: refit the `focused` form so a name reference selects (translate to `:line`, or switch to `--name`).
-- **Orphaned step def.** `features/step_definitions/002-…steps.ts:861` `` `jolly start` reaches the deploy stage without `--dry-run` `` — 0 uses after the rename (step-usage confirmed). Shipwright removal.
-- **Stale `@planks`.** `src/index.ts` lines 3763, 3779, 3836, 3905, 3929, 3970 trace that same renamed step. Harbour re-plank.
-- **Coverage check.** `jolly start`'s deploy-stage sign-in resume (`vercelSignInNextStep(url, "jolly start --yes")`) may be unpinned now the device-URL/resume scenarios moved to `jolly deploy`. Confirm coverage or condemn.
+- **Shipwright refit (`5213968`):** fixed the `focused` command's colon-name→line selection defect (now a file+name-regex select), added `not @shipwright` to the 7 verification commands, corrected 23 stale planks in `src/index.ts` (all feature-rename drift), wrote 2 `@captain` methodology skeletons. The earlier harbour-agenda "stale planks / resume-coverage / orphan-step" items are resolved here except the orphaned step defs (below).
+- **Real red caught by the whole-suite economy audit (`718cb04`):** first full regression 213/214 surfaced a 005 Stripe honesty violation — the Stripe stage reported `completed` while `appInstall`'s async job had not yet left the app on the store (fast 1.1s fail on the real `apps()` query). Fixed with a post-install readiness gate `waitForStripeAppInstalled` (`src/lib/cloud-api.ts`), same pattern as the store cold-start gate. dk's zero-tolerated standard is why it was chased, not tolerated — a boundary run that excused the fast-fail would have shipped a fabricated completion.
+- **Methodology checks promoted + made executable (`14358cb`):** both skeletons now binding `@logic @invariant`, QM implemented them in `features/support/methodology-conformance.ts` with planted-red proofs — perturbation-quiescence (no standing `PERTURBATION` token in src/bin) and watchbill-shape (fixture-based validator, not coupled to the transient live file).
+- **Pre-outbound full regression GREEN whole:** `@logic` 164, `@sandbox`-light 13, `@sandbox`-heavy 38, `@eval` 1 = **216/216, zero skips, ~44 min.** Heavy tier ~90min→~30min (~3×) — the composable-stage-command latency batch landing (sharpest: 002 re-run-deploy ~300s→10s).
+
+Report-only harbour findings, carried for NEXT harbour (re-derive from step-usage / plank inventory / weather):
+
+- **14 orphaned step definitions** (step_definitions 002/004/005/006/008) — mirror of the corrected stale planks, 0 usage, harmless dead verification code (no ambiguity, dry-run clean). QM/Shipwright removal.
+- **`@logic` economy outliers:** ~15 real-`jolly start`/interactive-PTY scenarios at 15-53s dominate the "fast" tier (020 progress-in-place 46-53s, 021 approval-pause 40-51s, the 027 interactive cluster). Could a cheaper seam than a full spawn prove their contract? Economy-audit candidate.
+- **Stripe fresh-install gate thin coverage:** the shared `@sandbox` store keeps the Stripe app installed, so the green run takes the idempotent-reuse path; the new `waitForStripeAppInstalled` fresh-install branch is only re-exercised when the shared store self-heals to a new name. Green + honest, but the fresh path is not hit every run.
 
 Prior harbour (readiness gates, teardown-retry, no-skip removal, maintenance inventory) closed out over several sessions; detail is in git history, not repeated here.
 
