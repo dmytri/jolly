@@ -35,9 +35,11 @@ Evidence this session: full `@sandbox` serial 36/39 (the trio) with capacity cle
 
 ## Pending outbound
 
-**Harbour requires only `git push`, NOT npm publish or homepage deploy (dk, this session).** So the harbour-entry guard is met once `main` is pushed and the tree is clean. Push to `origin/main` is standing-approved (dk) and is DONE — `main` level with `origin/main` at `14358cb` (2026-07-12, after the pre-outbound 216/216 all-tier green).
+**FULL RELEASE SHIPPED 2026-07-12 (dk approved).** After the 216/216 all-tier green, cut the deferred release both targets:
+- **npm `@dk/jolly@0.11.2`** — bumped 0.11.1→0.11.2 (`npm version patch`, tag `v0.11.2`), `npm publish` (prepublishOnly built `dist/index.js`; `--external:yaml` already in build/prepublishOnly, `yaml` in deps). Verified by real install of the published tarball: bin runs the correct bundle. `origin/main` at `2435d76`. NOTE: this VM's `npx @dk/jolly@0.11.2` mis-resolves the bin name (`sh: jolly: not found`) — an old-npx quirk, not an artifact defect; `npm install` + run works.
+- **homepage `jolly.cool`** — `cd assets/homepage && npx vercel deploy --prod --yes` (deploy `6j5hp4omu`). Verified: `jolly.cool` serves 200 and `jolly.cool/setup` EXACT-matches shipped `assets/homepage/setup.md`. The deployment-specific `*.vercel.app` alias 302s to Vercel SSO (expected deployment-protection; the public domain is unprotected).
 
-The `@dk/jolly` npm publish + homepage deploy are a SEPARATE, deferred release, NOT a harbour blocker. When we choose to cut it, go **green-first, then ship** (dk decision, this session): land the teardown-retry fix + all tiers green, THEN bump/publish/deploy and verify the published npm package and the live homepage. The `--external:yaml` build fix must ride in that eventual release.
+Prior standing decision (kept for context): harbour needed only `git push`; the release was deliberately deferred to "green-first, then ship." Both are now done, so nothing outbound is pending. A future homepage change still owes its own `vercel deploy --prod` ([[homepage-deploy-separate-from-npm]]); a future code change owes a version bump before publish (0.11.2 is now taken).
 
 The teardown-retry harness fix is directed durably in `AGENTS.md` ("Sandbox harness mechanics") for a QM cycle. It is verification-only and does not touch the shipped bundle. It did NOT block harbour ENTRY, but it DOES gate harbour CLOSE: resuming the voyage needs a green complete full-tier `@sandbox` boundary, which the teardown crash denies.
 
