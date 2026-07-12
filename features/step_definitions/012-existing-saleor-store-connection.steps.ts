@@ -448,9 +448,12 @@ Then("no environment should be created", function (this: JollyWorld) {
 // saleorCloud-gated. Namespace + teardown registered BEFORE creation.
 
 Given(
-  "this run has already created an environment with a jolly-cannon-fodder-namespaced domain label",
+  "this run has already created an environment with a jolly-cannon-fodder-namespaced domain label that has not yet begun serving requests",
   // Real environment provisioning against the live Cloud API: well beyond the
-  // default 5s cucumber step timeout (the CLI polls async job status).
+  // default 5s cucumber step timeout (the CLI polls async job status). A
+  // freshly-created Cloud environment does not begin serving GraphQL requests
+  // for minutes after creation, so right after this create it is registered but
+  // not yet serving — exactly the reuse-keying condition under test.
   { timeout: 540_000 },
   async function (this: JollyWorld) {
     const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
@@ -499,12 +502,14 @@ When(
 );
 
 Then(
-  "Jolly should reuse the existing environment rather than create a duplicate",
+  "Jolly should reuse the existing environment rather than create a duplicate, keying on the environment registry rather than on the environment serving",
   { timeout: 60_000 },
   async function (this: JollyWorld) {
     // The same-label re-request succeeds by REUSING the existing environment —
     // never a fabricated duplicate, never a failure (feature 022 idempotency:
-    // re-running a stage recognizes the work it already did). The cross-org
+    // re-running a stage recognizes the work it already did). Reuse keys on the
+    // environment REGISTRY (the org's environment list carries the label), not on
+    // whether the not-yet-serving environment answers a live probe. The cross-org
     // global DOMAIN_LABEL_TAKEN rejection cannot be produced on demand from one
     // test org, so it is not exercised here.
     const reuse = this.notes.reuseEnvelope as { status?: string } | undefined;

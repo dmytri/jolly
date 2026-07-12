@@ -333,12 +333,16 @@ async function seedNamespacedEnvironment(world: JollyWorld, name: string) {
 }
 
 Given(
-  "a leftover `jolly-cannon-fodder`-namespaced Saleor environment standing in the org from a previous run",
+  "a leftover `jolly-cannon-fodder`-namespaced Saleor environment standing in the org from a previous run that never finished starting and does not serve requests",
   { timeout: 600_000 },
   async function (this: JollyWorld) {
     const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
     assert.ok(token, "requires JOLLY_SALEOR_CLOUD_TOKEN");
     this.notes.reclaimToken = token;
+    // The seeded leftover is freshly created and never finished starting: a brand
+    // new Cloud environment does not serve GraphQL for minutes, so reclamation must
+    // key on the org's environment registry (the jolly-cannon-fodder- prefix), not on
+    // whether the leftover answers a live probe.
 
     // Snapshot every NON-jolly-cannon-fodder environment now (read-only) so the survival
     // assertion can confirm reclamation never deletes one.

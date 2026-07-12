@@ -894,10 +894,22 @@ function vercelSignInUrlInNextSteps(world: JollyWorld): boolean {
   });
 }
 
+When(
+  "the agent runs `jolly deploy` without `--dry-run`",
+  { timeout: 900_000 },
+  async function (this: JollyWorld) {
+    // Real deploy-stage run against the fast-forwarded store endpoint + present
+    // storefront/ (Given "the storefront is ready for deployment") under the
+    // isolated no-Vercel-session XDG (Given "the Vercel CLI is pointed at an
+    // isolated config"), so `jolly deploy` reaches its sign-in gate for real.
+    await runDeployStageCommand(this);
+  },
+);
+
 Then(
   "Jolly should itself spawn `npx vercel@latest login` and surface its device-authorization URL before attempting any deploy",
   function (this: JollyWorld) {
-    assert.ok(this.envelope.command.startsWith("start"), "the run must be a `jolly start` run");
+    assert.ok(this.envelope.command.startsWith("deploy"), "the run must be a `jolly deploy` run");
     assert.ok(
       vercelSignInUrlInNextSteps(this),
       `Jolly must itself spawn the Vercel sign-in and surface its device URL in a nextStep; got: ${JSON.stringify(this.envelope.nextSteps)}`,
@@ -1047,6 +1059,32 @@ Then(
       hits.length,
       0,
       `must not tell the agent to re-run \`jolly start\` after a manual Vercel sign-in: ${hits.join("; ")}`,
+    );
+  },
+);
+
+Then(
+  "the pending sign-in nextStep should resume by re-running `jolly deploy`, the command that reached the gate",
+  function (this: JollyWorld) {
+    // `jolly deploy` reached the gate, so its pending Vercel sign-in nextStep must
+    // resume by re-running `jolly deploy` — the command the agent ran — never
+    // `jolly start`.
+    const steps = (this.envelope.nextSteps ?? []) as Array<Record<string, unknown>>;
+    const signIn = steps.find((s) =>
+      /https:\/\/vercel\.com\/oauth\/device/i.test(`${String(s.url ?? "")} ${String(s.description ?? "")}`),
+    );
+    assert.ok(
+      signIn,
+      `the deploy run must surface a pending Vercel sign-in nextStep; got: ${JSON.stringify(this.envelope.nextSteps)}`,
+    );
+    const resume = `${String(signIn!.command ?? "")} ${String(signIn!.description ?? "")}`;
+    assert.ok(
+      /jolly deploy/.test(resume),
+      `the pending sign-in nextStep must resume by re-running \`jolly deploy\`: ${JSON.stringify(signIn)}`,
+    );
+    assert.ok(
+      !/jolly start/.test(resume),
+      `the pending sign-in nextStep must resume the command that reached the gate (\`jolly deploy\`), not \`jolly start\`: ${JSON.stringify(signIn)}`,
     );
   },
 );

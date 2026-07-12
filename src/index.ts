@@ -3927,12 +3927,14 @@ function clearPendingVercel(): void {
 // tells the agent to re-run once approved (feature 002).
 /**
  * @planks("When `jolly start` reaches the deploy stage without `--dry-run`")
+ * @planks("When the agent runs `jolly deploy` without `--dry-run`")
+ * @planks("Then the pending sign-in nextStep should resume by re-running `jolly deploy`, the command that reached the gate")
  */
-function vercelSignInNextStep(deviceUrl: string): NextStep {
+function vercelSignInNextStep(deviceUrl: string, resumeCommand: string): NextStep {
   return {
     description: `Hand this link to your human to approve the Vercel sign-in in their browser: ${deviceUrl}. The \`command\` below resumes and deploys once it's approved.`,
     url: deviceUrl,
-    command: "jolly start --yes",
+    command: resumeCommand,
   };
 }
 
@@ -4892,7 +4894,7 @@ export async function runStartCore(
             deployData = outcome.data;
             const vercelUrl = outcome.data?.["vercelSignInUrl"];
             if (typeof vercelUrl === "string" && vercelUrl.length > 0) {
-              deployPendingStep = vercelSignInNextStep(vercelUrl);
+              deployPendingStep = vercelSignInNextStep(vercelUrl, "jolly start --yes");
             }
           }
         } else {
@@ -5227,6 +5229,9 @@ function commandUsage(args: ParsedArgs): Envelope {
  * @planks("Then it should not provision a store, deploy, or run any other stage")
  * @planks("Then it should not provision a store, prepare the storefront, or deploy")
  * @planks("Then it should not deploy or run any other stage")
+ * @planks("When the agent runs `jolly deploy` without `--dry-run`")
+ * @planks("Then Jolly should itself spawn `npx vercel@latest login` and surface its device-authorization URL before attempting any deploy")
+ * @planks("Then the pending sign-in nextStep should resume by re-running `jolly deploy`, the command that reached the gate")
  */
 async function commandStage(
   stage: string,
@@ -5246,6 +5251,17 @@ async function commandStage(
   // points cannot drift). Announced whether the install completed or blocked: the
   // gate is the stage's remaining human step, not contingent on the install.
   const nextSteps: NextStep[] = stage === "stripe" ? [stripeKeysChannelGateStep()] : [];
+  // The composable `jolly deploy` command reaches the same Vercel sign-in gate as
+  // `jolly start`'s deploy stage (feature 002): with no Vercel session Jolly spawns
+  // the sign-in itself and surfaces its device URL. Since `jolly deploy` is the
+  // command that reached the gate, its pending sign-in nextStep resumes by
+  // re-running `jolly deploy`, never `jolly start`.
+  if (stage === "deploy") {
+    const vercelUrl = outcome.data?.["vercelSignInUrl"];
+    if (typeof vercelUrl === "string" && vercelUrl.length > 0) {
+      nextSteps.push(vercelSignInNextStep(vercelUrl, "jolly deploy"));
+    }
+  }
   return envelope({
     command: stage,
     status,

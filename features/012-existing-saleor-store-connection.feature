@@ -58,14 +58,12 @@ Feature: Existing Saleor store connection
     And the default region should be "us-east-1"
     And the prepared request should create a blank environment with no sample data
     And no environment should be created
-    # Real execution (task polling, domain extraction, env writes) is pinned by
-    # the @sandbox scenario "Jolly creates a Saleor Cloud environment" below.
 
   @sandbox @creates-env
   Scenario: Jolly create store reuses an existing same-label environment instead of duplicating it
-    Given this run has already created an environment with a jolly-cannon-fodder-namespaced domain label
+    Given this run has already created an environment with a jolly-cannon-fodder-namespaced domain label that has not yet begun serving requests
     When the agent requests another environment with the same domain label
-    Then Jolly should reuse the existing environment rather than create a duplicate
+    Then Jolly should reuse the existing environment rather than create a duplicate, keying on the environment registry rather than on the environment serving
     And exactly one environment should carry that domain label, with the run's jolly-cannon-fodder namespace and registered teardown
 
   @logic

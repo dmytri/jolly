@@ -19,14 +19,14 @@ Feature: Live-by-design verification conformance
 
   @sandbox @creates-env
   Scenario: The eval reclaims a leftover jolly-cannon-fodder environment before a run provisions
-    Given a leftover `jolly-cannon-fodder`-namespaced Saleor environment standing in the org from a previous run
+    Given a leftover `jolly-cannon-fodder`-namespaced Saleor environment standing in the org from a previous run that never finished starting and does not serve requests
     When the eval performs its pre-run capacity reclamation
     Then the leftover `jolly-cannon-fodder`-namespaced environment should no longer exist in the org
     And every environment lacking the `jolly-cannon-fodder` prefix should still be present afterward
 
   @sandbox @creates-env
   Scenario: The @sandbox provisioner reclaims a leftover jolly-cannon-fodder environment instead of skipping the run
-    Given a leftover `jolly-cannon-fodder`-namespaced Saleor environment standing in the org from a previous run
+    Given a leftover `jolly-cannon-fodder`-namespaced Saleor environment standing in the org from a previous run that never finished starting and does not serve requests
     When the @sandbox harness provisions its shared environment for a run
     Then it should reclaim the leftover `jolly-cannon-fodder`-namespaced environment and provision the run's environment, not skip the run
     And every environment lacking the `jolly-cannon-fodder` prefix should still be present afterward

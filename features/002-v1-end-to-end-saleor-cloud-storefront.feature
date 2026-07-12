@@ -121,10 +121,10 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And `nextSteps` should list the remaining human gates
 
   @sandbox @heavy
-  Scenario: Jolly start spawns the Vercel sign-in itself when there is no Vercel session
+  Scenario: jolly deploy spawns the Vercel sign-in itself when there is no Vercel session
     Given the storefront is ready for deployment
     And the Vercel CLI is pointed at an isolated config with no signed-in session
-    When `jolly start` reaches the deploy stage without `--dry-run`
+    When the agent runs `jolly deploy` without `--dry-run`
     Then Jolly should itself spawn `npx vercel@latest login` and surface its device-authorization URL before attempting any deploy
     And a nextStep should carry the Vercel sign-in URL for the human to open and approve
     And the deploy stage should report a pending Vercel sign-in gate that states Jolly runs the Vercel sign-in together with the human, not a deploy `failed`
@@ -177,12 +177,13 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And it should not fabricate that the human-run step was completed
 
   @sandbox @heavy
-  Scenario: Jolly start owns the Vercel sign-in rather than telling the agent to run it
+  Scenario: jolly deploy owns the Vercel sign-in rather than telling the agent to run it
     Given the storefront is ready for deployment
     And the Vercel CLI is pointed at an isolated config with no signed-in session
-    When `jolly start` reaches the deploy stage without `--dry-run`
+    When the agent runs `jolly deploy` without `--dry-run`
     Then no nextSteps entry, error remediation, or check `command` should tell the agent to run `vercel login`, because Jolly runs the sign-in itself
     And no nextSteps entry or error remediation should tell the agent to re-run `jolly start` after a manual Vercel sign-in
+    And the pending sign-in nextStep should resume by re-running `jolly deploy`, the command that reached the gate
 
   Rule: Storefront and Vercel deploy stages
     - `jolly start` performs the storefront and deploy stages itself by SPAWNING the official CLIs,
