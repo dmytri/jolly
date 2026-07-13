@@ -33,7 +33,32 @@ Residual risk (eyes open): `@eval` drives a live LLM agent; a hard 0-fail gate c
 
 Evidence this session: full `@sandbox` serial 36/39 (the trio) with capacity clear; isolated trio retry **2/3 failed even at full capacity** — NOT a clean transient, a real readiness-budget defect. `@eval` red on baseline-agent timeout. `@logic` 172/172, `@sandbox`-light 13/13 green.
 
+## IN FLIGHT (dk, 2026-07-13) — jolly start latency, part 2 (timing-observability decision)
+
+Voyage from 2026-07-12 (agent-mode UX + jolly start latency). **Two of four targets SHIPPED** in `bd44aa4` (`feat(concurrency): parallel skill installs and Vercel sign-in resume contract`):
+
+- `009:Jolly installs the default skill set concurrently` (@logic) — GREEN. `commandSkills` now async, installs the missing set via `Promise.all` (was 7 serial `npx skills add`). QM observed real spawn overlap via an `npx` PATH shim; guard: all land + lock uncorrupted.
+- `002:jolly deploy spawns the Vercel sign-in itself…` (@sandbox) — GREEN. Strengthened to a structured clickable nextStep `url` + reply-"done"-then-re-run-`jolly deploy` resume mirroring the Saleor gate; Crew aligned `vercelSignInNextStep`'s description. Agent path only (interactive left as-is).
+
+**Two targets re-specified THIS session** and left for the next QM cycle (watchbill = these two only):
+
+- `002:Jolly start prepares the storefront concurrently with the Saleor Cloud stages` (@sandbox @heavy) — storefront `git`+`pnpm` overlap store/recipe; deploy JOINS storefront readiness. Only bites the `--yes`/agent path.
+- `004:Jolly start seeds stock and assigns collections with concurrent Saleor requests` (@sandbox @heavy) — per-variant stock + per-collection assignment fan out concurrently; guard: every variant stocked + idempotent, bounded concurrency (existing 004:50 429-retry covers the rate-limit risk).
+
+**DECISION (dk, 2026-07-13) — envelope timing contract is the concurrency observable.** QM blocked both as "no observable seam": `StartStage` carries no timing and `onStageStart` feeds only the stderr spinner (A); the stock stage's `graphqlFetch` calls `assertFirstPartyUrl` (`cloud-api.ts:499`) so a recording proxy is refused, and Jolly emits no per-request timing (C). Chosen fix (over reframe / harness-proxy / withdraw): **production exposes the timing as a real agent-facing observable, and the scenarios assert overlap from it.** No proxy, no weakening of the 020 first-party guard.
+- **A** — the run envelope reports each stage's start/finish (`data.stages`); scenario asserts storefront.start < store.finish and deploy.start ≥ storefront.finish. Encoded in the new 002 Rule "Concurrent stage preparation is observable in the run envelope".
+- **C** — the stock stage reports each stock/collection request's start/finish; scenario asserts a later request starts before an earlier finishes. Encoded in the new 004 Rule "Concurrent stock and collection requests are observable in the stage result". This is Jolly reporting its OWN request timing, so the first-party guard is untouched.
+- Exact field names are QM's step + Crew's emit to settle (QM writes the assertion first, Crew matches); the Rules fix the contract, not the JSON keys. The red→Crew flow forces SAFE concurrency: sequential impl fails the overlap assertion, corrupt/incomplete impl fails the paired correctness guard.
+- **For QM:** these are @sandbox @heavy — main-loop-tracked run, never babysat in a subagent (AGENTS.md). Both are real full runs (real store provision + git/pnpm + configurator for A; real stock seed for C).
+
+**Hygiene follow-up for QM (non-blocking):** the vercel-sign-in edit orphaned one step def — `features/step_definitions/002-…steps.ts:~926` `"a nextStep should carry the Vercel sign-in URL for the human to open and approve"`, 0 usage now. Its helper `vercelSignInUrlInNextSteps` stays live (used elsewhere); remove only the dead `Then` block. QM/harbour scope.
+
 ## Pending outbound
+
+**HOTFIX RELEASE v0.12.1 (dk approved, 2026-07-13) — shipped v0.12.0 was broken.** Two real defects in the released bundle, fixed in `0b63c18`:
+- **Recipe/stock/stripe `Authentication failed`.** `SALEOR_TOKEN` + the Cloud platform token ride on the ~5-min device-grant access JWT; the `storefront` stage (git clone + `pnpm install`) routinely outlasts it, so the following token-spending stages 401'd — `recipe` blocked, cascading `stock`/`deploy`/`stripe`. Fix: `ensureFreshStoreAuth()` (proactive refresh, 120s skew, reprojects `SALEOR_TOKEN`/`SALEOR_URL`) at the top of `runRecipeStage`/`runStockStage`/`runStripeStage`. No-op for a staff token or missing refresh token — genuine auth failures stay honest.
+- **Interactive Vercel sign-in silently passed.** `runInteractiveVercelSignIn` resolved on close regardless of outcome and the caller never re-checked, so an undrivable/cancelled login sailed past as "signed in". Fix: re-probe after the CLI exits; warn (`start.vercelSigninIncomplete`) when no session — the deploy stage's detached sign-in still surfaces a fresh clickable device URL.
+- Verification: typecheck + build clean; node tests 53/53; `@logic` 165/165 (992 steps). Only the npm target ships (code-only; homepage untouched). npm bump 0.12.0→0.12.1 (`npm version patch`, tag `v0.12.1`), `npm publish`.
 
 **FULL RELEASE SHIPPED 2026-07-12 (dk approved).** After the 216/216 all-tier green, cut the deferred release both targets:
 - **npm `@dk/jolly@0.11.2`** — bumped 0.11.1→0.11.2 (`npm version patch`, tag `v0.11.2`), `npm publish` (prepublishOnly built `dist/index.js`; `--external:yaml` already in build/prepublishOnly, `yaml` in deps). Verified by real install of the published tarball: bin runs the correct bundle. `origin/main` at `2435d76`. NOTE: this VM's `npx @dk/jolly@0.11.2` mis-resolves the bin name (`sh: jolly: not found`) — an old-npx quirk, not an artifact defect; `npm install` + run works.
