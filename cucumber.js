@@ -52,3 +52,14 @@ export const sandboxSerial = { ...common, tags: "@sandbox and (@heavy or @create
 // reserved identifier, so it is exported under that name via an alias.
 const evalProfile = { ...common, tags: "@eval" };
 export { evalProfile as eval };
+
+// The tag-free profile: every scenario in every tier, seen by construction.
+// Cucumber ANDs a profile's tags with the CLI's, so the default profile's
+// `not @eval` cannot be lifted from the command line and no profile above can
+// enumerate the whole suite. Static discovery (`discover`) and step-usage
+// enumeration must see EVERY tier, or a tier they miss reads as bound and its
+// step definitions read as orphans — silently, and green. This profile carries
+// no tags, so a tier added later is covered with no further wiring. It is for
+// enumeration, not execution: running it would run the credentialed @eval tier
+// alongside the rest.
+export const all = { ...common };

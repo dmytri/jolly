@@ -21,28 +21,51 @@ export interface CloudEnvironment {
   domainLabel?: string;
 }
 
+/** Transient Cloud-platform statuses: the request is worth repeating as-is. */
+function transientStatus(status: number): boolean {
+  return status === 429 || (status >= 500 && status <= 504);
+}
+
+/** The server's own `Retry-After`, in milliseconds, when it served one. */
+function retryAfterMs(response: Response): number | undefined {
+  const header = response.headers.get("retry-after");
+  if (!header) return undefined;
+  const seconds = Number.parseInt(header, 10);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const date = Date.parse(header);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : undefined;
+}
+
+const TRANSIENT_RETRIES = 3;
+
 /**
- * `fetch` with a brief bounded retry on a TRANSIENT network failure (a thrown
- * `TypeError: fetch failed`), so a momentary blip to cloud.saleor.io does not
- * flake the harness's read-only Cloud-API queries (namespace verification,
- * teardown). HTTP error statuses are returned as-is for the caller to handle.
+ * `fetch` with a brief bounded retry on a TRANSIENT failure, matching what
+ * production's `cloudFetch` (src/lib/cloud-api.ts) rides through: a thrown
+ * network fault AND a transient HTTP status (429, 500-504). A harness that
+ * retries only the thrown fault reds a tier on a momentary Cloud 502 that
+ * production would never have noticed, which is a harness defect, not a product
+ * failure. A permanent rejection (authentication, validation, not-found) is
+ * returned immediately, so a real defect still surfaces fast.
  */
-async function cloudFetchRetry(
-  url: string,
-  init: RequestInit,
-  attempts = 3,
-  delayMs = 1_500,
-): Promise<Response> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < attempts; attempt++) {
+async function cloudFetchRetry(url: string, init: RequestInit): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
     try {
-      return await fetch(url, init);
+      const response = await fetch(url, init);
+      if (transientStatus(response.status) && attempt < TRANSIENT_RETRIES) {
+        // Honour a served Retry-After; otherwise back off exponentially.
+        const backoff = retryAfterMs(response) ?? Math.min(500 * 2 ** attempt, 3000);
+        await new Promise((resolve) => setTimeout(resolve, backoff));
+        continue;
+      }
+      return response;
     } catch (error) {
-      lastError = error;
-      if (attempt < attempts - 1) await new Promise((r) => setTimeout(r, delayMs));
+      if (attempt < TRANSIENT_RETRIES) {
+        await new Promise((resolve) => setTimeout(resolve, Math.min(500 * 2 ** attempt, 3000)));
+        continue;
+      }
+      throw error;
     }
   }
-  throw lastError;
 }
 
 /** Organization slugs the token can access (read-only GET). */
