@@ -258,9 +258,18 @@ Feature: Human-facing interactive CLI experience
       `auth.saleor.io` verification URL carrying that code as its `user_code` query parameter (so
       opening the link pre-fills the code), waits for the human to authorize, and continues with the
       acquired credentials — rather than reporting a blocked authentication stage and exiting.
-    - Before the unattended stages, when there is no Vercel session, Jolly runs `npx vercel@latest login`
-      inline in the same terminal so the human completes the sign-in there and lets the CLI's
-      device grant complete; the Vercel session then exists for the unattended deploy stage.
+    - Before the unattended stages, when there is no Vercel session, Jolly runs the Vercel CLI's own
+      device login and WAITS for it, so the Vercel session exists for the unattended deploy stage.
+      Jolly never hands the terminal to that CLI: the spawned login's output goes to a file, and the
+      human is shown the device-authorization URL and a waiting indicator in Jolly's own TUI. Jolly
+      then polls the login to completion — the human approves in their browser and the run carries on
+      in the same session. This is the ONLY difference from the agent path, which captures the same
+      URL but hands it back as a next step and resumes on a re-run instead of waiting.
+    - A sign-in that does not complete is reported with the REASON it did not — the Vercel CLI could
+      not be launched, it printed no device URL (its own error is surfaced from the captured output),
+      the device code was declined or expired, or the human did not approve in time. A bare "sign-in
+      didn't complete" that collapses those distinct failures into one message leaves the human with
+      no way forward and is not honest reporting.
     - Jolly presents every sign-in by its URL, not by taking over the screen: the device-
       authorization URLs it surfaces — the Saleor `auth.saleor.io` verification URL and the Vercel
       sign-in URL — are rendered as clickable terminal hyperlinks (an OSC 8 escape wrapping the URL)
@@ -306,6 +315,21 @@ Feature: Human-facing interactive CLI experience
       discovery; Jolly still owns the Vercel sign-in there rather than handing the agent a
       `vercel login` next step (feature 002), and reports every other stage it cannot complete as
       honest checks and next steps for the agent to act on (feature 020).
+
+  @sandbox
+  Scenario: Interactive start shows the Vercel sign-in link and waits for the human to approve it
+    Given an already-configured store and an interactive terminal with no Vercel CLI session
+    When `jolly start` reaches the Vercel sign-in gate
+    Then the interactive output should show a Vercel device-authorization URL
+    And the run should still be waiting for that sign-in to be approved, not continuing signed-out
+    And the Vercel CLI's own output should never surface on the terminal
+
+  @sandbox
+  Scenario: A Vercel sign-in that never produces a link reports why, not a bare failure
+    Given an already-configured store and an interactive terminal where the Vercel CLI cannot sign in
+    When `jolly start` reaches the Vercel sign-in gate
+    Then the interactive output should name the reason the Vercel sign-in did not complete
+    And the interactive output should surface the captured Vercel CLI output for the human to read
 
   @logic
   Scenario: Interactive start signs in with the device grant inline, never a pasted token

@@ -29,6 +29,7 @@ import {
 } from "../support/sandbox.ts";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
 import { writeEnvValues } from "../../src/lib/env-file.ts";
+import { cliMessage } from "../../src/lib/messages.ts";
 
 const CLI_ENTRY = join(REPO_ROOT, "src", "index.ts");
 
@@ -1377,6 +1378,171 @@ Then(
       offending,
       undefined,
       `the closing summary must not present the Saleor endpoint/SALEOR_TOKEN readiness (resolved by the store stage) as a failure; found:\n${offending}`,
+    );
+  },
+);
+
+// ── The Vercel sign-in gate (feature 027 Rule "Interactive start runs end-to-end
+// in one session") ─────────────────────────────────────────────────────────────
+//
+// This gate shipped BROKEN THREE TIMES because nothing drove it. The old code
+// handed the terminal to `vercel login` (stdio: "inherit"); the Vercel CLI opens a
+// readline on process.stdin for its device flow, which under an interactive
+// `jolly start` never renders — so the human was shown NOTHING, nothing waited for
+// their click, and the run continued signed-out. These scenarios drive the REAL
+// interactive path against the REAL Vercel CLI (support/pty.ts, a real kernel PTY)
+// so that regression cannot recur.
+//
+// Signed-out is produced HONESTLY, not faked: fresh XDG dirs hold no Vercel
+// credentials, so the real CLI genuinely has no session. No mock, no stub.
+
+// A Vercel CLI with nowhere to store credentials = a genuinely signed-out CLI.
+function signedOutVercelEnv(world: JollyWorld): Record<string, string | undefined> {
+  const home = world.newTempDir("vercel-signed-out");
+  return {
+    XDG_DATA_HOME: join(home, "data"),
+    XDG_CONFIG_HOME: join(home, "config"),
+    XDG_CACHE_HOME: join(home, "cache"),
+  };
+}
+
+// Reach the gate the way a returning human does: a store already in .env, so the
+// run takes the "reuse your configured store" route straight to the confirm and
+// then the sign-in gate — which sits BEFORE any side-effecting stage.
+function seedConfiguredStore(world: JollyWorld): void {
+  const endpoint = process.env.NEXT_PUBLIC_SALEOR_API_URL;
+  assert.ok(endpoint, "sandbox: NEXT_PUBLIC_SALEOR_API_URL must be configured");
+  writeEnvValues(world.projectDir, { NEXT_PUBLIC_SALEOR_API_URL: endpoint });
+}
+
+Given(
+  "an already-configured store and an interactive terminal with no Vercel CLI session",
+  function (this: JollyWorld) {
+    seedConfiguredStore(this);
+    this.notes.vercelGateEnv = signedOutVercelEnv(this);
+  },
+);
+
+Given(
+  "an already-configured store and an interactive terminal where the Vercel CLI cannot sign in",
+  function (this: JollyWorld) {
+    seedConfiguredStore(this);
+    // A REAL failure from real bad input, not a fake: the Vercel CLI's device
+    // request is pointed through an unroutable proxy, so it genuinely cannot reach
+    // vercel.com and prints its own error instead of a sign-in link — exactly the
+    // shape of the wedged environment that cost three releases to diagnose.
+    this.notes.vercelGateEnv = {
+      ...signedOutVercelEnv(this),
+      HTTPS_PROXY: "http://127.0.0.1:1",
+      HTTP_PROXY: "http://127.0.0.1:1",
+      https_proxy: "http://127.0.0.1:1",
+      http_proxy: "http://127.0.0.1:1",
+      NO_PROXY: "",
+      no_proxy: "",
+    };
+  },
+);
+
+When("`jolly start` reaches the Vercel sign-in gate", function (this: JollyWorld) {
+  assert.ok(ptyAvailable(), "the PTY driver must be available");
+  // Enter accepts the storefront directory, Enter accepts "Build your store now?".
+  // The gate sits immediately after that confirm. On the happy path the run then
+  // PARKS at the sign-in, waiting — so the timeout below is the assertion's whole
+  // point: we expect to still be waiting when it fires, never to have sailed past.
+  const run = runUnderPty({
+    runtime: process.env.HARNESS_CLI_RUNTIME ?? "node",
+    argv: [CLI_ENTRY, "start"],
+    cwd: this.projectDir,
+    env: interactiveChildEnv({
+      JOLLY_SALEOR_CLOUD_TOKEN: process.env.JOLLY_SALEOR_CLOUD_TOKEN,
+      NEXT_PUBLIC_SALEOR_API_URL: process.env.NEXT_PUBLIC_SALEOR_API_URL,
+      ...(this.notes.vercelGateEnv as Record<string, string | undefined>),
+    }),
+    inputs: ["\r", "\r"],
+    waitFor: ["Storefront project directory", "Build your store now"],
+    perChunkTimeoutMs: 120_000,
+    timeoutMs: 150_000,
+  });
+  this.lastRun = {
+    args: ["start"],
+    cwd: this.projectDir,
+    exitCode: run.exitCode,
+    stdout: run.output,
+    stderr: run.stderr ?? "",
+  };
+});
+
+Then(
+  "the interactive output should show a Vercel device-authorization URL",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.match(
+      out,
+      /https:\/\/vercel\.com\/oauth\/device\?[^\s]+/,
+      `the human must be shown a Vercel device-authorization URL to approve; output was:\n${out.slice(-1500)}`,
+    );
+  },
+);
+
+Then(
+  "the run should still be waiting for that sign-in to be approved, not continuing signed-out",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    // The regression: the run announced the sign-in did not complete and carried on
+    // to the stages having shown the human nothing to approve.
+    assert.doesNotMatch(
+      out,
+      /sign-in didn't complete/i,
+      `the run must WAIT for the sign-in, not give up and continue signed-out; output was:\n${out.slice(-1500)}`,
+    );
+    // The catalog owns the copy (feature 027); assert on its text, not a literal.
+    const waiting = cliMessage("start.vercelSigninWaiting");
+    // clack re-renders the spinner incrementally, so match a stable inner phrase
+    // rather than the whole line.
+    const phrase = waiting.replace(/[…\.]+$/, "").slice(0, 40);
+    assert.ok(
+      out.includes(phrase),
+      `the run must show that it is waiting for the human to approve the sign-in (expected ${JSON.stringify(phrase)}); output was:\n${out.slice(-1500)}`,
+    );
+  },
+);
+
+Then(
+  "the Vercel CLI's own output should never surface on the terminal",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    // Jolly's TUI speaks to the human; the spawned CLI writes to a file. Its own
+    // banner and prompts must never reach the terminal.
+    for (const leak of [/Vercel CLI \d+\.\d+/i, /Waiting for authentication/i]) {
+      assert.doesNotMatch(
+        out,
+        leak,
+        `the Vercel CLI's raw output must never surface — Jolly's own TUI only; found ${leak} in:\n${out.slice(-1500)}`,
+      );
+    }
+  },
+);
+
+Then(
+  "the interactive output should name the reason the Vercel sign-in did not complete",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.match(
+      out,
+      /never printed a sign-in link|could not launch the Vercel CLI|was declined|device code expired|never approved/i,
+      `a failed sign-in must name WHY, never a bare "didn't complete"; output was:\n${out.slice(-2000)}`,
+    );
+  },
+);
+
+Then(
+  "the interactive output should surface the captured Vercel CLI output for the human to read",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.match(
+      out,
+      /Full output: \S+/i,
+      `the human must be pointed at the Vercel CLI's captured output; output was:\n${out.slice(-2000)}`,
     );
   },
 );

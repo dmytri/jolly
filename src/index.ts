@@ -4097,11 +4097,24 @@ function extractVercelUrl(stdout: string | undefined): string | undefined {
  *
  * In BOTH modes the spawned CLI's own output NEVER surfaces — the login writes to
  * a file, and the human sees only Jolly's own TUI (a clack note + spinner).
- * Returns whether a session was actually established. Jolly holds no Vercel token;
- * the CLI signs in under its own auth.
+ *
+ * A sign-in that does NOT complete reports the REASON it did not, and surfaces the
+ * Vercel CLI's own captured output. A bare "sign-in didn't complete" collapses four
+ * genuinely different failures — the CLI could not be launched, it printed no
+ * device URL (its error is in that output), the code was declined/expired, or the
+ * human never approved — into one message that leaves the human no way forward.
+ * Jolly holds no Vercel token; the CLI signs in under its own auth.
+ * @planks("Then the interactive output should show a Vercel device-authorization URL")
+ * @planks("Then the run should still be waiting for that sign-in to be approved, not continuing signed-out")
+ * @planks("Then the interactive output should name the reason the Vercel sign-in did not complete")
+ * @planks("Then the interactive output should surface the captured Vercel CLI output for the human to read")
  * @planks("Then the interactive output should say Jolly will run the Vercel sign-in with the human up front, before the unattended stages")
  */
-async function runInteractiveVercelSignIn(): Promise<boolean> {
+type VercelSignInOutcome =
+  | { ok: true; account: string }
+  | { ok: false; message: string };
+
+async function runInteractiveVercelSignIn(): Promise<VercelSignInOutcome> {
   // Do NOT hand the terminal to `vercel login` (the old `stdio: "inherit"`
   // spawn). Under an interactive `jolly start` — itself usually launched through
   // `npx`, with @clack having had stdin in raw mode — the Vercel CLI's own device
@@ -4111,9 +4124,36 @@ async function runInteractiveVercelSignIn(): Promise<boolean> {
   // out (it survives this process and stores the token itself once approved), and
   // keep its output off the terminal so only Jolly's TUI speaks to the human.
   const { deviceUrl, logPath } = await spawnVercelSignIn();
-  if (!deviceUrl || !logPath) {
-    // No URL captured — the login may still have signed in from a cached grant.
-    return (await probeVercelSession()).signedIn;
+
+  if (!deviceUrl) {
+    // The CLI never printed a sign-in link. Its OWN output says why (a network or
+    // proxy failure reaching vercel.com, a wedged/half-written auth config, a
+    // broken npx cache) — surface it, because without it the human is stuck.
+    //
+    // Read the VERDICT from the login's own log, never from `vercel whoami`: signed
+    // out, whoami does not exit (it starts its own device login and blocks), so
+    // probing here would stall the human a further ~45s just to be told it failed.
+    // A login that signed straight in from a cached grant prints the success marker
+    // without ever printing a URL, so the log answers both questions.
+    const log = logPath ? readVercelSignInLog(logPath) : "";
+    if (VERCEL_SIGNIN_SUCCESS.test(log)) {
+      const session = await probeVercelSession(); // fast: a real session answers at once
+      return { ok: true, account: session.account };
+    }
+    // Only when the login could not even be spawned (no output file at all) is there
+    // nothing to point the human at. Otherwise ALWAYS name the log: an empty file is
+    // itself the diagnosis (the CLI never ran), and the human must be able to read
+    // the raw output rather than take Jolly's word for it.
+    if (!logPath) {
+      return { ok: false, message: cliMessage("start.vercelSignin.failSpawn") };
+    }
+    return {
+      ok: false,
+      message: cliMessage("start.vercelSignin.failNoUrl", {
+        detail: tailVercelSignInLog(logPath) || cliMessage("start.vercelSignin.noOutput"),
+        logPath,
+      }),
+    };
   }
 
   // Show the link, then WAIT by tailing the detached login's own output. We do
@@ -4126,18 +4166,39 @@ async function runInteractiveVercelSignIn(): Promise<boolean> {
   const deadline = Date.now() + VERCEL_SIGNIN_APPROVAL_TIMEOUT_MS;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, VERCEL_SIGNIN_POLL_INTERVAL_MS));
-    const log = readVercelSignInLog(logPath);
+    const log = readVercelSignInLog(logPath!);
     if (VERCEL_SIGNIN_SUCCESS.test(log)) {
       // The CLI persists its auth config immediately BEFORE printing this, so the
       // session is on disk; confirm the account for the human.
       const session = await probeVercelSession();
       spin.stop(cliMessage("start.vercelSigninDone", { account: session.account }));
-      return true;
+      return { ok: true, account: session.account };
     }
-    if (VERCEL_SIGNIN_FAILED.test(log)) break;
+    if (VERCEL_SIGNIN_FAILED.test(log)) {
+      spin.stop(cliMessage("start.vercelSigninTimeout"));
+      return {
+        ok: false,
+        message: cliMessage("start.vercelSignin.failRejected", {
+          detail: tailVercelSignInLog(logPath!),
+          logPath: logPath!,
+        }),
+      };
+    }
   }
   spin.stop(cliMessage("start.vercelSigninTimeout"));
-  return false;
+  return { ok: false, message: cliMessage("start.vercelSignin.failNotApproved", { logPath: logPath! }) };
+}
+
+// The last few lines of the sign-in's captured output — enough to carry the Vercel
+// CLI's own error to the human without dumping an install log at them.
+function tailVercelSignInLog(logPath: string, lines = 6): string {
+  const text = readVercelSignInLog(logPath)
+    .split("\n")
+    .map((l) => l.trimEnd())
+    // npm's install chatter is noise, not the CLI's verdict.
+    .filter((l) => l.trim() !== "" && !/^npm (warn|notice|http)/i.test(l))
+    .slice(-lines);
+  return text.join("\n");
 }
 
 /**
@@ -4800,12 +4861,13 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
   const vercelSession = await probeVercelSession();
   if (!vercelSession.signedIn) {
     // Shows the device URL and WAITS for the human to approve it, so the deploy
-    // stage that follows runs under a real session. A sign-in that never lands
-    // (declined, or the human walked away past the timeout) is reported honestly
-    // rather than passing as signed in; the run continues and the deploy stage
-    // surfaces a fresh clickable sign-in link.
-    if (!(await runInteractiveVercelSignIn())) {
-      clackLog.warn(cliMessage("start.vercelSigninIncomplete"), CLACK_STDERR);
+    // stage that follows runs under a real session. A sign-in that never lands is
+    // reported with the REASON it did not — never a bare "didn't complete" that
+    // leaves the human with nothing to act on; the run continues and the deploy
+    // stage surfaces a fresh clickable sign-in link.
+    const signIn = await runInteractiveVercelSignIn();
+    if (!signIn.ok) {
+      clackLog.warn(signIn.message, CLACK_STDERR);
     }
   }
 
