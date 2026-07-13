@@ -41,8 +41,8 @@ Feature: Jolly Configurator starter recipe
   Scenario: Jolly start seeds stock and assigns collections with concurrent Saleor requests
     Given a freshly created Saleor Cloud environment with the starter recipe deployed
     When Jolly start runs the stock stage over the recipe's variants and collections
-    Then the per-variant stock mutations should run concurrently rather than one variant at a time
-    And the per-collection product assignments should run concurrently rather than one collection at a time
+    Then the stock stage's reported request timing should show a later stock mutation starting before an earlier stock mutation finishes
+    And the stock stage's reported request timing should show a later collection assignment starting before an earlier collection assignment finishes
     And every recipe product variant should have stock in the recipe warehouse afterwards
     And re-running the stage should update the quantities idempotently rather than creating duplicate stock
 
@@ -160,6 +160,22 @@ Feature: Jolly Configurator starter recipe
       `productVariantStocksCreate` for each variant and reports the stage `completed` only when stock
       was actually seeded; if no recipe variants are present yet (recipe not deployed), the stage is
       reported `pending`/`blocked` honestly, never a fabricated `completed`.
+
+  Rule: Concurrent stock and collection requests are observable in the stage result
+    - The stock stage issues its per-variant `productVariantStocksCreate` mutations and its
+      per-collection product assignments concurrently, rather than one variant or one collection at a
+      time, so the many independent Saleor round-trips overlap and the stage's wall-clock is bounded by
+      the slowest request rather than their sum.
+    - The stage result reports each stock and collection-assignment request's start and finish time, so
+      the concurrency is observable directly — a request whose reported start precedes another request's
+      reported finish ran concurrently with it. This reported request timing is the observable seam the
+      concurrency scenario asserts against; it needs no proxy and no change to the first-party host
+      guard, since it is Jolly reporting its own request timing.
+    - Concurrency changes only the scheduling, never the outcome or the honesty: every recipe variant
+      still ends stocked in the recipe warehouse, the stage stays idempotent and resumable (feature 022)
+      so a re-run updates quantities rather than duplicating stock, and the existing transient-rate-limit
+      retry still applies to each concurrent request. Bounded concurrency, not unbounded fan-out, keeps
+      the request rate within Saleor's limits.
 
   Rule: Backend Saleor requests retry a transient failure
     - Honesty cuts both ways: a stage is `blocked`/`fail` only when its work genuinely could not be

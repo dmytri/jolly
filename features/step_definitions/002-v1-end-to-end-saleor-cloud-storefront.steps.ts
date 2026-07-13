@@ -2192,3 +2192,174 @@ Then(
   },
 );
 
+// ─── Scenario: Jolly start prepares the storefront concurrently with the Saleor
+//     Cloud stages (@sandbox @heavy) ─────────────────────────────────────────
+//
+// A full real `jolly start --yes` (auto-provisions a jolly-cannon-fodder store,
+// clones+installs the storefront, deploys to Vercel under the fitting-out
+// session) must REPORT per-stage timing in its envelope: each data.stages[] entry
+// carries numeric startedAt/finishedAt (epoch ms). That reported timing must show
+// the storefront preparation overlapping the store stage (storefront starts before
+// store finishes), while the deploy stage is ordered strictly after the storefront
+// finishes. Every reported stage carries an honest status backed by the real
+// artifact its execution produces, and the store/recipe/deploy stages each carry
+// their feature 021 riskContext. The env + teardown reuse the auto-provision run's
+// harness (registerAutoProvisionTeardown / reclaimLeftoverEnvironments).
+
+interface TimedStage {
+  stage: string;
+  status: string;
+  startedAt?: number;
+  finishedAt?: number;
+  riskContext?: unknown;
+}
+
+/** A reported stage with its timing asserted present (numeric epoch ms). The
+ * run's reported stage timing is the observable these steps pin. */
+function timedStage(world: JollyWorld, name: string): TimedStage {
+  const stages = (world.envelope.data.stages ?? []) as TimedStage[];
+  const stage = stages.find((s) => s.stage === name);
+  assert.ok(
+    stage,
+    `the run's reported stages must include the "${name}" stage: ${JSON.stringify(stages)}`,
+  );
+  assert.equal(
+    typeof stage!.startedAt,
+    "number",
+    `the "${name}" stage must report a numeric startedAt (epoch ms) in its reported stage timing: ${JSON.stringify(stage)}`,
+  );
+  assert.equal(
+    typeof stage!.finishedAt,
+    "number",
+    `the "${name}" stage must report a numeric finishedAt (epoch ms) in its reported stage timing: ${JSON.stringify(stage)}`,
+  );
+  return stage!;
+}
+
+Given(
+  "the agent runs `jolly start --yes` on a fresh project that needs a new store",
+  function (this: JollyWorld) {
+    // Fresh project needing a new store: real Cloud token drives auto-provisioning,
+    // the per-run namespaced store + per-worker Vercel project make every created
+    // resource jolly-cannon-fodder cannon fodder the When's teardown reclaims.
+    const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? STAND_IN_TOKEN;
+    this.notes.startEnv = absentCredentialsEnv({
+      JOLLY_SALEOR_CLOUD_TOKEN: cloudToken,
+      JOLLY_STORE_NAME: this.namespace,
+      JOLLY_VERCEL_PROJECT: workerNamespace(),
+    });
+  },
+);
+
+When(
+  "the run executes the store, recipe, and storefront stages",
+  { timeout: 900_000 },
+  async function (this: JollyWorld) {
+    // Real end-to-end run: reclaim capacity, register teardown of the created
+    // environment + Vercel project, then run a full `jolly start --yes` and read
+    // its reported stage timing.
+    await reclaimLeftoverEnvironments(makeNamespace(this.runId));
+    await registerAutoProvisionTeardown(this);
+    this.runCli(["start", "--yes", "--json"], {
+      env: (this.notes.startEnv as Record<string, string | undefined>) ?? undefined,
+      timeoutMs: 840_000,
+    });
+  },
+);
+
+Then(
+  "the run's reported stage timing should show the storefront preparation starting before the store stage finishes",
+  function (this: JollyWorld) {
+    const store = timedStage(this, "store");
+    const storefront = timedStage(this, "storefront");
+    assert.ok(
+      storefront.startedAt! < store.finishedAt!,
+      `the reported stage timing must show the storefront preparation starting before the store ` +
+        `stage finishes (concurrent): storefront.startedAt=${storefront.startedAt} must be < ` +
+        `store.finishedAt=${store.finishedAt}`,
+    );
+  },
+);
+
+Then(
+  "the run's reported stage timing should show the deploy stage starting only after the storefront preparation finishes",
+  function (this: JollyWorld) {
+    const storefront = timedStage(this, "storefront");
+    const deploy = timedStage(this, "deploy");
+    assert.ok(
+      deploy.startedAt! >= storefront.finishedAt!,
+      `the reported stage timing must show the deploy stage starting only after the storefront ` +
+        `preparation finishes: deploy.startedAt=${deploy.startedAt} must be >= ` +
+        `storefront.finishedAt=${storefront.finishedAt}`,
+    );
+  },
+);
+
+Then(
+  "each stage should report its own honest status, never a fabricated completion",
+  function (this: JollyWorld) {
+    const VALID = [
+      "completed",
+      "awaiting-approval",
+      "blocked",
+      "pending",
+      "skipped",
+      "error",
+    ];
+    const stages = (this.envelope.data.stages ?? []) as TimedStage[];
+    assert.ok(stages.length > 0, "the run must report its own stages");
+    for (const stage of stages) {
+      assert.ok(
+        VALID.includes(stage.status),
+        `stage "${stage.stage}" must report a real status from the honest vocabulary, got "${stage.status}"`,
+      );
+    }
+    // No fabricated completion: a `completed` stage must be backed by the real
+    // artifact only its real execution produces.
+    const cwd = this.lastRun!.cwd;
+    const byName = (name: string) => stages.find((s) => s.stage === name);
+    if (byName("store")?.status === "completed") {
+      const endpoint = loadEnvValues(cwd)["NEXT_PUBLIC_SALEOR_API_URL"];
+      assert.ok(
+        endpoint && /\.saleor\.cloud\/graphql\//i.test(endpoint),
+        `a \`completed\` store stage must be backed by a real provisioned store endpoint in .env, got "${endpoint}"`,
+      );
+    }
+    if (byName("storefront")?.status === "completed") {
+      assert.ok(
+        existsSync(join(cwd, "storefront", "package.json")),
+        "a `completed` storefront stage must be backed by a real cloned storefront (storefront/package.json)",
+      );
+    }
+    if (byName("deploy")?.status === "completed") {
+      assert.ok(
+        /https:\/\/[a-z0-9-]+\.vercel\.app/i.test(JSON.stringify(this.envelope)),
+        "a `completed` deploy stage must be backed by a real captured *.vercel.app deploy URL",
+      );
+    }
+  },
+);
+
+Then(
+  "the store, recipe, and deploy stages should each emit their feature 021 `riskContext`",
+  function (this: JollyWorld) {
+    const stages = (this.envelope.data.stages ?? []) as TimedStage[];
+    for (const name of ["store", "recipe", "deploy"]) {
+      const stage = stages.find((s) => s.stage === name);
+      assert.ok(
+        stage,
+        `the run's reported stages must include the "${name}" stage: ${JSON.stringify(stages)}`,
+      );
+      assert.ok(
+        stage!.riskContext,
+        `the "${name}" stage must emit its feature 021 riskContext: ${JSON.stringify(stage)}`,
+      );
+      assertRiskContextShape(stage!.riskContext);
+    }
+    assert.ok(
+      findRiskContexts(this.envelope).length > 0,
+      "the stage riskContexts must live inside the envelope (feature 021)",
+    );
+  },
+);
+

@@ -124,10 +124,10 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
   Scenario: Jolly start prepares the storefront concurrently with the Saleor Cloud stages
     Given the agent runs `jolly start --yes` on a fresh project that needs a new store
     When the run executes the store, recipe, and storefront stages
-    Then the storefront clone and install should run concurrently with the Saleor Cloud provisioning and recipe deploy, beginning before the store stage reports completed
-    And the deploy stage should wait for the storefront preparation to finish before it deploys
-    And each stage should still report its own honest status, never a fabricated completion
-    And the store, recipe, and deploy stages should still each emit their feature 021 `riskContext`
+    Then the run's reported stage timing should show the storefront preparation starting before the store stage finishes
+    And the run's reported stage timing should show the deploy stage starting only after the storefront preparation finishes
+    And each stage should report its own honest status, never a fabricated completion
+    And the store, recipe, and deploy stages should each emit their feature 021 `riskContext`
 
   @sandbox @heavy
   Scenario: jolly deploy spawns the Vercel sign-in itself when there is no Vercel session
@@ -290,6 +290,22 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
       pauses for the agent to approve; an agent pre-authorization flag runs through when allowed.
     - Every orchestrated stage is also a composable command the agent can run independently;
       `start` chains them and is resumable (feature 022), skipping satisfied stages.
+
+  Rule: Concurrent stage preparation is observable in the run envelope
+    - On the `--yes`/agent path, `jolly start` overlaps the credential-independent storefront
+      preparation (the spawned `git` clone and `pnpm` install) with the Saleor Cloud store
+      provisioning and starter-recipe deploy, rather than serializing the storefront behind the
+      slow store cold-start. Without `--yes` the first high-risk gate parks the run before any of
+      this, so the concurrency only applies to the pre-approved agent path.
+    - The Vercel deploy stage joins the storefront's readiness: it begins only after the storefront
+      preparation has finished, since it deploys that prepared storefront.
+    - The run envelope reports each stage's start and finish time in `data.stages`, so an agent can
+      observe this overlap directly — a stage whose reported start precedes another stage's reported
+      finish ran concurrently with it. This timing is the observable seam the concurrency scenario
+      asserts against.
+    - Concurrency changes only the scheduling, never the honesty: every stage still reports its own
+      real status (never a fabricated completion), still emits its feature 021 `riskContext`, and the
+      run stays resumable and idempotent (feature 022).
 
   Rule: Auto-provisioning a store, and how the store is named
     - When `jolly start` runs with a Saleor Cloud token configured but no

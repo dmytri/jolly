@@ -39,6 +39,7 @@ import {
   extractDomainUrl,
   seedRecipeStock,
   assignCollectionProducts,
+  assignRecipeCollectionsConcurrent,
   storeHoldsForeignCatalog,
   DEFAULT_STOCK_QUANTITY,
   deriveRecipeIdentifiers,
@@ -3038,6 +3039,13 @@ type StageStatus =
 interface StartStage {
   stage: string;
   status: StageStatus;
+  // The stage's reported start and finish time (epoch ms). On the `--yes` agent
+  // path the storefront preparation is launched concurrently with the store
+  // stage, so a stage whose reported start precedes another's reported finish
+  // ran concurrently with it (feature 002 Rule "Concurrent stage preparation is
+  // observable in the run envelope").
+  startedAt?: number;
+  finishedAt?: number;
   riskContext?: RiskContext;
 }
 
@@ -3518,8 +3526,11 @@ function readConfiguratorReportStatus(reportPath: string): string | undefined {
  * @planks("When Jolly start completes the recipe stage")
  * @planks("Then the plan should include a stock-seeding step that runs after the `@saleor/configurator` deploy")
  * @planks("Then every recipe product variant should have stock in the recipe warehouse")
+ * @planks("When Jolly start runs the stock stage over the recipe's variants and collections")
+ * @planks("Then the stock stage's reported request timing should show a later stock mutation starting before an earlier stock mutation finishes")
+ * @planks("Then the stock stage's reported request timing should show a later collection assignment starting before an earlier collection assignment finishes")
  */
-async function runStockStage(checks: Check[]): Promise<StageStatus> {
+async function runStockStage(checks: Check[]): Promise<StageOutcome> {
   const values = loadEnvValues(projectDir());
   const endpoint =
     process.env["NEXT_PUBLIC_SALEOR_API_URL"] ?? values["NEXT_PUBLIC_SALEOR_API_URL"] ?? "";
@@ -3534,18 +3545,25 @@ async function runStockStage(checks: Check[]): Promise<StageStatus> {
         "Cannot seed recipe stock: NEXT_PUBLIC_SALEOR_API_URL and/or SALEOR_TOKEN are not configured.",
       remediation: "Complete the store stage so the endpoint and SALEOR_TOKEN are in .env, then re-run jolly start --yes.",
     });
-    return "blocked";
+    return { status: "blocked" };
   }
 
   try {
-    const { warehouseSlug } = deriveRecipeIdentifiers(bundledRecipePath());
+    const { warehouseSlug, collections } = deriveRecipeIdentifiers(bundledRecipePath());
     const result = await seedRecipeStock(endpoint, token, DEFAULT_STOCK_QUANTITY, warehouseSlug);
+    const collectionResult = await assignRecipeCollectionsConcurrent(endpoint, token, collections);
     checks.push({
       id: "stock-seeded",
       status: "pass",
       description: `Seeded ${DEFAULT_STOCK_QUANTITY} stock for ${result.seededCount} recipe variant(s) in ${warehouseSlug} via productVariantStocksCreate.`,
     });
-    return "completed";
+    return {
+      status: "completed",
+      data: {
+        stockRequests: result.stockRequests,
+        collectionRequests: collectionResult.collectionRequests,
+      },
+    };
   } catch (err) {
     const code = err instanceof CloudApiError ? err.code : "STOCK_SEED_FAILED";
     const reason =
@@ -3561,7 +3579,7 @@ async function runStockStage(checks: Check[]): Promise<StageStatus> {
           ? "Deploy the starter recipe with @saleor/configurator first, then re-run jolly start --yes."
           : "Verify NEXT_PUBLIC_SALEOR_API_URL and SALEOR_TOKEN reach the store, then re-run jolly start --yes.",
     });
-    return "blocked";
+    return { status: "blocked" };
   }
 }
 
@@ -4730,7 +4748,7 @@ const DEFAULT_STAGE_RUNNERS: Record<string, StageRunner> = {
     });
   },
   recipe: (checks) => runRecipeStage(checks).then((status) => ({ status })),
-  stock: (checks) => runStockStage(checks).then((status) => ({ status })),
+  stock: (checks) => runStockStage(checks),
   storefront: (checks) => runStorefrontStage(checks).then((status) => ({ status })),
   stripe: (checks) => runStripeStage(checks).then((status) => ({ status })),
   deploy: (checks) => runDeployStage(checks),
@@ -4748,6 +4766,11 @@ const DEFAULT_STAGE_RUNNERS: Record<string, StageRunner> = {
  * @planks("Then the data should include a per-stage plan of intended effects: directories created, files written, network hosts contacted, and repositories cloned")
  * @planks("When the agent runs `jolly start` again")
  * @planks("Then the run should report only outcomes it actually achieved, stopping honestly at any remaining human gate without fabricating success")
+ * @planks("When the run executes the store, recipe, and storefront stages")
+ * @planks("Then the run's reported stage timing should show the storefront preparation starting before the store stage finishes")
+ * @planks("Then the run's reported stage timing should show the deploy stage starting only after the storefront preparation finishes")
+ * @planks("Then each stage should report its own honest status, never a fabricated completion")
+ * @planks("Then the store, recipe, and deploy stages should each emit their feature 021 `riskContext`")
  */
 export async function runStartCore(
   args: ParsedArgs,
@@ -4813,6 +4836,14 @@ export async function runStartCore(
   // When the Vercel sign-in is pending, the clickable verification URL the human
   // must approve, surfaced in the run's nextSteps (feature 002).
   let deployPendingStep: NextStep | undefined;
+  // The credential-independent storefront preparation (spawned `git` clone +
+  // `pnpm` install) is launched concurrently with the slow Saleor Cloud store
+  // stage on the `--yes` agent path, then joined at its own plan position, so it
+  // overlaps the store cold-start rather than serializing behind it (feature 002
+  // Rule "Concurrent stage preparation is observable in the run envelope").
+  let storefrontPromise: Promise<StageOutcome> | undefined;
+  let storefrontStartedAt: number | undefined;
+  let storefrontFinishedAt: number | undefined;
 
   // A store endpoint already configured (a prior `jolly create store` or earlier
   // run) means the store stage is already satisfied: no store would be created
@@ -4825,6 +4856,10 @@ export async function runStartCore(
     // Mark the stage running before it executes, so the interactive progress
     // shows where the run currently is (the stage's resolved status follows).
     onStageStart?.(planStage.stage);
+    // The reported start time of this stage's execution (epoch ms). The
+    // storefront stage overrides it below with the earlier time it was launched
+    // concurrently with the store stage.
+    let stageStartedAt = Date.now();
     const isBootstrap = planStage.stage === "init" || planStage.stage === "auth";
     const isHighRisk = (HIGH_RISK_STAGES as readonly string[]).includes(planStage.stage);
     // The riskContext surfaced for this stage; rewritten below for an
@@ -4911,7 +4946,24 @@ export async function runStartCore(
         // deploy` of the starter recipe, and the deploy stage spawns `npx vercel`.
         const runner = stageRunners[planStage.stage];
         if (runner) {
-          const outcome = await runner(checks, args);
+          // Launch the store stage first so it yields at its first Cloud API
+          // await, then kick off the credential-independent storefront
+          // preparation concurrently, so the spawned `git` clone + `pnpm`
+          // install overlap the slow store cold-start rather than serializing
+          // behind it (feature 002 Rule "Concurrent stage preparation").
+          const runnerPromise = runner(checks, args);
+          if (
+            planStage.stage === "store" &&
+            !storefrontPromise &&
+            stageRunners["storefront"]
+          ) {
+            storefrontStartedAt = Date.now();
+            storefrontPromise = stageRunners["storefront"](checks, args).then((outcome) => {
+              storefrontFinishedAt = Date.now();
+              return outcome;
+            });
+          }
+          const outcome = await runnerPromise;
           status = outcome.status;
           if (planStage.stage === "store") {
             storeData = outcome.data;
@@ -4940,7 +4992,14 @@ export async function runStartCore(
       // (gate unset, i.e. the store gate before it was pre-approved with --yes).
       // Reported honestly: `completed` only on a real clone+install; `blocked`
       // otherwise — never a fabricated completion. Idempotent (feature 022).
-      status = (await stageRunners["storefront"](checks, args)).status;
+      // On the `--yes` path it was already launched concurrently with the store
+      // stage; join that in-flight preparation here and report its real start
+      // and finish time so the overlap is observable in the run envelope
+      // (feature 002 Rule "Concurrent stage preparation").
+      status = (await (storefrontPromise ?? stageRunners["storefront"](checks, args))).status;
+      if (storefrontStartedAt !== undefined) {
+        stageStartedAt = storefrontStartedAt;
+      }
     } else if (planStage.stage === "stock" && !gate) {
       // The stock stage is the FIRST genuinely-executing `jolly start` stage
       // (decision 2026-06-14, MVP sequencing): @saleor/configurator cannot make
@@ -4969,9 +5028,18 @@ export async function runStartCore(
       status = "pending";
     }
 
+    // The storefront stage reports the real completion time of its concurrently
+    // launched preparation; every other stage finishes when its execution
+    // returns here.
+    const stageFinishedAt =
+      planStage.stage === "storefront" && storefrontFinishedAt !== undefined
+        ? storefrontFinishedAt
+        : Date.now();
     stages.push({
       stage: planStage.stage,
       status,
+      startedAt: stageStartedAt,
+      finishedAt: stageFinishedAt,
       ...(stageRiskContext ? { riskContext: stageRiskContext } : {}),
     });
     // Report this stage's resolved status so the interactive caller can update
@@ -5240,6 +5308,8 @@ function commandUsage(args: ParsedArgs): Envelope {
  * @planks(`Then the `storefront` stage should report "completed", backed by a real cloned Paper storefront with installed dependencies on disk`)
  * @planks(`Then that run should report the `recipe` stage "completed", having deployed the bundled starter recipe through `@saleor/configurator``)
  * @planks(`Then that run should report the `stock` stage "completed", having seeded stock for the recipe variants through Saleor GraphQL`)
+ * @planks("Then the stock stage's reported request timing should show a later stock mutation starting before an earlier stock mutation finishes")
+ * @planks("Then the stock stage's reported request timing should show a later collection assignment starting before an earlier collection assignment finishes")
  * @planks(`Then the `stripe` stage should report "completed" or "blocked" honestly, having attempted the Saleor app install for the Stripe payment app`)
  * @planks("Then it should not provision a store, clone the storefront, or run any other stage")
  * @planks("Then it should not provision a store, deploy, or run any other stage")
@@ -5285,6 +5355,7 @@ async function commandStage(
     data: {
       stages: [{ stage, status: outcome.status }],
       ...(stage === "deploy" && outcome.data ? { deploy: outcome.data } : {}),
+      ...(stage === "stock" && outcome.data ? { stock: outcome.data } : {}),
     },
     checks,
     ...(nextSteps.length > 0 ? { nextSteps } : {}),
@@ -5341,8 +5412,7 @@ async function dispatch(args: ParsedArgs): Promise<Envelope> {
       return commandStage("recipe", (checks) =>
         runRecipeStage(checks).then((s) => ({ status: s })));
     case "stock":
-      return commandStage("stock", (checks) =>
-        runStockStage(checks).then((s) => ({ status: s })));
+      return commandStage("stock", (checks) => runStockStage(checks));
     case "stripe":
       return commandStage("stripe", (checks) =>
         runStripeStage(checks).then((s) => ({ status: s })));

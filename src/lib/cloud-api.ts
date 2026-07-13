@@ -667,6 +667,50 @@ interface SeedStockResult {
   warehouseId: string;
   variantCount: number;
   seededCount: number;
+  stockRequests: RequestInterval[];
+}
+
+/** One backend Saleor request's start and finish time in epoch milliseconds.
+ * The stock stage reports these so its concurrency is observable directly
+ * (feature 004 Rule "Concurrent stock and collection requests are observable in
+ * the stage result"): a request whose reported start precedes another request's
+ * reported finish ran concurrently with it. */
+export interface RequestInterval {
+  startedAt: number;
+  finishedAt: number;
+}
+
+/** The recipe's many independent Saleor round-trips are issued through a bounded
+ * worker pool, not one at a time and not an unbounded fan-out, so they overlap
+ * while keeping the request rate within Saleor's limits (feature 004 Rule). */
+const RECIPE_REQUEST_CONCURRENCY = 8;
+
+/** Run `task` over `items` through a bounded worker pool, recording each item's
+ * start and finish time so the caller can report the request timing. The first
+ * poolful of requests start together and overlap, the observable seam the
+ * concurrency scenario asserts against. */
+async function runRecordedConcurrent<T>(
+  items: readonly T[],
+  task: (item: T) => Promise<void>,
+): Promise<RequestInterval[]> {
+  const intervals: RequestInterval[] = [];
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= items.length) return;
+      const startedAt = Date.now();
+      await task(items[index]);
+      intervals.push({ startedAt, finishedAt: Date.now() });
+    }
+  };
+  const workers = Array.from(
+    { length: Math.min(RECIPE_REQUEST_CONCURRENCY, items.length) },
+    () => worker(),
+  );
+  await Promise.all(workers);
+  return intervals;
 }
 
 /** Resolve the recipe warehouse id by slug; undefined when it does not exist. */
@@ -803,6 +847,8 @@ async function setVariantStock(
  * fabricated completion) instead of claiming success.
  * @planks("When Jolly start completes the recipe stage")
  * @planks("Then every recipe product variant should have stock in the recipe warehouse")
+ * @planks("When Jolly start runs the stock stage over the recipe's variants and collections")
+ * @planks("Then the stock stage's reported request timing should show a later stock mutation starting before an earlier stock mutation finishes")
  */
 export async function seedRecipeStock(
   graphqlUrl: string,
@@ -824,20 +870,21 @@ export async function seedRecipeStock(
       "NO_RECIPE_VARIANTS",
     );
   }
-  for (const variant of variants) {
-    await setVariantStock(
+  const stockRequests = await runRecordedConcurrent(variants, (variant) =>
+    setVariantStock(
       graphqlUrl,
       token,
       variant.id,
       warehouseId,
       quantity,
       variant.hasStockInWarehouse,
-    );
-  }
+    ),
+  );
   return {
     warehouseId,
     variantCount: variants.length,
     seededCount: variants.length,
+    stockRequests,
   };
 }
 
@@ -993,6 +1040,89 @@ export async function assignCollectionProducts(
     );
   }
   return productIds.length;
+}
+
+/** Add one product to a collection via `collectionAddProducts`; idempotent, a
+ * member already present is a no-op. Throws COLLECTION_ASSIGN_FAILED on a payload
+ * error so the caller reports the stage honestly. */
+async function addProductToCollection(
+  graphqlUrl: string,
+  token: string,
+  collectionId: string,
+  productId: string,
+): Promise<void> {
+  const addData = await graphqlFetch(
+    graphqlUrl,
+    token,
+    `mutation AddToCollection($collectionId: ID!, $products: [ID!]!) {
+      collectionAddProducts(collectionId: $collectionId, products: $products) {
+        collection { id }
+        errors { code field message }
+      }
+    }`,
+    { collectionId, products: [productId] },
+  );
+  const payload = addData.collectionAddProducts as
+    | { errors?: Array<Record<string, unknown>> }
+    | undefined;
+  const errors = payload?.errors ?? [];
+  if (errors.length > 0) {
+    throw new CloudApiError(
+      `Failed to assign product ${productId} to collection ${collectionId}: ${JSON.stringify(errors)}`,
+      "COLLECTION_ASSIGN_FAILED",
+    );
+  }
+}
+
+/**
+ * Assign the recipe's declared collection memberships concurrently, one
+ * `collectionAddProducts` request per (collection, product) pair, and report each
+ * request's start and finish time (feature 004 Rule "Concurrent stock and
+ * collection requests are observable in the stage result"). The recipe stage
+ * already created and populated the collections, so this resolves the existing
+ * collection and product ids by slug and re-adds members idempotently; a
+ * collection or product the store does not hold contributes no request. Returns
+ * how many memberships were re-asserted plus each request's timing interval.
+ * @planks("When Jolly start runs the stock stage over the recipe's variants and collections")
+ * @planks("Then the stock stage's reported request timing should show a later collection assignment starting before an earlier collection assignment finishes")
+ */
+export async function assignRecipeCollectionsConcurrent(
+  graphqlUrl: string,
+  token: string,
+  collections: readonly RecipeCollection[],
+): Promise<{ assignedCount: number; collectionRequests: RequestInterval[] }> {
+  const collData = await graphqlFetch(
+    graphqlUrl,
+    token,
+    `query { collections(first: 100) { edges { node { id slug } } } }`,
+  );
+  const collEdges = ((collData.collections as { edges?: unknown } | undefined)?.edges ??
+    []) as Array<{ node: { id: string; slug: string } }>;
+  const collectionIdBySlug = new Map(collEdges.map((e) => [e.node.slug, e.node.id]));
+
+  const prodData = await graphqlFetch(
+    graphqlUrl,
+    token,
+    `query { products(first: 100) { edges { node { id slug } } } }`,
+  );
+  const prodEdges = ((prodData.products as { edges?: unknown } | undefined)?.edges ??
+    []) as Array<{ node: { id: string; slug: string } }>;
+  const productIdBySlug = new Map(prodEdges.map((e) => [e.node.slug, e.node.id]));
+
+  const targets: Array<{ collectionId: string; productId: string }> = [];
+  for (const collection of collections) {
+    const collectionId = collectionIdBySlug.get(collection.slug);
+    if (!collectionId) continue;
+    for (const productSlug of collection.products) {
+      const productId = productIdBySlug.get(productSlug);
+      if (productId) targets.push({ collectionId, productId });
+    }
+  }
+
+  const collectionRequests = await runRecordedConcurrent(targets, (target) =>
+    addProductToCollection(graphqlUrl, token, target.collectionId, target.productId),
+  );
+  return { assignedCount: targets.length, collectionRequests };
 }
 
 // ── Stripe app install (feature 005 Rule "`jolly start` Stripe stage") ─────

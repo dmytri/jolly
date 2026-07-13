@@ -20,7 +20,7 @@ import { deleteEnvironment, listAllEnvironments } from "../support/cloud.ts";
 import { cachedStoreSpareNames } from "../support/provision.ts";
 import { ensureRecipeOnSharedStore } from "../support/recipe-on-shared.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
-import type { JollyWorld } from "../support/world.ts";
+import type { CliResult, JollyWorld } from "../support/world.ts";
 
 // Adopt the run's recipe deploy onto the PRIMARY SHARED store
 // (features/support/recipe-on-shared.ts): the starter recipe is deployed onto the
@@ -639,6 +639,145 @@ Then(
         DEFAULT_STOCK_QUANTITY,
         `variant "${variant.name}" quantity must be updated in place to ` +
           `${DEFAULT_STOCK_QUANTITY}, not accumulated, got ${atWarehouse[0].quantity}`,
+      );
+    }
+  },
+);
+
+// ─── Scenario: Jolly start seeds stock and assigns collections with concurrent
+//     Saleor requests (@sandbox @heavy) ────────────────────────────────────────
+//
+// The stock stage seeds stock AND assigns the recipe's collections, and it must
+// REPORT its per-request timing in the envelope: data.stock.stockRequests[] and
+// data.stock.collectionRequests[], each a { startedAt, finishedAt } epoch-ms
+// interval. That reported timing must show overlap — a later request starting
+// before an earlier one finishes — the observable proof the requests ran
+// concurrently rather than in a sequential await loop. The stock stage run is the
+// run's ONE shared `jolly stock --yes --json` (recipe-on-shared.ts), already
+// captured on notes.stockRun by the shared Given; the seeded stock and its
+// idempotency are read back from the live store (the reused Then above).
+
+interface RequestInterval {
+  startedAt: number;
+  finishedAt: number;
+}
+
+/** The stock stage's reported request-timing intervals for one request kind
+ * (stock mutations or collection assignments), asserted present with at least
+ * two entries — two requests are the minimum for concurrency to be observable. */
+function reportedRequestTiming(
+  world: JollyWorld,
+  key: "stockRequests" | "collectionRequests",
+  label: string,
+): RequestInterval[] {
+  const stock = world.envelope.data.stock as Record<string, unknown> | undefined;
+  assert.ok(
+    stock,
+    `the stock stage must report its request timing under data.stock: ${JSON.stringify(world.envelope.data)}`,
+  );
+  const raw = stock![key];
+  assert.ok(
+    Array.isArray(raw),
+    `the stock stage must report ${label} request timing as data.stock.${key} ` +
+      `(an array of { startedAt, finishedAt }): ${JSON.stringify(stock)}`,
+  );
+  const intervals = raw as RequestInterval[];
+  assert.ok(
+    intervals.length >= 2,
+    `at least two ${label} requests must be reported for concurrency to be observable; ` +
+      `got ${intervals.length}`,
+  );
+  for (const iv of intervals) {
+    assert.equal(
+      typeof iv.startedAt,
+      "number",
+      `${label} interval must carry a numeric startedAt (epoch ms): ${JSON.stringify(iv)}`,
+    );
+    assert.equal(
+      typeof iv.finishedAt,
+      "number",
+      `${label} interval must carry a numeric finishedAt (epoch ms): ${JSON.stringify(iv)}`,
+    );
+  }
+  return intervals;
+}
+
+/** Assert the intervals show overlap: sorted by start, some later request begins
+ * before the running maximum end among earlier-started requests. */
+function assertRequestOverlap(intervals: RequestInterval[], label: string): void {
+  const byStart = [...intervals].sort((a, b) => a.startedAt - b.startedAt);
+  let maxEnd = byStart[0].finishedAt;
+  let overlap = false;
+  for (let i = 1; i < byStart.length; i++) {
+    if (byStart[i].startedAt < maxEnd) overlap = true;
+    if (byStart[i].finishedAt > maxEnd) maxEnd = byStart[i].finishedAt;
+  }
+  assert.ok(
+    overlap,
+    `the reported ${label} request timing must show a later ${label} starting before an ` +
+      `earlier one finishes (concurrent); the requests ran sequentially: ${JSON.stringify(byStart)}`,
+  );
+}
+
+When(
+  "Jolly start runs the stock stage over the recipe's variants and collections",
+  function (this: JollyWorld) {
+    // Adopt the run's ONE shared stock stage run (recipe-on-shared.ts): the stock
+    // stage ran once this run via a real standalone `jolly stock --yes --json`
+    // against the shared recipe store. Read its envelope for the reported request
+    // timing.
+    const stockRun = this.notes.stockRun as CliResult | undefined;
+    assert.ok(
+      stockRun,
+      "the shared stock stage run must have been captured (recipe-on-shared)",
+    );
+    this.previousRun = this.lastRun;
+    this.lastRun = stockRun;
+  },
+);
+
+Then(
+  "the stock stage's reported request timing should show a later stock mutation starting before an earlier stock mutation finishes",
+  function (this: JollyWorld) {
+    assertRequestOverlap(
+      reportedRequestTiming(this, "stockRequests", "stock mutation"),
+      "stock mutation",
+    );
+  },
+);
+
+Then(
+  "the stock stage's reported request timing should show a later collection assignment starting before an earlier collection assignment finishes",
+  function (this: JollyWorld) {
+    assertRequestOverlap(
+      reportedRequestTiming(this, "collectionRequests", "collection assignment"),
+      "collection assignment",
+    );
+  },
+);
+
+Then(
+  "every recipe product variant should have stock in the recipe warehouse afterwards",
+  { timeout: 60_000 },
+  async function (this: JollyWorld) {
+    const endpoint = String(this.notes.storeEndpoint);
+    const token = this.notes.storeToken as string | undefined;
+    const variants = await recipeVariants(endpoint, token);
+    assert.ok(
+      variants.length > 0,
+      "the recipe deploy must have created product variants to seed stock for",
+    );
+    for (const variant of variants) {
+      const stock = variant.stocks.find(
+        (s) => s.warehouse.slug === RECIPE_WAREHOUSE_SLUG,
+      );
+      assert.ok(
+        stock,
+        `variant "${variant.name}" (${variant.sku}) must have stock in ${RECIPE_WAREHOUSE_NAME} afterwards`,
+      );
+      assert.ok(
+        stock!.quantity > 0,
+        `variant "${variant.name}" must have positive stock, got ${stock!.quantity}`,
       );
     }
   },
