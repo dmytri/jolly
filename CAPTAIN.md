@@ -10,6 +10,19 @@ Full-tier regression GREEN, 221/221: `@logic` 165, `@sandbox` 15, `sandboxSerial
 
 `watchbill.json` carries the 7 scenarios promoted out of harbour. QM has never seen them: they are spec-only, no step definitions, so every one is expected RED on first run. That is the point.
 
+## In flight: QM dispatched against the watchbill (7 targets)
+
+All 7 are spec-only and expected RED on first run: they have no step definitions. QM makes them executable. Two of them then go red on real debt, which is the point:
+
+- `verification-economy:An interactive scenario waits for the prompt it is answering, never a guessed delay` reddens on `inputDelayMs: 600` across the PTY scenarios. That is the 72%-of-`@logic` latency fix, reaching QM as a failing target rather than as prose.
+- `025:The run records what every agent turn cost and which Jolly command it ran` needs `pi` spawned with `--session-dir` into the wake, and its usage read BEFORE teardown removes the throwaway `$HOME`. Today every `@eval` run produces the token data and then deletes it.
+
+Riding with that cycle, both recorded in `RIGGING.md` `## Known false-failure modes` so QM finds them without chat:
+
+- **Add a tag-free `all` profile to `cucumber.js`** (verification config, QM's scope). Decided with dk. Cucumber ANDs profile tags with CLI tags, so the default profile's `not @eval` is unreachable from the command line: `discover` and `step-usage` currently loop a literal profile list to see every tier. A tag-free profile makes `-p all` see every scenario by construction, a new tier needs no wiring, and both command values collapse to one-liners at the next harbour refit. Then strike the entry.
+- **Harness Cloud reads must retry transient HTTP 5xx.** `features/support/cloud.ts` `cloudFetchRetry` retries a thrown network fault but returns an HTTP error status as-is, so a Saleor 502 reds a tier production rides straight through. Then strike the entry.
+- One step definition orphaned by the `012` recast: `012-existing-saleor-store-connection.steps.ts:433`, `no environment should be created`. QM removes verification support in place.
+
 ## Standing rule, learned the hard way
 
 **Any change to the interactive path MUST be verified through `features/support/pty.ts` `runUnderPty`.** 0.12.1 and 0.12.2 both shipped "verified" and both were broken, because the mechanism was tested in a bespoke harness on a box that already had a Vercel session and a warm npx cache: never the customer's conditions. The repo had the real-PTY harness the whole time. Drive the real path or do not claim it works.
