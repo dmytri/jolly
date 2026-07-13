@@ -19,6 +19,7 @@ import {
 } from "../support/envelope.ts";
 import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 import { ptyAvailable, runUnderPty } from "../support/pty.ts";
+import { acceptEveryPrompt, startPromptSequence } from "../support/start-prompts.ts";
 import { findEnvelope } from "../support/envelope.ts";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
 
@@ -409,15 +410,17 @@ function runStartSeparated(world: JollyWorld): boolean {
     if (v !== undefined) env[k] = v;
   }
   if (!env.TERM) env.TERM = "xterm-256color";
+  // Enter advances each pre-filled prompt (environment name, project dir) and
+  // confirms the proceed gate, so the side-effecting stages are reached. Each
+  // Enter is fed when its prompt is observed, never on a guessed delay.
+  const sequence = startPromptSequence({ argv, cwd: world.projectDir });
   const run = runUnderPty({
     runtime: process.env.HARNESS_CLI_RUNTIME ?? "node",
     argv: [CLI_ENTRY, ...argv],
     cwd: world.projectDir,
     env,
-    // Enter advances each pre-filled prompt (environment name, project dir) and
-    // confirms the proceed gate, so the side-effecting stages are reached.
-    inputs: ["\r", "\r", "\r", "\r", "\r"],
-    inputDelayMs: 600,
+    inputs: acceptEveryPrompt(sequence),
+    waitFor: sequence,
     timeoutMs: 150_000,
     separateStreams: true,
   });

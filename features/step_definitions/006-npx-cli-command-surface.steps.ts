@@ -24,6 +24,7 @@ import { delimiter, dirname, join } from "node:path";
 import { findEnvelope } from "../support/envelope.ts";
 import { absentCredentialsEnv } from "../support/creds-env.ts";
 import { ptyAvailable, runUnderPty } from "../support/pty.ts";
+import { acceptEveryPrompt, startPromptSequence } from "../support/start-prompts.ts";
 import { REPO_ROOT } from "../support/world.ts";
 import type { JollyWorld } from "../support/world.ts";
 import {
@@ -246,16 +247,17 @@ When(
     if (!env.TERM) env.TERM = "xterm-256color";
 
     // Run the installed bin itself (its `#!/usr/bin/env node` shebang) — the
-    // published launcher — under the PTY. Press Enter at every prompt: a
-    // generous run of carriage returns; extra Enters past child exit drop
-    // harmlessly.
+    // published launcher — under the PTY, pressing Enter at each prompt as it is
+    // observed.
+    const argv = ["start", "--dry-run"];
+    const sequence = startPromptSequence({ argv, cwd: this.projectDir });
     const run = runUnderPty({
       runtime: installedBin,
-      argv: ["start", "--dry-run"],
+      argv,
       cwd: this.projectDir,
       env,
-      inputs: ["\r", "\r", "\r", "\r", "\r", "\r"],
-      inputDelayMs: 600,
+      inputs: acceptEveryPrompt(sequence),
+      waitFor: sequence,
       timeoutMs: 150_000,
     });
     this.previousRun = this.lastRun;
@@ -738,22 +740,23 @@ When(
       if (v !== undefined) env[k] = v;
     }
     if (!env.TERM) env.TERM = "xterm-256color";
+    const argv = [
+      "start",
+      "--dry-run",
+      // @exceptional-double: a Cloud token resolving more than one organization
+      // cannot be produced on demand from the single-org test account; the
+      // deterministic org list is injected to drive the org-announce render.
+      `--mock-organizations=${organization},other-co`,
+      "--mock-environments=",
+    ];
+    const sequence = startPromptSequence({ argv, cwd: this.projectDir });
     const run = runUnderPty({
       runtime: process.env.HARNESS_CLI_RUNTIME ?? "node",
-      argv: [
-        CLI_ENTRY,
-        "start",
-        "--dry-run",
-        // @exceptional-double: a Cloud token resolving more than one organization
-        // cannot be produced on demand from the single-org test account; the
-        // deterministic org list is injected to drive the org-announce render.
-        `--mock-organizations=${organization},other-co`,
-        "--mock-environments=",
-      ],
+      argv: [CLI_ENTRY, ...argv],
       cwd: this.projectDir,
       env,
-      inputs: ["\r", "\r", "\r", "\r", "\r"],
-      inputDelayMs: 600,
+      inputs: acceptEveryPrompt(sequence),
+      waitFor: sequence,
       timeoutMs: 150_000,
     });
     // The org announce renders on stderr; runUnderPty's combined output carries

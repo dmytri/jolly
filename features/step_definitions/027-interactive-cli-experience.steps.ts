@@ -20,6 +20,7 @@ import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 import { ptyAvailable, runUnderPty } from "../support/pty.ts";
+import { acceptEveryPrompt, startPromptSequence } from "../support/start-prompts.ts";
 import { findEnvelope } from "../support/envelope.ts";
 import { listOrganizations } from "../support/cloud.ts";
 import {
@@ -88,20 +89,27 @@ function interactiveChildEnv(
 // scripted keystrokes, and record the result as the world's last run so the
 // standard envelope/output assertions apply. Returns false when no PTY is
 // available.
+//
+// Each answer is fed when the prompt it answers is OBSERVED in the terminal
+// output, never on a guessed delay (feature verification-economy): the run's
+// prompt sequence is derived from its argv and project directory, and `answers`
+// maps that sequence to the keystrokes this scenario sends.
 function runInteractive(
   world: JollyWorld,
   argv: string[],
-  inputs: string[],
+  answers: (sequence: string[]) => string[],
   overrides: Record<string, string | undefined> = {},
 ): boolean {
   if (!ptyAvailable()) return false;
+  const sequence = startPromptSequence({ argv, cwd: world.projectDir });
+  const inputs = answers(sequence);
   const run = runUnderPty({
     runtime: process.env.HARNESS_CLI_RUNTIME ?? "node",
     argv: [CLI_ENTRY, ...argv],
     cwd: world.projectDir,
     env: interactiveChildEnv(overrides),
     inputs,
-    inputDelayMs: 600,
+    waitFor: sequence.slice(0, inputs.length),
     timeoutMs: 150_000,
   });
   world.previousRun = world.lastRun;
@@ -116,9 +124,8 @@ function runInteractive(
   return true;
 }
 
-// Press Enter at every prompt: a generous run of carriage returns. Extra Enters
-// after the last prompt are written past child exit and harmlessly dropped.
-const ENTER_AT_EVERY_PROMPT = ["\r", "\r", "\r", "\r", "\r", "\r"];
+// Press Enter at every prompt: one carriage return per prompt the run renders,
+// each fed when that prompt is observed.
 
 // ─── Unsupported command: fail clearly, name the supported surface ─────────
 
@@ -497,7 +504,7 @@ When(
   { timeout: 160_000 },
   function (this: JollyWorld) {
     assert.ok(
-      runInteractive(this, startArgvWithMock(this), ENTER_AT_EVERY_PROMPT),
+      runInteractive(this, startArgvWithMock(this), acceptEveryPrompt),
       "the interactive run must start",
     );
   },
@@ -518,9 +525,13 @@ When(
     // with `n`.
     this.notes.mockOrgs = "org-solo";
     assert.ok(
-      runInteractive(this, startArgvWithMock(this), ["\r", "\r", "n"], {
-        JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN,
-      }),
+      runInteractive(
+        this,
+        startArgvWithMock(this),
+        // Accept every pre-filled default, then decline the proceed confirmation.
+        (sequence) => [...acceptEveryPrompt(sequence).slice(0, -1), "n"],
+        { JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN },
+      ),
       "the interactive run must start",
     );
   },
@@ -565,7 +576,7 @@ When(
   "`jolly start --dry-run --yes` runs in an interactive terminal and receives no input",
   { timeout: 160_000 },
   function (this: JollyWorld) {
-    assert.ok(runInteractive(this, ["start", "--dry-run", "--yes"], []), "the interactive run must start");
+    assert.ok(runInteractive(this, ["start", "--dry-run", "--yes"], () => []), "the interactive run must start");
   },
 );
 
@@ -573,7 +584,7 @@ When(
   "`jolly start --dry-run --json` runs in an interactive terminal",
   { timeout: 160_000 },
   function (this: JollyWorld) {
-    assert.ok(runInteractive(this, ["start", "--dry-run", "--json"], []), "the interactive run must start");
+    assert.ok(runInteractive(this, ["start", "--dry-run", "--json"], () => []), "the interactive run must start");
   },
 );
 
@@ -994,13 +1005,14 @@ const STAGE_STATUS_MARKER =
 function runStartStagesSeparated(world: JollyWorld): boolean {
   if (!ptyAvailable()) return false;
   const argv = (world.notes.startArgv as string[]) ?? ["start"];
+  const sequence = startPromptSequence({ argv, cwd: world.projectDir });
   const run = runUnderPty({
     runtime: process.env.HARNESS_CLI_RUNTIME ?? "node",
     argv: [CLI_ENTRY, ...argv],
     cwd: world.projectDir,
     env: interactiveChildEnv({ JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN }),
-    inputs: ["\r", "\r", "\r", "\r", "\r"],
-    inputDelayMs: 600,
+    inputs: acceptEveryPrompt(sequence),
+    waitFor: sequence,
     timeoutMs: 150_000,
     separateStreams: true,
   });

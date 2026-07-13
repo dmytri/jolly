@@ -418,3 +418,77 @@ export function findGlobalOutputFlagViolations(): Violation[] {
 
   return violations;
 }
+
+/**
+ * The property set that discriminates the environment-creation POST body sent
+ * to /platform/api/organizations/{organization}/environments/ (feature 012).
+ * An object literal carrying all of these IS that request body, wherever it is
+ * built.
+ */
+const ENV_CREATION_BODY_KEYS = [
+  "name",
+  "project",
+  "domain_label",
+  "database_population",
+  "service",
+];
+
+export interface BodySite {
+  file: string;
+  line: number;
+  seamLabel: string;
+}
+
+/** An extra source injected for a planted-red proof: virtual, never on disk. */
+export interface InjectedSource {
+  file: string;
+  text: string;
+}
+
+/**
+ * Every place in src/ that builds the environment-creation POST body: an object
+ * literal carrying the body's discriminating properties. One site means the
+ * `--dry-run` preview reports the very body the real request sends. A second,
+ * independently constructed site means the preview vouches for a request that
+ * is built somewhere else, and can drift from it silently.
+ */
+export function findEnvironmentCreationBodySites(
+  injected: InjectedSource[] = [],
+): BodySite[] {
+  const sites: BodySite[] = [];
+  const added = injected.map((source) =>
+    project().createSourceFile(join(REPO_ROOT, source.file), source.text, {
+      overwrite: true,
+    }),
+  );
+  try {
+    for (const source of project().getSourceFiles()) {
+      const file = repoRelative(source.getFilePath());
+      if (!file.startsWith("src/")) continue;
+      for (const literal of source.getDescendantsOfKind(
+        SyntaxKind.ObjectLiteralExpression,
+      )) {
+        // Shorthand (`service,`) names the property just as a longhand
+        // assignment does, so both count: a body is a body however it is written.
+        const properties = literal
+          .getProperties()
+          .filter(
+            (property) =>
+              Node.isPropertyAssignment(property) ||
+              Node.isShorthandPropertyAssignment(property),
+          )
+          .map((property) => property.getName().replace(/^["']|["']$/g, ""));
+        if (!ENV_CREATION_BODY_KEYS.every((key) => properties.includes(key))) continue;
+        const { label } = enclosingSeam(literal);
+        sites.push({
+          file,
+          line: literal.getStartLineNumber(),
+          seamLabel: label,
+        });
+      }
+    }
+  } finally {
+    for (const source of added) project().removeSourceFile(source);
+  }
+  return sites;
+}

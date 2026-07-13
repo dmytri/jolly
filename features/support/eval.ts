@@ -41,6 +41,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -132,6 +133,14 @@ export interface EvalContext {
   traceFile: string;
   /** The real Jolly skill directory made available to the agent. */
   skillDir: string;
+  /**
+   * Directory the agent writes its session JSONL to. The agent records its own
+   * per-turn `usage` there (model invocations, prompt and completion tokens),
+   * which is the source of record for what a run cost (feature
+   * verification-economy): the tokens come from the agent, never from an
+   * estimate the harness computes for itself.
+   */
+  sessionDir: string;
 }
 
 /**
@@ -257,7 +266,8 @@ export function setupEvalContext(
   const workspace = join(root, "workspace");
   const fakeHome = join(root, "home");
   const shimDir = join(root, "bin");
-  for (const dir of [workspace, fakeHome, shimDir, join(fakeHome, ".config")]) {
+  const sessionDir = join(root, "session");
+  for (const dir of [workspace, fakeHome, shimDir, sessionDir, join(fakeHome, ".config")]) {
     mkdirSync(dir, { recursive: true });
   }
 
@@ -297,7 +307,7 @@ export function setupEvalContext(
   writeFileSync(traceFile, "");
   writeShims(shimDir, traceFile);
 
-  return { workspace, fakeHome, shimDir, traceFile, skillDir };
+  return { workspace, fakeHome, shimDir, traceFile, skillDir, sessionDir };
 }
 
 /**
@@ -437,6 +447,10 @@ export function runBaselineAgent(ctx: EvalContext, task: string): AgentRun {
       evalModel(),
       "--skill",
       ctx.skillDir,
+      // The agent records its own per-turn usage into this session, which the
+      // affordance map reads (feature verification-economy).
+      "--session-dir",
+      ctx.sessionDir,
     ],
     {
       cwd: ctx.workspace,
@@ -669,4 +683,207 @@ export function envelopeFromTrace(
     }
   }
   return undefined;
+}
+
+// ─── The affordance map (feature verification-economy, feature 025) ──────────
+//
+// What succeeding COST is the measure. The agent records its own per-turn usage
+// into its session JSONL; the PATH shim records every Jolly invocation into the
+// trace. Joined in turn order, the two give a turn-by-turn account of where the
+// agent spent its budget, and against which piece of Jolly's output it began to
+// flail.
+
+/** One model invocation the agent made, as the agent itself recorded it. */
+export interface ModelInvocation {
+  /** 0-based turn index, in the order the agent made them. */
+  turn: number;
+  /** Prompt tokens the invocation consumed, from the agent's own usage record. */
+  promptTokens: number;
+  /** Completion tokens the invocation produced, from the agent's own usage record. */
+  completionTokens: number;
+  /** The shell commands this invocation asked to run, verbatim. */
+  shellCommands: string[];
+}
+
+/** One entry of the affordance map: what a turn cost, and what Jolly it ran. */
+export interface AffordanceEntry extends ModelInvocation {
+  /**
+   * The Jolly command this invocation ran, taken from the CLI trace, or
+   * undefined when the invocation ran none.
+   */
+  jollyCommand?: string;
+}
+
+/** The agent's session JSONL: the newest session file in its session directory. */
+function sessionFile(sessionDir: string): string | undefined {
+  if (!existsSync(sessionDir)) return undefined;
+  const sessions = readdirSync(sessionDir)
+    .filter((name) => name.endsWith(".jsonl"))
+    .sort();
+  const newest = sessions[sessions.length - 1];
+  return newest === undefined ? undefined : join(sessionDir, newest);
+}
+
+/**
+ * Every model invocation the agent made, read from the usage IT recorded on
+ * each assistant message in its session JSONL. An assistant message with no
+ * usage is not a model invocation the agent accounted for, so it is not
+ * counted: a run whose agent recorded no usage yields an empty list, which
+ * reddens rather than reporting a cost of zero.
+ */
+export function readModelInvocations(sessionDir: string): ModelInvocation[] {
+  const file = sessionFile(sessionDir);
+  if (!file) return [];
+  const invocations: ModelInvocation[] = [];
+  for (const line of readFileSync(file, "utf8").split("\n")) {
+    if (line.trim() === "") continue;
+    let entry: {
+      type?: string;
+      message?: {
+        role?: string;
+        content?: Array<{ type?: string; name?: string; arguments?: { command?: string } }>;
+        usage?: { input?: number; output?: number };
+      };
+    };
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const message = entry.message;
+    if (entry.type !== "message" || message?.role !== "assistant") continue;
+    const usage = message.usage;
+    if (!usage || typeof usage.input !== "number" || typeof usage.output !== "number") {
+      continue;
+    }
+    const shellCommands = (message.content ?? [])
+      .filter((part) => part.type === "toolCall" && typeof part.arguments?.command === "string")
+      .map((part) => part.arguments!.command!);
+    invocations.push({
+      turn: invocations.length,
+      promptTokens: usage.input,
+      completionTokens: usage.output,
+      shellCommands,
+    });
+  }
+  return invocations;
+}
+
+/** A trace record's command line, as the shim observed it. */
+export function traceCommandLine(record: TraceRecord): string {
+  return `${record.tool === "npx-jolly" ? "npx jolly" : "jolly"} ${record.argv.join(" ")}`.trim();
+}
+
+/**
+ * The affordance map: one entry per model invocation, carrying the tokens the
+ * agent recorded for it and the Jolly command it ran.
+ *
+ * The command comes from the CLI trace, never from the text of the tool call:
+ * the trace is what actually executed. The two are joined in turn order — the
+ * traced invocations are consumed in sequence by the turns whose shell commands
+ * asked for Jolly — so a turn that ran no Jolly command records none.
+ *
+ * A run whose agent recorded no usage has no map to report, so this throws
+ * rather than returning entries that would read as a cost of zero.
+ */
+export function buildAffordanceMap(
+  invocations: ModelInvocation[],
+  trace: TraceRecord[],
+): AffordanceEntry[] {
+  if (invocations.length === 0) {
+    throw new Error(
+      "the agent recorded no usage, so the run's cost is unknown — a run that reports no model invocation cannot report a cost of zero",
+    );
+  }
+  const remaining = [...trace];
+  return invocations.map((invocation) => {
+    const commands: string[] = [];
+    // Consume the traced invocations this turn's shell commands asked for, in
+    // order. A turn that merely MENTIONS jolly without invoking it (reading a
+    // file, grepping output) matches no traced record and records none: the
+    // trace is what actually executed.
+    for (const shellCommand of invocation.shellCommands) {
+      while (remaining.length > 0 && shellCommandRan(shellCommand, remaining[0]!)) {
+        commands.push(traceCommandLine(remaining.shift()!));
+      }
+    }
+    return commands.length === 0
+      ? { ...invocation }
+      : { ...invocation, jollyCommand: commands.join(" && ") };
+  });
+}
+
+/**
+ * Whether a shell command the agent asked to run is the traced invocation: it
+ * names jolly and carries every non-flag token of the traced argv, so a
+ * `jolly doctor` record is never attributed to a `jolly start` call.
+ */
+function shellCommandRan(shellCommand: string, record: TraceRecord): boolean {
+  if (!/\bjolly\b/.test(shellCommand)) return false;
+  return record.argv
+    .filter((token) => !token.startsWith("-"))
+    .every((token) => shellCommand.includes(token));
+}
+
+/** A turn spent reaching for `--help` to recover from a Jolly command that errored. */
+export interface WastedTurn {
+  /** The Jolly command whose envelope failed to carry the recovery. */
+  command: string;
+  /** The `--help` invocation that followed it. */
+  help: string;
+  /** Whether that command's envelope carried nextSteps. */
+  carriedNextSteps: boolean;
+  /** Whether that command's envelope carried remediation on any check. */
+  carriedRemediation: boolean;
+  /** What the erroring envelope told the agent, so the copy to fix is named. */
+  summary: string;
+  /** The error codes the erroring envelope carried. */
+  errorCodes: string[];
+}
+
+function reportedError(record: TraceRecord): boolean {
+  const envelope = findEnvelope(record.stdout) ?? findEnvelope(record.stderr);
+  if (envelope) return envelope.status === "error";
+  return record.exit !== null && record.exit !== 0;
+}
+
+function isHelp(record: TraceRecord): boolean {
+  return record.argv.includes("--help") || record.argv.includes("-h");
+}
+
+/**
+ * Wasted turns: a `--help` invocation reaching for the recovery that the
+ * erroring command's own envelope should have carried (feature 020 requires the
+ * error envelope to carry its nextSteps and remediation). Re-running a command
+ * to resume a pending human gate is not flailing and is not reported.
+ */
+export function findWastedHelpTurns(trace: TraceRecord[]): WastedTurn[] {
+  const wasted: WastedTurn[] = [];
+  trace.forEach((record, index) => {
+    if (!reportedError(record)) return;
+    const next = trace[index + 1];
+    if (!next || !isHelp(next)) return;
+    const envelope = findEnvelope(record.stdout) ?? findEnvelope(record.stderr);
+    const errors = (envelope?.errors ?? []) as Array<Record<string, unknown>>;
+    wasted.push({
+      command: traceCommandLine(record),
+      help: traceCommandLine(next),
+      carriedNextSteps: (envelope?.nextSteps?.length ?? 0) > 0,
+      // The recovery an error envelope owes the agent (feature 020): a
+      // remediation on the error it reported, or on a failing check.
+      carriedRemediation:
+        errors.some(
+          (error) =>
+            typeof error.remediation === "string" && error.remediation.trim() !== "",
+        ) ||
+        (envelope?.checks ?? []).some(
+          (check) => typeof check.remediation === "string" && check.remediation.trim() !== "",
+        ),
+      summary: envelope?.summary ?? `(no envelope; exit ${record.exit})`,
+      errorCodes: errors
+        .map((error) => (typeof error.code === "string" ? error.code : "?"))
+        .filter(Boolean),
+    });
+  });
+  return wasted;
 }

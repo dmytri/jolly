@@ -40,9 +40,14 @@ import {
   listAllEnvironments,
 } from "../support/cloud.ts";
 import { cachedStoreSpareNames } from "../support/provision.ts";
+import {
+  findEnvironmentCreationBodySites,
+  type BodySite,
+  type InjectedSource as EnvBodyInjectedSource,
+} from "../support/module-conformance.ts";
 import { makeNamespace } from "../support/sandbox.ts";
 import { startLimitRejectingCloudApi } from "../support/limit-cloud-api.ts";
-import type { JollyWorld } from "../support/world.ts";
+import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
 
 function envData(world: JollyWorld): Record<string, unknown> {
   return world.envelope.data as Record<string, unknown>;
@@ -872,5 +877,71 @@ Then(
     // Teardown was registered before creation (in the When). The After hook
     // runs it; its size proves a teardown is queued.
     assert.ok(this.cleanup.size > 0, "a teardown must be registered for the created environment");
+  },
+);
+
+// The environment-creation request body is built by ONE seam (@logic @property).
+//
+// The ts-morph checker enumerates every place in src/ that builds the POST body
+// for /platform/api/organizations/{organization}/environments/ — an object
+// literal carrying the body's discriminating properties. Exactly one place
+// means the `--dry-run` preview reports the body the real request sends; a
+// second, independently constructed body means the verified preview vouches for
+// a request built somewhere else.
+Given("Jolly's environment-creation code", function (this: JollyWorld) {
+  assert.ok(
+    existsSync(join(REPO_ROOT, "src", "index.ts")),
+    "the production source (src/) must exist to check",
+  );
+});
+
+When(
+  /^the places that build the POST body for \/platform\/api\/organizations\/\{organization\}\/environments\/ are enumerated$/,
+  function (this: JollyWorld) {
+    this.notes.envBodySites = findEnvironmentCreationBodySites();
+  },
+);
+
+Then(
+  /^there should be exactly one, and both the `--dry-run` preview and the real request should report and send that one body$/,
+  function (this: JollyWorld) {
+    const sites = this.notes.envBodySites as BodySite[];
+    assert.equal(
+      sites.length,
+      1,
+      `the environment-creation POST body is built in ${sites.length} places, so the previewed body is not necessarily the body sent:\n${sites
+        .map((site) => `  - ${site.file}:${site.line} in ${site.seamLabel}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  /^a second, independently constructed body for that request should redden the check, since a preview that is verified cannot vouch for a request that is not$/,
+  function (this: JollyWorld) {
+    const planted: EnvBodyInjectedSource = {
+      file: "src/.planted-second-env-body.ts",
+      text: [
+        "export function secondBody(region: string) {",
+        "  return {",
+        '    name: "store",',
+        '    project: "store",',
+        '    domain_label: "store",',
+        "    database_population: null,",
+        '    service: "saleor",',
+        "    region,",
+        "  };",
+        "}",
+      ].join("\n"),
+    };
+    const sites = findEnvironmentCreationBodySites([planted]);
+    assert.ok(
+      sites.some((site) => site.file === planted.file),
+      "a second, independently constructed environment-creation body was not reported",
+    );
+    assert.ok(
+      sites.length > (this.notes.envBodySites as BodySite[]).length,
+      "the planted second body did not raise the count of body-construction sites",
+    );
   },
 );

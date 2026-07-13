@@ -290,6 +290,42 @@ export interface CloudEnvironment {
   [key: string]: unknown;
 }
 
+export interface EnvironmentCreationBody {
+  name: string;
+  project: string;
+  domain_label: string;
+  database_population: string | null;
+  service: string;
+  region: string;
+}
+
+/**
+ * The one place the environment-creation POST body is built, so the `--dry-run`
+ * preview reports the very body the real request sends. `database_population`
+ * is null: the Saleor Cloud "blank" template (feature 012 Rule "Created
+ * environments are provisioned blank").
+ * @planks("Then there should be exactly one, and both the `--dry-run` preview and the real request should report and send that one body")
+ * @planks("Then the POST body should include name, project, domain_label, database_population, service, and optional basic-auth credentials")
+ * @planks("Then the prepared request should create a blank environment with no sample data")
+ * @planks(`Then the default region should be "us-east-1"`)
+ */
+export function environmentCreationBody(opts: {
+  name: string;
+  project: string;
+  domainLabel: string;
+  service: string;
+  region: string;
+}): EnvironmentCreationBody {
+  return {
+    name: opts.name,
+    project: opts.project,
+    domain_label: opts.domainLabel,
+    database_population: null,
+    service: opts.service,
+    region: opts.region,
+  };
+}
+
 /**
  * POST /platform/api/organizations/{slug}/environments/ — returns the
  * environment (with task_id for async provisioning). A rejection caused by
@@ -303,14 +339,7 @@ export interface CloudEnvironment {
 export async function createEnvironment(
   token: string,
   organizationSlug: string,
-  body: {
-    name: string;
-    project: string;
-    domain_label: string;
-    database_population: string | null;
-    service: string;
-    region: string;
-  },
+  body: EnvironmentCreationBody,
 ): Promise<CloudEnvironment> {
   const response = await cloudFetch(
     `${cloudApiBase()}/organizations/${organizationSlug}/environments/`,

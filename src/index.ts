@@ -34,6 +34,7 @@ import {
   listEnvironments,
   type CloudEnvironment,
   createEnvironment,
+  environmentCreationBody,
   pollTaskStatus,
   getEnvironment,
   extractDomainUrl,
@@ -1432,14 +1433,13 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
 
   // --dry-run: show the real resolved request, write nothing. -----------
   if (args.dryRun) {
-    const requestBody = {
+    const requestBody = environmentCreationBody({
       name: effectiveName,
       project: effectiveName,
-      domain_label: effectiveDomainLabel,
-      database_population: null,
+      domainLabel: effectiveDomainLabel,
       service: "saleor",
       region,
-    };
+    });
     const env = envelope({
       command,
       status: multiOrgWarning ? "warning" : "success",
@@ -1643,14 +1643,17 @@ async function provisionStore(
   } else {
     const services = await listProjectServices(token, selectedOrg, projectSlug);
     const service = pickService(services, region);
-    const created = await createEnvironment(token, selectedOrg, {
-      name: effectiveName,
-      project: projectSlug,
-      domain_label: effectiveDomainLabel,
-      database_population: null,
-      service,
-      region,
-    });
+    const created = await createEnvironment(
+      token,
+      selectedOrg,
+      environmentCreationBody({
+        name: effectiveName,
+        project: projectSlug,
+        domainLabel: effectiveDomainLabel,
+        service,
+        region,
+      }),
+    );
     const taskId = created.task_id;
     let task = undefined;
     if (taskId) task = await pollTaskStatus(String(taskId));

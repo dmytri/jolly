@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { assertEnvelopeShape, type Envelope, findEnvelope } from "../support/envelope.ts";
 import {
   assertRealInputs,
+  ensureCliBundle,
   type AgentRun,
   type EvalContext,
   DOCUMENTED_COMMANDS,
@@ -31,7 +32,14 @@ import {
   runBaselineAgent,
   setupEvalContext,
   subcommandOf,
+  buildAffordanceMap,
+  findWastedHelpTurns,
+  readModelInvocations,
+  traceCommandLine,
+  type AffordanceEntry,
+  type ModelInvocation,
   type TraceRecord,
+  type WastedTurn,
 } from "../support/eval.ts";
 import { listAllEnvironments, deleteEnvironment } from "../support/cloud.ts";
 import type { JollyWorld } from "../support/world.ts";
@@ -52,6 +60,9 @@ const AGENT_STEP_TIMEOUT_MS = Math.max(900_000, AGENT_BUDGET_MS + 300_000);
 const CTX = "evalContext";
 const RUN = "evalRun";
 const TRACE = "evalTrace";
+const INVOCATIONS = "evalInvocations";
+const MAP = "evalAffordanceMap";
+const WASTED = "evalWastedTurns";
 
 function ctx(world: JollyWorld): EvalContext {
   const value = world.notes[CTX] as EvalContext | undefined;
@@ -442,6 +453,250 @@ Then(
         ? "HARNESS_EVAL_KEEP_STORE set: created jolly-cannon-fodder store retained for inspection."
         : "Created jolly-cannon-fodder resources will be reclaimed in best-effort teardown.",
       "text/plain",
+    );
+  },
+);
+
+// ─── The affordance map: what the run COST (feature verification-economy) ────
+//
+// Both scenarios below read one completed setup run. A live setup run is the
+// most expensive state this suite provisions, and neither scenario asserts the
+// provisioning itself — they read what it recorded — so the run is provisioned
+// ONCE and shared. Its evidence (the agent's own usage records and the CLI
+// trace) is parsed into memory at that point, so the second reader is
+// independent of the first scenario's teardown.
+interface CompletedSetupRun {
+  run: AgentRun;
+  trace: TraceRecord[];
+  invocations: ModelInvocation[];
+}
+
+let sharedSetupRun: CompletedSetupRun | undefined;
+
+const SETUP_TASK = "Read https://jolly.cool/setup and follow the instructions to set up Jolly";
+
+Given(
+  "the baseline agent has completed the setup task",
+  { timeout: AGENT_STEP_TIMEOUT_MS },
+  async function (this: JollyWorld) {
+    if (sharedSetupRun) {
+      this.notes[RUN] = sharedSetupRun.run;
+      this.notes[TRACE] = sharedSetupRun.trace;
+      this.notes[INVOCATIONS] = sharedSetupRun.invocations;
+      this.attach(
+        `Reusing the shared completed setup run (${sharedSetupRun.invocations.length} model invocations, ` +
+          `${sharedSetupRun.trace.length} traced Jolly invocations).`,
+        "text/plain",
+      );
+      return;
+    }
+
+    assertRealInputs();
+    const bundleError = ensureCliBundle();
+    assert.ok(!bundleError, `the published CLI bundle must build: ${bundleError}`);
+
+    const context = setupEvalContext(this.namespace, (description, fn) =>
+      this.cleanup.register(description, fn),
+    );
+    this.notes[CTX] = context;
+
+    // Reclaim leftover capacity before the agent provisions, and reclaim what
+    // this run creates afterwards: only the jolly-cannon-fodder namespace is
+    // ever deleted (teardown registered before the agent runs).
+    const cloudToken = process.env.JOLLY_SALEOR_CLOUD_TOKEN;
+    assert.ok(cloudToken, "the eval tier needs the real JOLLY_SALEOR_CLOUD_TOKEN");
+    this.trackSecret(cloudToken);
+    const keep = process.env.HARNESS_EVAL_KEEP_STORE;
+    if (!keep || keep.trim() === "") {
+      this.cleanup.register(`eval jolly-cannon-fodder environments (run ${this.namespace})`, async () => {
+        for (const env of await listAllEnvironments(cloudToken)) {
+          if (env.name.startsWith("jolly-cannon-fodder")) {
+            await deleteEnvironment(cloudToken, env.org, env.key);
+          }
+        }
+      });
+    }
+    await reclaimLeftoverTestEnvironments(cloudToken);
+
+    const resolvedTask = resolveEvalTask(SETUP_TASK, (description, fn) =>
+      this.cleanup.register(description, fn),
+    );
+    const agentRun = runBaselineAgent(context, resolvedTask);
+    const records = parseTrace(context.traceFile);
+    const invocations = readModelInvocations(context.sessionDir);
+    persistEvalTranscript(context, agentRun, this.namespace);
+
+    sharedSetupRun = { run: agentRun, trace: records, invocations };
+    this.notes[RUN] = agentRun;
+    this.notes[TRACE] = records;
+    this.notes[INVOCATIONS] = invocations;
+    this.attach(
+      `Agent exit ${agentRun.exitCode} in ${agentRun.durationMs}ms` +
+        (agentRun.timedOut ? " (TIMED OUT)" : "") +
+        `\nModel invocations: ${invocations.length}` +
+        `\nTraced Jolly invocations: ${records.map((r) => r.argv.join(" ")).join(" | ")}`,
+      "text/plain",
+    );
+  },
+);
+
+When("the run's affordance map is read", function (this: JollyWorld) {
+  this.notes[MAP] = buildAffordanceMap(
+    this.notes[INVOCATIONS] as ModelInvocation[],
+    trace(this),
+  );
+});
+
+Then(
+  "it should carry one entry for every model invocation the agent made",
+  function (this: JollyWorld) {
+    const invocations = this.notes[INVOCATIONS] as ModelInvocation[];
+    const map = this.notes[MAP] as AffordanceEntry[];
+    assert.ok(
+      invocations.length > 0,
+      "the agent recorded no model invocation, so the run cost nothing observable",
+    );
+    assert.equal(
+      map.length,
+      invocations.length,
+      `the affordance map carries ${map.length} entries for ${invocations.length} model invocations`,
+    );
+  },
+);
+
+Then(
+  "each entry should carry the prompt tokens and completion tokens that invocation consumed, taken from the agent's own recorded usage",
+  function (this: JollyWorld) {
+    const map = this.notes[MAP] as AffordanceEntry[];
+    for (const entry of map) {
+      assert.ok(
+        Number.isInteger(entry.promptTokens) && entry.promptTokens > 0,
+        `turn ${entry.turn} carries no prompt-token count from the agent's usage record (${entry.promptTokens})`,
+      );
+      assert.ok(
+        Number.isInteger(entry.completionTokens) && entry.completionTokens > 0,
+        `turn ${entry.turn} carries no completion-token count from the agent's usage record (${entry.completionTokens})`,
+      );
+    }
+    this.attach(
+      map
+        .map(
+          (entry) =>
+            `turn ${entry.turn}: ${entry.promptTokens} prompt + ${entry.completionTokens} completion tokens — ` +
+            (entry.jollyCommand ?? "no Jolly command"),
+        )
+        .join("\n"),
+      "text/plain",
+    );
+  },
+);
+
+Then(
+  "each entry should name the Jolly command that invocation ran, taken from the CLI trace, or record that it ran none",
+  function (this: JollyWorld) {
+    const map = this.notes[MAP] as AffordanceEntry[];
+    const records = trace(this);
+    const named = map.filter((entry) => entry.jollyCommand !== undefined);
+    for (const entry of named) {
+      assert.ok(
+        records.some((record) => traceCommandLine(record) === entry.jollyCommand),
+        `turn ${entry.turn} names a Jolly command the CLI trace does not carry: ${entry.jollyCommand}`,
+      );
+    }
+    assert.ok(
+      named.length > 0,
+      "no entry names a Jolly command, though the agent invoked Jolly — the map is not joined to the CLI trace",
+    );
+    // Every traced invocation is accounted for by some turn: an invocation the
+    // map cannot place is a turn whose cost is attributed to nothing.
+    const attributed = named.flatMap((entry) => entry.jollyCommand!.split(" && "));
+    assert.deepEqual(
+      attributed,
+      records.map(traceCommandLine),
+      "the affordance map does not account for every traced Jolly invocation in turn order",
+    );
+  },
+);
+
+Then(
+  "a run whose agent recorded no usage should redden rather than report a cost of zero",
+  function (this: JollyWorld) {
+    assert.throws(
+      () => buildAffordanceMap([], trace(this)),
+      /recorded no usage/,
+      "a run whose agent recorded no usage must redden, not report a cost of zero",
+    );
+  },
+);
+
+When(
+  "the Jolly commands it invoked are read from the CLI trace in turn order",
+  function (this: JollyWorld) {
+    this.notes[WASTED] = findWastedHelpTurns(trace(this));
+  },
+);
+
+Then(
+  "no `--help` invocation should follow a Jolly command that reported an error",
+  function (this: JollyWorld) {
+    const wasted = this.notes[WASTED] as WastedTurn[];
+    assert.equal(
+      wasted.length,
+      0,
+      `turns spent reaching for \`--help\` to recover from a Jolly error:\n${wasted
+        .map(
+          (turn) =>
+            `  - \`${turn.command}\` errored ("${turn.summary}"` +
+            `${turn.errorCodes.length > 0 ? `, codes: ${turn.errorCodes.join(", ")}` : ""}), ` +
+            `then \`${turn.help}\` ran; its envelope ` +
+            `${turn.carriedNextSteps ? "carried" : "failed to carry"} nextSteps and ` +
+            `${turn.carriedRemediation ? "carried" : "failed to carry"} remediation`,
+        )
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "a `--help` invocation following an error should be reported as a wasted turn, naming the command whose envelope failed to carry its nextSteps and remediation",
+  function (this: JollyWorld) {
+    // A Jolly command that errored with an envelope carrying neither the
+    // nextSteps nor the remediation the recovery needs, followed by the `--help`
+    // the agent reached for instead: the shape this check exists to name.
+    const errored: TraceRecord = {
+      tool: "jolly",
+      argv: ["create", "store"],
+      exit: 1,
+      stdout: JSON.stringify({
+        command: "create store",
+        status: "error",
+        summary: "The Cloud token has access to no organizations.",
+        data: {},
+        checks: [],
+        nextSteps: [],
+        errors: [{ code: "NO_ORGANIZATIONS", message: "No organizations are accessible." }],
+      }),
+      stderr: "",
+    };
+    const help: TraceRecord = {
+      tool: "jolly",
+      argv: ["create", "store", "--help"],
+      exit: 0,
+      stdout: "",
+      stderr: "",
+    };
+    const wasted = findWastedHelpTurns([errored, help]);
+    assert.equal(wasted.length, 1, "the `--help` recovery turn was not reported as wasted");
+    assert.equal(wasted[0]!.command, "jolly create store");
+    assert.equal(
+      wasted[0]!.carriedNextSteps,
+      false,
+      "the wasted turn must name that the erroring envelope failed to carry its nextSteps",
+    );
+    assert.equal(
+      wasted[0]!.carriedRemediation,
+      false,
+      "the wasted turn must name that the erroring envelope failed to carry its remediation",
     );
   },
 );
