@@ -4071,13 +4071,22 @@ function extractVercelUrl(stdout: string | undefined): string | undefined {
 }
 
 /**
- * Run the Vercel sign-in (`npx vercel login`) inline with the terminal passed
- * through, for the interactive human path (feature 027 Rule "Interactive start
- * runs end-to-end in one session"): the human completes the device grant in this
- * same terminal and the CLI establishes its session before the unattended deploy
- * stage. Resolves when the CLI exits (success or not — a failed/abandoned sign-in
- * just leaves the deploy stage to report the still-missing session honestly).
- * Jolly holds no Vercel token; the CLI signs in under its own auth.
+ * Run the Vercel sign-in for the INTERACTIVE human path (feature 027 Rule
+ * "Interactive start runs end-to-end in one session"): the human approves the
+ * device grant in their browser and the CLI's session is established before the
+ * unattended deploy stage, all in this one run.
+ *
+ * The two modes differ only in WHO waits, never in whose UX the human sees:
+ * - AGENT mode ({@link spawnVercelSignIn} + {@link vercelSignInNextStep}): capture
+ *   the URL, hand it back as a pending nextStep, and let the agent's human approve
+ *   it between invocations; a re-run resumes.
+ * - TERMINAL mode (here): capture the URL and POLL to completion in-process, the
+ *   way the Vercel CLI itself normally would, then carry straight on.
+ *
+ * In BOTH modes the spawned CLI's own output NEVER surfaces — the login writes to
+ * a file, and the human sees only Jolly's own TUI (a clack note + spinner).
+ * Returns whether a session was actually established. Jolly holds no Vercel token;
+ * the CLI signs in under its own auth.
  * @planks("Then the interactive output should say Jolly will run the Vercel sign-in with the human up front, before the unattended stages")
  */
 async function runInteractiveVercelSignIn(): Promise<boolean> {
@@ -4086,10 +4095,9 @@ async function runInteractiveVercelSignIn(): Promise<boolean> {
   // `npx`, with @clack having had stdin in raw mode — the Vercel CLI's own device
   // prompt never renders and the child exits immediately: the human sees no CLI
   // at all and nothing ever waits for their click, so the run sails on with no
-  // session. Instead reuse the DETACHED device-grant spawn the agent path already
-  // proves out (it survives this process and stores the token itself once
-  // approved), show the human the URL, and POLL `vercel whoami` until the session
-  // appears. Returns whether a session was actually established.
+  // session. Reuse the DETACHED device-grant spawn the agent path already proves
+  // out (it survives this process and stores the token itself once approved), and
+  // keep its output off the terminal so only Jolly's TUI speaks to the human.
   const { deviceUrl, logPath } = await spawnVercelSignIn();
   if (!deviceUrl || !logPath) {
     // No URL captured — the login may still have signed in from a cached grant.
