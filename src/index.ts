@@ -2230,6 +2230,55 @@ async function resolvePlatformToken(
 }
 
 /**
+ * Refresh the short-lived device-grant access token BEFORE a long-running,
+ * token-spending `jolly start` stage runs, so it never sends an expired
+ * credential (feature 018 Rule "A long run refreshes the short-lived access
+ * token"). The store token (`SALEOR_TOKEN`) and the Cloud platform token both
+ * ride on `JOLLY_SALEOR_ACCESS_TOKEN`, a ~5-minute Keycloak JWT; the preceding
+ * `storefront` stage clones the storefront and runs `pnpm install`, routinely
+ * minutes, so by the time the recipe/stock/stripe stages run the access token
+ * has often expired and the store 401s with "Authentication failed". Refresh
+ * proactively (with a generous skew so the fresh token comfortably outlives the
+ * stage about to spend it, not merely the moment it starts), persist the rotated
+ * tokens, and reproject `SALEOR_TOKEN`/`SALEOR_URL` into .env + process.env. A
+ * long-lived staff (CLOUD) token needs no refresh and a run with no stored
+ * refresh token is left untouched, so the stage still reports any auth failure
+ * honestly rather than this masking it.
+ * @planks("When the run reaches the configurator-deploy stage without `--dry-run`")
+ */
+async function ensureFreshStoreAuth(): Promise<void> {
+  const values = loadEnvValues(projectDir());
+  const read = (key: string): string =>
+    String(values[key] ?? process.env[key] ?? "").trim();
+  const access = read("JOLLY_SALEOR_ACCESS_TOKEN");
+  const refresh = read("JOLLY_SALEOR_REFRESH_TOKEN");
+  // Nothing to refresh without a device-grant access token and its refresh token
+  // (e.g. a staff-only CI/dev environment). The staff token is long-lived.
+  if (access === "" || refresh === "") return;
+  // 120s skew: refresh whenever the token is within two minutes of expiry, giving
+  // the stage that follows a full fresh window rather than the tail of the old one.
+  if (!isJwtExpired(access, 120)) return;
+  try {
+    const fresh = await refreshAccessToken(refresh);
+    writeEnvValues(
+      projectDir(),
+      {
+        JOLLY_SALEOR_ACCESS_TOKEN: fresh.accessToken,
+        JOLLY_SALEOR_REFRESH_TOKEN: fresh.refreshToken,
+      },
+      SALEOR_ENV_HEADER,
+    );
+    process.env["JOLLY_SALEOR_ACCESS_TOKEN"] = fresh.accessToken;
+    process.env["JOLLY_SALEOR_REFRESH_TOKEN"] = fresh.refreshToken;
+    // Reproject SALEOR_TOKEN/SALEOR_URL from the fresh access JWT so the stage's
+    // own `process.env["SALEOR_TOKEN"]` read (and configurator/curl/MCP) see it.
+    projectSaleorAgentEnv();
+  } catch {
+    // Leave the stored token; the stage reports any resulting auth failure honestly.
+  }
+}
+
+/**
  * @planks("When it invokes `jolly doctor`")
  * @planks("When the agent runs `jolly doctor <group> --json`")
  * @planks("When the agent runs `jolly doctor --json` with no group argument")
@@ -3238,6 +3287,10 @@ function bundledRecipePath(): string {
  * @planks("When the run reaches the configurator-deploy stage without `--dry-run`")
  */
 async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
+  // The preceding storefront stage (clone + pnpm install) can outlast the ~5-min
+  // access JWT SALEOR_TOKEN rides on, so refresh it before the configurator deploy
+  // spends it — otherwise the store 401s "Authentication failed" (feature 018).
+  await ensureFreshStoreAuth();
   const values = loadEnvValues(projectDir());
   const endpoint =
     process.env["NEXT_PUBLIC_SALEOR_API_URL"] ?? values["NEXT_PUBLIC_SALEOR_API_URL"] ?? "";
@@ -3531,6 +3584,9 @@ function readConfiguratorReportStatus(reportPath: string): string | undefined {
  * @planks("Then the stock stage's reported request timing should show a later collection assignment starting before an earlier collection assignment finishes")
  */
 async function runStockStage(checks: Check[]): Promise<StageOutcome> {
+  // Refresh the short-lived access token before the seeding mutations spend it,
+  // for the same reason the recipe stage does (feature 018).
+  await ensureFreshStoreAuth();
   const values = loadEnvValues(projectDir());
   const endpoint =
     process.env["NEXT_PUBLIC_SALEOR_API_URL"] ?? values["NEXT_PUBLIC_SALEOR_API_URL"] ?? "";
@@ -3601,6 +3657,9 @@ async function runStockStage(checks: Check[]): Promise<StageOutcome> {
  * @planks("Then it should install the Saleor Stripe app via Saleor GraphQL `appInstall` using the Cloud staff token and the current Stripe app manifest")
  */
 async function runStripeStage(checks: Check[]): Promise<StageStatus> {
+  // appInstall authenticates with the Cloud platform token, which also rides on
+  // the ~5-min access JWT; refresh it before the last stage spends it (feature 018).
+  await ensureFreshStoreAuth();
   const values = loadEnvValues(projectDir());
   const endpoint =
     process.env["NEXT_PUBLIC_SALEOR_API_URL"] ?? values["NEXT_PUBLIC_SALEOR_API_URL"] ?? "";
@@ -4668,6 +4727,17 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
   const vercelSession = await probeVercelSession();
   if (!vercelSession.signedIn) {
     await runInteractiveVercelSignIn();
+    // The interactive CLI exits on close regardless of whether a session was
+    // actually established — a cancelled sign-in, or a terminal the Vercel CLI's
+    // account-type prompt can't drive, just exits with no session. Re-probe so a
+    // silent no-session doesn't sail past this gate as if signed in; when it's
+    // still absent, say so honestly. The run continues: the deploy stage spawns
+    // its own detached sign-in and surfaces a fresh clickable device URL, so the
+    // human still has a way through instead of a false "signed in".
+    const after = await probeVercelSession();
+    if (!after.signedIn) {
+      clackLog.warn(cliMessage("start.vercelSigninIncomplete"), CLACK_STDERR);
+    }
   }
 
   // Run the long setup stages behind a live, per-stage status list on stderr:
