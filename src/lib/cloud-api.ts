@@ -113,6 +113,10 @@ export function platformAuthScheme(token: string): "Bearer" | "Token" {
   return looksLikeJwt ? "Bearer" : "Token";
 }
 
+/** The one seam that sends a Saleor Cloud platform API request, under the
+ * resolved token and scheme. Every Cloud read and write goes through here.
+ * @planks("Then the envelope `data` should report the resolved organization slug")
+ */
 async function cloudFetch(
   url: string,
   token: string,
@@ -688,7 +692,10 @@ const RECIPE_REQUEST_CONCURRENCY = 8;
 /** Run `task` over `items` through a bounded worker pool, recording each item's
  * start and finish time so the caller can report the request timing. The first
  * poolful of requests start together and overlap, the observable seam the
- * concurrency scenario asserts against. */
+ * concurrency scenario asserts against.
+ * @planks("When Jolly start runs the stock stage over the recipe's variants and collections")
+ * @planks("Then the stock stage's reported request timing should show a later stock mutation starting before an earlier stock mutation finishes")
+ */
 async function runRecordedConcurrent<T>(
   items: readonly T[],
   task: (item: T) => Promise<void>,
@@ -713,7 +720,9 @@ async function runRecordedConcurrent<T>(
   return intervals;
 }
 
-/** Resolve the recipe warehouse id by slug; undefined when it does not exist. */
+/** Resolve the recipe warehouse id by slug; undefined when it does not exist.
+ * @planks("Then every recipe product variant should have stock in the recipe warehouse")
+ */
 async function queryWarehouseId(
   graphqlUrl: string,
   token: string,
@@ -738,7 +747,9 @@ interface StockVariant {
 }
 
 /** Query every product variant and whether it already has a stock entry in the
- * recipe warehouse (so seeding can pick create vs. update). */
+ * recipe warehouse (so seeding can pick create vs. update).
+ * @planks("Then every recipe product variant should have stock in the recipe warehouse")
+ */
 async function queryVariantsForStock(
   graphqlUrl: string,
   token: string,
@@ -770,7 +781,10 @@ async function queryVariantsForStock(
 /** Set a variant's stock in one warehouse, creating the entry or updating it in
  * place when it already exists. Primary: productVariantStocksCreate; on a
  * payload error (e.g. the entry already exists) falls back to
- * productVariantStocksUpdate for that warehouse/variant. */
+ * productVariantStocksUpdate for that warehouse/variant.
+ * @planks("Then every recipe product variant should have stock in the recipe warehouse")
+ * @planks("Then re-running the stage should update the quantities idempotently rather than creating duplicate stock")
+ */
 async function setVariantStock(
   graphqlUrl: string,
   token: string,
@@ -895,6 +909,7 @@ export async function seedRecipeStock(
  * the channel as published so the storefront renders it. Only invoked when the
  * store read-back shows the slug missing, so it never duplicates an existing
  * collection. Throws COLLECTION_CREATE_FAILED on a payload error.
+ * @planks("Then the recipe's `featured-products` collection should exist in the store holding its declared products")
  */
 async function createRecipeCollection(
   graphqlUrl: string,
@@ -1044,7 +1059,10 @@ export async function assignCollectionProducts(
 
 /** Add one product to a collection via `collectionAddProducts`; idempotent, a
  * member already present is a no-op. Throws COLLECTION_ASSIGN_FAILED on a payload
- * error so the caller reports the stage honestly. */
+ * error so the caller reports the stage honestly.
+ * @planks("Then the recipe's `featured-products` collection should exist in the store holding its declared products")
+ * @planks("Then the stock stage's reported request timing should show a later collection assignment starting before an earlier collection assignment finishes")
+ */
 async function addProductToCollection(
   graphqlUrl: string,
   token: string,
@@ -1278,7 +1296,9 @@ export type CheckoutProbeOutcome =
   | { kind: "no-checkout" };
 
 /** A single timed GraphQL request that fails fast (AbortController) rather than
- * hanging against an unroutable endpoint. Returns the parsed body or throws. */
+ * hanging against an unroutable endpoint. Returns the parsed body or throws.
+ * @planks("Then a checkout-readiness check should be reported in the stripe group")
+ */
 async function timedGraphql(
   graphqlUrl: string,
   token: string | undefined,
@@ -1463,6 +1483,10 @@ export async function probeEndpointConnectivity(
   }
 }
 
+/** Retry a transient rate-limited or unavailable Saleor request toward a bounded
+ * deadline, so a 429 never reports a false blocked.
+ * @planks("Then the stock stage should be reported completed, having retried the rate-limited request")
+ */
 async function withRetries<T>(
   fn: () => Promise<T>,
   attempts: number = 5,

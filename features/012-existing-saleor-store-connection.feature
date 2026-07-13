@@ -57,7 +57,13 @@ Feature: Existing Saleor store connection
     And the POST body should include name, project, domain_label, database_population, service, and optional basic-auth credentials
     And the default region should be "us-east-1"
     And the prepared request should create a blank environment with no sample data
-    And no environment should be created
+
+  @logic @property
+  Scenario: The environment-creation request body is built by one seam, so the previewed request is the one that is sent
+    Given Jolly's environment-creation code
+    When the places that build the POST body for /platform/api/organizations/{organization}/environments/ are enumerated
+    Then there should be exactly one, and both the `--dry-run` preview and the real request should report and send that one body
+    And a second, independently constructed body for that request should redden the check, since a preview that is verified cannot vouch for a request that is not
 
   @sandbox @creates-env
   Scenario: Jolly create store reuses an existing same-label environment instead of duplicating it

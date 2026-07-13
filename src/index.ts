@@ -181,7 +181,7 @@ const KNOWN_FLAGS = new Set<string>([
  * @planks("When the agent runs `jolly create store --url https://evil.example.com/graphql/ --quiet`")
  * @planks("When `jolly doctor` runs in an interactive terminal")
  * @planks("When the agent runs `jolly doctor` with stdout not a terminal")
- * @planks("When the agent runs `jolly login --json` with an invalid JOLLY_SALEOR_CLOUD_TOKEN")
+ * @planks("Given the agent runs `jolly login --json` with an invalid JOLLY_SALEOR_CLOUD_TOKEN")
  */
 export function parseArgs(argv: string[]): ParsedArgs {
   const parsed = parseBombArgs(argv, {
@@ -2282,7 +2282,7 @@ async function ensureFreshStoreAuth(): Promise<void> {
 /**
  * @planks("When it invokes `jolly doctor`")
  * @planks("When the agent runs `jolly doctor <group> --json`")
- * @planks("When the agent runs `jolly doctor --json` with no group argument")
+ * @planks("Given the agent runs `jolly doctor --json` with no group argument")
  */
 async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
   const group = args.positionals[1];
@@ -2673,7 +2673,7 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
 // ─── skills (feature 006/001) ─────────────────────────────────────────────
 
 /**
- * @planks("When the agent invokes `jolly skills install`")
+ * @planks("Given the agent invokes `jolly skills install`")
  * @planks("When the agent invokes `jolly skills update`")
  * @planks("When Jolly installs the default skill set via `npx skills add`")
  * @planks("Then the skill installs should run concurrently, a later skill's install beginning before an earlier skill's install finishes")
@@ -4063,7 +4063,7 @@ function clearPendingVercel(): void {
  * @planks("When the run reaches the deploy stage without `--dry-run`")
  * @planks("When the agent runs `jolly deploy` without `--dry-run`")
  * @planks("Then the pending sign-in nextStep should resume by re-running `jolly deploy`, the command that reached the gate")
- * @planks("Then the nextStep should instruct the human to open the URL, approve it, reply \"done\", and re-run `jolly deploy` to continue, the same pause-and-resume contract as the Saleor sign-in gate")
+ * @planks('Then the nextStep should instruct the human to open the URL, approve it, reply "done", and re-run `jolly deploy` to continue, the same pause-and-resume contract as the Saleor sign-in gate')
  */
 function vercelSignInNextStep(deviceUrl: string, resumeCommand: string): NextStep {
   return {
@@ -4104,16 +4104,22 @@ function extractVercelUrl(stdout: string | undefined): string | undefined {
  * device URL (its error is in that output), the code was declined/expired, or the
  * human never approved — into one message that leaves the human no way forward.
  * Jolly holds no Vercel token; the CLI signs in under its own auth.
+ */
+type VercelSignInOutcome =
+  | { ok: true; account: string }
+  | { ok: false; message: string };
+
+/**
+ * Run the Vercel sign-in for the INTERACTIVE human path: show the device URL in
+ * Jolly's own TUI and WAIT for the human to approve it, so the session exists for
+ * the unattended deploy stage. A sign-in that does not complete reports the REASON
+ * and surfaces the Vercel CLI's captured output. See the type above for the modes.
  * @planks("Then the interactive output should show a Vercel device-authorization URL")
  * @planks("Then the run should still be waiting for that sign-in to be approved, not continuing signed-out")
  * @planks("Then the interactive output should name the reason the Vercel sign-in did not complete")
  * @planks("Then the interactive output should surface the captured Vercel CLI output for the human to read")
  * @planks("Then the interactive output should say Jolly will run the Vercel sign-in with the human up front, before the unattended stages")
  */
-type VercelSignInOutcome =
-  | { ok: true; account: string }
-  | { ok: false; message: string };
-
 async function runInteractiveVercelSignIn(): Promise<VercelSignInOutcome> {
   // Do NOT hand the terminal to `vercel login` (the old `stdio: "inherit"`
   // spawn). Under an interactive `jolly start` — itself usually launched through
@@ -4669,8 +4675,8 @@ function stageProgress(
 // on Bombshell (@clack/prompts). Declining stops honestly: it runs the core with
 // approval withheld, so downstream stages are pending/blocked, never fabricated.
 /**
- * @planks("When `jolly start --dry-run` runs in an interactive terminal with no flag beyond `--dry-run`")
- * @planks("When `jolly start --dry-run` runs in an interactive terminal")
+ * @planks("Given `jolly start --dry-run` runs in an interactive terminal with no flag beyond `--dry-run`")
+ * @planks("Given `jolly start --dry-run` runs in an interactive terminal")
  * @planks("When `jolly start` runs in an interactive terminal")
  * @planks("When the user presses Enter at every prompt")
  */
@@ -4920,8 +4926,8 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
  * @planks("When the agent runs `jolly start --json` in a non-interactive shell")
  * @planks("When `jolly start --yes` runs its orchestration")
  * @planks("When the agent runs `jolly start --dry-run --json`")
- * @planks("When `jolly start --dry-run` runs in an interactive terminal with no flag beyond `--dry-run`")
- * @planks("When `jolly start --dry-run` runs in an interactive terminal")
+ * @planks("Given `jolly start --dry-run` runs in an interactive terminal with no flag beyond `--dry-run`")
+ * @planks("Given `jolly start --dry-run` runs in an interactive terminal")
  * @planks("When `jolly start` runs in an interactive terminal")
  */
 async function commandStart(args: ParsedArgs): Promise<Envelope> {

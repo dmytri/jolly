@@ -81,6 +81,54 @@ Feature: Agent skill affordance evaluation
     - The per-run workspace and the throwaway `$HOME` are removed in teardown;
       the eval never touches resources outside its `jolly-cannon-fodder` namespace.
 
+  Rule: Affordance efficiency — what succeeding COST is the measure
+
+    - Succeeding is a floor, not the measure. HOW MUCH the agent had to spend to
+      succeed is what says whether Jolly's setup instructions and CLI output are any
+      good. An agent that finishes in a few turns was guided; an agent that grinds
+      through many was flailing against output that failed to tell it what it needed.
+      A run that barely scrapes through after thirty confused turns passes the
+      affordance scenario above identically to one that glides through in eight, so
+      that scenario alone cannot see the difference. This one can.
+    - Every model invocation the agent makes is recorded with the tokens it consumed
+      and the Jolly command that invocation ran. The tokens come from the agent's own
+      recorded usage, never an estimate and never a count Jolly computes for itself.
+      The command comes from the CLI trace shim this feature already installs.
+    - Together those records are the affordance map: a turn-by-turn account of where
+      the agent spent its budget. A total says a run got more expensive. The map says
+      WHICH turn, and against WHICH piece of Jolly's output, the agent started to
+      flail. That is the finding worth having, because it names the copy to fix.
+    - Flailing has an observable shape. Reaching for `--help` to recover from a Jolly
+      command that reported an error is a turn Jolly's own envelope should have saved,
+      because feature 020 requires that envelope to carry the nextSteps and remediation
+      the recovery needs. Re-running `jolly start` to resume a pending human gate is
+      NOT flailing: that is the documented resume contract.
+    - Budgets are generous ceilings that catch flailing, not tight ones that catch
+      noise. A live agent varies run to run, so a ceiling is set to red on an agent
+      that has lost the thread, never on ordinary variance.
+
+  Scenario: The run records what every agent turn cost and which Jolly command it ran
+    Given the baseline agent has completed the setup task
+    When the run's affordance map is read
+    Then it should carry one entry for every model invocation the agent made
+    And each entry should carry the prompt tokens and completion tokens that invocation consumed, taken from the agent's own recorded usage
+    And each entry should name the Jolly command that invocation ran, taken from the CLI trace, or record that it ran none
+    And a run whose agent recorded no usage should redden rather than report a cost of zero
+
+  @captain
+  Scenario: A baseline agent sets up a project within its declared turn and token budget
+    Given the turn budget and token budget declared for the baseline agent
+    When the agent completes the setup task
+    Then the model invocations it made should be within the declared turn budget
+    And the tokens it consumed should be within the declared token budget
+    And a run that exceeds either budget should redden, naming the turn at which it crossed the ceiling
+
+  Scenario: Jolly's error output carries the recovery, so the agent never falls back to reading help
+    Given the baseline agent has completed the setup task
+    When the Jolly commands it invoked are read from the CLI trace in turn order
+    Then no `--help` invocation should follow a Jolly command that reported an error
+    And a `--help` invocation following an error should be reported as a wasted turn, naming the command whose envelope failed to carry its nextSteps and remediation
+
   Rule: Assert affordances and real live artifacts, never fabricated outcomes
     - Affordance is observed two ways: (1) the agent actually INVOKED Jolly's
       documented CLI commands, captured by a PATH shim that logs argv and then

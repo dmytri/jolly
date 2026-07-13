@@ -18,3 +18,18 @@ Feature: Methodology conformance
     When the watchbill-shape check validates the fixture
     Then it should report the fixture well-formed
     And a fixture whose watch carries prose, metadata, or a key other than "scenarios" should redden the check
+
+  @logic @invariant
+  Scenario: Every plank sits in a docblock on the declaration it describes
+    Given the implementation directories "src/" and "bin/"
+    When the plank-form check reads every "@planks" token in them
+    Then each should sit in a docblock attached to a declaration and carry a "Given", "When", or "Then" step
+    And a "@planks" token attached to a type alias rather than the seam beneath it should redden the check
+    And a "@planks" token in a line comment or inside a function body should redden the check
+
+  @logic @invariant
+  Scenario: Every plank names a step that still exists in a feature
+    Given the "@planks" step texts in the implementation directories
+    When they are joined against the step text of every feature file, with "And" and "But" normalized to the keyword they inherit
+    Then every plank's step should be found in a feature
+    And a plank naming a deleted or renamed step should redden the check

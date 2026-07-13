@@ -40,7 +40,9 @@ export class DeviceGrantError extends Error {
   }
 }
 
-/** Refuse — before any fetch — to contact a non-first-party host. */
+/** Refuse — before any fetch — to contact a non-first-party host.
+ * @planks("Then they should be exactly cloud.saleor.io, auth.saleor.io, the customer's `*.saleor.cloud` domains, and github.com, plus any `JOLLY_SALEOR_CLOUD_API_URL` or `JOLLY_SALEOR_AUTH_URL` override")
+ */
 function assertFirstParty(url: string): void {
   let host: string;
   try {
