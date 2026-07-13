@@ -3882,7 +3882,13 @@ function extractDeviceUrl(text: string): string | undefined {
  */
 async function probeVercelSession(): Promise<{ signedIn: boolean; account: string }> {
   return new Promise((resolve) => {
-    const child = spawn("npx", [VERCEL_PKG, "whoami"], { stdio: ["ignore", "pipe", "pipe"] });
+    // `--yes` as on EVERY other npx spawn: without it, npx stops to ask "Ok to
+    // proceed?" before installing the Vercel CLI on a machine that has not cached
+    // it. stdin is ignored here, so that prompt can never be answered — npx just
+    // blocks and the probe learns nothing until it times out.
+    const child = spawn("npx", ["--yes", VERCEL_PKG, "whoami"], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     let out = "";
     let settled = false;
     const done = (signedIn: boolean) => {
@@ -3953,7 +3959,13 @@ async function spawnVercelSignIn(): Promise<{ deviceUrl?: string; logPath?: stri
     return {};
   }
   try {
-    const child = spawn("npx", [VERCEL_PKG, "login"], {
+    // `--yes` is LOAD-BEARING: without it, npx stops to ask "Ok to proceed?"
+    // before installing the Vercel CLI on a machine that has not cached it. stdin
+    // is ignored and the output goes to a file, so that prompt is both invisible
+    // and unanswerable — npx blocks forever, `vercel login` never runs, no device
+    // URL is ever printed, and the human is told sign-in failed having been shown
+    // nothing at all. Every other npx spawn in this file already passes it.
+    const child = spawn("npx", ["--yes", VERCEL_PKG, "login"], {
       stdio: ["ignore", fd, fd],
       detached: true,
     });
