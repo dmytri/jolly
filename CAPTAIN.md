@@ -6,39 +6,60 @@ Binding behaviour lives in `.feature` specs and referenced `assets/**`. History 
 
 ## Deck state (2026-07-14)
 
-Last QM cycle spent its 7-target watchbill green and closed at `5108aad`. The verification-economy and plank checks are executable and proven by planted reds. npm still at `@dk/jolly@0.12.4`; nothing outbound since.
+HEAD `8d9866a`. npm still at `@dk/jolly@0.12.4`; **nothing outbound this voyage**. `@logic` 176/176 green at that commit. `## Known false-failure modes` in `RIGGING.md` is EMPTY, which is the healthy state — keep it that way by engineering defects out, never by recording them.
 
-Landed that cycle, worth remembering:
+**The Cloud account changed.** `.env` now carries dk's new Saleor account: org `jollystores-organization`, holding dk's own store `jollystore's Environment` / `store-hqdxy4uo`. That store is NOT reclaimable (its namespace is in neither its name nor its domain label) — verified against the reclaim predicate, not assumed. The org's environment cap is **2**. The previous account is abandoned: do not raise it, do not clean it, it is gone.
 
-- The env-create body is now built by ONE seam (`environmentCreationBody`, `src/lib/cloud-api.ts`). The two literals HAD already diverged, on `service` and on project name-vs-slug, exactly as suspected.
-- The interactive PTY scenarios are prompt-gated (`waitFor`), not delay-guessed. That was the 72%-of-`@logic` latency sink.
-- Harness Cloud reads now retry transient 5xx like production does. That mode and the plank-inventory false-PASS mode are both struck from `RIGGING.md`.
+## What landed this voyage
 
-## Closed: the 020 recovery contract (commits 39e932d, 928ee30)
+- **Error envelopes carry their own recovery** (020). It was not a corner case: 12 of 20 construction sites shipped an empty `nextSteps`, and `cloudErrorEnvelope` gave next steps to `ENVIRONMENT_LIMIT_REACHED` alone — every other Cloud error shipped empty. Now every code carries recovery, guarded structurally AND by a live envelope.
+- **The shipped CLI can no longer fabricate.** `--mock-organizations` / `--mock-environments` shipped UNGATED in the released binary, specified by no feature: a customer could make Jolly invent an org list. Now behind a harness guard, and 026's no-double invariant scans production, not just the verification layer.
+- **The environment leak is closed.** A leaked `jolly-store` env whose namespace lived only in its DOMAIN LABEL was invisible to a name-only reclaim and squatted the org's last slot; every create-an-environment scenario starved while every reuse scenario passed. Reclaim now matches on name OR domain label, proven by planted red and by a real create-and-reclaim against the live org.
+- **Interactive waits are prompt-gated**, not delay-guessed (the 72%-of-`@logic` latency sink).
+- **Verification economy + plank form/staleness checks** are executable and proven by planted reds.
 
-The `@eval` affordance map landed and immediately earned its keep. Run A (21 turns, 197k prompt + 9.7k completion, 8m44) caught the agent running `jolly create store --json`, getting an error envelope with an EMPTY `nextSteps`, and burning the next turn on `jolly create store --help`. Run B took a clean path and never reproduced it, which is the whole argument for a deterministic guard.
+## The pattern worth remembering: false-PASS checks
 
-The gap was in the spec, not the agent: feature 020 made `remediation` optional and permitted an empty `nextSteps` on an error envelope, while feature 025 asserts the agent never falls back to `--help`. Both could not be right. Decided with dk: 020 is now the tighter contract.
+Five checks this voyage were GREEN while the defect they existed to catch was live. Every one inspected the wrong thing:
 
-It was not a corner case: **12 of 20 error-envelope construction sites carried no `nextSteps`.** The empty-recovery envelope was the majority. Crew closed all of them.
+- `plank-inventory` grepped for a token, so it saw plank PRESENCE and never plank FORM.
+- The `remediation` step read a note only the sibling scenario set, so it filtered an empty list and passed **without inspecting the envelope**.
+- The error-envelope check saw the `nextSteps:` KEY present and never evaluated that its ternary yields `[]` on every branch but one.
+- The no-double invariant scanned the verification layer while the double's mechanism sat in production.
+- Reclaim matched on name while the leak's identity was its domain label.
 
-Two guards now stand, and they cover different ground. The `@logic @property` scenario enumerates both construction seams statically — every `errorEnvelope(...)` call AND every `envelope({...})` whose status is not literally success/warning, because doctor COMPUTES its status and would otherwise escape as a false pass. The `@logic` doctor scenario drives a live envelope, because doctor derives `nextSteps` at run time by filtering failing checks on `c.command`, and four checks fail without one (`cloud-token-verification` among them) — no static check can see that. The structural guard cannot prove the runtime list non-empty; only the live one can.
+**A check that inspects shape rather than value is not a check.** When a guard is written, ask what live counterexample would still pass it. Three of these five were disclosed by the roles themselves rather than discovered — that honesty is the only reason they were found.
 
-QM disclosed that residual itself rather than let its own scenario pass on it. It also found a false-PASS in its own step definition: the shared `remediation` step read a note only the structural scenario set, so on the live scenario it would have filtered an empty list and passed WITHOUT inspecting the envelope. Fixed to assert non-vacuously on both paths.
+## In flight: QM on the flaky device-auth read
+
+`027:The Saleor sign-in URL is shown as a clickable terminal hyperlink` passes focused in 17s every time and fails intermittently under tier concurrency: a wait ending on a timer rather than an observed signal — the same class already killed elsewhere. Watchbill carries the `@logic` TIER TAG deliberately: a focused reference cannot reproduce a concurrency-only defect, and would report green while the defect stands.
+
+## Next, in order
+
+1. Finish the flake fix; Boatswain custody.
+2. **Pre-outbound full regression, all tiers.** Production changed since the last green board, and green does not transfer across a diff. It runs against the NEW account — a genuinely cold org, closer to a customer's first run than anything tested so far.
+3. **Harbour** (Shipwright): the stale `step-usage` count in `RIGGING.md`; the 16 zero-usage step definitions (orphan candidates); the verification-economy audit against the per-scenario cost record this voyage built.
+4. **Outbound** — npm + vercel-homepage — only on dk's explicit go, and only on a green board. dk's standing position: 0.12.4 serves both the terminal and agent paths, so there is no pressure to ship a red tree.
+
+## Open finding, not yet acted on
+
+**A live Cloud-error scenario costs ~5 minutes in `@logic`.** The new `020:A Cloud API error carries the recovery whatever its code` drives a real rejected create. `@logic` runs on every inner-loop change, so a 5-minute scenario there is paid constantly. Judge tier placement at harbour: `@sandbox` is the likely home. This is exactly the finding the verification-economy record exists to surface.
 
 ## Held, deliberately
 
-**Budget scenario stays `@captain`** (`025:A baseline agent sets up a project within its declared turn and token budget`). The map now records turns and tokens on every `@eval` run, so anchors accumulate on their own. But the only fully-recorded anchor today is the FLAILING run, and a ceiling drawn from a bad run is not a ceiling. Promote after a few clean runs give a real baseline. Still: do not invent the number.
+**Budget scenario stays `@captain`** (`025:A baseline agent sets up a project within its declared turn and token budget`). The affordance map records turns and tokens on every `@eval` run, so anchors accumulate on their own. The only fully-recorded anchor is still the FLAILING run (21 turns, 197k prompt + 9.7k completion). A ceiling drawn from a bad run is not a ceiling. Do not invent the number.
 
 ## Standing rule, learned the hard way
 
 **Any change to the interactive path MUST be verified through `features/support/pty.ts` `runUnderPty`.** 0.12.1 and 0.12.2 both shipped "verified" and both were broken, because the mechanism was tested in a bespoke harness on a box that already had a Vercel session and a warm npx cache: never the customer's conditions. Drive the real path or do not claim it works.
 
-## Standing findings, not yet acted on
+## Standing findings
 
-- **`src/index.ts` is ~5700 lines / 97 functions**: 15 commands, 6 stages, the TUI, 35 envelope builders, 19 auth functions, 10 Vercel functions. Reported, not perturbed (dk's call). A perturbation proves only what the scenarios pin; before planting over 97 functions, confirm the seams' scenarios pin what must survive. That is its own cycle.
+- **`src/index.ts` is ~5700 lines / 97 functions.** Reported, not perturbed (dk's call). A perturbation proves only what the scenarios pin; before planting over 97 functions, confirm the seams' scenarios pin what must survive. Its own cycle.
 - **`happy-dom`**: unused devDependency, zero source references, under a `locked` policy. Boatswain hygiene.
 
-## Owed before outbound
+## Operating notes for the next Captain
 
-A pre-outbound full regression across every tier. `RIGGING.md` names two targets: npm and vercel-homepage.
+- **One writer at a time.** Two QMs on the same tree corrupted a step-definitions file mid-cycle; the second QM correctly refused to trust the deck and withdrew. Never resume an old role agent while a new one holds the deck.
+- **Dispatch thin.** A Boatswain dispatch carrying the refit narrative, relayed proof, and a pre-excused red was refused as contaminated — correctly. A role that inherits a conclusion cannot independently reach it. Role and base commit; the artifacts are the hand-off.
+- **dk wants live play-by-play**, not silent background runs. Poll in short windows and report each tick; a long blocking poll reads as running dark.
