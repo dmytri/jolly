@@ -1,6 +1,8 @@
 node_modules
 dist/
 .env
+# .env sidecars and backups carry the same live credentials as .env itself.
+.env.*
 .mcp.json
 bun.lockb
 .claude/

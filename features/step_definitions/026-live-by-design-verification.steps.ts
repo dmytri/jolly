@@ -34,7 +34,14 @@ import {
   environmentIdentities,
   leftoverTestEnvironments,
   listAllEnvironments,
+  listOrganizations,
 } from "../support/cloud.ts";
+import {
+  type AffordanceSite,
+  enumerateHarnessAffordances,
+  findUnguardedHarnessAffordances,
+} from "../support/harness-affordance-conformance.ts";
+import type { InjectedSource } from "../support/module-conformance.ts";
 import { makeNamespace } from "../support/sandbox.ts";
 import {
   cachedStoreSpareNames,
@@ -829,6 +836,157 @@ Then(
       missing,
       [],
       `reclamation must never delete an environment that carries the namespace in neither identity; missing: ${missing.join(", ")}`,
+    );
+  },
+);
+
+// ─── Scenario: the shipped CLI does not fabricate a Cloud organization list ───
+//
+// A harness-only affordance fabricates a service response, so it is a test
+// double living in production. A customer never sets the harness guard, so the
+// customer's environment is the ambient one with every harness variable removed
+// — recognised by the harness it names, not by a variable name this check pins,
+// so production stays free to name its guard. The run then goes to the REAL
+// Cloud API for its organizations, and the injected list must not survive.
+
+/** A customer's environment: the real one, with every harness variable removed. */
+function customerEnv(): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = {};
+  for (const name of Object.keys(process.env)) {
+    if (/harness/i.test(name)) env[name] = undefined;
+  }
+  return env;
+}
+
+Given(
+  "a customer's environment, where the harness guard is not set",
+  function (this: JollyWorld) {
+    this.notes.customerEnv = customerEnv();
+  },
+);
+
+When(
+  "the agent runs `jolly create store --create-environment --dry-run --json --mock-organizations=acme-co,other-co`",
+  { timeout: 120_000 },
+  async function (this: JollyWorld) {
+    // --dry-run: the run resolves the organization for real and previews the
+    // request, creating nothing.
+    await this.runCliAsync(
+      [
+        "create",
+        "store",
+        "--create-environment",
+        "--dry-run",
+        "--json",
+        "--mock-organizations=acme-co,other-co",
+      ],
+      { env: this.notes.customerEnv as Record<string, string | undefined> },
+    );
+  },
+);
+
+Then(
+  'the envelope should not report "acme-co" or "other-co" among the organizations it resolved',
+  function (this: JollyWorld) {
+    const envelope = JSON.stringify(this.envelope);
+    for (const injected of ["acme-co", "other-co"]) {
+      assert.ok(
+        !envelope.includes(injected),
+        `the shipped CLI fabricated the organization "${injected}" for a customer: ${envelope}`,
+      );
+    }
+  },
+);
+
+Then(
+  "the run should resolve organizations from the Cloud API alone",
+  { timeout: 60_000 },
+  async function (this: JollyWorld) {
+    // The organizations the envelope reports must be the ones the real Cloud API
+    // serves this token — asked for here, independently, over the same real API.
+    const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
+    assert.ok(
+      token,
+      "JOLLY_SALEOR_CLOUD_TOKEN must be present to resolve organizations from the Cloud API",
+    );
+    const liveSlugs = [...(await listOrganizations(token))].sort();
+    assert.ok(
+      liveSlugs.length > 0,
+      "the Cloud API served no organization for this token — fitting out must provide a token that reaches one",
+    );
+    const data = (this.envelope.data ?? {}) as {
+      availableOrganizations?: string[];
+      selectedOrganization?: string;
+    };
+    assert.deepEqual(
+      [...(data.availableOrganizations ?? [])].sort(),
+      liveSlugs,
+      "the organizations the run resolved must be the ones the Cloud API serves, and no others",
+    );
+    assert.ok(
+      liveSlugs.includes(String(data.selectedOrganization)),
+      `the selected organization must be one the Cloud API serves; got ${data.selectedOrganization}`,
+    );
+  },
+);
+
+// ─── Scenario: no harness-only affordance is reachable without the guard ──────
+//
+// The affordances are enumerated from the production source: every read of a
+// `mock-*` flag is a seam that can fabricate a service response. Each must
+// consult the harness guard, so the shipped surface can never reach it. The
+// planted red proves the check can go red: an affordance read in a seam that
+// consults no guard at all.
+
+// `Given Jolly's production source` is already defined, and shared, by the
+// single-creation-seam conformance steps.
+
+When(
+  "the harness-only affordances it declares are enumerated",
+  function (this: JollyWorld) {
+    this.notes.harnessAffordances = enumerateHarnessAffordances();
+  },
+);
+
+Then(
+  "each should fabricate a service response only when the harness guard is set",
+  function (this: JollyWorld) {
+    const sites = this.notes.harnessAffordances as AffordanceSite[];
+    assert.ok(
+      sites.length > 0,
+      "no harness-only affordance was found — the enumeration is not reading Jolly's production source",
+    );
+    const unguarded = sites.filter((site) => !site.guarded);
+    assert.deepEqual(
+      unguarded.map(
+        (site) => `${site.file}:${site.line} ${site.affordance}`,
+      ),
+      [],
+      `harness-only affordances reachable from the shipped surface with no guard (${unguarded.length} of ${sites.length} sites)`,
+    );
+  },
+);
+
+Then(
+  "a harness-only affordance reachable from the shipped surface with no guard should redden the check",
+  function (this: JollyWorld) {
+    // The planted red: a virtual source, never written to disk, reading the
+    // affordance in a seam that consults no guard. A check that cannot go red
+    // proves nothing about the affordances that pass it.
+    const unguarded: InjectedSource = {
+      file: "src/.planted-unguarded-affordance.ts",
+      text: `export function plantedUnguardedAffordance(args: {
+  options: Record<string, string | undefined>;
+}) {
+  const mock = args.options["mock-organizations"];
+  if (mock === undefined) return [];
+  return mock.split(",").map((slug) => ({ slug: slug.trim() }));
+}`,
+    };
+    const reddened = findUnguardedHarnessAffordances([unguarded]);
+    assert.ok(
+      reddened.some((violation) => violation.file === unguarded.file),
+      "an unguarded harness-only affordance did not redden the check",
     );
   },
 );

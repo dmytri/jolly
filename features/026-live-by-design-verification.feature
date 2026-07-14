@@ -25,6 +25,20 @@ Feature: Live-by-design verification conformance
     And every environment lacking the `jolly-cannon-fodder` prefix should still be present afterward
 
   @logic
+  Scenario: The shipped CLI does not fabricate a Cloud organization list for a customer
+    Given a customer's environment, where the harness guard is not set
+    When the agent runs `jolly create store --create-environment --dry-run --json --mock-organizations=acme-co,other-co`
+    Then the envelope should not report "acme-co" or "other-co" among the organizations it resolved
+    And the run should resolve organizations from the Cloud API alone
+
+  @logic @property
+  Scenario: No harness-only affordance in the shipped CLI is reachable without the harness guard
+    Given Jolly's production source
+    When the harness-only affordances it declares are enumerated
+    Then each should fabricate a service response only when the harness guard is set
+    And a harness-only affordance reachable from the shipped surface with no guard should redden the check
+
+  @logic
   Scenario: Reclamation recognises a leaked environment by its domain label, not only by its name
     Given a leftover environment whose Cloud name is Jolly's product default "jolly-store" and whose domain label carries the `jolly-cannon-fodder` namespace
     When the environments a run may reclaim are selected
@@ -57,8 +71,9 @@ Feature: Live-by-design verification conformance
     - A forbidden double is any stand-in for the normal path: a fake CLI replacing a real one, a dummy or forced-safe credential, or an unroutable endpoint replacing a real service.
     - The only admissible double is one tagged @exceptional-double: an exceptional condition the real test env cannot produce on demand — an organization already at its environment limit (`ENVIRONMENT_LIMIT_REACHED`), a deliberately unreachable service for a "stored, not verified" path, or a device authorization grant approved by the human (the click at the verification URL cannot be produced on demand), faked by a local auth host the test points Jolly at through the `JOLLY_SALEOR_AUTH_URL` override — justified inline at its site. A failure reachable from real bad input (empty or garbage token, malformed or non-first-party URL, a genuinely absent store) is produced for real, never doubled.
     - This is a testable conformance invariant about Jolly's verification layer, not a product behavior. It is an admissible scenario because it is falsifiable (it is currently false), not aspiration: the discriminator for a scenario is testability, not whether its subject is the product or the harness.
-    - A test-created environment is recognised by its Cloud NAME or its DOMAIN LABEL, and reclamation must match on either. A run that falls through to Jolly's product-default store name still carries the run's namespace in its domain label, so an environment matched on name alone is invisible to reclamation and squats an org slot forever. That leak is not hypothetical: a leaked `jolly-store` environment whose domain label read `jolly-cannon-fodder-run` starved the org's environment capacity and reddened every scenario that creates an environment, while every scenario that reuses one passed.
+    - A test-created environment is recognised by its Cloud NAME or its DOMAIN LABEL, and reclamation matches on either. A run that falls through to Jolly's product-default store name still carries the run's namespace in its domain label, so an environment matched on name alone is invisible to reclamation and squats an org slot until a human removes it.
     - The leak is producible for real, so it is proved for real: the environment is created through the same live path as any other, and no test double stands in for it. A double would prove only that the harness understood the fiction.
+    - A harness-only affordance is reachable only from the harness. Any production code path that fabricates a service response — an injected organization list, an injected environment list — is a test double living in production, and the shipped CLI must not reach it. A double whose marker sits in the verification layer while its mechanism sits in production is invisible to a scan of the verification layer alone, so the scan covers production too.
     - When the invariant fails on a double in an untagged scenario, the fix is to make that scenario real if the condition is producible, or — if it is a genuine unproducible exception — to record it as an @exceptional-double via the Captain, never to widen this rule.
 
   Rule: The eval exercises the real store-creation path

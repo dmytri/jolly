@@ -675,6 +675,22 @@ Then(
   },
 );
 
+// --- Scenario: A Cloud API error carries the recovery whatever its code -----
+//
+// A non-limit rejection of an environment creation is an ordinary failure the
+// real Cloud API produces from real bad input, so it is produced for real: the
+// run asks the real Cloud API to create an environment under a domain label the
+// Cloud API rejects as invalid. The rejection is real, it names a code other
+// than ENVIRONMENT_LIMIT_REACHED, and it creates nothing — no double, and no
+// dependence on what happens to be standing in the org.
+
+Given(
+  "the Cloud API rejects an environment creation with a code other than `ENVIRONMENT_LIMIT_REACHED`",
+  function (this: JollyWorld) {
+    this.notes.rejectedDomainLabel = `Invalid Label ${this.namespace}!!`;
+  },
+);
+
 // --- Scenario: Every error envelope carries the recovery --------------------
 //
 // An error envelope carries its own recovery: at least one `nextSteps` entry,
@@ -808,6 +824,57 @@ Then(
       ),
       "an error carrying no remediation did not redden the check",
     );
+  },
+);
+
+Then(
+  "an error envelope whose `nextSteps` are supplied for only some error codes, and empty for the rest, should redden the check",
+  function (this: JollyWorld) {
+    // The second planted red: recovery keyed on the error code, so one code is
+    // served and every other code gets nothing. Both shapes an envelope can wear
+    // are planted — the ternary on the code, and the by-code lookup with an empty
+    // fallback — because each supplies the steps for only some codes and leaves
+    // the rest empty. Neither is an empty array literal at the call site, so a
+    // check that only reads literals would pass them both.
+    const codeTernary: InjectedSource = {
+      file: "src/.planted-code-keyed-next-steps.ts",
+      text: `export function plantedCodeKeyedNextSteps(code: string) {
+  return errorEnvelope("planted", "Planted failure.", [
+    { code, message: "Planted.", remediation: "Planted remediation." },
+  ], {
+    nextSteps:
+      code === "PLANTED_KNOWN_CODE"
+        ? [{ description: "Planted next step." }]
+        : [],
+  });
+}`,
+    };
+    const codeLookup: InjectedSource = {
+      file: "src/.planted-lookup-next-steps.ts",
+      text: `const PLANTED_STEPS_BY_CODE: Record<string, Array<{ description: string }>> = {
+  PLANTED_KNOWN_CODE: [{ description: "Planted next step." }],
+};
+export function plantedLookupNextSteps(code: string) {
+  return errorEnvelope("planted", "Planted failure.", [
+    { code, message: "Planted.", remediation: "Planted remediation." },
+  ], { nextSteps: PLANTED_STEPS_BY_CODE[code] ?? [] });
+}`,
+    };
+
+    const reddened = findErrorEnvelopeRecoveryViolations([
+      codeTernary,
+      codeLookup,
+    ]);
+    for (const planted of [codeTernary, codeLookup]) {
+      assert.ok(
+        reddened.some(
+          (violation) =>
+            violation.file === planted.file &&
+            violation.message.includes("no `nextSteps` entry"),
+        ),
+        `an error envelope supplying nextSteps for only some error codes did not redden the check (${planted.file})`,
+      );
+    }
   },
 );
 

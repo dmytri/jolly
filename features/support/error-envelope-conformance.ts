@@ -93,6 +93,52 @@ function isEmptyValue(node: Node | undefined): boolean {
   return false;
 }
 
+/**
+ * Whether a `nextSteps` expression can reach an empty value on some path.
+ *
+ * Recovery is owed on every error envelope, whatever its code. Code-keyed
+ * recovery breaks that: `code === "X" ? [step] : []` supplies the steps for one
+ * code and leaves every other code with nothing, and `BY_CODE[code] ?? []` does
+ * the same through a lookup. Both read as "computed" to a check that only looks
+ * for an array literal, so the branches are walked here: a ternary's arms, a
+ * `??`/`||` fallback's sides, and an identifier's initializer. An expression
+ * this cannot resolve is genuinely computed at run time and stays carried.
+ */
+function reachesEmpty(node: Node | undefined, seen = new Set<Node>()): boolean {
+  if (!node || seen.has(node)) return false;
+  seen.add(node);
+  if (Node.isParenthesizedExpression(node)) {
+    return reachesEmpty(node.getExpression(), seen);
+  }
+  if (Node.isArrayLiteralExpression(node)) return node.getElements().length === 0;
+  if (Node.isConditionalExpression(node)) {
+    return (
+      reachesEmpty(node.getWhenTrue(), seen) ||
+      reachesEmpty(node.getWhenFalse(), seen)
+    );
+  }
+  if (Node.isBinaryExpression(node)) {
+    const operator = node.getOperatorToken().getKind();
+    const isFallback =
+      operator === SyntaxKind.QuestionQuestionToken ||
+      operator === SyntaxKind.BarBarToken;
+    if (!isFallback) return false;
+    return (
+      reachesEmpty(node.getLeft(), seen) || reachesEmpty(node.getRight(), seen)
+    );
+  }
+  if (Node.isIdentifier(node)) {
+    const declaration = node
+      .getSymbol()
+      ?.getDeclarations()
+      .find((candidate) => Node.isVariableDeclaration(candidate));
+    if (declaration && Node.isVariableDeclaration(declaration)) {
+      return reachesEmpty(declaration.getInitializer(), seen);
+    }
+  }
+  return false;
+}
+
 export interface ErrorEnvelopeSite {
   file: string;
   line: number;
@@ -201,13 +247,8 @@ export function findErrorEnvelopeRecoveryViolations(
       // Recovery, part one: at least one `nextSteps` entry, carried on the
       // envelope itself.
       const nextSteps = carrier ? property(carrier, "nextSteps") : undefined;
-      const nextStepsArray = arrayLiteral(nextSteps);
       const carriesNextSteps =
-        nextSteps !== undefined &&
-        (nextStepsArray === undefined ||
-          nextStepsArray
-            .asKindOrThrow(SyntaxKind.ArrayLiteralExpression)
-            .getElements().length > 0);
+        nextSteps !== undefined && !reachesEmpty(nextSteps);
       if (!carriesNextSteps) {
         violations.push({
           file,

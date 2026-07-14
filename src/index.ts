@@ -168,6 +168,18 @@ const VALUE_FLAGS = [
 ] as const;
 // Short aliases resolve to their long flag name before classification.
 const FLAG_ALIASES: Record<string, string> = { y: "yes", h: "help" };
+
+/**
+ * Whether the process is running inside Shipshape's verification harness.
+ * `HARNESS_RUN_ID` is set once, run-wide, by the harness (cucumber.js) for
+ * every test invocation; a customer's shipped-CLI environment carries no such
+ * variable. The `mock-*` affordances read below fabricate a service response
+ * only when this guard is active, so a customer can never reach them.
+ * @planks("Then each should fabricate a service response only when the harness guard is set")
+ */
+function harnessGuardActive(): boolean {
+  return process.env.HARNESS_RUN_ID !== undefined;
+}
 const KNOWN_FLAGS = new Set<string>([
   ...GLOBAL_BOOLEAN_FLAGS,
   ...EXTRA_BOOLEAN_FLAGS,
@@ -1193,6 +1205,8 @@ async function inferStoreLocation(
  * @planks("When `jolly start` reaches the storefront clone stage")
  * @planks(`Then the `environment-provisioned` check should report "fail" with a remediation to re-run in a few moments to confirm`)
  * @planks(`Then each should carry at least one `nextSteps` entry naming what to do next`)
+ * @planks("When the agent runs `jolly create store --create-environment --dry-run --json --mock-organizations=acme-co,other-co`")
+ * @planks("Then the run should resolve organizations from the Cloud API alone")
  */
 async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
   const command = "create store";
@@ -1403,11 +1417,15 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
   }
 
   // Resolve the organization. --mock-organizations injects a deterministic
-  // org list for the @logic multi-org warning scenario (no network).
+  // org list for the @logic multi-org warning scenario (no network), only
+  // when the harness guard is active — a customer's environment never sets
+  // it, so this affordance never fabricates for a customer.
   let orgs: CloudOrganization[];
-  const mock = args.flags.has("mock-organizations")
-    ? ""
-    : (args.options["mock-organizations"] ?? undefined);
+  const mock = harnessGuardActive()
+    ? args.flags.has("mock-organizations")
+      ? ""
+      : (args.options["mock-organizations"] ?? undefined)
+    : undefined;
   if (mock !== undefined) {
     orgs = (mock.length > 0 ? mock.split(",") : ["org-one", "org-two"]).map((slug) => ({
       slug: slug.trim(),
@@ -1493,10 +1511,8 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
         },
       ],
     });
-    if (multiOrgWarning) {
-      env.data["availableOrganizations"] = orgs.map((o) => o.slug);
-      env.data["selectedOrganization"] = selectedOrg;
-    }
+    env.data["availableOrganizations"] = orgs.map((o) => o.slug);
+    env.data["selectedOrganization"] = selectedOrg;
     return env;
   }
 
@@ -1768,10 +1784,18 @@ async function provisionStore(
 /**
  * @planks("Given the Saleor Cloud environments endpoint returns ENVIRONMENT_LIMIT_REACHED")
  * @planks("When the agent runs `jolly create store --create-environment --json`")
+ * @planks("Given the Cloud API rejects an environment creation with a code other than `ENVIRONMENT_LIMIT_REACHED`")
+ * @planks("Then the envelope should carry at least one `nextSteps` entry naming what to do next")
  */
 function cloudErrorEnvelope(command: string, err: unknown, riskContext: RiskContext): Envelope {
   const code = err instanceof CloudApiError ? err.code : "CLOUD_API_ERROR";
   const message = err instanceof Error ? err.message : String(err);
+  const remediation =
+    code === "ENVIRONMENT_LIMIT_REACHED"
+      ? "Delete an unused environment or upgrade the plan, then re-run."
+      : code === "DOMAIN_LABEL_TAKEN"
+        ? "Choose a different domain label with --domain-label <label>."
+        : "Confirm the Cloud token and that the Cloud API is reachable.";
   return errorEnvelope(
     command,
     "The Cloud API request failed. Nothing was created.",
@@ -1779,12 +1803,7 @@ function cloudErrorEnvelope(command: string, err: unknown, riskContext: RiskCont
       {
         code,
         message,
-        remediation:
-          code === "ENVIRONMENT_LIMIT_REACHED"
-            ? "Delete an unused environment or upgrade the plan, then re-run."
-            : code === "DOMAIN_LABEL_TAKEN"
-              ? "Choose a different domain label with --domain-label <label>."
-              : "Confirm the Cloud token and that the Cloud API is reachable.",
+        remediation,
       },
     ],
     {
@@ -1801,7 +1820,7 @@ function cloudErrorEnvelope(command: string, err: unknown, riskContext: RiskCont
                   "Upgrade the plan to raise the sandbox environment limit, then re-run.",
               },
             ]
-          : [],
+          : [{ description: remediation }],
     },
   );
 }
@@ -2755,6 +2774,7 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
  * @planks("When the agent invokes `jolly skills update`")
  * @planks("When Jolly installs the default skill set via `npx skills add`")
  * @planks("Then the skill installs should run concurrently, a later skill's install beginning before an earlier skill's install finishes")
+ * @planks(`Then each should carry at least one `nextSteps` entry naming what to do next`)
  */
 async function commandSkills(args: ParsedArgs): Promise<Envelope> {
   const command = "skills";
@@ -2776,26 +2796,30 @@ async function commandSkills(args: ParsedArgs): Promise<Envelope> {
       };
     });
     const failed = checks.filter((c) => c.status === "fail").map((c) => c.id);
-    return envelope({
-      command: `skills ${sub}`,
-      status: failed.length > 0 ? "warning" : "success",
-      summary:
-        failed.length > 0
-          ? `Some skills not verified: ${failed.join(", ")}.`
-          : `Skills ${sub === "install" ? "installed" : "checked"}.`,
-      data: { skills: DEFAULT_SKILLS.map((s) => s.id) },
-      checks,
+    if (failed.length > 0) {
       // A warning with no action leaves the agent stuck; point it at the
       // installer (the same next step the read-only `skills` listing gives).
-      nextSteps:
-        failed.length > 0
-          ? [
-              {
-                description: "Run jolly init (or jolly start) to install the missing skills.",
-                command: "jolly init",
-              },
-            ]
-          : [],
+      return envelope({
+        command: `skills ${sub}`,
+        status: "warning",
+        summary: `Some skills not verified: ${failed.join(", ")}.`,
+        data: { skills: DEFAULT_SKILLS.map((s) => s.id) },
+        checks,
+        nextSteps: [
+          {
+            description: "Run jolly init (or jolly start) to install the missing skills.",
+            command: "jolly init",
+          },
+        ],
+      });
+    }
+    return envelope({
+      command: `skills ${sub}`,
+      status: "success",
+      summary: `Skills ${sub === "install" ? "installed" : "checked"}.`,
+      data: { skills: DEFAULT_SKILLS.map((s) => s.id) },
+      checks,
+      nextSteps: [],
     });
   }
 
@@ -4587,11 +4611,12 @@ function shouldRunInteractive(args: ParsedArgs): boolean {
 // scenarios (no network); otherwise the real Cloud API is queried, best-effort.
 /**
  * @planks("When the user presses Enter at every prompt")
+ * @planks("Then each should fabricate a service response only when the harness guard is set")
  */
 async function resolveInteractiveOrgs(
   args: ParsedArgs,
 ): Promise<CloudOrganization[]> {
-  const mock = args.options["mock-organizations"];
+  const mock = harnessGuardActive() ? args.options["mock-organizations"] : undefined;
   if (mock !== undefined) {
     const slugs = mock.length > 0 ? mock.split(",") : ["org-one", "org-two"];
     return slugs.map((slug) => ({ slug: slug.trim() }));
@@ -4611,12 +4636,13 @@ async function resolveInteractiveOrgs(
 // / no org / a network error just yields an empty list (no picker, plain create).
 /**
  * @planks("When the user presses Enter at every prompt")
+ * @planks("Then each should fabricate a service response only when the harness guard is set")
  */
 async function resolveInteractiveEnvironments(
   args: ParsedArgs,
   organization: string | undefined,
 ): Promise<CloudEnvironment[]> {
-  const mock = args.options["mock-environments"];
+  const mock = harnessGuardActive() ? args.options["mock-environments"] : undefined;
   if (mock !== undefined) {
     const names = mock.length > 0 ? mock.split(",") : [];
     return names.map((n) => ({ name: n.trim(), domain_label: n.trim() }));

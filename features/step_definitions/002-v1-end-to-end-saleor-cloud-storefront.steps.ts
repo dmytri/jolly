@@ -20,6 +20,7 @@
 // Safety: @logic CLI runs use absentCredentialsEnv() in the scenario's temp dir.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
+import { createEnvironment } from "../support/env-factory.ts";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
@@ -198,6 +199,23 @@ When("the agent runs `jolly create store --create-environment --json`", { timeou
         }),
       },
     );
+    return;
+  }
+  //   - 020 "A Cloud API error carries the recovery whatever its code" (@logic):
+  //     the REAL create path against the REAL Cloud API, asked to create the
+  //     environment under a domain label the Cloud API rejects as invalid — a
+  //     real non-limit rejection from real bad input, which creates nothing.
+  const rejectedDomainLabel = this.notes.rejectedDomainLabel as
+    | string
+    | undefined;
+  if (rejectedDomainLabel) {
+    // A real create against the real Cloud API, so it goes through the single
+    // env-creation seam like every other real creation — the Cloud API rejects
+    // the label and nothing is created, but the create is real, so the seam owns
+    // the argument shape.
+    await createEnvironment((args, options) => this.runCliAsync(args, options), {
+      domainLabel: rejectedDomainLabel,
+    });
     return;
   }
   this.runCli(["create", "store", "--create-environment", "--dry-run", "--json"]);

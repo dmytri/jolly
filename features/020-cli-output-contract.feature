@@ -96,6 +96,14 @@ Feature: Jolly CLI output contract
     And the envelope should carry at least one `nextSteps` entry naming what to do next
     And each `errors` entry should carry a `remediation`
 
+  @logic
+  Scenario: A Cloud API error carries the recovery whatever its code, not only when the environment limit is reached
+    Given the Cloud API rejects an environment creation with a code other than `ENVIRONMENT_LIMIT_REACHED`
+    When the agent runs `jolly create store --create-environment --json`
+    Then the envelope status should be "error"
+    And the envelope should carry at least one `nextSteps` entry naming what to do next
+    And each `errors` entry should carry a `remediation`
+
   @logic @property
   Scenario: Every error envelope carries the recovery, so the agent never has to go looking for it
     Given Jolly's error-envelope construction code
@@ -103,6 +111,7 @@ Feature: Jolly CLI output contract
     Then each should carry at least one `nextSteps` entry naming what to do next
     And each `errors` entry should carry a `remediation`
     And an error envelope constructed with an empty `nextSteps`, or with an error carrying no `remediation`, should redden the check
+    And an error envelope whose `nextSteps` are supplied for only some error codes, and empty for the rest, should redden the check
 
   @logic @property
   Scenario Outline: Output never exposes secrets
