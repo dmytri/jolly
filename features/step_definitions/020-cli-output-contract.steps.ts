@@ -21,6 +21,12 @@ import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 import { ptyAvailable, runUnderPty } from "../support/pty.ts";
 import { acceptEveryPrompt, startPromptSequence } from "../support/start-prompts.ts";
 import { findEnvelope } from "../support/envelope.ts";
+import {
+  enumerateErrorEnvelopeSites,
+  findErrorEnvelopeRecoveryViolations,
+  type ErrorEnvelopeSite,
+} from "../support/error-envelope-conformance.ts";
+import type { InjectedSource, Violation } from "../support/module-conformance.ts";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
 
 const CLI_ENTRY = join(REPO_ROOT, "src", "index.ts");
@@ -593,7 +599,7 @@ When("the agent inspects the envelope", function () {
 });
 
 Then(
-  "each entry in `errors` should include a stable `code`, a `message`, and optional `remediation`",
+  "each entry in `errors` should include a stable `code`, a `message`, and a `remediation`",
   function (this: JollyWorld) {
     assert.notEqual(
       this.envelope.status,
@@ -605,9 +611,15 @@ Then(
       assert.equal(typeof error.code, "string");
       assert.ok((error.code as string).length > 0, "error code non-empty");
       assert.equal(typeof error.message, "string");
-      if ("remediation" in error) {
-        assert.equal(typeof error.remediation, "string");
-      }
+      assert.equal(
+        typeof error.remediation,
+        "string",
+        `error ${error.code} must carry a remediation`,
+      );
+      assert.ok(
+        (error.remediation as string).length > 0,
+        `error ${error.code} remediation non-empty`,
+      );
     }
   },
 );
@@ -623,6 +635,115 @@ Then(
         `error code "${error.code}" should be a stable machine identifier`,
       );
     }
+  },
+);
+
+// --- Scenario: Every error envelope carries the recovery --------------------
+//
+// An error envelope carries its own recovery: at least one `nextSteps` entry,
+// and a `remediation` on every `errors` entry. The agent that hit the error then
+// has everything it needs to act, in the reply it already has.
+//
+// The envelopes Jolly "can emit" are enumerated from the construction code
+// rather than by driving each failure path, because failures Jolly cannot be
+// made to take at will (a Cloud API 500, an environment-limit rejection) would
+// otherwise go unchecked. The enumeration covers BOTH construction seams: every
+// errorEnvelope(...) call, and every envelope({...}) call whose status is not
+// literally success or warning (the doctor envelope computes its status, so it
+// can emit an error and is enumerated as one).
+
+Given("Jolly's error-envelope construction code", function (this: JollyWorld) {
+  assert.ok(
+    existsSync(CLI_ENTRY),
+    "the production source (src/index.ts) must exist to check",
+  );
+});
+
+When("the error envelopes it can emit are enumerated", function (this: JollyWorld) {
+  this.notes.errorEnvelopeSites = enumerateErrorEnvelopeSites();
+  this.notes.errorEnvelopeViolations = findErrorEnvelopeRecoveryViolations();
+});
+
+Then(
+  "each should carry at least one `nextSteps` entry naming what to do next",
+  function (this: JollyWorld) {
+    const sites = this.notes.errorEnvelopeSites as ErrorEnvelopeSite[];
+    assert.ok(
+      sites.length > 0,
+      "no error-envelope construction site was found — the enumeration is not reading Jolly's construction code",
+    );
+    const missing = (this.notes.errorEnvelopeViolations as Violation[]).filter(
+      (violation) => violation.message.includes("no `nextSteps` entry"),
+    );
+    assert.equal(
+      missing.length,
+      0,
+      `error envelopes constructed with no nextSteps entry (${missing.length} of ${sites.length} sites):\n${missing
+        .map((violation) => `  - ${violation.message}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "each `errors` entry should carry a `remediation`",
+  function (this: JollyWorld) {
+    const missing = (this.notes.errorEnvelopeViolations as Violation[]).filter(
+      (violation) => violation.message.includes("no `remediation`"),
+    );
+    assert.equal(
+      missing.length,
+      0,
+      `errors entries carrying no remediation:\n${missing
+        .map((violation) => `  - ${violation.message}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "an error envelope constructed with an empty `nextSteps`, or with an error carrying no `remediation`, should redden the check",
+  function (this: JollyWorld) {
+    // The planted red: two virtual sources, never written to disk, each breaking
+    // one half of the recovery contract. A check that cannot go red proves
+    // nothing about the envelopes that pass it.
+    const emptyNextSteps: InjectedSource = {
+      file: "src/.planted-empty-next-steps.ts",
+      text: `export function plantedEmptyNextSteps() {
+  return errorEnvelope("planted", "Planted failure.", [
+    { code: "PLANTED_EMPTY_NEXT_STEPS", message: "Planted.", remediation: "Planted remediation." },
+  ], { nextSteps: [] });
+}`,
+    };
+    const noRemediation: InjectedSource = {
+      file: "src/.planted-no-remediation.ts",
+      text: `export function plantedNoRemediation() {
+  return errorEnvelope("planted", "Planted failure.", [
+    { code: "PLANTED_NO_REMEDIATION", message: "Planted." },
+  ], { nextSteps: [{ description: "Planted next step." }] });
+}`,
+    };
+
+    const reddened = findErrorEnvelopeRecoveryViolations([
+      emptyNextSteps,
+      noRemediation,
+    ]);
+    assert.ok(
+      reddened.some(
+        (violation) =>
+          violation.file === emptyNextSteps.file &&
+          violation.message.includes("no `nextSteps` entry"),
+      ),
+      "an error envelope constructed with an empty nextSteps did not redden the check",
+    );
+    assert.ok(
+      reddened.some(
+        (violation) =>
+          violation.file === noRemediation.file &&
+          violation.message.includes("no `remediation`"),
+      ),
+      "an error carrying no remediation did not redden the check",
+    );
   },
 );
 

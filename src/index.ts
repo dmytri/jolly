@@ -267,7 +267,7 @@ function envelope(
 
 /**
  * @planks(`Then the envelope status should be "error" with the stable code `NON_FIRST_PARTY_HOST``)
- * @planks("Then each entry in `errors` should include a stable `code`, a `message`, and optional `remediation`")
+ * @planks("Then each entry in `errors` should include a stable `code`, a `message`, and a `remediation`")
  * @planks(`Then the envelope status should be "error" with a stable `code` naming the empty token`)
  */
 function errorEnvelope(
@@ -1192,6 +1192,7 @@ async function inferStoreLocation(
  * @planks("When the agent runs `jolly create store --url https://evil.example.com/graphql/ --json`")
  * @planks("When `jolly start` reaches the storefront clone stage")
  * @planks(`Then the `environment-provisioned` check should report "fail" with a remediation to re-run in a few moments to confirm`)
+ * @planks(`Then each should carry at least one `nextSteps` entry naming what to do next`)
  */
 async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
   const command = "create store";
@@ -1211,7 +1212,16 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
             remediation: "Paste a Saleor Dashboard, GraphQL, or root Saleor Cloud URL.",
           },
         ],
-        { data: { riskContext: createStoreRiskContext(url) } },
+        {
+          data: { riskContext: createStoreRiskContext(url) },
+          nextSteps: [
+            {
+              description:
+                "Re-run with a Saleor Dashboard, GraphQL, or root Saleor Cloud URL.",
+              command: "jolly create store --url https://<store>.saleor.cloud/graphql/",
+            },
+          ],
+        },
       );
     }
 
@@ -1231,7 +1241,15 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
             remediation: "Use your Saleor Cloud store URL (a *.saleor.cloud endpoint).",
           },
         ],
-        { data: { riskContext: createStoreRiskContext(normalized.endpoint) } },
+        {
+          data: { riskContext: createStoreRiskContext(normalized.endpoint) },
+          nextSteps: [
+            {
+              description: "Re-run with your Saleor Cloud store URL.",
+              command: "jolly create store --url https://<store>.saleor.cloud/graphql/",
+            },
+          ],
+        },
       );
     }
 
@@ -1418,7 +1436,16 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
             "Run `jolly login` to sign in through the Saleor device authorization grant, then retry.",
         },
       ],
-      { data: { riskContext: createStoreRiskContext(cloudApiBase()) } },
+      {
+        data: { riskContext: createStoreRiskContext(cloudApiBase()) },
+        nextSteps: [
+          {
+            description:
+              "Sign in with an account that has a Saleor Cloud organization, then retry.",
+            command: "jolly login",
+          },
+        ],
+      },
     );
   } else if (orgs.length === 1) {
     selectedOrg = orgs[0].slug;
@@ -1546,6 +1573,18 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
             ? { remediation: "The store may still be starting up. Re-run in a few moments to confirm." }
             : {}),
         },
+      ],
+      nextSteps: [
+        result.readinessTimedOut
+          ? {
+              description:
+                "The store may still be starting up. Re-run the doctor checks in a few moments to confirm the endpoint serves.",
+              command: "jolly doctor",
+            }
+          : {
+              description: "Continue the bootstrap against the new store.",
+              command: "jolly start",
+            },
       ],
     });
   } catch (err) {
@@ -1801,6 +1840,7 @@ function commandCreateHelp(): Envelope {
 /**
  * @planks("When it inspects `jolly create --help`")
  * @planks("Given `jolly create <subcommand>` is run with its preconditions unmet")
+ * @planks(`Then each should carry at least one `nextSteps` entry naming what to do next`)
  */
 async function commandCreate(args: ParsedArgs): Promise<Envelope> {
   const sub = args.positionals[1];
@@ -1815,13 +1855,25 @@ async function commandCreate(args: ParsedArgs): Promise<Envelope> {
     case "store":
       return commandCreateStore(args);
     default:
-      return errorEnvelope("create", `Unknown create subcommand "${sub}".`, [
+      return errorEnvelope(
+        "create",
+        `Unknown create subcommand "${sub}".`,
+        [
+          {
+            code: "UNKNOWN_CREATE_SUBCOMMAND",
+            message: `"${sub}" is not a create subcommand. Valid: ${CREATE_SUBCOMMANDS.join(", ")}.`,
+            remediation: "Run `jolly create --help` to list available subcommands.",
+          },
+        ],
         {
-          code: "UNKNOWN_CREATE_SUBCOMMAND",
-          message: `"${sub}" is not a create subcommand. Valid: ${CREATE_SUBCOMMANDS.join(", ")}.`,
-          remediation: "Run `jolly create --help` to list available subcommands.",
+          nextSteps: [
+            {
+              description: "List the available create subcommands.",
+              command: "jolly create --help",
+            },
+          ],
         },
-      ]);
+      );
   }
 }
 
@@ -1977,6 +2029,7 @@ function detectAgent(): string | null {
  * @planks("When the agent invokes `jolly init`")
  * @planks("When the agent invokes `jolly init` in the same directory again")
  * @planks("When the agent invokes `jolly init` in a temp project directory")
+ * @planks(`Then each should carry at least one `nextSteps` entry naming what to do next`)
  */
 function commandInit(_args: ParsedArgs): Envelope {
   const command = "init";
@@ -2031,7 +2084,16 @@ function commandInit(_args: ParsedArgs): Envelope {
             "Ensure `npx skills` is available and the network is reachable, then re-run `jolly init`.",
         },
       ],
-      { checks },
+      {
+        checks,
+        nextSteps: [
+          {
+            description:
+              "Check the network is reachable, then re-run the install to verify the skills on disk.",
+            command: "jolly init",
+          },
+        ],
+      },
     );
   }
 
@@ -2286,6 +2348,7 @@ async function ensureFreshStoreAuth(): Promise<void> {
  * @planks("When it invokes `jolly doctor`")
  * @planks("When the agent runs `jolly doctor <group> --json`")
  * @planks("Given the agent runs `jolly doctor --json` with no group argument")
+ * @planks(`Then each should carry at least one `nextSteps` entry naming what to do next`)
  */
 async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
   const group = args.positionals[1];
@@ -2296,13 +2359,25 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
     group &&
     !DOCTOR_GROUPS.includes(group as (typeof DOCTOR_GROUPS)[number])
   ) {
-    return errorEnvelope("doctor", `Unknown doctor group "${group}".`, [
+    return errorEnvelope(
+      "doctor",
+      `Unknown doctor group "${group}".`,
+      [
+        {
+          code: "UNKNOWN_DOCTOR_GROUP",
+          message: `"${group}" is not a doctor group. Valid: ${DOCTOR_GROUPS.join(", ")}.`,
+          remediation: "Run `jolly doctor` for all checks or name a valid group.",
+        },
+      ],
       {
-        code: "UNKNOWN_DOCTOR_GROUP",
-        message: `"${group}" is not a doctor group. Valid: ${DOCTOR_GROUPS.join(", ")}.`,
-        remediation: "Run `jolly doctor` for all checks or name a valid group.",
+        nextSteps: [
+          {
+            description: `Run all the checks, or name one of: ${DOCTOR_GROUPS.join(", ")}.`,
+            command: "jolly doctor",
+          },
+        ],
       },
-    ]);
+    );
   }
 
   const wants = (g: string) => !group || group === g;
@@ -5528,6 +5603,7 @@ function commandUsage(args: ParsedArgs): Envelope {
  * @planks("When the agent runs `jolly deploy` without `--dry-run`")
  * @planks("Then Jolly should itself spawn `npx vercel@latest login` and surface its device-authorization URL before attempting any deploy")
  * @planks("Then the pending sign-in nextStep should resume by re-running `jolly deploy`, the command that reached the gate")
+ * @planks(`Then each should carry at least one `nextSteps` entry naming what to do next`)
  */
 async function commandStage(
   stage: string,
@@ -5558,6 +5634,14 @@ async function commandStage(
       nextSteps.push(vercelSignInNextStep(vercelUrl, "jolly deploy"));
     }
   }
+  // An error envelope carries its own recovery (feature 020): a failed stage
+  // names re-running itself once its preconditions are met.
+  if (status === "error" && nextSteps.length === 0) {
+    nextSteps.push({
+      description: `The ${stage} stage failed. Fix the reported error, then re-run the stage.`,
+      command: `jolly ${stage}`,
+    });
+  }
   return envelope({
     command: stage,
     status,
@@ -5568,7 +5652,7 @@ async function commandStage(
       ...(stage === "stock" && outcome.data ? { stock: outcome.data } : {}),
     },
     checks,
-    ...(nextSteps.length > 0 ? { nextSteps } : {}),
+    nextSteps,
   });
 }
 
@@ -5581,6 +5665,7 @@ async function commandStage(
  * @planks("Then the error should name the supported commands login, logout, auth status, init, start, doctor, upgrade, skills, create, and completion")
  * @planks("When the agent runs `jolly auth frobnicate --json`")
  * @planks(`Then the envelope status should be "error" with the stable code `UNKNOWN_AUTH_SUBCOMMAND``)
+ * @planks(`Then each should carry at least one `nextSteps` entry naming what to do next`)
  */
 async function dispatch(args: ParsedArgs): Promise<Envelope> {
   const cmd = args.positionals[0];
@@ -5602,13 +5687,25 @@ async function dispatch(args: ParsedArgs): Promise<Envelope> {
       return commandLogout(args);
     case "auth":
       if (args.positionals[1] === "status") return commandAuthStatus(args);
-      return errorEnvelope("auth", `Unknown auth subcommand "${args.positionals[1] ?? ""}".`, [
+      return errorEnvelope(
+        "auth",
+        `Unknown auth subcommand "${args.positionals[1] ?? ""}".`,
+        [
+          {
+            code: "UNKNOWN_AUTH_SUBCOMMAND",
+            message: 'The only auth subcommand is "status".',
+            remediation: "Run `jolly auth status`.",
+          },
+        ],
         {
-          code: "UNKNOWN_AUTH_SUBCOMMAND",
-          message: 'The only auth subcommand is "status".',
-          remediation: "Run `jolly auth status`.",
+          nextSteps: [
+            {
+              description: "Report the current authentication status.",
+              command: "jolly auth status",
+            },
+          ],
         },
-      ]);
+      );
     case "create":
       return commandCreate(args);
     case "init":
@@ -5635,15 +5732,27 @@ async function dispatch(args: ParsedArgs): Promise<Envelope> {
     case "skills":
       return commandSkills(args);
     default:
-      return errorEnvelope(cmd, `Unknown command "${cmd}".`, [
+      return errorEnvelope(
+        cmd,
+        `Unknown command "${cmd}".`,
+        [
+          {
+            code: "UNKNOWN_COMMAND",
+            message: `"${cmd}" is not a Jolly command.`,
+            remediation:
+              "Supported commands: login, logout, auth status, init, start, " +
+              "doctor, upgrade, skills, create, completion. Run `jolly help` for details.",
+          },
+        ],
         {
-          code: "UNKNOWN_COMMAND",
-          message: `"${cmd}" is not a Jolly command.`,
-          remediation:
-            "Supported commands: login, logout, auth status, init, start, " +
-            "doctor, upgrade, skills, create, completion. Run `jolly help` for details.",
+          nextSteps: [
+            {
+              description: "List the Jolly commands and pick one.",
+              command: "jolly help",
+            },
+          ],
         },
-      ]);
+      );
   }
 }
 
@@ -5651,6 +5760,7 @@ async function dispatch(args: ParsedArgs): Promise<Envelope> {
  * @planks("When the agent runs `jolly start --frobnicate --json`")
  * @planks("Then Jolly should default NPM_CONFIG_LOGLEVEL to error so spawned npx tools suppress warn-level notices such as EBADENGINE")
  * @planks("Then stdout should carry the JSON envelope rather than a raw stack trace")
+ * @planks(`Then each should carry at least one `nextSteps` entry naming what to do next`)
  */
 async function main(): Promise<void> {
   // Quiet npm's install-time warnings (e.g. EBADENGINE from a transitive dep of
@@ -5684,6 +5794,14 @@ async function main(): Promise<void> {
           remediation: "Run `jolly <command> --help` to list the supported flags.",
         },
       ],
+      {
+        nextSteps: [
+          {
+            description: `List the supported flags, then re-run without ${bad}.`,
+            command: `jolly ${args.positionals[0] ?? "help"} --help`,
+          },
+        ],
+      },
     );
     process.exit(emit(env, args));
   }
@@ -5692,13 +5810,26 @@ async function main(): Promise<void> {
   try {
     env = await dispatch(args);
   } catch (err) {
-    env = errorEnvelope(args.positionals[0] ?? "jolly", "An unexpected error occurred.", [
+    env = errorEnvelope(
+      args.positionals[0] ?? "jolly",
+      "An unexpected error occurred.",
+      [
+        {
+          code: "UNEXPECTED_ERROR",
+          message: err instanceof Error ? err.message : String(err),
+          remediation: "Re-run with --json and report the error code.",
+        },
+      ],
       {
-        code: "UNEXPECTED_ERROR",
-        message: err instanceof Error ? err.message : String(err),
-        remediation: "Re-run with --json and report the error code.",
+        nextSteps: [
+          {
+            description:
+              "Re-run the command with --json and report the error code in the envelope.",
+            command: `jolly ${args.positionals[0] ?? "help"} --json`,
+          },
+        ],
       },
-    ]);
+    );
   }
   const exitCode = emit(env, args);
   process.exit(exitCode);

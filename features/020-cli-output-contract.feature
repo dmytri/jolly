@@ -85,8 +85,16 @@ Feature: Jolly CLI output contract
   Scenario: Agent branches on stable codes
     Given the agent runs `jolly login --json` with an invalid JOLLY_SALEOR_CLOUD_TOKEN
     When the agent inspects the envelope
-    Then each entry in `errors` should include a stable `code`, a `message`, and optional `remediation`
+    Then each entry in `errors` should include a stable `code`, a `message`, and a `remediation`
     And the documented `code` and check id strings should remain stable so the agent can branch on them programmatically
+
+  @logic @property
+  Scenario: Every error envelope carries the recovery, so the agent never has to go looking for it
+    Given Jolly's error-envelope construction code
+    When the error envelopes it can emit are enumerated
+    Then each should carry at least one `nextSteps` entry naming what to do next
+    And each `errors` entry should carry a `remediation`
+    And an error envelope constructed with an empty `nextSteps`, or with an error carrying no `remediation`, should redden the check
 
   @logic @property
   Scenario Outline: Output never exposes secrets
@@ -130,7 +138,12 @@ Feature: Jolly CLI output contract
     - `status` is one of `success`, `warning`, or `error`.
     - `checks[].status` reuses the doctor vocabulary: pass, warning, fail, skipped, unknown.
     - `nextSteps[]` should mirror doctor's guidance shape with a human description and an optional concrete command.
-    - `errors[]` should each carry a stable `code`, a `message`, and optional `remediation`.
+    - `errors[]` should each carry a stable `code`, a `message`, and a `remediation`.
+    - An `error` envelope carries the recovery inside itself: at least one `nextSteps` entry, and a
+      `remediation` on every `errors` entry. The agent that hit the error has everything it needs to
+      act, in the reply it already has. An error envelope that carries neither sends the agent looking
+      for the recovery elsewhere, and the turn it spends reading `--help` is a turn Jolly's own output
+      should have saved (feature 025 counts that turn as flailing and reddens on it).
     - `--json` is the only mode that emits the machine-readable envelope: its stdout is exactly
       one envelope and nothing else — no human text, colour, emoji, or progress. It is the
       agent's explicit opt-in to machine output.
