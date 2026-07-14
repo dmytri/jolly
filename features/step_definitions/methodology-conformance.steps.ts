@@ -1,19 +1,30 @@
-// Feature methodology-conformance — five derived checks that make Shipshape
+// Feature methodology-conformance — six derived checks that make Shipshape
 // methodology rules executable (@logic @invariant):
 //   - a green tree carries no standing perturbation token in src/ or bin/,
 //   - the watchbill-shape check accepts a well-formed watchbill and rejects a
 //     malformed one,
 //   - every plank sits in a docblock on the declaration it describes,
-//   - no feature file carries a bare `#` comment line, and
-//   - every plank names a step that still exists in a feature.
+//   - no feature file carries a bare `#` comment line,
+//   - every plank names a step that still exists in a feature, and
+//   - a credentialed tier fails loudly when its credential is absent.
 // All are verification support; each is proven honest by a planted red inside
 // its own scenario. The plank checks read the TypeScript AST, so they see what
 // the text-search plank inventory cannot: plank FORM.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
-import { rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
+import {
+  persistedAgentRuns,
+  preserveWakeRecord,
+  runTierWithoutCredential,
+  scenarioSummary,
+  tierCommand,
+  type CredentiallessRun,
+} from "../support/tier-credential.ts";
+import type { TierCommand } from "../support/wake.ts";
 import {
   findBareComments,
   scanForToken,
@@ -331,3 +342,104 @@ Then(
     );
   },
 );
+
+/**
+ * A tier that fails loudly on an absent credential fails in seconds, at its
+ * credential gate. This budget is the failure ceiling for a tier that runs its
+ * agent instead: it bounds what a red costs, and the run resolves the moment the
+ * tier exits.
+ */
+const CREDENTIAL_GATE_BUDGET_MS = 300_000;
+
+Given(
+  "the `@eval` tier command configured in {string}",
+  function (this: JollyWorld, riggingFile: string) {
+    const command = tierCommand(riggingFile, "eval");
+    assert.ok(
+      command,
+      `${riggingFile} configures no "broad-eval" command, so the @eval tier has no command to run`,
+    );
+    this.notes.credentialedTier = command;
+  },
+);
+
+When(
+  "the tier is run with {string} absent from the environment",
+  { timeout: CREDENTIAL_GATE_BUDGET_MS + 20_000 },
+  function (this: JollyWorld, credential: string) {
+    const command = this.notes.credentialedTier as TierCommand;
+
+    // Teardown registered before creation, loud on failure via the registry.
+    const transcriptDir = join(tmpdir(), `jolly-tier-credential-${process.pid}`);
+    this.cleanup.register(`tier-credential transcripts ${transcriptDir}`, () => {
+      rmSync(transcriptDir, { recursive: true, force: true });
+    });
+    const restoreWakeRecord = preserveWakeRecord(command);
+    this.cleanup.register(`${command.key} wake record`, restoreWakeRecord);
+    mkdirSync(transcriptDir, { recursive: true });
+
+    this.notes.credentiallessRun = runTierWithoutCredential({
+      command,
+      credential,
+      transcriptDir,
+      budgetMs: CREDENTIAL_GATE_BUDGET_MS,
+    });
+    this.notes.persistedAgentRuns = persistedAgentRuns(transcriptDir);
+    // Restore immediately; the registered teardown remains the safety net.
+    restoreWakeRecord();
+  },
+);
+
+Then(
+  "the run should fail, naming {string} as the fitting-out blocker it needs",
+  function (this: JollyWorld, credential: string) {
+    const command = this.notes.credentialedTier as TierCommand;
+    const run = this.notes.credentiallessRun as CredentiallessRun;
+    const tail = run.output.slice(-2000);
+    assert.ok(
+      !run.timedOut,
+      `the "${command.key}" tier did not fail when ${credential} was absent; it ran on until it outran its budget:\n${tail}`,
+    );
+    assert.notEqual(
+      run.exitCode,
+      0,
+      `the "${command.key}" tier reported green with ${credential} absent, so it proved nothing:\n${tail}`,
+    );
+    assert.ok(
+      run.output.includes(credential),
+      `the "${command.key}" tier failed without naming ${credential}, so the run never says what fitting out must provide:\n${tail}`,
+    );
+    assert.match(
+      run.output,
+      /fitting[ -]out/i,
+      `the "${command.key}" tier failed without naming ${credential} as a fitting-out blocker:\n${tail}`,
+    );
+  },
+);
+
+Then("it should report no scenario as skipped", function (this: JollyWorld) {
+  const run = this.notes.credentiallessRun as CredentiallessRun;
+  const summary = scenarioSummary(run.output);
+  assert.ok(
+    summary,
+    `the run reported no scenario summary, so what it did with its scenarios is unknown:\n${run.output.slice(-2000)}`,
+  );
+  assert.ok(
+    summary.total > 0,
+    `the run started no scenario at all, so "no scenario skipped" would prove nothing: ${summary.line}`,
+  );
+  assert.equal(
+    summary.counts.skipped ?? 0,
+    0,
+    `the tier skipped itself rather than failing loudly, so an unfitted run reads as green: ${summary.line}`,
+  );
+});
+
+Then("it should invoke no model", function (this: JollyWorld) {
+  const runs = this.notes.persistedAgentRuns as string[];
+  assert.deepEqual(
+    runs,
+    [],
+    `the tier reached the baseline agent — the one seam that invokes a model — and persisted ${runs.length} agent run(s): ${runs.join(", ")}. A tier missing its credential fails at the gate, before it spends a model invocation.`,
+  );
+});

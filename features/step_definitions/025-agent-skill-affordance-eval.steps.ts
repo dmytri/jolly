@@ -10,9 +10,13 @@
 // Live by design (features 025 + 023): the agent runs against the REAL
 // integrated test-env credentials — no fakes. Safety is harmless-by-design: a
 // throwaway $HOME and temp workspace, every created cloud resource
-// `jolly-cannon-fodder`-namespaced and reclaimed in best-effort teardown. The @eval Before
-// hook (support/hooks.ts) skips — never fails — when the runner or
-// HARNESS_OPENROUTER_API_KEY is absent, so this never gates normal CI.
+// `jolly-cannon-fodder`-namespaced and reclaimed in best-effort teardown.
+//
+// Credentials are fitted, never gated on: the @eval Before hook (support/hooks.ts)
+// FAILS when HARNESS_OPENROUTER_API_KEY is absent, naming it as the fitting-out
+// blocker it needs. It never skips — a tier that skips itself when its credential
+// is absent reports green while proving nothing. The tier stays out of normal CI
+// by its tag, not by a skip.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";

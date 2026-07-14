@@ -1,4 +1,15 @@
 # Search-exclusion artifact (Shipshape fitting-out derived).
-# Keeps Captain-only notes out of crew-visible search by construction.
-# ripgrep and ag honour this file; Captain still opens CAPTAIN.md by path.
+#
+# Reach: ripgrep and ag TRAVERSAL only. This file alone is not a bulkhead.
+# Proven safe forms:   `rg <pattern>`, `rg -t md <pattern>`, `rg --hidden`.
+# Proven bypasses:     `rg --glob '*.md'`, `rg --no-ignore`, `rg -u`;
+#                      any shell glob expanded into an explicit path list,
+#                      such as `rg *.md`, since an explicitly named path is
+#                      searched whatever this file says; and GNU grep, which
+#                      never reads this file at all, so a bare `grep -r`
+#                      reaches the notes with no flags.
+#
+# The construction-level exclusion is the Shipshape Bash custody hook, which
+# must deny those vectors for internal roles. Captain still opens the notes
+# by path.
 CAPTAIN.md

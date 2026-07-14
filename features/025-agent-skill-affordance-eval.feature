@@ -18,7 +18,7 @@ Feature: Agent skill affordance evaluation
       never gates normal green/red CI.
     - It runs only through an explicit `eval` profile / command, on demand.
 
-  Rule: Driven by a baseline agent, skip-not-fail when unavailable
+  Rule: Driven by a baseline agent, fail loudly when its inputs are absent
     - The eval drives a BASELINE coding agent — the bundled `pi` agent
       (`@earendil-works/pi-coding-agent`, run as `npx pi --model <model>`) — over
       the documented skill and CLI in a clean workspace. The point is a generic
@@ -30,9 +30,10 @@ Feature: Agent skill affordance evaluation
       `HARNESS_OPENROUTER_API_KEY` (the OpenRouter model API key, provided into
       the agent's env as whatever `pi`/OpenRouter reads) and `HARNESS_EVAL_MODEL`
       (the model, e.g. `deepseek/deepseek-v4-flash`).
-    - When the runner or `HARNESS_OPENROUTER_API_KEY` is absent, the scenario is
-      SKIPPED with a clear reason, never failed — exactly like `@sandbox`
-      credential gating. Logic-tier tests are unaffected.
+    - Credentials are fitted, never gated on. When the runner or
+      `HARNESS_OPENROUTER_API_KEY` is absent, the run FAILS and names the missing
+      input as a fitting-out blocker. A tier that skips itself when its credential
+      is absent reports green while proving nothing, so absence must be loud.
 
   Rule: Live by design — real integrated test env, namespaced and disposable
     - The agent runs in a unique per-run temporary workspace seeded with only the
@@ -72,9 +73,10 @@ Feature: Agent skill affordance evaluation
       CLI — the throwaway `$HOME` isolates the agent's own config and any creds it
       acquires, but the official CLI sessions the deploy depends on are provided —
       so the deploy actually runs and Jolly reports the real storefront URL the
-      CLI returned. Absent any `vercel login` session the deploy step is gated
-      (skipped, not failed). Either way the run exercises every stage its
-      available credentials and capabilities allow.
+      CLI returned. The `vercel login` session is fitted, so absent one the run
+      FAILS and names it as a fitting-out blocker, exactly as an absent model key
+      does. The run exercises every stage, and a stage it cannot reach is a
+      blocker to report, never a step to gate away.
     - The agent reaches `https://jolly.cool/setup` (or the local source) over the
       network and may install skills from github; these fetches are expected, and
       the eval also smoke-tests that the entry point is reachable.

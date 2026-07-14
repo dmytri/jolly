@@ -17,7 +17,9 @@
 // Credentials for every tier are present by fitting-out; the underlying
 // provisioner reads the Cloud token from the environment. Assume present.
 //
-// Before @eval: build the published-shape CLI bundle the shimmed bin/jolly imports.
+// Before @eval: fail loudly when the tier's credential is absent (fitting-out
+// blocker, never a skip), then build the published-shape CLI bundle the shimmed
+// bin/jolly imports.
 //
 // After: run the scenario's LIFO, idempotent, best-effort cleanup registry
 // and report anything it could not remove by its namespaced identifier
@@ -26,7 +28,7 @@
 // Note this never touches the shared store itself — it's deliberately
 // long-lived (provision.ts), not scenario- or run-scoped cleanup.
 import { After, AfterAll, Before, BeforeAll } from "@cucumber/cucumber";
-import { ensureCliBundle } from "./eval.ts";
+import { ensureCliBundle, modelApiKey } from "./eval.ts";
 import {
   derivedSecrets,
   ensureSharedEnvironment,
@@ -51,6 +53,26 @@ Before(
     for (const secret of derivedSecrets()) this.trackSecret(secret);
   },
 );
+
+// Credentials are fitted, never gated on: a tier whose credential is absent
+// FAILS, naming the missing input as the fitting-out blocker it needs, rather
+// than skipping itself green (feature 025's "fail loudly when its inputs are
+// absent" Rule; the @eval tier policy in RIGGING.md). A tier that skips itself
+// when its credential is absent reports green while proving nothing.
+//
+// This gate runs BEFORE the bundle build, so an unfitted run spends nothing: no
+// bundle, no workspace, no cloud call, and above all no model invocation.
+Before({ tags: "@eval" }, function (this: JollyWorld) {
+  if (modelApiKey() === undefined) {
+    throw new Error(
+      "HARNESS_OPENROUTER_API_KEY is absent from the environment, so the @eval " +
+        "tier cannot drive the baseline agent. This is a fitting-out blocker: " +
+        "fitting out must provide HARNESS_OPENROUTER_API_KEY. The tier fails " +
+        "rather than skipping, because a tier that skips itself when its " +
+        "credential is absent reports green while proving nothing.",
+    );
+  }
+});
 
 // Build the published-shape CLI bundle (dist/index.js) the shimmed `bin/jolly`
 // imports, so the eval drives the real published shape. A build failure fails

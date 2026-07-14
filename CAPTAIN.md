@@ -4,6 +4,30 @@
 
 Binding behaviour lives in `.feature` specs and referenced `assets/**`. History lives in git. These notes carry only what the next cycle needs.
 
+## FIRST ACTIONS AFTER RESTART (2026-07-14, written pre-restart)
+
+Restart was taken to load the patched Shipshape Bash custody hook. The guard is on disk
+(`~/.claude/plugins/marketplaces/dmytri-shipshape/hooks/scripts/bash-custody.sh`, `searchfault`
+present); hooks load at session start, so it is ACTIVE only from the fresh session onward.
+The bulkhead was NOT mechanically enforced before it. Two QMs were contaminated and discarded today.
+
+Do these in order:
+
+1. **Redispatch Boatswain custody.** A custody run was in flight at restart and died with it.
+   Base commit `848dab8`. Advanced target: `features/methodology-conformance.feature:A credentialed
+   tier fails loudly when its credential is absent` (QM proved it green, fresh, in the run record).
+   The tree also carries Captain spec edits (`025`, `methodology-conformance`), a Shipwright rigging
+   refit (`RIGGING.md` focused command, `.ignore`), and QM's step definitions and support
+   (`features/support/tier-credential.ts`, `hooks.ts`). Nothing was lost; it is all on disk.
+2. **Promote the two bulkhead skeletons** in `features/methodology-conformance.feature`
+   (`@captain @logic @invariant`, the hook deny/permit Scenario Outlines). dk ruled: promote once
+   the hook lands. It has landed. Remove the `@captain` tag, write both into `watchbill.json`,
+   dispatch QM. They owe a planted-red proof, and they assert hook deny/permit rather than search
+   result sets deliberately: a step definition asserting "the notes file is absent from this result
+   set" must NAME the notes file, and the Read/Grep/Glob guard would then block QM from writing its
+   own step definition. Expect that trap.
+3. Then harbour, which is still owed (below).
+
 ## Deck state (2026-07-14, harbour, mid-flight)
 
 Base commit `6975aea`, tree CLEAN, 15 commits ahead of `origin/main`. npm still at `@dk/jolly@0.12.4`; nothing outbound.
@@ -37,8 +61,18 @@ The wake was fiction until this harbour. Every per-scenario cost below is measur
 - The ~5-minute Cloud-error scenario the old notes flagged **does not exist**. Nothing in `@logic` exceeds 42s. The notes were wrong; the record is right.
 - `@sandbox` light, 495s: three scenarios are 90% of it (172s, 168s, 108s). The two skill-install scenarios need **no Saleor credentials** by their own admission — they are in the expensive tier by tag inheritance, not need.
 
+## Ruled 2026-07-14
+
+- **`@eval` is GREEN.** 3 scenarios, 3 passed, via the configured `broad-eval`. The one red was verification again: the affordance map joins a turn's commands with `" && "`, then compared that joined string against a *single* trace record — unsatisfiable the moment the agent ran two Jolly commands in one turn, which it did. Fixed in `848dab8`.
+- **RIGGING wins over the spec on credential absence.** dk ruled: a tier that skips itself when its credential is absent reports green while proving nothing. Feature `025`'s Rule prose promised SKIP-not-fail for both the eval model key and the Vercel session. Both bullets rewritten to fail loudly as a fitting-out blocker. Prose cannot fail, so the rule is now pinned by a scenario: `methodology-conformance.feature:A credentialed tier fails loudly when its credential is absent` (`@logic @invariant`, no model invoked). QM derives the rest from the spec.
+- **Do NOT put a non-eval scenario in feature `025`.** The file carries `@eval` at FEATURE level, so every scenario inherits it. A `@logic` check written there lands in the paid tier it is meant to police. Method checks go in `methodology-conformance.feature`.
+
 ## Open decisions for dk
 
+- **RIGGING `focused` cannot select an `@eval` target — a silent false GREEN.** The default profile carries `tags: "not @eval"` (`cucumber.js:29`) and cucumber ANDs profile tags with CLI tags, so `focused` on an `@eval` scenario selects **0 scenarios and exits 0**. QM established it: verbatim `focused` + `--dry-run` → 0 scenarios; with `-p eval` → 1. Any `@eval` target "proven" by `focused` was never run. Shipwright refits `focused` (or adds `focused-eval`). **Highest-value item on the board.**
+- **Tautological assertion** left in `025` steps (~line 599): every string the per-entry loop checks was produced by `traceCommandLine` over a record in the same array, so it cannot redden. The `deepEqual` below it is the real proof. Delete it; the step loses nothing. Boatswain's read-judgment, labelled unverified — no derived check reaches it.
+- **The bulkhead is NOT mechanically enforced. Two QMs were contaminated today (2026-07-14).** Both were discarded mid-target. The vector is an ordinary repo-wide search over `*.md`: six forms reach this file, and only a bare `rg` is excluded. No ignore-file can close it (GNU grep never reads `.ignore`; a shell glob outranks it). Only Shipshape's Bash custody hook can. **dk ruled: no plugin-cache patch here.** The proven guard and its proof harness are carried to `~/shipshape-shakedown` (`incoming/jolly-bulkhead/`, and a note in that project's `CAPTAIN.md`).
+- **Therefore these notes are a live hazard, and that is Captain's to manage.** Until the hook lands: keep seam hints OUT (name the decision, never the file to change), and avoid literal tokens a role would plausibly grep for. The second contamination hit a bullet of mine carrying a credential token verbatim. Two `@captain` skeletons in `methodology-conformance.feature` make the hook's deny/permit executable; they stay unpromoted until the patched hook exists, since QM cannot fix harness config and would be permanently red.
 - **Owed to Shipwright at this harbour** (from Boatswain custody, `6975aea`): `RIGGING.md`'s `step-usage` prose still says `Measured: 936 step definitions`; the command now reports **967**. The zero-usage count of 16 is still right. Nothing breaks — the parser reads only the backticked command — but the number misleads a reader. Shipwright's to repair; Captain does not edit `RIGGING.md` for this.
 - **16 orphaned step definitions** in `002`, `006`, `012`, `027`, `shared`. Dead verification support, pre-existing. Harbour triage.
 - Fail-fast capacity blocker: when the org is at cap with nothing reclaimable, `BeforeAll` should say so in seconds and name the squatter, instead of six scenarios burning 45 minutes. Not yet ruled.

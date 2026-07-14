@@ -35,8 +35,43 @@ Feature: Methodology conformance
     And a feature file carrying a "#" comment line should redden the check
 
   @logic @invariant
+  Scenario: A credentialed tier fails loudly when its credential is absent
+    Given the `@eval` tier command configured in "RIGGING.md"
+    When the tier is run with "HARNESS_OPENROUTER_API_KEY" absent from the environment
+    Then the run should fail, naming "HARNESS_OPENROUTER_API_KEY" as the fitting-out blocker it needs
+    And it should report no scenario as skipped
+    And it should invoke no model
+
+  @logic @invariant
   Scenario: Every plank names a step that still exists in a feature
     Given the "@planks" step texts in the implementation directories
     When they are joined against the step text of every feature file, with "And" and "But" normalized to the keyword they inherit
     Then every plank's step should be found in a feature
     And a plank naming a deleted or renamed step should redden the check
+
+  @captain @logic @invariant
+  Scenario Outline: The command custody hook denies an internal-role search that reaches the Captain-only notes
+    Given the Shipshape Bash custody hook configured for this project
+    When it receives a "shipshape:qm" payload whose command is "<vector>"
+    Then it should deny the command
+    And it should name a safe search form in its recovery message
+
+    Examples: vectors proven to reach the notes file
+      | vector                         |
+      | rg -l --glob '*.md' -e . .     |
+      | rg -l --no-ignore -e . .       |
+      | rg -l -e . *.md                |
+      | grep -rl -e . .                |
+      | grep -rl --include=*.md -e . . |
+
+  @captain @logic @invariant
+  Scenario Outline: The command custody hook permits an internal-role search the exclusion artifact already covers
+    Given the Shipshape Bash custody hook configured for this project
+    When it receives a "shipshape:qm" payload whose command is "<vector>"
+    Then it should permit the command
+
+    Examples: vectors proven unable to reach the notes file
+      | vector                |
+      | rg -l -e . .          |
+      | rg -l -t md -e . .    |
+      | rg -l --hidden -e . . |
