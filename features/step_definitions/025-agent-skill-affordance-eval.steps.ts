@@ -598,10 +598,15 @@ Then(
     const records = trace(this);
     const named = map.filter((entry) => entry.jollyCommand !== undefined);
     for (const entry of named) {
-      assert.ok(
-        records.some((record) => traceCommandLine(record) === entry.jollyCommand),
-        `turn ${entry.turn} names a Jolly command the CLI trace does not carry: ${entry.jollyCommand}`,
-      );
+      // A turn may run several Jolly commands in one shell command; the map
+      // joins them with " && ", so each named command is checked against the
+      // trace on its own. The trace is what actually executed.
+      for (const command of entry.jollyCommand!.split(" && ")) {
+        assert.ok(
+          records.some((record) => traceCommandLine(record) === command),
+          `turn ${entry.turn} names a Jolly command the CLI trace does not carry: ${command}`,
+        );
+      }
     }
     assert.ok(
       named.length > 0,
