@@ -30,16 +30,23 @@ Five checks this voyage were GREEN while the defect they existed to catch was li
 
 **A check that inspects shape rather than value is not a check.** When a guard is written, ask what live counterexample would still pass it. Three of these five were disclosed by the roles themselves rather than discovered — that honesty is the only reason they were found.
 
-## In flight: QM on the flaky device-auth read
+## Closed: the flaky device-auth read (`5b67dc1`)
 
-`027:The Saleor sign-in URL is shown as a clickable terminal hyperlink` passes focused in 17s every time and fails intermittently under tier concurrency: a wait ending on a timer rather than an observed signal — the same class already killed elsewhere. Watchbill carries the `@logic` TIER TAG deliberately: a focused reference cannot reproduce a concurrency-only defect, and would report green while the defect stands.
+`027:...clickable terminal hyperlink` passed focused every time and failed intermittently under tier concurrency: a READ ending on a timer, returning whatever the terminal had produced by then. A green tier sweep proved nothing — QM ran one, correctly refused to call it a fix, and said so.
+
+**The routing lesson, and it cost a cycle.** The diagnosis was sent to QM in a MESSAGE. QM ignored it and worked the file, exactly as the bulkhead requires. Intent that lives in chat does not exist. The fix was to recast the finding as a durable check carrying no rationale: a new `@logic @invariant` in `verification-economy` outlawing a read that ends on a timer. The defect then reddens on inspection, with no concurrency luck needed.
+
+The repair is a contract, not a patch: `readUntil` is now a REQUIRED field on `runUnderPty`, `timeoutMs` is demoted to a failure ceiling that throws, and the type system enforces it at all ten call sites. The hyperlink scenario fell 16.8s to 3.0s. `@logic` 177/177 green.
 
 ## Next, in order
 
-1. Finish the flake fix; Boatswain custody.
-2. **Pre-outbound full regression, all tiers.** Production changed since the last green board, and green does not transfer across a diff. It runs against the NEW account — a genuinely cold org, closer to a customer's first run than anything tested so far.
-3. **Harbour** (Shipwright): the stale `step-usage` count in `RIGGING.md`; the 16 zero-usage step definitions (orphan candidates); the verification-economy audit against the per-scenario cost record this voyage built.
-4. **Outbound** — npm + vercel-homepage — only on dk's explicit go, and only on a green board. dk's standing position: 0.12.4 serves both the terminal and agent paths, so there is no pressure to ship a red tree.
+1. **Pre-outbound full regression, all tiers.** Production changed since the last green board, and green does not transfer across a diff. It runs against the NEW account — a genuinely cold org, closer to a customer's first run than anything tested so far. Two things it must settle: `@sandbox` has NOT run against the new PTY driver envelope (`tsc` proves every call site declares `readUntil`, so the risk is low but UNPROVEN), and `@eval` is a required green gate.
+2. **Harbour** (Shipwright): the stale `step-usage` count in `RIGGING.md`; the 16 zero-usage step definitions (orphan candidates); the verification-economy audit against the per-scenario cost record this voyage built; and `findTimerEndedReads` does not statically check a `readUntil` passed as a variable (sound, since the type makes it mandatory, but noted).
+3. **Outbound** — npm + vercel-homepage — only on dk's explicit go, and only on a green board. dk's standing position: 0.12.4 serves both the terminal and agent paths, so there is no pressure to ship a red tree.
+
+## Wake is stale, do not trust it
+
+`coverage/weather/tiers.tsv` still records `eval RED(rc=1)` and a `logic` row of 165 from a PRE-voyage run; today's `@logic` is 177 and `@eval` ran 3/3 green. The roll-up is not written automatically by a tier run. Read a tier result from the run, never from that file.
 
 ## Open finding, not yet acted on
 
