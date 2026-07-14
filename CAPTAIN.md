@@ -4,36 +4,31 @@
 
 Binding behaviour lives in `.feature` specs and referenced `assets/**`. History lives in git. These notes carry only what the next cycle needs.
 
-## FIRST ACTIONS AFTER RESTART (2026-07-14, written pre-restart)
+## Live agenda (2026-07-14, post-restart)
 
-Restart was taken to load the patched Shipshape Bash custody hook. The guard is on disk
-(`~/.claude/plugins/marketplaces/dmytri-shipshape/hooks/scripts/bash-custody.sh`, `searchfault`
-present); hooks load at session start, so it is ACTIVE only from the fresh session onward.
-The bulkhead was NOT mechanically enforced before it. Two QMs were contaminated and discarded today.
+The custody hook is ACTIVE: the guard is on disk and this session loaded it at startup. The bulkhead
+is mechanically enforced from here. Two QMs were contaminated and discarded before it landed.
 
-Custody LANDED before the restart: commit `0ac44de`, tree CLEAN, watchbill struck. Nothing to redispatch.
+**Ruled by dk this session:**
 
-Do these in order:
+- **The two bulkhead skeletons PROMOTE.** They pin the plugin's hook, which lives outside this
+  project's implementation directories, so no seam here can plank them. That is fine: they are
+  verification-only conformance checks with no production seam, so no plank is owed. Promote at the
+  harbour review, not before — a promoted scenario with no step definition reds Shipwright's own
+  regression on undefined steps. They owe a planted-red proof. They assert hook deny/permit rather
+  than search result sets deliberately: a step definition asserting "the notes file is absent from
+  this result set" must NAME the notes file, and the guard would then block QM from writing its own
+  step definition. Expect that trap.
+- **Harbour finishes FIRST.** No feature voyage opens until the inventory is complete.
 
-1. **Promote the two bulkhead skeletons** in `features/methodology-conformance.feature`
-   (`@captain @logic @invariant`, the hook deny/permit Scenario Outlines). dk ruled: promote once
-   the hook lands. It has landed. Remove the `@captain` tag, write both into `watchbill.json`,
-   dispatch QM. They owe a planted-red proof, and they assert hook deny/permit rather than search
-   result sets deliberately: a step definition asserting "the notes file is absent from this result
-   set" must NAME the notes file, and the Read/Grep/Glob guard would then block QM from writing its
-   own step definition. Expect that trap.
+**Still owed at this harbour:**
 
-   **Decide first (Boatswain's review note):** these two skeletons pin the PLUGIN's hook, which lives
-   outside this project's implementation directories. No seam in this repo can carry a plank for them.
-   Captain's lean: promote anyway. They are verification-only conformance checks with no production
-   seam, so no plank is owed, and the bulkhead they guard protects THIS project's notes. But rule on it
-   rather than drifting into it.
-2. **`@eval`'s CREDENTIALED path is unproven at this deck.** `features/support/hooks.ts` gained the
-   `@eval` credential gate this voyage; the target proves only the credential-ABSENT path through it.
-   The last credentialed `@eval` green sits at hash `3fdc533`, BEFORE that hook changed. The check that
-   answers it is `broad-eval`, a paid live-agent tier no watch orders. Route it as an `@eval` tier-tag
-   watch, or let harbour's full regression take it. Do not let "eval is green" cover both halves.
-3. Then harbour, which is still owed (below).
+1. The planking pass, and `@captain` skeletons for uncovered seams. Shipwright's.
+2. **`@eval`'s CREDENTIALED path is unproven at this deck.** The support layer gained the `@eval`
+   credential gate this voyage; the standing target proves only the credential-ABSENT path through it.
+   The last credentialed `@eval` green predates that change. Harbour's full regression is what answers
+   it. Do not let "eval is green" cover both halves.
+3. Then the harbour review: promote the skeletons, watchbill them, dispatch QM.
 
 ## Deck state (2026-07-14, harbour, mid-flight)
 
