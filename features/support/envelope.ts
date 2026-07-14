@@ -233,6 +233,39 @@ export function assertRiskContextShape(
 }
 
 /**
+ * Assert a command's envelope reports `success`, and on failure report what the
+ * command itself said: its summary, its errors[] (code and message), and any
+ * failing checks. A bare `assert.equal(envelope.status, "success")` prints only
+ * `'error' !== 'success'` and discards the envelope's own diagnosis, so the red
+ * cannot name its cause and the reader must re-drive the command by hand to learn
+ * it. A red on a real-service tier is expensive to reproduce, so it carries its
+ * diagnosis the first time.
+ */
+export function assertEnvelopeSuccess(
+  envelope: Envelope | undefined,
+  context: string,
+): asserts envelope is Envelope {
+  assert.ok(envelope, `${context}: the command emitted no output envelope`);
+  if (envelope.status === "success") return;
+
+  const errors = envelope.errors
+    .map((e) => `    - ${String(e.code ?? "?")}: ${String(e.message ?? e)}`)
+    .join("\n");
+  const failedChecks = envelope.checks
+    .filter((c) => c.status === "fail" || c.status === "warning")
+    .map((c) => `    - ${c.id} [${c.status}]: ${String(c.description ?? "")}`)
+    .join("\n");
+
+  assert.fail(
+    `${context}\n` +
+      `  envelope.status: ${envelope.status} (expected success)\n` +
+      `  summary: ${envelope.summary}\n` +
+      `  errors:\n${errors || "    (none reported)"}\n` +
+      (failedChecks ? `  failing checks:\n${failedChecks}\n` : ""),
+  );
+}
+
+/**
  * Find every riskContext carried inside an envelope's data and/or checks
  * (feature 021: never a separate ad hoc format outside the envelope).
  */

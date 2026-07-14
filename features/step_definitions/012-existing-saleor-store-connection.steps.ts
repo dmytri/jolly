@@ -40,6 +40,7 @@ import {
   listAllEnvironments,
 } from "../support/cloud.ts";
 import { cachedStoreSpareNames } from "../support/provision.ts";
+import { assertEnvelopeSuccess } from "../support/envelope.ts";
 import {
   findEnvironmentCreationBodySites,
   type BodySite,
@@ -487,7 +488,7 @@ Given(
         runOptions: { timeoutMs: 540_000 },
       },
     );
-    assert.equal(first.envelope?.status, "success", "the first environment must be created");
+    assertEnvelopeSuccess(first.envelope, "the first environment must be created");
   },
 );
 
@@ -764,7 +765,7 @@ When(
 );
 
 Then("Jolly should discover the organization from the Cloud API", function (this: JollyWorld) {
-  assert.equal(this.envelope.status, "success");
+  assertEnvelopeSuccess(this.envelope, "the environment must be created");
   assert.ok(envData(this)["organization"], "the organization must be discovered");
 });
 

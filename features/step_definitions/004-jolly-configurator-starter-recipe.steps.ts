@@ -12,7 +12,11 @@ import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
-import { findRiskContexts, assertRiskContextShape } from "../support/envelope.ts";
+import {
+  assertEnvelopeSuccess,
+  findRiskContexts,
+  assertRiskContextShape,
+} from "../support/envelope.ts";
 import { saleorGraphql } from "../support/saleor-graphql.ts";
 import { makeNamespace } from "../support/sandbox.ts";
 import { createEnvironment } from "../support/env-factory.ts";
@@ -179,9 +183,8 @@ Given(
         },
       },
     );
-    assert.equal(
-      created.envelope?.status,
-      "success",
+    assertEnvelopeSuccess(
+      created.envelope,
       "the disposable recipe-block environment must be created (live by design)",
     );
     // Read the created env's endpoint + SALEOR_TOKEN from its written `.env` (as

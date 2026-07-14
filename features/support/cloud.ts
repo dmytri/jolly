@@ -166,10 +166,28 @@ export function leftoverTestEnvironments(
   currentRunNamespace: string,
   spareNames: ReadonlySet<string> = new Set(),
 ): CloudEnvironment[] {
-  return environments.filter(
-    (env) =>
-      env.name.startsWith("jolly-cannon-fodder-") &&
-      !env.name.startsWith(currentRunNamespace) &&
-      !spareNames.has(env.name),
+  return environments.filter((env) => {
+    const identities = environmentIdentities(env);
+    return (
+      identities.some((id) => id.startsWith("jolly-cannon-fodder-")) &&
+      !identities.some((id) => id.startsWith(currentRunNamespace)) &&
+      !identities.some((id) => spareNames.has(id))
+    );
+  });
+}
+
+/**
+ * The names a test-created environment can be recognized by: its Cloud name and
+ * its domain label. A run that falls through to Jolly's product-default store
+ * name ("jolly-store") still carries the run's namespace in its domain label, so
+ * an environment matched on name alone is invisible to reclaim and squats an org
+ * slot until it is deleted by hand. Both identities are matched here, so a
+ * fall-through leak stays reclaimable. Both are also checked against the run
+ * namespace and the spare names, so this run's own environment and the cached
+ * shared store stay protected.
+ */
+export function environmentIdentities(env: CloudEnvironment): string[] {
+  return [env.name, env.domainLabel].filter(
+    (id): id is string => typeof id === "string" && id.length > 0,
   );
 }

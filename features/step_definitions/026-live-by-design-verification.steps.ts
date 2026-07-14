@@ -22,6 +22,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
+import { assertEnvelopeSuccess } from "../support/envelope.ts";
 import { createEnvironment } from "../support/env-factory.ts";
 import {
   reclaimLeftoverTestEnvironments,
@@ -30,6 +31,7 @@ import {
 import {
   type CloudEnvironment,
   deleteEnvironment,
+  environmentIdentities,
   listAllEnvironments,
 } from "../support/cloud.ts";
 import { makeNamespace } from "../support/sandbox.ts";
@@ -324,9 +326,8 @@ async function seedNamespacedEnvironment(world: JollyWorld, name: string) {
       reclaim: { token, runNamespace: makeNamespace(world.runId), spareNames },
     },
   );
-  assert.equal(
-    result.envelope?.status,
-    "success",
+  assertEnvelopeSuccess(
+    result.envelope,
     "the seeded leftover environment must be created (live by design)",
   );
   return result;
@@ -348,7 +349,12 @@ Given(
     // assertion can confirm reclamation never deletes one.
     const before = await listAllEnvironments(token);
     this.notes.nonTestEnvKeysBefore = before
-      .filter((e) => !e.name.startsWith("jolly-cannon-fodder-"))
+      .filter(
+        (e) =>
+          !environmentIdentities(e).some((id) =>
+            id.startsWith("jolly-cannon-fodder-"),
+          ),
+      )
       .map((e) => `${e.org}/${e.key}`);
 
     // Seed a REAL leftover under a PRIOR-run namespace, exactly as a genuine
@@ -475,10 +481,17 @@ Then(
       [],
       `reclamation must never delete a non-jolly-cannon-fodder environment; missing: ${missing.join(", ")}`,
     );
-    // And nothing it deleted lacked the jolly-cannon-fodder- prefix.
+    // And everything it deleted carried the jolly-cannon-fodder- namespace in at
+    // least one identity: a run that fell through to the product-default store
+    // name is still ours, recognized by its domain label.
     const reclaimed = this.notes.reclaimed as CloudEnvironment[];
     const wrongful = reclaimed
-      .filter((e) => !e.name.startsWith("jolly-cannon-fodder-"))
+      .filter(
+        (e) =>
+          !environmentIdentities(e).some((id) =>
+            id.startsWith("jolly-cannon-fodder-"),
+          ),
+      )
       .map((e) => e.name);
     assert.deepEqual(
       wrongful,

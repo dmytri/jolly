@@ -82,6 +82,11 @@ export function startPromptSequence(shape: StartRunShape): string[] {
   const { argv, cwd } = shape;
   const sequence: string[] = [];
 
+  // @exceptional-double: a Cloud token resolving more than one organization
+  // cannot be produced on demand from the single-org test account, so the
+  // multi-org list is injected at the caller. The driver reads that same
+  // injected list here because it decides whether the org picker renders, and
+  // therefore whether an answer must be fed for it.
   const organizations = flagValue(argv, "--mock-organizations");
   if (organizations !== undefined && organizations.includes(",")) {
     sequence.push(catalogMarker("organization"));
