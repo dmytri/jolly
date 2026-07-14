@@ -37,7 +37,7 @@ Do these in order:
 
 ## Deck state (2026-07-14, harbour, mid-flight)
 
-Base commit `6975aea`, tree CLEAN, 15 commits ahead of `origin/main`. npm still at `@dk/jolly@0.12.4`; nothing outbound.
+HEAD `062ea63`, tree CLEAN, 19 commits ahead of `origin/main`. npm still at `@dk/jolly@0.12.4`; nothing outbound. Harbour is INCOMPLETE, so no feature voyage opens yet.
 
 **The five heavy reds are CLOSED.** The watchbill that closed them was exactly those five plus two conformance checks; all seven green, focused runs, recorded in the run record. The heavy tier has NOT been re-swept as a tier since; the evidence is per-target, which is what the Verification policy asks for.
 
