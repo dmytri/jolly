@@ -32,12 +32,14 @@ import {
   type CloudEnvironment,
   deleteEnvironment,
   environmentIdentities,
+  leftoverTestEnvironments,
   listAllEnvironments,
 } from "../support/cloud.ts";
 import { makeNamespace } from "../support/sandbox.ts";
 import {
   cachedStoreSpareNames,
   provisionSharedEnvironment,
+  reclaimStaleResources,
   type ProvisionOutcome,
 } from "../support/provision.ts";
 
@@ -645,6 +647,188 @@ Then(
       `running reclaim-cli.ts standalone (as \`npm run reclaim\` does) must still perform ` +
         `the reclaim and print its summary; the entrypoint guard must suppress the import ` +
         `side only. Standalone output:\n${standaloneOutput}`,
+    );
+  },
+);
+
+// Feature 026 — the leaked-environment pair. A run that falls through to Jolly's
+// product-default store name still carries the run's namespace in its DOMAIN
+// LABEL. Reclamation that matches on name alone cannot see such an environment,
+// so it squats an org slot forever and starves every scenario that creates one.
+// The @logic scenario pins the SELECTION rule on the real selection seam; the
+// @sandbox scenario pins the OBSERVABLE EFFECT against the real Cloud org, with
+// a real leaked environment created through Jolly's own create path.
+
+/** The product-default store name a fall-through run leaves behind. */
+const PRODUCT_DEFAULT_STORE_NAME = "jolly-store";
+
+/** A namespace from a PREVIOUS run: what reclamation is entitled to delete. */
+function priorRunNamespace(world: JollyWorld): string {
+  return world.namespace.replace("jolly-cannon-fodder-", "jolly-cannon-fodder-prior-");
+}
+
+Given(
+  "a leftover environment whose Cloud name is Jolly's product default \"jolly-store\" and whose domain label carries the `jolly-cannon-fodder` namespace",
+  function (this: JollyWorld) {
+    // The leak shape as it really stood in the org: the NAME gives nothing away,
+    // the DOMAIN LABEL is the only thing that marks the environment as ours.
+    this.notes.leakedEnvironment = {
+      org: "acme",
+      key: "leaked",
+      name: PRODUCT_DEFAULT_STORE_NAME,
+      domainLabel: `${priorRunNamespace(this)}-leftover`,
+    } satisfies CloudEnvironment;
+    // A bystander carrying the namespace in NEITHER identity: never ours to touch.
+    this.notes.bystanderEnvironment = {
+      org: "acme",
+      key: "bystander",
+      name: "acme-production",
+      domainLabel: "acme-production",
+    } satisfies CloudEnvironment;
+  },
+);
+
+When("the environments a run may reclaim are selected", function (this: JollyWorld) {
+  // The real selection seam every reclamation path routes through.
+  this.notes.selectedForReclamation = leftoverTestEnvironments(
+    [
+      this.notes.leakedEnvironment as CloudEnvironment,
+      this.notes.bystanderEnvironment as CloudEnvironment,
+    ],
+    makeNamespace(this.runId),
+    cachedStoreSpareNames(),
+  );
+});
+
+Then("the leaked environment should be selected for reclamation", function (this: JollyWorld) {
+  const leaked = this.notes.leakedEnvironment as CloudEnvironment;
+  const selected = this.notes.selectedForReclamation as CloudEnvironment[];
+  assert.ok(
+    selected.some((e) => e.key === leaked.key),
+    `an environment named ${leaked.name} whose domain label is ${String(leaked.domainLabel)} ` +
+      `carries this harness's namespace and must be selected for reclamation; matching on ` +
+      `name alone leaves it squatting an org slot forever`,
+  );
+});
+
+Then(
+  "an environment carrying the `jolly-cannon-fodder` namespace in neither its name nor its domain label should be left alone",
+  function (this: JollyWorld) {
+    const bystander = this.notes.bystanderEnvironment as CloudEnvironment;
+    const selected = this.notes.selectedForReclamation as CloudEnvironment[];
+    assert.ok(
+      !selected.some((e) => e.key === bystander.key),
+      `${bystander.name} carries the namespace in neither identity and must never be ` +
+        `selected for reclamation`,
+    );
+  },
+);
+
+Given(
+  "a leftover Saleor environment standing in the org whose name is Jolly's product default \"jolly-store\" and whose domain label carries the `jolly-cannon-fodder` namespace",
+  { timeout: 600_000 },
+  async function (this: JollyWorld) {
+    const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
+    assert.ok(token, "requires JOLLY_SALEOR_CLOUD_TOKEN");
+    this.notes.reclaimToken = token;
+
+    // Snapshot every environment that is not ours in EITHER identity, so the
+    // survival assertion can confirm reclamation left each one alone.
+    const before = await listAllEnvironments(token);
+    this.notes.foreignEnvKeysBefore = before
+      .filter(
+        (e) =>
+          !environmentIdentities(e).some((id) => id.startsWith("jolly-cannon-fodder-")),
+      )
+      .map((e) => `${e.org}/${e.key}`);
+
+    // The leaked environment, created for real through Jolly's own create path:
+    // the product-default NAME, and a PRIOR-run namespace in the domain label so
+    // reclamation is entitled to delete it while this run's own environments and
+    // the cached shared store stay protected. Teardown registered BEFORE
+    // creation; the reclamation under test removes it first, leaving a 404 no-op.
+    const domainLabel = `${priorRunNamespace(this)}-leaked`;
+    this.notes.leakedDomainLabel = domainLabel;
+    this.cleanup.register(`leaked environment ${domainLabel}`, async () => {
+      for (const env of await listAllEnvironments(token)) {
+        if (env.domainLabel === domainLabel) {
+          await deleteEnvironment(token, env.org, env.key);
+        }
+      }
+    });
+    const result = await createEnvironment(
+      (args, options) => this.runCliAsync(args, options),
+      {
+        name: PRODUCT_DEFAULT_STORE_NAME,
+        domainLabel,
+        runOptions: { timeoutMs: 540_000 },
+        limitBudgetMs: 540_000,
+        reclaim: {
+          token,
+          runNamespace: makeNamespace(this.runId),
+          spareNames: cachedStoreSpareNames(),
+        },
+      },
+    );
+    assertEnvelopeSuccess(
+      result.envelope,
+      "the leaked environment must be created (live by design)",
+    );
+
+    // Confirm the leak really stands, in the shape the scenario names.
+    const seeded = await listAllEnvironments(token);
+    const leaked = seeded.find((e) => e.domainLabel === domainLabel);
+    assert.ok(leaked, `the leaked environment ${domainLabel} must stand in the org`);
+    assert.equal(
+      leaked!.name,
+      PRODUCT_DEFAULT_STORE_NAME,
+      "the leak's Cloud name must be Jolly's product default, which is what hides it from a name-only match",
+    );
+  },
+);
+
+When(
+  "the @sandbox harness performs its pre-run capacity reclamation",
+  { timeout: 300_000 },
+  async function (this: JollyWorld) {
+    // The real pre-run reclamation the @sandbox tier runs from BeforeAll.
+    const token = this.notes.reclaimToken as string;
+    this.notes.reclaimed = await reclaimStaleResources(token);
+  },
+);
+
+Then(
+  "the leaked environment should no longer exist in the org",
+  { timeout: 60_000 },
+  async function (this: JollyWorld) {
+    const token = this.notes.reclaimToken as string;
+    const domainLabel = this.notes.leakedDomainLabel as string;
+    const after = await listAllEnvironments(token);
+    assert.ok(
+      !after.some((e) => e.domainLabel === domainLabel),
+      `the leaked environment ${domainLabel} must be reclaimed; it still stands in the org and squats a slot`,
+    );
+    const reclaimed = this.notes.reclaimed as CloudEnvironment[];
+    assert.ok(
+      reclaimed.some((e) => e.domainLabel === domainLabel),
+      `reclamation must report the leaked environment ${domainLabel} among those it deleted`,
+    );
+  },
+);
+
+Then(
+  "every environment lacking the `jolly-cannon-fodder` namespace in both its name and its domain label should still be present afterward",
+  { timeout: 60_000 },
+  async function (this: JollyWorld) {
+    const token = this.notes.reclaimToken as string;
+    const after = await listAllEnvironments(token);
+    const afterKeys = new Set(after.map((e) => `${e.org}/${e.key}`));
+    const before = this.notes.foreignEnvKeysBefore as string[];
+    const missing = before.filter((k) => !afterKeys.has(k));
+    assert.deepEqual(
+      missing,
+      [],
+      `reclamation must never delete an environment that carries the namespace in neither identity; missing: ${missing.join(", ")}`,
     );
   },
 );
