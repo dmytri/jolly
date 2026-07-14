@@ -6,11 +6,13 @@ Binding behaviour lives in `.feature` specs and referenced `assets/**`. History 
 
 ## Deck state (2026-07-14, harbour, mid-flight)
 
-Base commit `0fd5ce9`. npm still at `@dk/jolly@0.12.4`; nothing outbound. Tree is DIRTY with harbour work: `RIGGING.md` refit, spec edits, `watchbill.json`. Uncommitted by design, work in flight.
+Base commit `6975aea`, tree CLEAN, 15 commits ahead of `origin/main`. npm still at `@dk/jolly@0.12.4`; nothing outbound.
 
-Harbour is INCOMPLETE. Do not open a feature voyage. Owed: the planking pass and `@captain` skeletons for uncovered seams, and `@eval`, which has not run this harbour. No `@shipwright` condemnations stand.
+**The five heavy reds are CLOSED.** The watchbill that closed them was exactly those five plus two conformance checks; all seven green, focused runs, recorded in the run record. The heavy tier has NOT been re-swept as a tier since; the evidence is per-target, which is what the Verification policy asks for.
 
-Board: `@logic` 177/177 green. `@sandbox` light 15/15 green. `@sandbox` heavy 36/41, five red. `typecheck` and `gplint` clean.
+Harbour is INCOMPLETE. Do not open a feature voyage. Owed: the planking pass and `@captain` skeletons for uncovered seams, and `@eval`, which has not run this harbour (`coverage/weather/eval.ndjson` is 07-13). No `@shipwright` condemnations stand. One `@captain` skeleton stands in `025` (baseline-agent turn/token budget); it does not block resuming.
+
+Board: `@logic` 177/177 green. `@sandbox` light 15/15 green. `@sandbox` heavy: the five reds now green per target. `typecheck` and `gplint` clean.
 
 ## The account, corrected
 
@@ -20,10 +22,12 @@ A fresh Saleor account ships with a **pre-provisioned store**. This one arrived 
 
 **Operational, not a code fix: delete the default store before handing an account to Jolly.** The `jolly-cannon-fodder-` prefix boundary MUST NOT be widened to "delete all but the shared store". That boundary is the suite's only safety property — the thing that makes it safe to point at any account. dk ruled: keep it.
 
-## The five heavy reds — all verification, none are Jolly
+## The five heavy reds — closed 2026-07-14, all verification, none were Jolly
 
-1. **Region-blind URL assertions (3).** Five copies of `/https:\/\/[a-z0-9-]+\.saleor\.cloud\/(graphql|dashboard)\//` in `002` and `027` step definitions. The class cannot cross a dot, so it never matches `<label>.eu.saleor.cloud`. Jolly emits the right URL. Passed on the old account because its domains had no region segment.
-2. **The shared-store cache does not exist (2).** `AGENTS.md`, `RIGGING.md`, and `provision.ts`'s own comments all promise a store cached across cucumber invocations. The marker path is keyed by `runId()`, which is fresh per invocation, so the cache has NEVER been hit: every run provisions a new store and its `BeforeAll` reclaim deletes the previous run's. It also self-destructs mid-run, which is what 404'd `jolly recipe` and `jolly stock`. Either make the cache real (the Verification agreement's reuse rule favours it, and the docs already promise it) or strike the claim and accept per-run cost. Recommendation: make it real.
+1. **Region-blind URL assertions (3).** CLOSED. The class `[a-z0-9-]+` cannot cross a dot, so `https://…/graphql/` never matched `<label>.eu.saleor.cloud`. Jolly emitted the right URL throughout. Six copies corrected across `002`, `012`, `022`, `027` step definitions. Passed on the old account because its domains had no region segment.
+2. **The shared-store cache (2).** CLOSED: `029` recipe and stock both green against a reused shared store. The marker keying was the fault; the cache is now hit. Watch it: if a heavy run starts provisioning a fresh store per invocation again, this is what regressed.
+
+Both were verification-layer faults. No production seam has been touched since `0fd5ce9`.
 
 ## Verification economy — first honest data this project has had
 
@@ -35,6 +39,8 @@ The wake was fiction until this harbour. Every per-scenario cost below is measur
 
 ## Open decisions for dk
 
+- **Owed to Shipwright at this harbour** (from Boatswain custody, `6975aea`): `RIGGING.md`'s `step-usage` prose still says `Measured: 936 step definitions`; the command now reports **967**. The zero-usage count of 16 is still right. Nothing breaks — the parser reads only the backticked command — but the number misleads a reader. Shipwright's to repair; Captain does not edit `RIGGING.md` for this.
+- **16 orphaned step definitions** in `002`, `006`, `012`, `027`, `shared`. Dead verification support, pre-existing. Harbour triage.
 - Fail-fast capacity blocker: when the org is at cap with nothing reclaimable, `BeforeAll` should say so in seconds and name the squatter, instead of six scenarios burning 45 minutes. Not yet ruled.
 - `report.html` / `report.json` are TRACKED in git. They are wake and belong in `.gitignore`.
 - `happy-dom`: unused devDependency, zero source references, `locked` policy.
@@ -43,7 +49,7 @@ The wake was fiction until this harbour. Every per-scenario cost below is measur
 
 ## Standing rules, learned the hard way
 
-- **A check that inspects shape rather than value is not a check.** Six found so far. The latest: the wake-record invariant was green for the life of the project while NO tier wrote a record — it built its own fixture run and read that. When you write a guard, ask what live counterexample still passes it.
+- **A check that inspects shape rather than value is not a check.** Six found so far. The wake-record invariant was green for the life of the project while NO tier wrote a record — it built its own fixture run and read that. CLOSED in `6975aea`: the check now runs a tier command **verbatim from `RIGGING.md`** against a fixture tier, so dropping `--format message:…` from a configured command reddens it. Proven by planting exactly that. When you write a guard, ask what live counterexample still passes it.
 - **Never pipe a verification run through `tail`.** The shell reports the pipe's exit code, not cucumber's. Three tier runs this harbour reported "exit 0" while red. Redirect to a file and read `$?`.
 - **Any change to the interactive path MUST be verified through `features/support/pty.ts` `runUnderPty`.** 0.12.1 and 0.12.2 both shipped "verified" and both were broken.
 - **`--max-old-space-size` must sit well below physical RAM.** The rigging asked for 8 GB on a 7.9 GB box; the OOM killer took the heavy tier. Now 4096.
