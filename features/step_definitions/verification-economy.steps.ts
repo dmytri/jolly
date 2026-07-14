@@ -21,6 +21,10 @@ import {
   type InjectedSource,
   type WaitViolation,
 } from "../support/interactive-waits.ts";
+import {
+  findTimerEndedReads,
+  type ReadViolation,
+} from "../support/interactive-reads.ts";
 
 Given("a completed tier run", { timeout: 130_000 }, function (this: JollyWorld) {
   // Teardown registered before creation, loud on failure via the registry.
@@ -127,6 +131,54 @@ Then(
     assert.ok(
       violations.some((violation) => violation.file === planted.file),
       "an interactive input fed on the guessed `inputDelayMs` cadence was not reported",
+    );
+  },
+);
+
+When(
+  "the reads it performs before asserting on the terminal output are enumerated",
+  function (this: JollyWorld) {
+    this.notes.readViolations = findTimerEndedReads();
+  },
+);
+
+Then(
+  "each should be ended by the output it asserts on, appearing in the terminal",
+  function (this: JollyWorld) {
+    const violations = this.notes.readViolations as ReadViolation[];
+    assert.equal(
+      violations.length,
+      0,
+      `interactive terminal reads ended by a timer rather than by the output they assert on:\n${violations
+        .map((violation) => `  - ${violation.message}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "a read ended by a fixed timeout, returning whatever the terminal had produced by then, should redden the check",
+  function (this: JollyWorld) {
+    const planted: InjectedSource = {
+      file: "features/step_definitions/.planted-timer-ended-read.steps.ts",
+      text: [
+        'import { runUnderPty } from "../support/pty.ts";',
+        "export function readInteractively(cwd: string) {",
+        "  return runUnderPty({",
+        '    runtime: "node",',
+        '    argv: ["start"],',
+        "    cwd,",
+        "    env: {},",
+        "    inputs: [],",
+        "    timeoutMs: 15_000,",
+        "  });",
+        "}",
+      ].join("\n"),
+    };
+    const violations = findTimerEndedReads([planted]);
+    assert.ok(
+      violations.some((violation) => violation.file === planted.file),
+      "a terminal read left to end on the fixed `timeoutMs` was not reported",
     );
   },
 );

@@ -15,12 +15,15 @@
 #   env          dict[str,str]  full child environment
 #   input        str            the bytes "pasted" at the prompt (newline added)
 #   inputDelayMs int            wait before pasting, so the prompt is shown first
-#   timeoutMs    int            overall cap; the child is killed past it
+#   readUntil    "exit"|list    what ENDS the read (see below)
+#   timeoutMs    int            failure ceiling; a read still unfinished past it
+#                               is reported as timedOut, never as a result
 #
 # The child's stdin/stdout/stderr are all the PTY slave, so everything the user
-# would see on the terminal is captured from the master and written verbatim to
-# this process's stdout. The driver itself prints nothing else. Exit code is the
-# child's.
+# would see on the terminal is captured from the master. The driver writes one
+# JSON object to fd 1: base64 output (and, in separate-streams mode, base64
+# stdout/stderr), the child's exit code, whether the child was still running when
+# the read ended, and whether the ceiling fired.
 import base64
 import fcntl
 import json
@@ -65,6 +68,18 @@ wait_for = cfg.get("waitFor")
 settle = cfg.get("settleMs", 250) / 1000.0
 per_chunk_timeout = cfg.get("perChunkTimeoutMs", 180000) / 1000.0
 
+# What ENDS the read. A read ended by the overall `timeoutMs` returns whatever the
+# terminal happened to have produced by then: the wait is paid in full on every
+# run, and the capture is whatever the timer caught rather than what the caller
+# asserts on. So the caller declares the read's ending signal.
+#   "exit"  the child completes on its own; the read ends at EOF on the PTY.
+#   [str]   the output the caller asserts on; the read ends the moment EVERY
+#           marker has appeared in the terminal, and the child is then terminated.
+# `timeoutMs` is the failure ceiling in both modes: when it fires before the read
+# has ended, the run is reported as timed out and fails loudly.
+read_until = cfg.get("readUntil", "exit")
+read_markers = [m.encode() for m in read_until] if isinstance(read_until, list) else []
+
 # Shared, lock-guarded view of everything captured so far, so the feeder thread
 # can watch for prompt markers while the main thread reads the PTY. ANSI control
 # sequences are stripped before matching so a styled prompt still matches a plain
@@ -75,10 +90,20 @@ _captured_lock = threading.Lock()
 
 
 def note_output(chunk):
-    if not wait_for:
+    if not wait_for and not read_markers:
         return
     with _captured_lock:
         _captured.extend(chunk)
+
+
+def read_ended():
+    """True once every `readUntil` marker has appeared in the captured output —
+    the read is ended by the output the caller asserts on, not by a timer."""
+    if not read_markers:
+        return False
+    with _captured_lock:
+        text = _ANSI_RE.sub(b"", bytes(_captured))
+    return all(marker in text for marker in read_markers)
 
 
 def wait_for_marker(marker, search_from):
@@ -159,10 +184,11 @@ if cfg.get("separateStreams"):
     bufs = {out_master: bytearray(), err_master: bytearray()}
     open_fds = set(bufs)
     deadline = time.time() + timeout
+    timed_out = False
     while open_fds:
         remaining = deadline - time.time()
         if remaining <= 0:
-            child.kill()
+            timed_out = True
             break
         try:
             readable, _, _ = select.select(list(open_fds), [], [], min(0.5, remaining))
@@ -178,6 +204,11 @@ if cfg.get("separateStreams"):
             else:
                 bufs[fd] += chunk
                 note_output(chunk)
+        if read_ended():
+            break
+    still_running = child.poll() is None
+    if still_running:
+        child.kill()
     try:
         code = child.wait(timeout=2)
     except subprocess.TimeoutExpired:
@@ -190,6 +221,8 @@ if cfg.get("separateStreams"):
                 "out": base64.b64encode(bytes(bufs[out_master])).decode(),
                 "err": base64.b64encode(bytes(bufs[err_master])).decode(),
                 "code": code if code is not None else -1,
+                "stillRunning": still_running,
+                "timedOut": timed_out,
             }
         ).encode(),
     )
@@ -217,10 +250,11 @@ threading.Thread(target=feed_inputs, args=(master, sends), daemon=True).start()
 
 out = bytearray()
 deadline = time.time() + timeout
+timed_out = False
 while True:
     remaining = deadline - time.time()
     if remaining <= 0:
-        child.kill()
+        timed_out = True
         break
     try:
         readable, _, _ = select.select([master], [], [], min(0.5, remaining))
@@ -235,14 +269,29 @@ while True:
             break
         out += chunk
         note_output(chunk)
+    if read_ended():
+        break
     if child.poll() is not None and not select.select([master], [], [], 0)[0]:
         break
 
+still_running = child.poll() is None
+if still_running:
+    child.kill()
 try:
     code = child.wait(timeout=2)
 except subprocess.TimeoutExpired:
     child.kill()
     code = child.wait()
 
-os.write(1, bytes(out))
-sys.exit(code if code is not None else -1)
+os.write(
+    1,
+    json.dumps(
+        {
+            "out": base64.b64encode(bytes(out)).decode(),
+            "code": code if code is not None else -1,
+            "stillRunning": still_running,
+            "timedOut": timed_out,
+        }
+    ).encode(),
+)
+sys.exit(0)

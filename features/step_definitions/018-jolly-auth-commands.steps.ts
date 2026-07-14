@@ -340,6 +340,8 @@ When(
       env,
       // No scripted input: the fake host approves, so nothing is typed.
       inputs: [],
+      // The approved login completes and the CLI exits; the read ends there.
+      readUntil: "exit",
       timeoutMs: 15_000,
     });
     this.previousRun = this.lastRun;

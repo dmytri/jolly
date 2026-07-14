@@ -59,6 +59,8 @@ function runOnTerminal(world: JollyWorld, argv: string[]): boolean {
     cwd: world.projectDir,
     env,
     inputs: [],
+    // The command runs to completion and exits; the read ends there.
+    readUntil: "exit",
     timeoutMs: 60_000,
   });
   world.previousRun = world.lastRun;
@@ -427,6 +429,7 @@ function runStartSeparated(world: JollyWorld): boolean {
     env,
     inputs: acceptEveryPrompt(sequence),
     waitFor: sequence,
+    readUntil: "exit",
     timeoutMs: 150_000,
     separateStreams: true,
   });

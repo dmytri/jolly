@@ -32,3 +32,10 @@ Feature: Verification economy
     When the waits it performs before sending each input are enumerated
     Then each should be ended by the prompt it observed in the terminal output
     And a wait ended by a fixed delay guessed to outlast the prompt should redden the check
+
+  @logic @invariant
+  Scenario: An interactive scenario reads the output it asserts on, never whatever a timer happened to catch
+    Given the verification support that drives an interactive terminal
+    When the reads it performs before asserting on the terminal output are enumerated
+    Then each should be ended by the output it asserts on, appearing in the terminal
+    And a read ended by a fixed timeout, returning whatever the terminal had produced by then, should redden the check

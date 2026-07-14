@@ -17,6 +17,13 @@ export interface PtyRunResult {
   /** Everything written to the terminal (prompt + output), verbatim. */
   output: string;
   /**
+   * True when the child was still running when the read ended — the run had
+   * reached, and was parked at, the output it was read for. This is how a
+   * "the run is still waiting, not carrying on" assertion is proven without
+   * waiting out a timer.
+   */
+  stillRunning: boolean;
+  /**
    * Only in `separateStreams` mode: the child's stdout and stderr captured on
    * distinct PTYs, so the feature 020 progress contract (progress on stderr, a
    * clean stdout) is observable. `output` is their concatenation.
@@ -55,6 +62,19 @@ export interface PtyRunOptions {
   settleMs?: number;
   /** Per-chunk cap waiting for a marker before sending anyway (default 180000ms). */
   perChunkTimeoutMs?: number;
+  /**
+   * What ENDS the read. Declared by every call, because a read left to end on
+   * `timeoutMs` returns whatever the terminal happened to have produced by then:
+   * the full delay is paid on every run, and the capture is whatever the timer
+   * caught rather than the output the caller asserts on.
+   *
+   *   `"exit"`   the child completes on its own; the read ends at EOF.
+   *   `string[]` the output the caller asserts on; the read ends the moment EVERY
+   *              marker has appeared in the terminal, and the child is then
+   *              terminated. `stillRunning` reports whether it was parked there.
+   */
+  readUntil: string[] | "exit";
+  /** Failure ceiling. A read still unfinished when it fires throws, never returns. */
   timeoutMs?: number;
   /**
    * Allocate distinct PTYs for stdin, stdout, and stderr so stdout and stderr
@@ -86,22 +106,42 @@ export function runUnderPty(options: PtyRunOptions): PtyRunResult {
     if (result.error) {
       throw new Error(`PTY driver failed: ${result.error.message}`);
     }
-    if (options.separateStreams) {
-      let parsed: { out?: string; err?: string; code?: number };
-      try {
-        parsed = JSON.parse(result.stdout ?? "");
-      } catch {
-        throw new Error(
-          `PTY driver returned no JSON in separate-streams mode:\n${result.stdout}\n${result.stderr}`,
-        );
-      }
-      const stdout = Buffer.from(parsed.out ?? "", "base64").toString("utf8");
-      const stderr = Buffer.from(parsed.err ?? "", "base64").toString("utf8");
-      return { exitCode: parsed.code ?? -1, output: stdout + stderr, stdout, stderr };
+    let parsed: {
+      out?: string;
+      err?: string;
+      code?: number;
+      stillRunning?: boolean;
+      timedOut?: boolean;
+    };
+    try {
+      parsed = JSON.parse(result.stdout ?? "");
+    } catch {
+      throw new Error(
+        `PTY driver returned no JSON envelope:\n${result.stdout}\n${result.stderr}`,
+      );
+    }
+    const decoded = Buffer.from(parsed.out ?? "", "base64").toString("utf8");
+    const stderr = options.separateStreams
+      ? Buffer.from(parsed.err ?? "", "base64").toString("utf8")
+      : undefined;
+    const output = stderr === undefined ? decoded : decoded + stderr;
+    if (parsed.timedOut) {
+      // The ceiling is a failure ceiling, not a read-ending signal: report what
+      // the read was waiting for and what the terminal showed instead.
+      const awaited =
+        options.readUntil === "exit"
+          ? "the child to exit on its own"
+          : `the output it asserts on: ${JSON.stringify(options.readUntil)}`;
+      throw new Error(
+        `PTY read hit its ${timeoutMs}ms ceiling waiting for ${awaited}.\n` +
+          `Terminal output was:\n${output.slice(-2000)}`,
+      );
     }
     return {
-      exitCode: result.status ?? -1,
-      output: (result.stdout ?? "") + (result.stderr ?? ""),
+      exitCode: parsed.code ?? -1,
+      output,
+      stillRunning: parsed.stillRunning ?? false,
+      ...(stderr === undefined ? {} : { stdout: decoded, stderr }),
     };
   } finally {
     rmSync(cfgDir, { recursive: true, force: true });

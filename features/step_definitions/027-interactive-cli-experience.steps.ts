@@ -110,6 +110,8 @@ function runInteractive(
     env: interactiveChildEnv(overrides),
     inputs,
     waitFor: sequence.slice(0, inputs.length),
+    // The walk-through runs to completion and the CLI exits; the read ends there.
+    readUntil: "exit",
     timeoutMs: 150_000,
   });
   world.previousRun = world.lastRun;
@@ -853,12 +855,16 @@ When(
   { timeout: 30_000 },
   function (this: JollyWorld) {
     assert.ok(ptyAvailable(), "the PTY driver must be available");
+    // No token: the run shows the device code and its verification URL, then polls
+    // for an approval that never comes — it never exits. The read ends on the very
+    // output the scenarios assert on: the auth.saleor.io verification URL.
     const run = runUnderPty({
       runtime: process.env.HARNESS_CLI_RUNTIME ?? "node",
       argv: [CLI_ENTRY, "start"],
       cwd: this.projectDir,
       env: interactiveChildEnv(),
       inputs: [],
+      readUntil: [DEVICE_VERIFICATION_URL],
       timeoutMs: 15_000,
     });
     this.previousRun = this.lastRun;
@@ -1013,6 +1019,7 @@ function runStartStagesSeparated(world: JollyWorld): boolean {
     env: interactiveChildEnv({ JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN }),
     inputs: acceptEveryPrompt(sequence),
     waitFor: sequence,
+    readUntil: "exit",
     timeoutMs: 150_000,
     separateStreams: true,
   });
@@ -1295,6 +1302,8 @@ When(
       }),
       inputs: ["\r", "\r"],
       waitFor: ["Storefront project directory", "Build your store now?"],
+      // The real run completes every stage and exits; the read ends there.
+      readUntil: "exit",
       timeoutMs: 1_500_000,
       separateStreams: true,
     });
@@ -1427,11 +1436,26 @@ function seedConfiguredStore(world: JollyWorld): void {
   writeEnvValues(world.projectDir, { NEXT_PUBLIC_SALEOR_API_URL: endpoint });
 }
 
+// The waiting indicator's copy, as the catalog owns it. clack re-renders the
+// spinner incrementally, so a stable inner phrase is used both to end the read
+// and to assert on it.
+function vercelWaitingPhrase(): string {
+  return cliMessage("start.vercelSigninWaiting").replace(/[…\.]+$/, "").slice(0, 40);
+}
+
 Given(
   "an already-configured store and an interactive terminal with no Vercel CLI session",
   function (this: JollyWorld) {
     seedConfiguredStore(this);
     this.notes.vercelGateEnv = signedOutVercelEnv(this);
+    // The run PARKS at the sign-in: it never exits on its own. The read ends on
+    // the output this scenario asserts on — the device URL and the waiting
+    // indicator — and `stillRunning` then proves the run is parked there rather
+    // than having carried on signed-out.
+    this.notes.vercelGateReadUntil = [
+      "https://vercel.com/oauth/device",
+      vercelWaitingPhrase(),
+    ];
   },
 );
 
@@ -1452,15 +1476,17 @@ Given(
       NO_PROXY: "",
       no_proxy: "",
     };
+    // The failing sign-in reports why and points at the captured CLI output; the
+    // read ends on that reported output, the very thing this scenario asserts on.
+    this.notes.vercelGateReadUntil = ["Full output:"];
   },
 );
 
 When("`jolly start` reaches the Vercel sign-in gate", function (this: JollyWorld) {
   assert.ok(ptyAvailable(), "the PTY driver must be available");
   // Enter accepts the storefront directory, Enter accepts "Build your store now?".
-  // The gate sits immediately after that confirm. On the happy path the run then
-  // PARKS at the sign-in, waiting — so the timeout below is the assertion's whole
-  // point: we expect to still be waiting when it fires, never to have sailed past.
+  // The gate sits immediately after that confirm, and the run parks there. The
+  // read ends on the output this scenario asserts on, declared by its Given.
   const run = runUnderPty({
     runtime: process.env.HARNESS_CLI_RUNTIME ?? "node",
     argv: [CLI_ENTRY, "start"],
@@ -1472,9 +1498,11 @@ When("`jolly start` reaches the Vercel sign-in gate", function (this: JollyWorld
     }),
     inputs: ["\r", "\r"],
     waitFor: ["Storefront project directory", "Build your store now"],
+    readUntil: this.notes.vercelGateReadUntil as string[],
     perChunkTimeoutMs: 120_000,
     timeoutMs: 150_000,
   });
+  this.notes.vercelGateStillRunning = run.stillRunning;
   this.lastRun = {
     args: ["start"],
     cwd: this.projectDir,
@@ -1508,13 +1536,17 @@ Then(
       `the run must WAIT for the sign-in, not give up and continue signed-out; output was:\n${out.slice(-1500)}`,
     );
     // The catalog owns the copy (feature 027); assert on its text, not a literal.
-    const waiting = cliMessage("start.vercelSigninWaiting");
-    // clack re-renders the spinner incrementally, so match a stable inner phrase
-    // rather than the whole line.
-    const phrase = waiting.replace(/[…\.]+$/, "").slice(0, 40);
+    const phrase = vercelWaitingPhrase();
     assert.ok(
       out.includes(phrase),
       `the run must show that it is waiting for the human to approve the sign-in (expected ${JSON.stringify(phrase)}); output was:\n${out.slice(-1500)}`,
+    );
+    // Still parked at the gate when the read ended on that output: the run is
+    // waiting for the approval, not carrying on without it.
+    assert.equal(
+      this.notes.vercelGateStillRunning,
+      true,
+      "the run must still be waiting at the sign-in gate, not have carried on past it",
     );
   },
 );

@@ -258,6 +258,7 @@ When(
       env,
       inputs: acceptEveryPrompt(sequence),
       waitFor: sequence,
+      readUntil: "exit",
       timeoutMs: 150_000,
     });
     this.previousRun = this.lastRun;
@@ -757,6 +758,7 @@ When(
       env,
       inputs: acceptEveryPrompt(sequence),
       waitFor: sequence,
+      readUntil: "exit",
       timeoutMs: 150_000,
     });
     // The org announce renders on stderr; runUnderPty's combined output carries
