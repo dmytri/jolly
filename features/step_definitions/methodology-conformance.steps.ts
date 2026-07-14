@@ -1,9 +1,10 @@
-// Feature methodology-conformance — four derived checks that make Shipshape
+// Feature methodology-conformance — five derived checks that make Shipshape
 // methodology rules executable (@logic @invariant):
 //   - a green tree carries no standing perturbation token in src/ or bin/,
 //   - the watchbill-shape check accepts a well-formed watchbill and rejects a
 //     malformed one,
-//   - every plank sits in a docblock on the declaration it describes, and
+//   - every plank sits in a docblock on the declaration it describes,
+//   - no feature file carries a bare `#` comment line, and
 //   - every plank names a step that still exists in a feature.
 // All are verification support; each is proven honest by a planted red inside
 // its own scenario. The plank checks read the TypeScript AST, so they see what
@@ -14,8 +15,10 @@ import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
 import {
+  findBareComments,
   scanForToken,
   validateWatchbillShape,
+  type CommentLine,
   type ShapeResult,
   type TokenMatch,
 } from "../support/methodology-conformance.ts";
@@ -229,6 +232,49 @@ Then(
         `a plank token in a ${kind} was not reported:\n${planted.text}`,
       );
     }
+  },
+);
+
+Given("the specs directory {string}", function (this: JollyWorld, dir: string) {
+  this.notes.specsDir = dir;
+});
+
+When("the spec-comment check reads every feature file", function (this: JollyWorld) {
+  this.notes.bareComments = findBareComments(this.notes.specsDir as string);
+});
+
+Then(
+  "none should carry a bare {string} comment line",
+  function (this: JollyWorld, marker: string) {
+    const comments = this.notes.bareComments as CommentLine[];
+    assert.equal(
+      comments.length,
+      0,
+      `feature files carrying a bare "${marker}" comment line:\n${comments
+        .map((comment) => `  ${comment.file}:${comment.line} ${comment.text}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "a feature file carrying a {string} comment line should redden the check",
+  function (this: JollyWorld, marker: string) {
+    const planted: InjectedSource = {
+      file: "features/.planted-bare-comment.feature",
+      text: [
+        "Feature: Planted",
+        "",
+        `  ${marker} the agent runs this first`,
+        "  Scenario: A planted scenario",
+        "    Given the fixture step runs",
+      ].join("\n"),
+    };
+    const comments = findBareComments(this.notes.specsDir as string, [planted]);
+    assert.ok(
+      comments.some((comment) => comment.file === planted.file),
+      `a feature file carrying a bare "${marker}" comment line was not reported:\n${planted.text}`,
+    );
   },
 );
 

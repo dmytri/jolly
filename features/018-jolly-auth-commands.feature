@@ -30,10 +30,6 @@ Feature: Jolly auth commands
 
     @logic
     Scenario: Agent jolly login returns the verification URL in the envelope and persists the grant
-      # The first agent invocation does not block polling: it requests a device
-      # code, persists it, and hands the human the verification URL in the result
-      # envelope (a clickable nextStep) — never buried on stdout/stderr — then the
-      # human approves and the agent re-runs to finish (next scenario).
       Given a non-interactive shell with no JOLLY_SALEOR_CLOUD_TOKEN set
       And the Saleor auth host issues device codes
       When the agent runs `jolly login --json`
@@ -45,11 +41,6 @@ Feature: Jolly auth commands
 
     @logic @exceptional-double
     Scenario: The agent re-runs after approval and the persisted grant completes the sign-in
-      # @exceptional-double: the human approval cannot be produced on demand; the
-      # local fake auth host approves the persisted code on the re-run's first
-      # poll, so Jolly's real resume-poll-and-store path completes without waiting.
-      # Pins that the re-run RESUMES the SAME persisted code rather than orphaning
-      # the approval with a fresh one.
       Given a non-interactive shell with no JOLLY_SALEOR_CLOUD_TOKEN set
       And the Saleor auth host approves the device grant on the first poll
       And a pending device authorization was persisted by a prior run
@@ -63,9 +54,6 @@ Feature: Jolly auth commands
 
     @logic @exceptional-double
     Scenario: Interactive jolly login signs in through the Saleor device authorization grant
-      # @exceptional-double: the human approval cannot be produced on demand; the
-      # local fake auth host (JOLLY_SALEOR_AUTH_URL) approves on the first poll, so
-      # the interactive grant completes against a real PTY without a human.
       Given an interactive terminal with no JOLLY_SALEOR_CLOUD_TOKEN set
       And the Saleor auth host approves the device grant on the first poll
       When the user runs `jolly login`
@@ -118,10 +106,6 @@ Feature: Jolly auth commands
 
     @logic @exceptional-double
     Scenario: An expired access token is refreshed from the stored refresh token
-      # @exceptional-double: a human-authorized device-grant token pair cannot be produced on
-      # demand, so the local fake auth host issues the refresh grant and answers the platform
-      # organizations read. Jolly's real detect-expiry, refresh, store, and Bearer-read flow runs
-      # headlessly against it — proving Jolly does the flow, not that Saleor's auth accepts it.
       Given an expired device-grant access token in JOLLY_SALEOR_ACCESS_TOKEN and its refresh token in JOLLY_SALEOR_REFRESH_TOKEN
       When the agent runs `jolly doctor saleor --json`
       Then it should mint a fresh access token through the refresh grant at `https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/token`
@@ -202,9 +186,6 @@ Feature: Jolly auth commands
 
     @logic @property @exceptional-double
     Scenario: The .env Jolly writes is private to its owner
-      # @exceptional-double: the invariant is about the local .env WRITE, not the network verify; a
-      # reachable Cloud API would need a real valid token (a @sandbox concern), so the write is
-      # exercised via the stored-not-verified path against an unreachable Cloud API.
       Given the Cloud API is unreachable
       And JOLLY_SALEOR_CLOUD_TOKEN is set to "jolly-perms-test-token-001"
       When the agent runs `jolly login`
@@ -213,9 +194,6 @@ Feature: Jolly auth commands
 
     @logic @property @exceptional-double
     Scenario: The .env Jolly writes survives POSIX shell sourcing
-      # @exceptional-double: as above, the local .env write is exercised via the stored-not-verified
-      # path against an unreachable Cloud API; the token value carries a space and an apostrophe to
-      # exercise shell-quoting of the value the writer emits.
       Given the Cloud API is unreachable
       And JOLLY_SALEOR_CLOUD_TOKEN is set to "jolly token's value 002"
       When the agent runs `jolly login`

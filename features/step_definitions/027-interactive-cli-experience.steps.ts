@@ -1322,7 +1322,7 @@ When(
 // The store's Saleor Dashboard URL ends in `.saleor.cloud/dashboard/` (feature
 // 002). The completed run's human close on stdout must name it, so the human
 // knows where their live store lives.
-const SALEOR_DASHBOARD_URL = /https:\/\/[a-z0-9-]+\.saleor\.cloud\/dashboard\//i;
+const SALEOR_DASHBOARD_URL = /https:\/\/[a-z0-9.-]+\.saleor\.cloud\/dashboard\//i;
 
 Then(
   "the closing summary on stdout should name the store's Saleor Dashboard URL",

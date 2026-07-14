@@ -1,10 +1,11 @@
-// Verification support for the methodology-conformance feature. Two derived
+// Verification support for the methodology-conformance feature. Three derived
 // checks that make Shipshape methodology rules executable:
 //   - the perturbation-quiescence scan: the implementation directories carry no
-//     standing perturbation token, and
+//     standing perturbation token,
 //   - the watchbill-shape validator: watchbill.json's fixed shape (ordered
 //     watchN keys, each holding only a "scenarios" array of references or tier
-//     tags).
+//     tags), and
+//   - the spec-comment check: no feature file carries a bare `#` comment line.
 // Both are QM-owned verification support, not production code. This module
 // lives in the verification layer (features/support), which the
 // perturbation-quiescence scan does not read; only the implementation
@@ -64,6 +65,59 @@ export function scanForToken(dirs: string[], token: string): TokenMatch[] {
     }
   }
   return matches;
+}
+
+/** A bare `#` comment line in a feature file. */
+export interface CommentLine {
+  file: string;
+  /** 1-based line number of the comment. */
+  line: number;
+  text: string;
+}
+
+/** An extra source injected for a planted-red proof: virtual, never on disk. */
+export interface InjectedSource {
+  file: string;
+  text: string;
+}
+
+/**
+ * Read every feature file under the specs directory and report each bare `#`
+ * comment line. Gherkin allows a comment anywhere, and a comment reaches every
+ * role that reads the spec, so it crosses the context bulkhead by construction:
+ * durable non-requirement context belongs in `Rule:` prose instead.
+ *
+ * A `#` inside a doc string is content the scenario carries, not a comment, so
+ * doc-string bodies are read past.
+ */
+export function findBareComments(
+  specsDir: string,
+  injected: InjectedSource[] = [],
+): CommentLine[] {
+  const sources: InjectedSource[] = walkFiles(join(REPO_ROOT, specsDir))
+    .filter((file) => file.endsWith(".feature"))
+    .map((file) => ({
+      file: file.slice(REPO_ROOT.length + 1),
+      text: readFileSync(file, "utf8"),
+    }));
+  sources.push(...injected);
+
+  const comments: CommentLine[] = [];
+  for (const source of sources) {
+    let inDocString = false;
+    source.text.split("\n").forEach((lineText, index) => {
+      const trimmed = lineText.trim();
+      if (trimmed.startsWith('"""') || trimmed.startsWith("```")) {
+        inDocString = !inDocString;
+        return;
+      }
+      if (inDocString) return;
+      if (trimmed.startsWith("#")) {
+        comments.push({ file: source.file, line: index + 1, text: trimmed });
+      }
+    });
+  }
+  return comments;
 }
 
 export interface ShapeResult {

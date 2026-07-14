@@ -20,11 +20,11 @@ Feature: Verification economy
       run, and it is paid again as flake when it guesses short.
 
   @logic @invariant
-  Scenario: Every scenario that runs records its wall-clock cost
-    Given a completed tier run
-    When the wake's per-scenario record is read
-    Then every scenario that ran should carry its wall-clock duration
-    And a scenario present in the run but absent from the record should redden the check
+  Scenario: A tier run through its configured command writes that tier's wall-clock record
+    Given the tier commands configured in "RIGGING.md"
+    When a tier is run through its command as configured
+    Then that tier's wake record should carry every scenario the run started, each with its wall-clock duration
+    And a configured tier command that writes no wake record should redden the check
 
   @logic @invariant
   Scenario: An interactive scenario waits for the prompt it is answering, never a guessed delay

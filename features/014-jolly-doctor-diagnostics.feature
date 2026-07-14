@@ -166,10 +166,6 @@ Feature: Jolly doctor diagnostics
 
   @logic @exceptional-double
   Scenario: Doctor validates stored device-grant credentials with Bearer
-    # @exceptional-double: a human-authorized device-grant token pair cannot be produced on
-    # demand, so the local fake auth host issues the refresh grant and answers the platform
-    # organizations read. Doctor's real refresh + Bearer-read flow runs headlessly against it —
-    # proving Jolly does the flow, not that Saleor's auth accepts the token.
     Given an expired device-grant access token in JOLLY_SALEOR_ACCESS_TOKEN and its refresh token in JOLLY_SALEOR_REFRESH_TOKEN
     When the agent runs `jolly doctor saleor --json`
     Then the "saleor-cloud-token" check should mint a fresh access token and authenticate an `Authorization: Bearer` read of the Cloud API organizations endpoint

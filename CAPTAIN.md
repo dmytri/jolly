@@ -4,69 +4,48 @@
 
 Binding behaviour lives in `.feature` specs and referenced `assets/**`. History lives in git. These notes carry only what the next cycle needs.
 
-## Deck state (2026-07-14)
+## Deck state (2026-07-14, harbour, mid-flight)
 
-HEAD `8d9866a`. npm still at `@dk/jolly@0.12.4`; **nothing outbound this voyage**. `@logic` 176/176 green at that commit. `## Known false-failure modes` in `RIGGING.md` is EMPTY, which is the healthy state — keep it that way by engineering defects out, never by recording them.
+Base commit `0fd5ce9`. npm still at `@dk/jolly@0.12.4`; nothing outbound. Tree is DIRTY with harbour work: `RIGGING.md` refit, spec edits, `watchbill.json`. Uncommitted by design, work in flight.
 
-**The Cloud account changed.** `.env` now carries dk's new Saleor account: org `jollystores-organization`, holding dk's own store `jollystore's Environment` / `store-hqdxy4uo`. That store is NOT reclaimable (its namespace is in neither its name nor its domain label) — verified against the reclaim predicate, not assumed. The org's environment cap is **2**. The previous account is abandoned: do not raise it, do not clean it, it is gone.
+Harbour is INCOMPLETE. Do not open a feature voyage. Owed: the planking pass and `@captain` skeletons for uncovered seams, and `@eval`, which has not run this harbour. No `@shipwright` condemnations stand.
 
-## What landed this voyage
+Board: `@logic` 177/177 green. `@sandbox` light 15/15 green. `@sandbox` heavy 36/41, five red. `typecheck` and `gplint` clean.
 
-- **Error envelopes carry their own recovery** (020). It was not a corner case: 12 of 20 construction sites shipped an empty `nextSteps`, and `cloudErrorEnvelope` gave next steps to `ENVIRONMENT_LIMIT_REACHED` alone — every other Cloud error shipped empty. Now every code carries recovery, guarded structurally AND by a live envelope.
-- **The shipped CLI can no longer fabricate.** `--mock-organizations` / `--mock-environments` shipped UNGATED in the released binary, specified by no feature: a customer could make Jolly invent an org list. Now behind a harness guard, and 026's no-double invariant scans production, not just the verification layer.
-- **The environment leak is closed.** A leaked `jolly-store` env whose namespace lived only in its DOMAIN LABEL was invisible to a name-only reclaim and squatted the org's last slot; every create-an-environment scenario starved while every reuse scenario passed. Reclaim now matches on name OR domain label, proven by planted red and by a real create-and-reclaim against the live org.
-- **Interactive waits are prompt-gated**, not delay-guessed (the 72%-of-`@logic` latency sink).
-- **Verification economy + plank form/staleness checks** are executable and proven by planted reds.
+## The account, corrected
 
-## The pattern worth remembering: false-PASS checks
+`.env` carries org `jollystores-organization`. It is **100% cannon fodder** — nothing of dk's lives in it. Cap is **2** environments.
 
-Five checks this voyage were GREEN while the defect they existed to catch was live. Every one inspected the wrong thing:
+A fresh Saleor account ships with a **pre-provisioned store**. This one arrived with `jollystore's Environment` / `store-hqdxy4uo`, which carried no `jolly-cannon-fodder` namespace, so reclaim rightly refused it, and it squatted a slot forever. Six create-an-environment scenarios starved on `ENVIRONMENT_LIMIT_REACHED`, ~9 minutes each. Deleted 2026-07-14.
 
-- `plank-inventory` grepped for a token, so it saw plank PRESENCE and never plank FORM.
-- The `remediation` step read a note only the sibling scenario set, so it filtered an empty list and passed **without inspecting the envelope**.
-- The error-envelope check saw the `nextSteps:` KEY present and never evaluated that its ternary yields `[]` on every branch but one.
-- The no-double invariant scanned the verification layer while the double's mechanism sat in production.
-- Reclaim matched on name while the leak's identity was its domain label.
+**Operational, not a code fix: delete the default store before handing an account to Jolly.** The `jolly-cannon-fodder-` prefix boundary MUST NOT be widened to "delete all but the shared store". That boundary is the suite's only safety property — the thing that makes it safe to point at any account. dk ruled: keep it.
 
-**A check that inspects shape rather than value is not a check.** When a guard is written, ask what live counterexample would still pass it. Three of these five were disclosed by the roles themselves rather than discovered — that honesty is the only reason they were found.
+## The five heavy reds — all verification, none are Jolly
 
-## Closed: the flaky device-auth read (`5b67dc1`)
+1. **Region-blind URL assertions (3).** Five copies of `/https:\/\/[a-z0-9-]+\.saleor\.cloud\/(graphql|dashboard)\//` in `002` and `027` step definitions. The class cannot cross a dot, so it never matches `<label>.eu.saleor.cloud`. Jolly emits the right URL. Passed on the old account because its domains had no region segment.
+2. **The shared-store cache does not exist (2).** `AGENTS.md`, `RIGGING.md`, and `provision.ts`'s own comments all promise a store cached across cucumber invocations. The marker path is keyed by `runId()`, which is fresh per invocation, so the cache has NEVER been hit: every run provisions a new store and its `BeforeAll` reclaim deletes the previous run's. It also self-destructs mid-run, which is what 404'd `jolly recipe` and `jolly stock`. Either make the cache real (the Verification agreement's reuse rule favours it, and the docs already promise it) or strike the claim and accept per-run cost. Recommendation: make it real.
 
-`027:...clickable terminal hyperlink` passed focused every time and failed intermittently under tier concurrency: a READ ending on a timer, returning whatever the terminal had produced by then. A green tier sweep proved nothing — QM ran one, correctly refused to call it a fix, and said so.
+## Verification economy — first honest data this project has had
 
-**The routing lesson, and it cost a cycle.** The diagnosis was sent to QM in a MESSAGE. QM ignored it and worked the file, exactly as the bulkhead requires. Intent that lives in chat does not exist. The fix was to recast the finding as a durable check carrying no rationale: a new `@logic @invariant` in `verification-economy` outlawing a read that ends on a timer. The defect then reddens on inspection, with no concurrency luck needed.
+The wake was fiction until this harbour. Every per-scenario cost below is measured.
 
-The repair is a contract, not a patch: `readUntil` is now a REQUIRED field on `runUnderPty`, `timeoutMs` is demoted to a failure ceiling that throws, and the type system enforces it at all ten call sites. The hyperlink scenario fell 16.8s to 3.0s. `@logic` 177/177 green.
+- `@logic`, 664s: the **interactive-start cluster** is ~270s over seven scenarios (36-42s each), 40% of the tier, paid on every inner-loop run. This is the real target.
+- The ~5-minute Cloud-error scenario the old notes flagged **does not exist**. Nothing in `@logic` exceeds 42s. The notes were wrong; the record is right.
+- `@sandbox` light, 495s: three scenarios are 90% of it (172s, 168s, 108s). The two skill-install scenarios need **no Saleor credentials** by their own admission — they are in the expensive tier by tag inheritance, not need.
 
-## Next, in order
+## Open decisions for dk
 
-1. **Pre-outbound full regression, all tiers.** Production changed since the last green board, and green does not transfer across a diff. It runs against the NEW account — a genuinely cold org, closer to a customer's first run than anything tested so far. Two things it must settle: `@sandbox` has NOT run against the new PTY driver envelope (`tsc` proves every call site declares `readUntil`, so the risk is low but UNPROVEN), and `@eval` is a required green gate.
-2. **Harbour** (Shipwright): the stale `step-usage` count in `RIGGING.md`; the 16 zero-usage step definitions (orphan candidates); the verification-economy audit against the per-scenario cost record this voyage built; and `findTimerEndedReads` does not statically check a `readUntil` passed as a variable (sound, since the type makes it mandatory, but noted).
-3. **Outbound** — npm + vercel-homepage — only on dk's explicit go, and only on a green board. dk's standing position: 0.12.4 serves both the terminal and agent paths, so there is no pressure to ship a red tree.
+- Fail-fast capacity blocker: when the org is at cap with nothing reclaimable, `BeforeAll` should say so in seconds and name the squatter, instead of six scenarios burning 45 minutes. Not yet ruled.
+- `report.html` / `report.json` are TRACKED in git. They are wake and belong in `.gitignore`.
+- `happy-dom`: unused devDependency, zero source references, `locked` policy.
+- Tier placement of the two 170s skill-install scenarios.
+- `src/index.ts` at 5,867 lines / 98 functions. Standing, un-perturbed by dk's call.
 
-## Wake is stale, do not trust it
+## Standing rules, learned the hard way
 
-`coverage/weather/tiers.tsv` still records `eval RED(rc=1)` and a `logic` row of 165 from a PRE-voyage run; today's `@logic` is 177 and `@eval` ran 3/3 green. The roll-up is not written automatically by a tier run. Read a tier result from the run, never from that file.
-
-## Open finding, not yet acted on
-
-**A live Cloud-error scenario costs ~5 minutes in `@logic`.** The new `020:A Cloud API error carries the recovery whatever its code` drives a real rejected create. `@logic` runs on every inner-loop change, so a 5-minute scenario there is paid constantly. Judge tier placement at harbour: `@sandbox` is the likely home. This is exactly the finding the verification-economy record exists to surface.
-
-## Held, deliberately
-
-**Budget scenario stays `@captain`** (`025:A baseline agent sets up a project within its declared turn and token budget`). The affordance map records turns and tokens on every `@eval` run, so anchors accumulate on their own. The only fully-recorded anchor is still the FLAILING run (21 turns, 197k prompt + 9.7k completion). A ceiling drawn from a bad run is not a ceiling. Do not invent the number.
-
-## Standing rule, learned the hard way
-
-**Any change to the interactive path MUST be verified through `features/support/pty.ts` `runUnderPty`.** 0.12.1 and 0.12.2 both shipped "verified" and both were broken, because the mechanism was tested in a bespoke harness on a box that already had a Vercel session and a warm npx cache: never the customer's conditions. Drive the real path or do not claim it works.
-
-## Standing findings
-
-- **`src/index.ts` is ~5700 lines / 97 functions.** Reported, not perturbed (dk's call). A perturbation proves only what the scenarios pin; before planting over 97 functions, confirm the seams' scenarios pin what must survive. Its own cycle.
-- **`happy-dom`**: unused devDependency, zero source references, under a `locked` policy. Boatswain hygiene.
-
-## Operating notes for the next Captain
-
-- **One writer at a time.** Two QMs on the same tree corrupted a step-definitions file mid-cycle; the second QM correctly refused to trust the deck and withdrew. Never resume an old role agent while a new one holds the deck.
-- **Dispatch thin.** A Boatswain dispatch carrying the refit narrative, relayed proof, and a pre-excused red was refused as contaminated — correctly. A role that inherits a conclusion cannot independently reach it. Role and base commit; the artifacts are the hand-off.
-- **dk wants live play-by-play**, not silent background runs. Poll in short windows and report each tick; a long blocking poll reads as running dark.
+- **A check that inspects shape rather than value is not a check.** Six found so far. The latest: the wake-record invariant was green for the life of the project while NO tier wrote a record — it built its own fixture run and read that. When you write a guard, ask what live counterexample still passes it.
+- **Never pipe a verification run through `tail`.** The shell reports the pipe's exit code, not cucumber's. Three tier runs this harbour reported "exit 0" while red. Redirect to a file and read `$?`.
+- **Any change to the interactive path MUST be verified through `features/support/pty.ts` `runUnderPty`.** 0.12.1 and 0.12.2 both shipped "verified" and both were broken.
+- **`--max-old-space-size` must sit well below physical RAM.** The rigging asked for 8 GB on a 7.9 GB box; the OOM killer took the heavy tier. Now 4096.
+- **dk wants live play-by-play.** Poll and report each tick; a silent background run reads as running dark.
+- **One writer at a time**, and **dispatch thin** — role and base commit; the artifacts are the hand-off.

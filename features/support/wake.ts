@@ -1,22 +1,25 @@
-// Verification support for the verification-economy scenario "Every scenario
-// that runs records its wall-clock cost" (@logic @invariant).
+// Verification support for the verification-economy scenario "A tier run through
+// its configured command writes that tier's wall-clock record" (@logic @invariant).
 //
-// Every tier run writes its cucumber message stream into the wake
-// (coverage/weather/<tier>.ndjson, per RIGGING.md). That stream is the
-// per-scenario record: each scenario's wall-clock duration is the span between
-// its testCaseStarted and testCaseFinished timestamps, and its name comes from
-// the pickle the test case was built from. Yesterday's weather is read from it,
-// and the harbour verification-economy audit reads per-scenario duration from
-// it, so a scenario missing from the record is a cost that no one pays
-// attention to.
+// Per RIGGING.md, every tier command carries `--format message:coverage/weather/
+// <tier>.ndjson`, so a tier run writes its own cucumber message stream by
+// construction. That stream is the per-scenario record: a scenario's wall-clock
+// duration is the span between its testCaseStarted and testCaseFinished
+// timestamps, and its name comes from the pickle the test case was built from.
+// Yesterday's weather is read from it, and the harbour verification-economy audit
+// reads per-scenario duration from it, so a scenario missing from the record is a
+// cost no one pays attention to.
 //
-// The check reads a record produced by a REAL completed cucumber run: the
-// scenario provisions one over a small fixture in the wake, so the reader is
-// exercised against the same message stream the tiers write, with no dependence
-// on which tier last ran.
+// The command owns the write, so the check runs a configured tier command
+// VERBATIM, exactly as RIGGING.md carries it, rather than a hand-written
+// invocation that only resembles one: a command whose record-writing flag was
+// dropped is the failure this check exists to catch, and a hand-written
+// invocation cannot see it. The command runs against a fixture tier — a scratch
+// project carrying the tier profile names and two cheap scenarios — so the real
+// command is exercised without re-running a real tier from inside one.
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { mkdirSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { REPO_ROOT } from "./repo-root.ts";
 
 export interface ScenarioCost {
@@ -44,9 +47,11 @@ function toNanos(timestamp: Timestamp): number {
 /**
  * Read a tier run's message stream as the per-scenario record: every scenario
  * that ran, and the wall-clock duration it carries. A scenario the run started
- * but the record does not finish is reported unrecorded.
+ * but the record does not finish is reported unrecorded. A run that wrote no
+ * record at all reports `undefined`: the check has nothing to read.
  */
-export function readWakeRecord(recordPath: string): WakeRecord {
+export function readWakeRecord(recordPath: string): WakeRecord | undefined {
+  if (!existsSync(recordPath)) return undefined;
   const pickleNames = new Map<string, string>();
   const testCasePickles = new Map<string, string>();
   const startedAt = new Map<string, { testCaseId: string; nanos: number }>();
@@ -88,44 +93,76 @@ export function readWakeRecord(recordPath: string): WakeRecord {
   return { scenarios, unrecorded };
 }
 
-/** A record with one scenario's finish struck out: the planted red. */
-export function recordWithScenarioDropped(
-  recordPath: string,
-  droppedPath: string,
-): string {
-  const lines = readFileSync(recordPath, "utf8").split("\n").filter(Boolean);
-  const firstFinish = lines.findIndex((line) => JSON.parse(line).testCaseFinished);
-  if (firstFinish === -1) {
-    throw new Error(`${recordPath} records no finished scenario to drop`);
-  }
-  const dropped = JSON.parse(lines[firstFinish]!).testCaseFinished;
-  writeFileSync(
-    droppedPath,
-    lines.filter((_, index) => index !== firstFinish).join("\n"),
-    "utf8",
-  );
-  return dropped.testCaseStartedId;
+export interface TierCommand {
+  /** The RIGGING.md command key, such as `broad` or `coverage-sandbox`. */
+  key: string;
+  /** The command as configured, verbatim. */
+  command: string;
+  /** The wake record the command writes, cwd-relative; absent when it writes none. */
+  recordPath?: string;
 }
 
-export interface FixtureTierRun {
-  /** The message stream the run wrote: the wake's per-scenario record. */
-  recordPath: string;
-  /** The scenarios the fixture tier runs, in file order. */
+/** The command keys that run a tier, and so own their tier's wake record. */
+const TIER_COMMAND_KEY = /^(broad|coverage)(-[a-z-]+)?$/;
+/** A RIGGING.md value line: `- <key>: \`<command>\`` and optional trailing prose. */
+const VALUE_LINE = /^- ([a-z-]+): `(.+?)`/;
+/** The record-writing flag a tier command carries. */
+const RECORD_FLAG = /--format message:(\S+)/;
+
+/**
+ * The tier commands as `RIGGING.md` configures them, read from `## Commands`.
+ */
+export function readTierCommands(riggingFile: string): TierCommand[] {
+  const text = readFileSync(join(REPO_ROOT, riggingFile), "utf8");
+  const commands: TierCommand[] = [];
+  let inCommands = false;
+  for (const line of text.split("\n")) {
+    if (line.startsWith("## ")) {
+      inCommands = line.trim() === "## Commands";
+      continue;
+    }
+    if (!inCommands) continue;
+    const value = VALUE_LINE.exec(line.trim());
+    if (!value) continue;
+    const [, key, command] = value as unknown as [string, string, string];
+    if (!TIER_COMMAND_KEY.test(key)) continue;
+    commands.push({ key, command, recordPath: RECORD_FLAG.exec(command)?.[1] });
+  }
+  return commands;
+}
+
+/** The same command with its record-writing flag dropped: the planted red. */
+export function withoutRecordWrite(command: TierCommand): TierCommand {
+  return {
+    key: `${command.key} (record write dropped)`,
+    command: command.command.replace(RECORD_FLAG, "").replace(/\s{2,}/g, " "),
+    recordPath: undefined,
+  };
+}
+
+export interface FixtureTier {
+  /** The scratch project the tier command runs in. */
+  dir: string;
+  /** The scenarios the fixture tier runs. */
   scenarioNames: string[];
-  /** Remove the fixture and its record. */
+  /** Remove the fixture project and anything a run wrote into it. */
   remove: () => void;
 }
 
+// Each fixture scenario spends a little real time, so it carries a wall-clock
+// duration the record must show: a step that costs nothing spans no measurable
+// tick and would prove nothing about what the record captures.
 const FIXTURE_FEATURE = `Feature: Fixture tier
+
+  @logic @sandbox @eval
   Scenario: A fixture scenario that costs a little
     Given the fixture step runs
+
+  @logic @sandbox @eval
   Scenario: A second fixture scenario that costs a little
     Given the fixture step runs
 `;
 
-// The fixture step spends a little real time, so each fixture scenario carries a
-// wall-clock duration the record must show: a step that costs nothing spans no
-// measurable tick and would prove nothing about what the record captures.
 const FIXTURE_STEPS = `import { Given } from "@cucumber/cucumber";
 import { setTimeout as wait } from "node:timers/promises";
 Given("the fixture step runs", async function () {
@@ -134,49 +171,78 @@ Given("the fixture step runs", async function () {
 `;
 
 /**
- * Run a real cucumber tier over a two-scenario fixture, writing its message
- * stream exactly as a tier run writes its record into the wake. The fixture
- * lives in the wake (git-ignored) so its steps resolve the project's cucumber
- * install, and it carries its own config so the project's own hooks and support
- * are not loaded into the inner run.
+ * A scratch project a configured tier command runs against: it carries the tier
+ * profile names the commands select with `-p`, and a two-scenario fixture in
+ * place of a real tier. It sits inside the wake (git-ignored) so a run resolves
+ * the project's own cucumber install by walking up to the repo root, and it
+ * carries its own config, so the project's hooks and support are not loaded into
+ * the inner run.
  */
-export function runFixtureTier(): FixtureTierRun {
-  const dir = join(REPO_ROOT, "coverage", "weather", `fixture-${process.pid}`);
+export function fixtureTier(label: string): FixtureTier {
+  const dir = join(REPO_ROOT, "coverage", "weather", `fixture-${process.pid}-${label}`);
   const remove = () => rmSync(dir, { recursive: true, force: true });
-  mkdirSync(dir, { recursive: true });
-  const featurePath = join(dir, "fixture.feature");
-  const stepsPath = join(dir, "fixture-steps.mjs");
-  const configPath = join(dir, "fixture-cucumber.mjs");
-  const recordPath = join(dir, "record.ndjson");
-  writeFileSync(featurePath, FIXTURE_FEATURE, "utf8");
-  writeFileSync(stepsPath, FIXTURE_STEPS, "utf8");
+  // The commands write their record under a cwd-relative coverage/weather path.
+  mkdirSync(join(dir, "coverage", "weather"), { recursive: true });
+  writeFileSync(join(dir, "fixture.feature"), FIXTURE_FEATURE, "utf8");
+  writeFileSync(join(dir, "fixture-steps.mjs"), FIXTURE_STEPS, "utf8");
+  const profile = {
+    paths: ["fixture.feature"],
+    import: ["fixture-steps.mjs"],
+  };
   writeFileSync(
-    configPath,
-    `export default ${JSON.stringify({
-      paths: [featurePath],
-      import: [stepsPath],
-      format: [`message:${recordPath}`],
-    })};\n`,
+    join(dir, "cucumber.mjs"),
+    [
+      `const profile = ${JSON.stringify(profile)};`,
+      "export default profile;",
+      "export const logic = profile;",
+      "export const sandbox = profile;",
+      "export const sandboxSerial = profile;",
+      "const evalProfile = profile;",
+      "export { evalProfile as eval };",
+      "export const all = profile;",
+      "",
+    ].join("\n"),
     "utf8",
   );
-
-  // Cucumber resolves --config against the cwd, so name it relative to the root.
-  const run = spawnSync("npx", ["cucumber-js", "--config", relative(REPO_ROOT, configPath)], {
-    cwd: REPO_ROOT,
-    encoding: "utf8",
-    timeout: 120_000,
-  });
-  if (run.status !== 0) {
-    throw new Error(
-      `the fixture tier run failed (exit ${run.status}):\n${run.stdout}\n${run.stderr}`,
-    );
-  }
   return {
-    recordPath,
+    dir,
     scenarioNames: [
       "A fixture scenario that costs a little",
       "A second fixture scenario that costs a little",
     ],
     remove,
+  };
+}
+
+export interface TierRun {
+  /** The wake record the command wrote, absolute; absent when it wrote none. */
+  recordPath?: string;
+  exitCode: number | null;
+  output: string;
+}
+
+/** Run a tier command exactly as configured, against the fixture tier. */
+export function runTierCommand(tier: FixtureTier, command: TierCommand): TierRun {
+  const run = spawnSync("sh", ["-c", command.command], {
+    cwd: tier.dir,
+    encoding: "utf8",
+    timeout: 120_000,
+    // The command is verbatim; only the environment names where its `npx`
+    // resolves the project's own cucumber, so the run installs nothing.
+    env: {
+      ...process.env,
+      PATH: `${join(REPO_ROOT, "node_modules", ".bin")}:${process.env.PATH ?? ""}`,
+    },
+  });
+  const output = `${run.stdout ?? ""}\n${run.stderr ?? ""}`;
+  if (run.status !== 0) {
+    throw new Error(
+      `the tier command "${command.key}" failed (exit ${run.status}):\n${command.command}\n${output}`,
+    );
+  }
+  return {
+    recordPath: command.recordPath && join(tier.dir, command.recordPath),
+    exitCode: run.status,
+    output,
   };
 }

@@ -16,19 +16,20 @@ Procedure lives in the skills. Every role reads this on open.
 - specs: features/
 - verification: features/step_definitions/, features/support/
 - assets: assets/
+- scantlings: none
 
 ## Commands
 
 - discover: `npx cucumber-js -p all --dry-run --format message --tags "not @captain and not @shipwright" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const u=s.split("\n").filter(Boolean).map(l=>JSON.parse(l)).filter(m=>m.testStepFinished&&m.testStepFinished.testStepResult.status==="UNDEFINED");if(u.length){console.error("undefined steps: "+u.length);process.exit(1);}});'` — executes nothing (dry-run) and exits non-zero when any step is undefined. The tag-free `all` profile in `cucumber.js` carries no tags, so one invocation enumerates every tier and a tier added later is covered with no further wiring.
 - focused: `sh -c 'f="$1"; npx cucumber-js "${f%%:*}" --name "^${f#*:}$" --tags "not @captain and not @shipwright"' _ "{scenario}"`
-- broad: `npx cucumber-js -p logic --tags "@logic and not @captain and not @shipwright"`
-- broad-sandbox: `npx cucumber-js -p sandbox --tags "@sandbox and not @captain and not @shipwright"`
-- broad-sandbox-serial: `npx cucumber-js -p sandboxSerial --tags "@sandbox and not @captain and not @shipwright"`
-- broad-eval: `npx cucumber-js -p eval --tags "@eval and not @captain and not @shipwright"`
-- coverage: `npx c8 --reporter=text --reporter=json -- npx cucumber-js -p logic --tags "@logic and not @captain and not @shipwright"`
-- coverage-sandbox: `NODE_OPTIONS=--max-old-space-size=8192 npx c8 --clean=false --reporter=text --reporter=json -- npx cucumber-js -p sandbox --tags "@sandbox and not @captain and not @shipwright"`
-- coverage-sandbox-serial: `NODE_OPTIONS=--max-old-space-size=8192 npx c8 --clean=false --reporter=text --reporter=json -- npx cucumber-js -p sandboxSerial --tags "@sandbox and not @captain and not @shipwright"`
-- coverage-eval: `NODE_OPTIONS=--max-old-space-size=8192 npx c8 --clean=false --reporter=text --reporter=json -- npx cucumber-js -p eval --tags "@eval and not @captain and not @shipwright"`
+- broad: `npx cucumber-js -p logic --format message:coverage/weather/logic.ndjson --tags "@logic and not @captain and not @shipwright"`
+- broad-sandbox: `npx cucumber-js -p sandbox --format message:coverage/weather/sandbox.ndjson --tags "@sandbox and not @captain and not @shipwright"`
+- broad-sandbox-serial: `npx cucumber-js -p sandboxSerial --format message:coverage/weather/sandboxSerial.ndjson --tags "@sandbox and not @captain and not @shipwright"`
+- broad-eval: `npx cucumber-js -p eval --format message:coverage/weather/eval.ndjson --tags "@eval and not @captain and not @shipwright"`
+- coverage: `npx c8 --reporter=text --reporter=json -- npx cucumber-js -p logic --format message:coverage/weather/logic.ndjson --tags "@logic and not @captain and not @shipwright"`
+- coverage-sandbox: `NODE_OPTIONS=--max-old-space-size=4096 npx c8 --clean=false --reporter=text --reporter=json -- npx cucumber-js -p sandbox --format message:coverage/weather/sandbox.ndjson --tags "@sandbox and not @captain and not @shipwright"`
+- coverage-sandbox-serial: `NODE_OPTIONS=--max-old-space-size=4096 npx c8 --clean=false --reporter=text --reporter=json -- npx cucumber-js -p sandboxSerial --format message:coverage/weather/sandboxSerial.ndjson --tags "@sandbox and not @captain and not @shipwright"`
+- coverage-eval: `NODE_OPTIONS=--max-old-space-size=4096 npx c8 --clean=false --reporter=text --reporter=json -- npx cucumber-js -p eval --format message:coverage/weather/eval.ndjson --tags "@eval and not @captain and not @shipwright"`
 - step-usage: `npx cucumber-js -p all --dry-run --format usage-json --tags "not @captain and not @shipwright"` — emits one `usage-json` array covering every configured tier. The tag-free `all` profile enumerates every scenario in one invocation, so no tier is missed and no step definition reads as a false-positive orphan. Measured: 936 step definitions, 16 with zero usage.
 - reclaim: `npm run reclaim` — standalone preflight that deletes stale `jolly-cannon-fodder`-namespaced leftovers (Cloud environments + local scratch dirs) without running any tier; the same reclamation also runs automatically at the start of every cucumber invocation (BeforeAll, `features/support/hooks.ts`)
 - plank-inventory: `grep -rn '@planks' src/ bin/`
@@ -46,7 +47,8 @@ Procedure lives in the skills. Every role reads this on open.
 - default: @logic. Fast behaviour tier, run in parallel. Exercises real behaviour against the `.env` test env per the live-by-design policy in `AGENTS.md`. Credentials are present by fitting-out; verification reads them from the environment and runs every target. A target whose credential or capability is absent fails as a fitting-out blocker, naming what fitting-out must provide.
 - sandbox: @sandbox. Requires `JOLLY_SALEOR_CLOUD_TOKEN` and a Vercel CLI session, both present by fitting-out and read from the environment; verification runs every target and never gates on credential presence. A target whose credential is absent fails as a fitting-out blocker. The harness provisions `jolly-cannon-fodder`-namespaced Saleor Cloud and Vercel resources. Most scenarios share ONE store, deliberately cached across cucumber invocations via a persistent marker file (created once, reused while healthy, self-heals under a freshly-named replacement if unreachable — never torn down); only scenarios that test store/environment creation itself (`@creates-env`) provision their own disposable one and tear it down. Stale leftovers from any run are reclaimed proactively at the start of every invocation (`npm run reclaim` / BeforeAll), not lazily on next same-tier run.
 - eval: @eval. Required green/red gate driving the live baseline agent. Requires `HARNESS_OPENROUTER_API_KEY` and `HARNESS_EVAL_MODEL`, present by fitting-out. Runs in the full-tier boundary and MUST pass; never skipped. A single live-agent timeout MAY be absorbed by a bounded in-scenario retry, persistent failure reds. This is the ONLY tier that invokes a model; every other tier reports zero model invocations and zero tokens, per feature `verification-economy`.
-- weather: coverage/weather/ — the wake's run record. Each tier run writes its cucumber message stream (`<tier>.ndjson`, carrying per-test-case nanosecond durations) and a `tiers.tsv` roll-up of status and wall-clock. Read as the starting prior for concurrency, and as the per-scenario duration source for the harbour verification-economy audit.
+- weather: coverage/weather/ — the wake's weather record. Every `broad-*` and `coverage-*` command carries `--format message:coverage/weather/<tier>.ndjson`, so a tier run writes its own cucumber message stream, carrying per-test-case nanosecond durations, by construction. Read as the starting prior for concurrency, and as the per-scenario duration source for the harbour verification-economy audit. A `<tier>.ndjson` older than the tier's last run is a rigging defect, not a stale file to work around: the tier command owns the write.
+- runrecord: coverage/weather/runrecord.ndjson — the wake's voyage run record, one JSON object per fresh green run, git-ignored under `coverage/`.
 
 ## Dependencies
 

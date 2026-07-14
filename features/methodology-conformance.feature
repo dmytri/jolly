@@ -28,6 +28,13 @@ Feature: Methodology conformance
     And a "@planks" token in a line comment or inside a function body should redden the check
 
   @logic @invariant
+  Scenario: A feature file carries no bare comment
+    Given the specs directory "features/"
+    When the spec-comment check reads every feature file
+    Then none should carry a bare "#" comment line
+    And a feature file carrying a "#" comment line should redden the check
+
+  @logic @invariant
   Scenario: Every plank names a step that still exists in a feature
     Given the "@planks" step texts in the implementation directories
     When they are joined against the step text of every feature file, with "And" and "But" normalized to the keyword they inherit

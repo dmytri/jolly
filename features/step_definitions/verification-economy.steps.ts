@@ -1,20 +1,25 @@
-// Feature verification-economy — two derived checks that make the cost of the
+// Feature verification-economy — three derived checks that make the cost of the
 // suite observable (@logic @invariant):
-//   - every scenario that runs records its wall-clock cost into the wake, and
+//   - a tier run through its configured command writes that tier's wall-clock
+//     record,
 //   - an interactive scenario waits for the prompt it is answering rather than
-//     for a guessed delay.
-// Both are verification support; each is proven honest by a planted red inside
+//     for a guessed delay, and
+//   - an interactive scenario reads the output it asserts on rather than
+//     whatever a timer caught.
+// All are verification support; each is proven honest by a planted red inside
 // its own scenario.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import type { JollyWorld } from "../support/world.ts";
 import {
+  fixtureTier,
+  readTierCommands,
   readWakeRecord,
-  recordWithScenarioDropped,
-  runFixtureTier,
-  type FixtureTierRun,
-  type WakeRecord,
+  runTierCommand,
+  withoutRecordWrite,
+  type TierCommand,
+  type TierRun,
 } from "../support/wake.ts";
 import {
   findGuessedDelayWaits,
@@ -26,30 +31,56 @@ import {
   type ReadViolation,
 } from "../support/interactive-reads.ts";
 
-Given("a completed tier run", { timeout: 130_000 }, function (this: JollyWorld) {
-  // Teardown registered before creation, loud on failure via the registry.
-  let run: FixtureTierRun | undefined;
-  this.cleanup.register("wake fixture tier run", () => run?.remove());
-  run = runFixtureTier();
-  this.notes.tierRun = run;
-});
+Given(
+  "the tier commands configured in {string}",
+  function (this: JollyWorld, riggingFile: string) {
+    const commands = readTierCommands(riggingFile);
+    assert.ok(
+      commands.length > 0,
+      `${riggingFile} configures no tier command under "## Commands"`,
+    );
+    this.notes.tierCommands = commands;
+  },
+);
 
-When("the wake's per-scenario record is read", function (this: JollyWorld) {
-  const run = this.notes.tierRun as FixtureTierRun;
-  this.notes.wakeRecord = readWakeRecord(run.recordPath);
-});
+When(
+  "a tier is run through its command as configured",
+  { timeout: 130_000 },
+  function (this: JollyWorld) {
+    const commands = this.notes.tierCommands as TierCommand[];
+    // The default tier: the one every inner-loop change pays for.
+    const command = commands.find((entry) => entry.key === "broad");
+    assert.ok(command, `no "broad" tier command is configured`);
+    this.notes.tierCommand = command;
+    // Teardown registered before creation, loud on failure via the registry.
+    const tier = fixtureTier("as-configured");
+    this.cleanup.register("wake fixture tier (as configured)", () => tier.remove());
+    this.notes.fixtureTier = tier;
+    this.notes.tierRun = runTierCommand(tier, command);
+  },
+);
 
 Then(
-  "every scenario that ran should carry its wall-clock duration",
+  "that tier's wake record should carry every scenario the run started, each with its wall-clock duration",
   function (this: JollyWorld) {
-    const run = this.notes.tierRun as FixtureTierRun;
-    const record = this.notes.wakeRecord as WakeRecord;
+    const command = this.notes.tierCommand as TierCommand;
+    const run = this.notes.tierRun as TierRun;
+    assert.ok(
+      run.recordPath,
+      `the tier command "${command.key}" writes no wake record:\n${command.command}`,
+    );
+    const record = readWakeRecord(run.recordPath);
+    assert.ok(
+      record,
+      `the tier command "${command.key}" wrote no wake record at ${run.recordPath}`,
+    );
     assert.deepEqual(
       record.unrecorded,
       [],
-      `scenarios that ran but carry no wall-clock duration: ${record.unrecorded.join(", ")}`,
+      `scenarios the run started that carry no wall-clock duration: ${record.unrecorded.join(", ")}`,
     );
-    for (const name of run.scenarioNames) {
+    for (const name of (this.notes.fixtureTier as { scenarioNames: string[] })
+      .scenarioNames) {
       const cost = record.scenarios.find((scenario) => scenario.name === name);
       assert.ok(cost, `the record carries no entry for the scenario "${name}"`);
       assert.ok(
@@ -61,21 +92,26 @@ Then(
 );
 
 Then(
-  "a scenario present in the run but absent from the record should redden the check",
+  "a configured tier command that writes no wake record should redden the check",
+  { timeout: 130_000 },
   function (this: JollyWorld) {
-    const run = this.notes.tierRun as FixtureTierRun;
-    const droppedPath = join(run.recordPath, "..", "record-dropped.ndjson");
-    recordWithScenarioDropped(run.recordPath, droppedPath);
-    const record = readWakeRecord(droppedPath);
+    const configured = this.notes.tierCommand as TierCommand;
+    const stripped = withoutRecordWrite(configured);
+    // Teardown registered before creation, loud on failure via the registry.
+    const tier = fixtureTier("no-record-write");
+    this.cleanup.register("wake fixture tier (no record write)", () => tier.remove());
+    const run = runTierCommand(tier, stripped);
     assert.equal(
-      record.unrecorded.length,
-      1,
-      `a record missing one scenario's finish must report exactly one unrecorded scenario, got ${record.unrecorded.length}`,
+      run.recordPath,
+      undefined,
+      "the planted command still carries a record-writing flag",
     );
+    // The tier ran, so the check has a record to read; it wrote none, so it does not.
+    const record = readWakeRecord(join(tier.dir, configured.recordPath!));
     assert.equal(
-      record.scenarios.length,
-      (this.notes.wakeRecord as WakeRecord).scenarios.length - 1,
-      "the record missing one scenario's finish must carry one fewer cost entry",
+      record,
+      undefined,
+      `a tier command carrying no record-writing flag still left a wake record:\n${stripped.command}`,
     );
   },
 );

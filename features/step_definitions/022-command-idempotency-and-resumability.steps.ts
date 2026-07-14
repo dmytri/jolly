@@ -442,7 +442,7 @@ Then(
     // endpoint; a *.saleor.cloud/dashboard/ first-party URL.
     const blob = JSON.stringify(this.envelope.data);
     assert.ok(
-      /https:\/\/[a-z0-9-]+\.saleor\.cloud\/dashboard\//i.test(blob),
+      /https:\/\/[a-z0-9.-]+\.saleor\.cloud\/dashboard\//i.test(blob),
       `resume data must surface the configured store's Saleor Dashboard URL ending in .saleor.cloud/dashboard/: ${blob}`,
     );
   },

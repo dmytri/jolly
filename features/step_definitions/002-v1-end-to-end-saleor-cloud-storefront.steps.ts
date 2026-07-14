@@ -237,7 +237,7 @@ Then(
     // feature 012; here Jolly's observable surface must name the projected URL.)
     const blob = JSON.stringify(this.envelope.data ?? {});
     assert.ok(
-      /https:\/\/[a-z0-9-]+\.saleor\.cloud\/graphql\//i.test(blob),
+      /https:\/\/[a-z0-9.-]+\.saleor\.cloud\/graphql\//i.test(blob),
       `create store data must include the new store's *.saleor.cloud GraphQL API URL: ${blob}`,
     );
   },
@@ -250,7 +250,7 @@ Then(
     // hand it to the human — a *.saleor.cloud/dashboard/ first-party URL.
     const blob = JSON.stringify(this.envelope.data ?? {});
     assert.ok(
-      /https:\/\/[a-z0-9-]+\.saleor\.cloud\/dashboard\//i.test(blob),
+      /https:\/\/[a-z0-9.-]+\.saleor\.cloud\/dashboard\//i.test(blob),
       `create store data must include the store's Saleor Dashboard URL ending in .saleor.cloud/dashboard/: ${blob}`,
     );
   },
@@ -1557,11 +1557,11 @@ Then(
   function (this: JollyWorld) {
     const blob = JSON.stringify(this.envelope.data ?? {});
     assert.ok(
-      /https:\/\/[a-z0-9-]+\.saleor\.cloud\/graphql\//i.test(blob),
+      /https:\/\/[a-z0-9.-]+\.saleor\.cloud\/graphql\//i.test(blob),
       `start data must include the new store's *.saleor.cloud GraphQL API URL: ${blob}`,
     );
     assert.ok(
-      /https:\/\/[a-z0-9-]+\.saleor\.cloud\/dashboard\//i.test(blob),
+      /https:\/\/[a-z0-9.-]+\.saleor\.cloud\/dashboard\//i.test(blob),
       `start data must include the store's Saleor Dashboard URL ending in .saleor.cloud/dashboard/: ${blob}`,
     );
   },

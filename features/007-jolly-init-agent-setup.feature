@@ -46,8 +46,6 @@ Feature: Jolly init for local agent setup
 
   @sandbox
   Scenario: Skills install non-interactively with no agent runtime present
-    # Reproduces a fresh customer machine: the real installer runs with no interactive
-    # terminal and no agent runtime detected. Needs no Saleor credentials.
     Given `jolly init` runs with no interactive terminal and no agent runtime detected
     When it installs the default skill set
     Then each default skill should be installed under `.agents/skills/<id>/` and verified on disk
@@ -56,11 +54,6 @@ Feature: Jolly init for local agent setup
 
   @sandbox
   Scenario: The Jolly skill installs from the bundled copy with no network
-    # The Jolly skill ships inside @dk/jolly; installing it must not depend on
-    # the network or on the skill being pushed to GitHub (Rule "Jolly skill
-    # source"). Reproduced by blocking outbound network during the install: the
-    # bundled copy still lands; a network-only ref would fail to clone. Needs no
-    # Saleor credentials.
     Given `jolly init` runs with outbound network blocked
     When it installs the default skill set with no network
     Then the Jolly skill should be installed under `.agents/skills/jolly/` from the bundled copy
