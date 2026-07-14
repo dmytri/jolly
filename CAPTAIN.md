@@ -11,21 +11,28 @@ Restart was taken to load the patched Shipshape Bash custody hook. The guard is 
 present); hooks load at session start, so it is ACTIVE only from the fresh session onward.
 The bulkhead was NOT mechanically enforced before it. Two QMs were contaminated and discarded today.
 
+Custody LANDED before the restart: commit `0ac44de`, tree CLEAN, watchbill struck. Nothing to redispatch.
+
 Do these in order:
 
-1. **Redispatch Boatswain custody.** A custody run was in flight at restart and died with it.
-   Base commit `848dab8`. Advanced target: `features/methodology-conformance.feature:A credentialed
-   tier fails loudly when its credential is absent` (QM proved it green, fresh, in the run record).
-   The tree also carries Captain spec edits (`025`, `methodology-conformance`), a Shipwright rigging
-   refit (`RIGGING.md` focused command, `.ignore`), and QM's step definitions and support
-   (`features/support/tier-credential.ts`, `hooks.ts`). Nothing was lost; it is all on disk.
-2. **Promote the two bulkhead skeletons** in `features/methodology-conformance.feature`
+1. **Promote the two bulkhead skeletons** in `features/methodology-conformance.feature`
    (`@captain @logic @invariant`, the hook deny/permit Scenario Outlines). dk ruled: promote once
    the hook lands. It has landed. Remove the `@captain` tag, write both into `watchbill.json`,
    dispatch QM. They owe a planted-red proof, and they assert hook deny/permit rather than search
    result sets deliberately: a step definition asserting "the notes file is absent from this result
    set" must NAME the notes file, and the Read/Grep/Glob guard would then block QM from writing its
    own step definition. Expect that trap.
+
+   **Decide first (Boatswain's review note):** these two skeletons pin the PLUGIN's hook, which lives
+   outside this project's implementation directories. No seam in this repo can carry a plank for them.
+   Captain's lean: promote anyway. They are verification-only conformance checks with no production
+   seam, so no plank is owed, and the bulkhead they guard protects THIS project's notes. But rule on it
+   rather than drifting into it.
+2. **`@eval`'s CREDENTIALED path is unproven at this deck.** `features/support/hooks.ts` gained the
+   `@eval` credential gate this voyage; the target proves only the credential-ABSENT path through it.
+   The last credentialed `@eval` green sits at hash `3fdc533`, BEFORE that hook changed. The check that
+   answers it is `broad-eval`, a paid live-agent tier no watch orders. Route it as an `@eval` tier-tag
+   watch, or let harbour's full regression take it. Do not let "eval is green" cover both halves.
 3. Then harbour, which is still owed (below).
 
 ## Deck state (2026-07-14, harbour, mid-flight)
