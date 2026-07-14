@@ -638,6 +638,43 @@ Then(
   },
 );
 
+// --- Scenario: Doctor's error envelope carries the recovery -----------------
+//
+// Doctor's failing checks are diagnostic: a check can fail with nothing to run.
+// The envelope still owes the agent its recovery, so this drives a real doctor
+// run whose token is present-but-invalid (really rejected by the Cloud API) and
+// asserts the recovery on the envelope it actually emitted.
+
+Given(
+  "the agent runs `jolly doctor --json` with an invalid JOLLY_SALEOR_CLOUD_TOKEN",
+  function (this: JollyWorld) {
+    const token = `invalid-${this.namespace}-token`;
+    this.trackSecret(token);
+    this.runCli(["doctor", "--json"], {
+      env: absentCredentialsEnv({ JOLLY_SALEOR_CLOUD_TOKEN: token }),
+    });
+  },
+);
+
+Then(
+  "the envelope should carry at least one `nextSteps` entry naming what to do next",
+  function (this: JollyWorld) {
+    const steps = this.envelope.nextSteps;
+    assert.ok(Array.isArray(steps), "envelope must carry a nextSteps channel");
+    assert.ok(
+      steps.length > 0,
+      "an error envelope must carry at least one nextSteps entry",
+    );
+    for (const step of steps) {
+      const description = String(step.description ?? "");
+      assert.ok(
+        description.trim().length > 0,
+        `nextSteps entry must name what to do next: ${JSON.stringify(step)}`,
+      );
+    }
+  },
+);
+
 // --- Scenario: Every error envelope carries the recovery --------------------
 //
 // An error envelope carries its own recovery: at least one `nextSteps` entry,
@@ -688,7 +725,34 @@ Then(
 Then(
   "each `errors` entry should carry a `remediation`",
   function (this: JollyWorld) {
-    const missing = (this.notes.errorEnvelopeViolations as Violation[]).filter(
+    // Two scenarios share this step text and each supplies its own subject.
+    // The live-envelope scenario ran a real failing command; the @property
+    // scenario enumerated the construction sites. Assert against whichever
+    // subject the scenario's When established — never vacuously.
+    const violations = this.notes.errorEnvelopeViolations as
+      | Violation[]
+      | undefined;
+    if (violations === undefined) {
+      const errors = this.envelope.errors;
+      assert.ok(
+        errors.length > 0,
+        "an error envelope must carry at least one errors entry",
+      );
+      for (const error of errors) {
+        const remediation = error.remediation;
+        assert.equal(
+          typeof remediation,
+          "string",
+          `error ${error.code} must carry a remediation`,
+        );
+        assert.ok(
+          (remediation as string).trim().length > 0,
+          `error ${error.code} remediation must be non-empty`,
+        );
+      }
+      return;
+    }
+    const missing = violations.filter(
       (violation) => violation.message.includes("no `remediation`"),
     );
     assert.equal(

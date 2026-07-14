@@ -88,6 +88,14 @@ Feature: Jolly CLI output contract
     Then each entry in `errors` should include a stable `code`, a `message`, and a `remediation`
     And the documented `code` and check id strings should remain stable so the agent can branch on them programmatically
 
+  @logic
+  Scenario: Doctor's error envelope carries the recovery even when its failing check offers no command
+    Given the agent runs `jolly doctor --json` with an invalid JOLLY_SALEOR_CLOUD_TOKEN
+    When the agent inspects the envelope
+    Then the envelope status should be "error"
+    And the envelope should carry at least one `nextSteps` entry naming what to do next
+    And each `errors` entry should carry a `remediation`
+
   @logic @property
   Scenario: Every error envelope carries the recovery, so the agent never has to go looking for it
     Given Jolly's error-envelope construction code
