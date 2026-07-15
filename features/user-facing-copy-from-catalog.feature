@@ -13,3 +13,10 @@ Feature: User-facing copy is sourced from the message catalog
     Given the message catalog defines the clarifying question for an unusable Saleor URL
     When the agent pastes "not-a-saleor-url" as the store URL
     Then the clarifying question Jolly returns should match the catalog's entry
+
+  @captain @logic @property
+  Scenario: Every user-facing string the CLI prints resolves through the message catalog
+    Given the implementation directories "src/" and "bin/"
+    When the catalog-conformance check reads every user-facing string the CLI prints
+    Then each should resolve through "cliMessage" against "assets/messages/cli.json"
+    And a user-facing literal written inline in "src/", such as the Stripe keys-and-channel gate description, should redden the check

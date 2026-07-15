@@ -4,41 +4,100 @@
 
 Binding behaviour lives in `.feature` specs and referenced `assets/**`. History lives in git. These notes carry only what the next cycle needs.
 
-## Live agenda (2026-07-14, post-restart)
+## NEW-VM HANDOFF (2026-07-15) — read first
 
-The custody hook is ACTIVE: the guard is on disk and this session loaded it at startup. The bulkhead
-is mechanically enforced from here. Two QMs were contaminated and discarded before it landed.
+Session was cleared and moved to a fresh VM. All work below was committed and pushed to `origin/main`
+before the move, so a `git pull` restores it. Nothing is stranded in the old VM's tree.
 
-**Ruled by dk this session:**
+**First actions on the new VM:**
+1. **Install Shipshape** so the Bash custody hook is present (the bulkhead is only mechanically enforced
+   when the plugin is installed — the hook is VM-local, not in the repo). Install lines are in `AGENTS.md`.
+   Two QMs were contaminated earlier this session before the hook existed; do not work internal roles
+   without it.
+2. **`vercel login`** (operator, interactive, browser approval). The new VM has no Vercel session. This
+   gates the 6 environmental reds below. No code change fixes them; they go green once the session exists.
+3. Then finish harbour: re-run the 6 environmental scenarios to confirm green → full regression green →
+   harbour complete. Only then open a feature voyage.
 
-- **The two bulkhead skeletons PROMOTE.** They pin the plugin's hook, which lives outside this
-  project's implementation directories, so no seam here can plank them. That is fine: they are
-  verification-only conformance checks with no production seam, so no plank is owed. Promote at the
-  harbour review, not before — a promoted scenario with no step definition reds Shipwright's own
-  regression on undefined steps. They owe a planted-red proof. They assert hook deny/permit rather
-  than search result sets deliberately: a step definition asserting "the notes file is absent from
-  this result set" must NAME the notes file, and the guard would then block QM from writing its own
-  step definition. Expect that trap.
-- **Harbour finishes FIRST.** No feature voyage opens until the inventory is complete.
+**Harbour work DONE this session (committed + pushed):**
+- **npm cache bug** — `packAndInstallJolly` used `--offline`; now `--prefer-offline` (installs the same
+  real package, permits a cold-cache fetch). Both `006` targets green.
+- **Bulkhead self-enforcing** — 2 custody-hook conformance checks now executable against the real plugin
+  hook (`command-custody-hook.steps.ts`), both green. Promoted from skeletons.
+- **Plank form corrected** — `methodology-conformance.feature` now pins Shipshape's step-definition
+  PATTERN contract; 67 planks migrated to pattern form across 7 files (green, idempotent, typecheck clean).
 
-**Still owed at this harbour:**
+**The 6 environmental reds (need `vercel login`, not code):** 3 `@logic` PTY Vercel-signin spinners
+(020, 027 x2), 2 `@sandbox` doctor `vercel-auth: fail` (014), 1 `@sandbox` heavy deploy `pending`.
+Root cause: dead Vercel session on the OLD VM (`npx vercel whoami` hung). Code is correct.
 
-1. The planking pass, and `@captain` skeletons for uncovered seams. Shipwright's.
-2. **`@eval`'s CREDENTIALED path is unproven at this deck.** The support layer gained the `@eval`
-   credential gate this voyage; the standing target proves only the credential-ABSENT path through it.
-   The last credentialed `@eval` green predates that change. Harbour's full regression is what answers
-   it. Do not let "eval is green" cover both halves.
-3. Then the harbour review: promote the skeletons, watchbill them, dispatch QM.
+**PENDING VOYAGE — the catalog migration (dk wants this; re-held `@captain`, NOT lost):**
+- The `user-facing-copy-from-catalog.feature` `@property` scenario ("Every user-facing string the CLI
+  prints resolves through the message catalog") is re-tagged `@captain` because the migration is too big
+  to finish while wrapping up. dk RULED "do it now, verbatim lift" — that intent stands; only the timing moved.
+- **Real scope: ~170 catalog keys / 94 rewrite sites, ALL in `src/index.ts`.** Every command's `message`,
+  `remediation`, and `description` prose. Determinate rule (chosen, no field exemptions — simplest honest
+  checker): every `message`/`remediation`/`description` string resolves through `cliMessage`.
+- **The site→key mapping is re-derivable** from `src/index.ts` (pushed). Re-run a general-purpose
+  extraction: enumerate every string literal on `message`/`remediation`/`description` not already in a
+  `cliMessage(...)` call; split conditionals into two entries; represent `${expr}` as `{placeholder}`;
+  propose dotted keys by command family (`login.*`, `create.*`, `doctor.*`, ...) extending the existing
+  47 keys. The scratchpad mapping from this session is on the OLD VM and gone; re-extract.
+- Sequence: Captain authors `cli.json` (asset) + rewrites the scenario to the determinate surface + a
+  watchbill entry → QM writes a ts-morph "no inline prose literal" checker → Crew rewires the 94 sites,
+  value-matching each literal to its `cli.json` key. Verbatim lift = low conceptual risk, high volume.
 
-## Deck state (2026-07-14, harbour, mid-flight)
+## Regression evidence (2026-07-15, pre-watch-work)
 
-HEAD `062ea63`, tree CLEAN, 19 commits ahead of `origin/main`. npm still at `@dk/jolly@0.12.4`; nothing outbound. Harbour is INCOMPLETE, so no feature voyage opens yet.
+Full regression ran COMPLETE. Weather records: `@logic` 174/179, `@sandbox` light 13/15, `@sandbox`
+heavy 35/36, `@eval` 3/3. **All 8 reds were environmental, none Jolly:**
 
-**The five heavy reds are CLOSED.** The watchbill that closed them was exactly those five plus two conformance checks; all seven green, focused runs, recorded in the run record. The heavy tier has NOT been re-swept as a tier since; the evidence is per-target, which is what the Verification policy asks for.
+- **6 reds = the Vercel session is dead** (`npx vercel whoami` hangs). 3 `@logic` PTY spinners hit
+  the 150s ceiling on "approve the Vercel sign-in", 2 `@sandbox` doctor `vercel-auth: fail`, 1 heavy
+  deploy `pending`. Fitting-out blocker, operator-run login. GATES the re-run of those 6.
+- **2 reds = the npm `--offline` bug.** `packAndInstallJolly` (`006...steps.ts:109`) passes
+  `--offline`, reasoning the package has no runtime deps — but `@bomb.sh/args` IS one, so those two
+  scenarios pass only on a warm npm cache and red cold with `ENOTCACHED`. Verification debt, QM's.
 
-Harbour is INCOMPLETE. Do not open a feature voyage. Owed: the planking pass and `@captain` skeletons for uncovered seams, and `@eval`, which has not run this harbour (`coverage/weather/eval.ndjson` is 07-13). No `@shipwright` condemnations stand. One `@captain` skeleton stands in `025` (baseline-agent turn/token budget); it does not block resuming.
+`@eval`'s credentialed path is now PROVEN at this deck (3/3, live agent). Open question closed.
 
-Board: `@logic` 177/177 green. `@sandbox` light 15/15 green. `@sandbox` heavy: the five reds now green per target. `typecheck` and `gplint` clean.
+**Ruled by dk:**
+
+- **The two hook skeletons PROMOTE** (verification-only, no production seam, so no plank owed; promote
+  at review; owe a planted-red proof; they assert hook deny/permit deliberately — a step definition
+  naming the notes file directly would be blocked by the guard. Expect that trap).
+- **Plank form: Shipshape's step-definition PATTERN governs, not feature step text.** This repo's
+  `methodology-conformance.feature:46` currently pins the wrong contract (joins against feature step
+  TEXT); 402 planks green under it, but 67 violate Shipshape's form, incl. 7 embedding Outline
+  placeholders like `<command>` that can never name anything stable. Work, all harbour-scoped:
+  1. Captain rewrites `methodology-conformance.feature:46` to join planks against step-definition
+     patterns via `step-usage`. (Spec edit — mine.)
+  2. QM fixes `features/support/plank-conformance.ts`: the `PLANK_TOKEN = "@planks"` substring sees
+     `@planks-provisional` but `stepTextOf` only matches `@planks(`, so a provisional plank is seen-
+     and-fails-to-parse. That is why zero provisional planks exist — they are unsatisfiable. QM's
+     checker fix unblocks the planking pass. (Blocker 2.)
+  3. Crew rewrites the 67 non-conforming planks to the pattern form.
+- **Harbour finishes FIRST.** No feature voyage until inventory complete + regression green.
+
+**Corrections to Shipwright's report (verified):** its tier table is stale (regression IS complete,
+above); its `025`-skeleton-has-no-tier-tag warning is WRONG — `025` carries `@eval` at FEATURE level
+(line 1), so the skeleton inherits it.
+
+**Skeleton dispositions (ruled by dk this session):**
+- 2 hook deny/permit (`methodology-conformance.feature`) — PROMOTED + GREEN this session.
+- `user-facing-copy-from-catalog.feature` catalog `@property` — dk ruled promote/verbatim-lift, but
+  RE-HELD `@captain` for the wrap-up. It is the PENDING VOYAGE in the handoff above (~170 keys/94 sites).
+- `005-stripe-checkout-setup.feature` Stripe gate — HELD `@captain`. dk: "for stripe we currently only
+  install the app, we don't have any keys." Jolly installs the Stripe app (Saleor `appInstall`); the
+  "keys-and-channel gate" is a NEXT-STEP message pointing the human to the Dashboard, not a Jolly action.
+  Do not promote a scenario that reads as Jolly handling keys. Its copy is still in-scope for the catalog voyage.
+- `025` baseline-agent budget — HELD `@captain`. Needs turn/token ceiling VALUES from dk. Inherits `@eval`.
+
+**Deferred to next harbour (report-only, re-derivable):** 16 orphaned step definitions (002, 006, 012,
+027, shared); the PTY verification-economy (3 reds burn ~453s/31% of `@logic` producing nothing; top 12
+= 61% of tier); the two generic `` the agent runs `<command>` `` plank attributions on `parseArgs`
+(src/index.ts:190) / `projectDir` (:493) — defensible either way, a single representative pattern per
+generic seam is a valid smaller alternative.
 
 ## The account, corrected
 

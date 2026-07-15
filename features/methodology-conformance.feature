@@ -43,13 +43,13 @@ Feature: Methodology conformance
     And it should invoke no model
 
   @logic @invariant
-  Scenario: Every plank names a step that still exists in a feature
+  Scenario: Every plank names a current step-definition pattern
     Given the "@planks" step texts in the implementation directories
-    When they are joined against the step text of every feature file, with "And" and "But" normalized to the keyword they inherit
-    Then every plank's step should be found in a feature
-    And a plank naming a deleted or renamed step should redden the check
+    When each is cross-referenced by exact string match against the step-definition patterns reported by "step-usage"
+    Then every plank's step should match one current step-definition pattern
+    And a plank matching no current step-definition pattern should redden the check
 
-  @captain @logic @invariant
+  @logic @invariant
   Scenario Outline: The command custody hook denies an internal-role search that reaches the Captain-only notes
     Given the Shipshape Bash custody hook configured for this project
     When it receives a "shipshape:qm" payload whose command is "<vector>"
@@ -64,7 +64,7 @@ Feature: Methodology conformance
       | grep -rl -e . .                |
       | grep -rl --include=*.md -e . . |
 
-  @captain @logic @invariant
+  @logic @invariant
   Scenario Outline: The command custody hook permits an internal-role search the exclusion artifact already covers
     Given the Shipshape Bash custody hook configured for this project
     When it receives a "shipshape:qm" payload whose command is "<vector>"

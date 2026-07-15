@@ -106,7 +106,7 @@ function packAndInstallJolly(world: JollyWorld): {
       "--no-package-lock",
       "--no-audit",
       "--no-fund",
-      "--offline",
+      "--prefer-offline",
       "--ignore-scripts",
     ],
     { cwd: installRoot, env: fullEnv, encoding: "utf8", timeout: 180_000 },

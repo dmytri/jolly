@@ -27,7 +27,7 @@ export const DEVICE_CLIENT_ID = "jolly";
 const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
 
 /**
- * @planks("When the agent runs `jolly login --json`")
+ * @planks("When ^the agent runs `jolly (?!(?:start|doctor|upgrade) --json`)(login|init|start|doctor|upgrade|skills|create store) (--json|--quiet|--yes)`$")
  * @planks("When the user runs `jolly login`")
  * @planks("When the agent runs `jolly doctor saleor --json`")
  */
@@ -41,7 +41,7 @@ export class DeviceGrantError extends Error {
 }
 
 /** Refuse — before any fetch — to contact a non-first-party host.
- * @planks("Then they should be exactly cloud.saleor.io, auth.saleor.io, the customer's `*.saleor.cloud` domains, and github.com, plus any `JOLLY_SALEOR_CLOUD_API_URL` or `JOLLY_SALEOR_AUTH_URL` override")
+ * @planks("Then ^they should be exactly cloud\.saleor\.io, auth\.saleor\.io, the customer's `\*\.saleor\.cloud` domains, and github\.com, plus any `JOLLY_SALEOR_CLOUD_API_URL` or `JOLLY_SALEOR_AUTH_URL` override$")
  */
 function assertFirstParty(url: string): void {
   let host: string;
@@ -74,7 +74,7 @@ export interface DeviceAuthorization {
 
 /**
  * Start the grant: request a device code with client_id=jolly.
- * @planks("When the agent runs `jolly login --json`")
+ * @planks("When ^the agent runs `jolly (?!(?:start|doctor|upgrade) --json`)(login|init|start|doctor|upgrade|skills|create store) (--json|--quiet|--yes)`$")
  * @planks("When the user runs `jolly login`")
  * @planks("When the agent runs `jolly start --json` in a non-interactive shell")
  */
@@ -188,7 +188,7 @@ const sleep = (ms: number): Promise<void> =>
  * `interval`, backs off on `slow_down`, and keeps waiting on
  * `authorization_pending` until the device code expires. Returns the access and
  * refresh tokens once the grant completes.
- * @planks("When the agent runs `jolly login --json`")
+ * @planks("When ^the agent runs `jolly (?!(?:start|doctor|upgrade) --json`)(login|init|start|doctor|upgrade|skills|create store) (--json|--quiet|--yes)`$")
  * @planks("When the user runs `jolly login`")
  */
 export async function pollForDeviceTokens(

@@ -74,7 +74,7 @@ const POLL_INTERVAL_MS = 5_000;
 const POLL_TIMEOUT_MS = 480_000; // stay under the harness's CLI timeout
 
 /** Error from the Cloud API with a stable, branchable code.
- * @planks(`Then the envelope status should be "error" with the stable code `ENVIRONMENT_LIMIT_REACHED``)
+ * @planks("Then the envelope status should be {string} with the stable code `ENVIRONMENT_LIMIT_REACHED`")
  */
 export class CloudApiError extends Error {
   readonly code: string;
@@ -304,10 +304,10 @@ export interface EnvironmentCreationBody {
  * preview reports the very body the real request sends. `database_population`
  * is null: the Saleor Cloud "blank" template (feature 012 Rule "Created
  * environments are provisioned blank").
- * @planks("Then there should be exactly one, and both the `--dry-run` preview and the real request should report and send that one body")
+ * @planks("Then ^there should be exactly one, and both the `--dry-run` preview and the real request should report and send that one body$")
  * @planks("Then the POST body should include name, project, domain_label, database_population, service, and optional basic-auth credentials")
  * @planks("Then the prepared request should create a blank environment with no sample data")
- * @planks(`Then the default region should be "us-east-1"`)
+ * @planks("Then the default region should be {string}")
  */
 export function environmentCreationBody(opts: {
   name: string;
@@ -332,9 +332,9 @@ export function environmentCreationBody(opts: {
  * the organization's sandbox environment limit surfaces as a CloudApiError
  * with the stable code ENVIRONMENT_LIMIT_REACHED (feature 012 Rule).
  * @planks("When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-cannon-fodder identifier")
- * @planks("Then it should create an environment via POST /platform/api/organizations/{organization}/environments/")
+ * @planks("Then it should create an environment via POST \/platform\/api\/organizations\/\{organization}\/environments\/")
  * @planks("When the agent runs `jolly create store --create-environment --json`")
- * @planks(`Then the envelope status should be "error" with the stable code `ENVIRONMENT_LIMIT_REACHED``)
+ * @planks("Then the envelope status should be {string} with the stable code `ENVIRONMENT_LIMIT_REACHED`")
  */
 export async function createEnvironment(
   token: string,
@@ -422,7 +422,7 @@ export interface TaskStatus {
 }
 
 /** The poll URL for a task: GET /platform/api/service/task-status/{task_id}.
- * @planks(`Then Jolly should poll GET /platform/api/service/task-status/{task_id} until status is "SUCCEEDED"`)
+ * @planks("Then Jolly should poll GET \/platform\/api\/service\/task-status\/\{task_id} until status is {string}")
  */
 function taskStatusUrl(taskId: string): string {
   return `${cloudApiBase()}/service/task-status/${taskId}/`;
@@ -437,7 +437,7 @@ function taskStatusUrl(taskId: string): string {
  * from the creation response, and the endpoint is anonymous — sending the
  * Cloud `Authorization: Token` header makes the service try (and fail) to
  * decode it as a JWT, returning 401 "Error decoding signature".
- * @planks(`Then Jolly should poll GET /platform/api/service/task-status/{task_id} until status is "SUCCEEDED"`)
+ * @planks("Then Jolly should poll GET \/platform\/api\/service\/task-status\/\{task_id} until status is {string}")
  * @planks("Then the environment creation should return a task_id for async job polling")
  */
 export async function pollTaskStatus(
@@ -610,7 +610,7 @@ export async function queryGetApps(
  * Checking products (not "any deletion in the diff") avoids both an expensive
  * second configurator introspection and the unreliable job of deciding by name
  * which deletions are Saleor's stock defaults.
- * @planks("Then the recipe stage should pass `--failOnDelete` to `npx @saleor/configurator@latest deploy`")
+ * @planks("Then the recipe stage should pass `--failOnDelete` to `npx @saleor\/configurator@latest deploy`")
  */
 export async function storeHoldsForeignCatalog(
   graphqlUrl: string,
@@ -667,11 +667,11 @@ export interface RecipeIdentifiers {
  * assigns it after the deploy from the derived list; {@link storeHoldsForeignCatalog}
  * uses the derived product slugs to tell the recipe's own catalog apart from a
  * customer's; {@link seedRecipeStock} seeds stock into the derived warehouse.
- * @planks("When the cloud-api module derives the recipe identifiers from that asset")
- * @planks("When the cloud-api module derives the recipe identifiers from it")
- * @planks(`Then the warehouse slug it uses should be "test-anchorage"`)
- * @planks(`Then the product slugs it uses should be "first-mate" and "second-mate"`)
- * @planks(`Then the "crew-picks" collection it assigns should contain "first-mate"`)
+ * @planks("When ^the cloud-api module derives the recipe identifiers from (?:that asset|it)$")
+ * @planks("When ^the cloud-api module derives the recipe identifiers from (?:that asset|it)$")
+ * @planks("Then the warehouse slug it uses should be {string}")
+ * @planks("Then the product slugs it uses should be {string} and {string}")
+ * @planks("Then the {string} collection it assigns should contain {string}")
  */
 export function deriveRecipeIdentifiers(recipeYamlPath: string): RecipeIdentifiers {
   const recipe = parse(readFileSync(recipeYamlPath, "utf8")) as {

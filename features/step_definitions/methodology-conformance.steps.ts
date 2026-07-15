@@ -34,18 +34,17 @@ import {
   type TokenMatch,
 } from "../support/methodology-conformance.ts";
 import {
-  collectFeatureSteps,
   collectPlanks,
+  collectStepUsagePatterns,
   findPlankFormViolations,
-  findStalePlanks,
+  findUnpatternedPlanks,
   type InjectedSource,
   type Plank,
   type PlankViolation,
 } from "../support/plank-conformance.ts";
 
-/** The implementation directories from RIGGING.md, and the specs directory. */
+/** The implementation directories from RIGGING.md. */
 const IMPLEMENTATION_DIRS = ["src/", "bin/"];
-const SPECS_DIR = "features/";
 
 Given(
   "the implementation directories {string} and {string}",
@@ -303,42 +302,51 @@ Given(
 );
 
 When(
-  "they are joined against the step text of every feature file, with {string} and {string} normalized to the keyword they inherit",
-  function (this: JollyWorld, _and: string, _but: string) {
-    const featureSteps = collectFeatureSteps(SPECS_DIR);
-    this.notes.featureSteps = featureSteps;
-    this.notes.stalePlanks = findStalePlanks(this.notes.planks as Plank[], featureSteps);
+  "each is cross-referenced by exact string match against the step-definition patterns reported by {string}",
+  function (this: JollyWorld, _tool: string) {
+    const patterns = collectStepUsagePatterns();
+    this.notes.usagePatterns = patterns;
+    this.notes.unpatternedPlanks = findUnpatternedPlanks(
+      this.notes.planks as Plank[],
+      patterns,
+    );
   },
 );
 
-Then("every plank's step should be found in a feature", function (this: JollyWorld) {
-  const stale = this.notes.stalePlanks as Plank[];
-  assert.equal(
-    stale.length,
-    0,
-    `planks naming a step no feature carries:\n${stale
-      .map((plank) => `  - ${plank.file}:${plank.line} "${plank.step}"`)
-      .join("\n")}`,
-  );
-});
+Then(
+  "every plank's step should match one current step-definition pattern",
+  function (this: JollyWorld) {
+    const unpatterned = this.notes.unpatternedPlanks as Plank[];
+    assert.equal(
+      unpatterned.length,
+      0,
+      `planks matching no current step-definition pattern:\n${unpatterned
+        .map((plank) => `  - ${plank.file}:${plank.line} "${plank.step}"`)
+        .join("\n")}`,
+    );
+  },
+);
 
 Then(
-  "a plank naming a deleted or renamed step should redden the check",
+  "a plank matching no current step-definition pattern should redden the check",
   function (this: JollyWorld) {
     const planted: InjectedSource = {
-      file: "src/.planted-stale-plank.ts",
+      file: "src/.planted-unpatterned-plank.ts",
       text: [
-        '/** @planks("Then the deleted step no feature carries any longer") */',
-        "export function strandedSeam(): boolean {",
+        '/** @planks("Then no current step-definition pattern carries this exact text") */',
+        "export function unpatternedSeam(): boolean {",
         "  return true;",
         "}",
       ].join("\n"),
     };
     const planks = collectPlanks(this.notes.implDirs as string[], [planted]);
-    const stale = findStalePlanks(planks, this.notes.featureSteps as Set<string>);
+    const unpatterned = findUnpatternedPlanks(
+      planks,
+      this.notes.usagePatterns as string[],
+    );
     assert.ok(
-      stale.some((plank) => plank.file === planted.file),
-      "a plank naming a step no feature carries was not reported stale",
+      unpatterned.some((plank) => plank.file === planted.file),
+      "a plank naming no current step-definition pattern was not reported",
     );
   },
 );

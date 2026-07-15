@@ -43,7 +43,7 @@ function unquoteEnvValue(raw: string): string {
  * @planks("Then Jolly should load the updated .env values for the current command flow")
  * @planks("Then it should write NEXT_PUBLIC_SALEOR_API_URL to .env from the resulting domain")
  * @planks("Then it should write SALEOR_URL and SALEOR_TOKEN to .env from the authenticated session")
- * @planks("Then `jolly start` should write that `NEXT_PUBLIC_SALEOR_API_URL` (mirrored to `SALEOR_URL`) and the resolved `SALEOR_TOKEN` to `.env`")
+ * @planks("Then `jolly start` should write that `NEXT_PUBLIC_SALEOR_API_URL` \(mirrored to `SALEOR_URL`) and the resolved `SALEOR_TOKEN` to `.env`")
  */
 export function loadEnvValues(projectDir: string): Record<string, string> {
   const path = join(projectDir, ".env");
@@ -66,7 +66,7 @@ export function loadEnvValues(projectDir: string): Record<string, string> {
  * text so this module stays generic about what the header says.
  * @planks("Then Jolly should write the URL to .env as NEXT_PUBLIC_SALEOR_API_URL")
  * @planks("Then it should write SALEOR_URL and SALEOR_TOKEN to .env from the authenticated session")
- * @planks("Then `jolly start` should write that `NEXT_PUBLIC_SALEOR_API_URL` (mirrored to `SALEOR_URL`) and the resolved `SALEOR_TOKEN` to `.env`")
+ * @planks("Then `jolly start` should write that `NEXT_PUBLIC_SALEOR_API_URL` \(mirrored to `SALEOR_URL`) and the resolved `SALEOR_TOKEN` to `.env`")
  */
 export function ensureEnvHeader(projectDir: string, headerText: string): void {
   const path = join(projectDir, ".env");
@@ -103,7 +103,7 @@ function ensureEnvIgnored(projectDir: string): void {
  * @planks("Then it should store the device-grant refresh token in .env as JOLLY_SALEOR_REFRESH_TOKEN")
  * @planks("Then it should store the token in .env as JOLLY_SALEOR_CLOUD_TOKEN")
  * @planks("Then it should store the organization name returned by the Cloud API in .env as JOLLY_SALEOR_ORGANIZATION")
- * @planks("Then `jolly start` should write that `NEXT_PUBLIC_SALEOR_API_URL` (mirrored to `SALEOR_URL`) and the resolved `SALEOR_TOKEN` to `.env`")
+ * @planks("Then `jolly start` should write that `NEXT_PUBLIC_SALEOR_API_URL` \(mirrored to `SALEOR_URL`) and the resolved `SALEOR_TOKEN` to `.env`")
  */
 export function writeEnvValues(
   projectDir: string,

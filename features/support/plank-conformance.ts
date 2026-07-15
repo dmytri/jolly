@@ -14,6 +14,7 @@
 // `bin/jolly` is an extensionless JavaScript launcher, so it is added to the
 // AST project under a virtual `.js` path; its text is the real file's.
 import { Node, Project, SyntaxKind } from "ts-morph";
+import { spawnSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { extname, join } from "node:path";
 import { REPO_ROOT } from "./repo-root.ts";
@@ -219,35 +220,62 @@ export function collectPlanks(
 }
 
 /**
- * Every step text in every feature file under the specs directory, with `And`
- * and `But` normalized to the `Given`, `When`, or `Then` keyword they inherit,
- * so a plank's step joins against the text a reader sees in the scenario.
+ * The step-definition patterns the `step-usage` runner reports, as verbatim
+ * strings. The RIGGING `step-usage` command runs the whole suite dry (executing
+ * nothing) and emits one `usage-json` array; each entry carries the step
+ * definition's `pattern`. A plank's durable contract is one of these patterns,
+ * so this set is what a plank cross-references against.
  */
-export function collectFeatureSteps(specsDir: string): Set<string> {
-  const steps = new Set<string>();
-  for (const file of walkFiles(join(REPO_ROOT, specsDir), (name) =>
-    name.endsWith(".feature"),
-  )) {
-    let inherited = "Given";
-    for (const rawLine of readFileSync(file, "utf8").split("\n")) {
-      const line = rawLine.trim();
-      const match = /^(Given|When|Then|And|But|\*)\s+(.*)$/.exec(line);
-      if (!match) continue;
-      const keyword = match[1]!;
-      const text = match[2]!.trim();
-      if (keyword === "Given" || keyword === "When" || keyword === "Then") {
-        inherited = keyword;
-      }
-      steps.add(`${inherited} ${text}`);
-    }
+export function collectStepUsagePatterns(): string[] {
+  const result = spawnSync(
+    "npx",
+    [
+      "cucumber-js",
+      "-p",
+      "all",
+      "--dry-run",
+      "--format",
+      "usage-json",
+      "--tags",
+      "not @captain and not @shipwright",
+    ],
+    {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      timeout: 120_000,
+      maxBuffer: 256 * 1024 * 1024,
+    },
+  );
+  if (typeof result.stdout !== "string" || result.stdout.trim() === "") {
+    throw new Error(
+      `step-usage produced no usage-json on stdout (status ${result.status}); stderr:\n${result.stderr ?? ""}`,
+    );
   }
-  return steps;
+  const usage = JSON.parse(result.stdout) as Array<{ pattern: string }>;
+  return usage.map((entry) => entry.pattern);
+}
+
+/** A plank step with its leading Given/When/Then keyword removed, so it can be
+ * compared against a keyword-less step-definition pattern. */
+function withoutKeyword(step: string): string {
+  for (const keyword of STEP_KEYWORDS) {
+    const prefix = `${keyword} `;
+    if (step.startsWith(prefix)) return step.slice(prefix.length);
+  }
+  return step;
 }
 
 /**
- * Stale planks: planks whose step text appears in no feature file, so the step
- * was deleted or renamed and the plank no longer traces to a contract.
+ * Unpatterned planks: planks whose step matches no current step-definition
+ * pattern by exact string. `step-usage` reports each pattern without a leading
+ * keyword, so a plank matches when its keyword-stripped step equals a pattern
+ * verbatim. A plank carrying a concrete example line rather than the pattern
+ * matches nothing and is reported: it stores a second copy of the join the
+ * runner already derives, and drifts with every data edit.
  */
-export function findStalePlanks(planks: Plank[], featureSteps: Set<string>): Plank[] {
-  return planks.filter((plank) => !featureSteps.has(plank.step));
+export function findUnpatternedPlanks(planks: Plank[], patterns: Iterable<string>): Plank[] {
+  const patternSet = new Set(patterns);
+  return planks.filter(
+    (plank) => !patternSet.has(plank.step) && !patternSet.has(withoutKeyword(plank.step)),
+  );
 }
