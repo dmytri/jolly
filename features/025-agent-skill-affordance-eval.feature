@@ -117,12 +117,11 @@ Feature: Agent skill affordance evaluation
     And each entry should name the Jolly command that invocation ran, taken from the CLI trace, or record that it ran none
     And a run whose agent recorded no usage should redden rather than report a cost of zero
 
-  @captain
-  Scenario: A baseline agent sets up a project within its declared turn and token budget
-    Given the turn budget and token budget declared for the baseline agent
+  Scenario: A baseline agent sets up a project within its turn and token budget
+    Given a turn budget of 20 model invocations and a token budget of 400000 tokens for the baseline agent
     When the agent completes the setup task
-    Then the model invocations it made should be within the declared turn budget
-    And the tokens it consumed should be within the declared token budget
+    Then the model invocations it made should be within the turn budget
+    And the tokens it consumed, prompt and completion summed across every invocation, should be within the token budget
     And a run that exceeds either budget should redden, naming the turn at which it crossed the ceiling
 
   Scenario: Jolly's error output carries the recovery, so the agent never falls back to reading help

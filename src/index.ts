@@ -515,13 +515,13 @@ interface SkillSpec {
 }
 
 const DEFAULT_SKILLS: SkillSpec[] = [
-  { id: "jolly", ref: "dmytri/jolly", description: "The Jolly end-to-end playbook" },
-  { id: "saleor-storefront", ref: "https://github.com/saleor/agent-skills/tree/main/skills/saleor-storefront", description: "Saleor storefront guidance" },
-  { id: "saleor-configurator", ref: "https://github.com/saleor/agent-skills/tree/main/skills/saleor-configurator", description: "Configuration-as-code guidance" },
-  { id: "storefront-builder", ref: "https://github.com/saleor/agent-skills/tree/main/skills/storefront-builder", description: "Storefront build guidance" },
-  { id: "saleor-core", ref: "https://github.com/saleor/agent-skills/tree/main/skills/saleor-core", description: "Saleor core concepts" },
-  { id: "saleor-app", ref: "https://github.com/saleor/agent-skills/tree/main/skills/saleor-app", description: "Saleor app development guidance" },
-  { id: "stripe-best-practices", ref: "stripe/ai@stripe-best-practices", description: "Stripe integration best practices" },
+  { id: "jolly", ref: "dmytri/jolly", description: cliMessage("skills.catalog.jolly.description") },
+  { id: "saleor-storefront", ref: "https://github.com/saleor/agent-skills/tree/main/skills/saleor-storefront", description: cliMessage("skills.catalog.saleorStorefront.description") },
+  { id: "saleor-configurator", ref: "https://github.com/saleor/agent-skills/tree/main/skills/saleor-configurator", description: cliMessage("skills.catalog.saleorConfigurator.description") },
+  { id: "storefront-builder", ref: "https://github.com/saleor/agent-skills/tree/main/skills/storefront-builder", description: cliMessage("skills.catalog.storefrontBuilder.description") },
+  { id: "saleor-core", ref: "https://github.com/saleor/agent-skills/tree/main/skills/saleor-core", description: cliMessage("skills.catalog.saleorCore.description") },
+  { id: "saleor-app", ref: "https://github.com/saleor/agent-skills/tree/main/skills/saleor-app", description: cliMessage("skills.catalog.saleorApp.description") },
+  { id: "stripe-best-practices", ref: "stripe/ai@stripe-best-practices", description: cliMessage("skills.catalog.stripeBestPractices.description") },
 ];
 
 // Universal project-local skill location `npx skills add` (no --agent) writes
@@ -598,21 +598,19 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
       // empty variable rather than falling through to the no-source path.
       return errorEnvelope(
         command,
-        "JOLLY_SALEOR_CLOUD_TOKEN is set but empty. Nothing was written.",
+        cliMessage("login.summary.emptyToken"),
         [
           {
             code: "EMPTY_TOKEN",
-            message:
-              "JOLLY_SALEOR_CLOUD_TOKEN is set to an empty value; no token was read.",
-            remediation:
-              "JOLLY_SALEOR_CLOUD_TOKEN is empty. Unset it, then run `jolly login` to sign in through the Saleor device authorization grant.",
+            message: cliMessage("login.error.emptyToken.message"),
+            remediation: cliMessage("login.error.emptyToken.remediation"),
           },
         ],
         {
           data: { riskContext: loginRiskContext() },
           nextSteps: [
             {
-              description: "Run `jolly login` to sign in through the Saleor device authorization grant.",
+              description: cliMessage("login.next.runLogin"),
               command: "jolly login",
             },
           ],
@@ -627,12 +625,11 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
     return envelope({
       command,
       status: "success",
-      summary: "Previewed login; nothing was written.",
+      summary: cliMessage("login.summary.previewedOnly"),
       data: { riskContext: loginRiskContext(), dryRun: true },
       nextSteps: [
         {
-          description:
-            "Run `jolly login` to sign in through the Saleor device authorization grant, or set JOLLY_SALEOR_CLOUD_TOKEN for non-interactive use.",
+          description: cliMessage("login.next.runLoginOrSetToken"),
           command: "jolly login",
         },
       ],
@@ -671,13 +668,12 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
     // Invalid token: write nothing, error honestly.
     return errorEnvelope(
       command,
-      "The token was rejected by the Cloud API. Nothing was written.",
+      cliMessage("login.summary.rejected"),
       [
         {
           code: "INVALID_TOKEN",
-          message: "Saleor Cloud rejected the token (HTTP 401/403). It was not stored.",
-          remediation:
-            "Run `jolly login` to sign in through the Saleor device authorization grant.",
+          message: cliMessage("login.error.invalidToken.message"),
+          remediation: cliMessage("login.error.invalidToken.remediation"),
         },
       ],
       {
@@ -685,14 +681,13 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
           {
             id: "cloud-token-verification",
             status: "fail",
-            description: "Token rejected by the Cloud API.",
+            description: cliMessage("login.check.cloudTokenVerification.fail"),
           },
         ],
         data: { riskContext: loginRiskContext() },
         nextSteps: [
           {
-            description:
-              "Run `jolly login` to sign in through the Saleor device authorization grant.",
+            description: cliMessage("login.next.runLoginAfterRejection"),
             command: "jolly login",
           },
         ],
@@ -709,7 +704,7 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
     return envelope({
       command,
       status: "warning",
-      summary: "Token stored, not verified — the Cloud API was unreachable.",
+      summary: cliMessage("login.summary.storedNotVerified"),
       data: {
         cloudTokenStored: true,
         verified: false,
@@ -720,12 +715,12 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
         {
           id: "cloud-token-verification",
           status: "unknown",
-          description: "stored, not verified — the Cloud API was unreachable.",
+          description: cliMessage("login.check.cloudTokenVerification.unknown"),
         },
       ],
       nextSteps: [
         {
-          description: "Re-run jolly login when the Cloud API is reachable to verify the token.",
+          description: cliMessage("login.next.reRunWhenReachable"),
           command: "jolly login",
         },
       ],
@@ -743,8 +738,8 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
     command,
     status: "success",
     summary: orgName
-      ? `Token verified and stored. Authenticated as "${orgName}".`
-      : "Token verified and stored.",
+      ? cliMessage("login.summary.storedWithOrganization", { orgName })
+      : cliMessage("login.summary.stored"),
     data: {
       cloudTokenStored: true,
       verified: true,
@@ -755,12 +750,12 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
       {
         id: "cloud-token-verification",
         status: "pass",
-        description: "Token verified against the Cloud API organizations endpoint.",
+        description: cliMessage("login.check.cloudTokenVerification.pass"),
       },
     ],
     nextSteps: [
       {
-        description: "Run jolly create store to provision a Saleor Cloud environment.",
+        description: cliMessage("login.next.createStore"),
         command: "jolly create store --create-environment",
       },
     ],
@@ -798,7 +793,7 @@ async function deviceGrantLogin(command: string): Promise<Envelope> {
   return envelope({
     command,
     status: "success",
-    summary: "Signed in through the Saleor device authorization grant.",
+    summary: cliMessage("login.summary.success"),
     data: { cloudTokenStored: true, riskContext: loginRiskContext() },
   });
 }
@@ -896,7 +891,7 @@ function deviceVerificationUrl(auth: DeviceAuthorization): string {
 function deviceAuthNextStep(auth: DeviceAuthorization, command: string): NextStep {
   const url = deviceVerificationUrl(auth);
   return {
-    description: `Hand this link to your human to approve the Saleor sign-in in their browser — it's their account, not yours: ${url}. Tell them to reply "done" once they've approved; then re-run \`${command}\` and I continue.`,
+    description: cliMessage("login.next", { url, command }),
     url,
     command,
   };
@@ -970,7 +965,7 @@ async function deviceGrantLoginAgent(
     return envelope({
       command,
       status: "success",
-      summary: "Signed in through the Saleor device authorization grant.",
+      summary: cliMessage("login.summary.success"),
       data: { cloudTokenStored: true, riskContext: loginRiskContext() },
     });
   }
@@ -980,7 +975,7 @@ async function deviceGrantLoginAgent(
   return envelope({
     command,
     status: "warning",
-    summary: "Approve the Saleor sign-in in your browser, then re-run `jolly login` to finish.",
+    summary: cliMessage("login.summary.approvalPending"),
     data: {
       authorizationPending: true,
       verificationUrl: deviceVerificationUrl(outcome.auth),
@@ -1050,8 +1045,8 @@ function commandLogout(_args: ParsedArgs): Envelope {
     status: "success",
     summary:
       removed.length > 0
-        ? `Removed Jolly-managed Saleor auth values from .env (${[...new Set(removed)].join(", ")}).`
-        : "No Jolly-managed Saleor auth values were present in .env.",
+        ? cliMessage("logout.summary.removed", { removed: [...new Set(removed)].join(", ") })
+        : cliMessage("logout.summary.nothingPresent"),
     data: {
       removed: [...new Set(removed)],
       preservedOthers: true,
@@ -1060,12 +1055,12 @@ function commandLogout(_args: ParsedArgs): Envelope {
       {
         id: "auth-cleared",
         status: "pass",
-        description: "Jolly-managed Saleor auth values are no longer in .env.",
+        description: cliMessage("logout.check.authCleared.pass"),
       },
     ],
     nextSteps: [
       {
-        description: "Run jolly login to authenticate again when needed.",
+        description: cliMessage("logout.next"),
         command: "jolly login",
       },
     ],
@@ -1084,22 +1079,22 @@ function commandAuthStatus(_args: ParsedArgs): Envelope {
   const hasCloudToken = Boolean(values["JOLLY_SALEOR_CLOUD_TOKEN"]);
   const hasSaleorToken = Boolean(values["SALEOR_TOKEN"]);
   const org = values["JOLLY_SALEOR_ORGANIZATION"];
-  const accountContext = org && org.length > 0 ? org : "unknown";
+  const accountContext = org && org.length > 0 ? org : cliMessage("auth.value.unknownOrganization");
 
   const checks: Check[] = [
     {
       id: "cloud-token-configured",
       status: hasCloudToken ? "pass" : "warning",
       description: hasCloudToken
-        ? "JOLLY_SALEOR_CLOUD_TOKEN is configured in .env."
-        : "JOLLY_SALEOR_CLOUD_TOKEN is not configured.",
+        ? cliMessage("checks.check.cloudTokenConfigured.pass")
+        : cliMessage("checks.check.cloudTokenConfigured.warning"),
     },
     {
       id: "saleor-token-configured",
       status: hasSaleorToken ? "pass" : "skipped",
       description: hasSaleorToken
-        ? "SALEOR_TOKEN is configured in .env."
-        : "SALEOR_TOKEN is not configured.",
+        ? cliMessage("checks.check.saleorTokenConfigured.pass")
+        : cliMessage("checks.check.saleorTokenConfigured.skipped"),
     },
   ];
 
@@ -1107,8 +1102,8 @@ function commandAuthStatus(_args: ParsedArgs): Envelope {
     command,
     status: "success",
     summary: hasCloudToken
-      ? `Saleor Cloud authentication is configured (account context: ${accountContext}).`
-      : "Saleor Cloud authentication is not configured.",
+      ? cliMessage("auth.status.summary.configured", { accountContext })
+      : cliMessage("auth.status.summary.notConfigured"),
     data: {
       hasCloudToken,
       hasSaleorToken,
@@ -1119,7 +1114,7 @@ function commandAuthStatus(_args: ParsedArgs): Envelope {
       ? []
       : [
           {
-            description: "Run jolly login to configure Saleor Cloud authentication.",
+            description: cliMessage("auth.status.next"),
             command: "jolly login",
           },
         ],
@@ -1224,20 +1219,19 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
     if (!normalized.endpoint) {
       return errorEnvelope(
         command,
-        "The provided URL could not be normalized to a Saleor GraphQL endpoint.",
+        cliMessage("createStore.summary.urlNotNormalizable"),
         [
           {
             code: "INVALID_SALEOR_URL",
-            message: normalized.clarification ?? "Unrecognized Saleor URL.",
-            remediation: "Paste a Saleor Dashboard, GraphQL, or root Saleor Cloud URL.",
+            message: normalized.clarification ?? cliMessage("createStore.error.invalidSaleorUrl.message"),
+            remediation: cliMessage("createStore.error.invalidSaleorUrl.remediation"),
           },
         ],
         {
           data: { riskContext: createStoreRiskContext(url) },
           nextSteps: [
             {
-              description:
-                "Re-run with a Saleor Dashboard, GraphQL, or root Saleor Cloud URL.",
+              description: cliMessage("createStore.next.reRunWithSaleorUrl"),
               command: "jolly create store --url https://<store>.saleor.cloud/graphql/",
             },
           ],
@@ -1253,19 +1247,19 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
     if (!isFirstPartyHost(pastedHost)) {
       return errorEnvelope(
         command,
-        `Refusing to use a non-first-party host: ${pastedHost}.`,
+        cliMessage("createStore.summary.nonFirstPartyHost", { pastedHost }),
         [
           {
             code: "NON_FIRST_PARTY_HOST",
-            message: `Refusing to send a request to non-first-party host ${pastedHost}.`,
-            remediation: "Use your Saleor Cloud store URL (a *.saleor.cloud endpoint).",
+            message: cliMessage("createStore.error.nonFirstPartyHost.message", { pastedHost }),
+            remediation: cliMessage("createStore.error.nonFirstPartyHost.remediation"),
           },
         ],
         {
           data: { riskContext: createStoreRiskContext(normalized.endpoint) },
           nextSteps: [
             {
-              description: "Re-run with your Saleor Cloud store URL.",
+              description: cliMessage("createStore.next.reRunWithCloudUrl"),
               command: "jolly create store --url https://<store>.saleor.cloud/graphql/",
             },
           ],
@@ -1277,7 +1271,7 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
       return envelope({
         command,
         status: "success",
-        summary: "Previewed storing the Saleor endpoint; nothing was written.",
+        summary: cliMessage("createStore.summary.previewedOnly"),
         data: {
           dryRun: true,
           normalizedUrl: normalized.endpoint,
@@ -1285,7 +1279,7 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
         },
         nextSteps: [
           {
-            description: "Run the command without --dry-run to write the endpoint to .env.",
+            description: cliMessage("createStore.next.reRunWithoutDryRun"),
             command: `jolly create store --url ${normalized.endpoint}`,
           },
         ],
@@ -1305,9 +1299,7 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
       return envelope({
         command,
         status: "warning",
-        summary:
-          "A different NEXT_PUBLIC_SALEOR_API_URL already exists in .env; " +
-          "Jolly paused instead of overwriting it. Re-run with --yes to replace it.",
+        summary: cliMessage("createStore.summary.endpointConflict"),
         data: {
           collision: true,
           existingEndpoint,
@@ -1328,14 +1320,12 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
           {
             id: "saleor-endpoint-collision",
             status: "warning",
-            description:
-              "An existing NEXT_PUBLIC_SALEOR_API_URL would be overwritten; not replaced without --yes.",
+            description: cliMessage("createStore.check.saleorEndpointCollision.warning"),
           },
         ],
         nextSteps: [
           {
-            description:
-              "Re-run with --yes to overwrite the existing endpoint (the agent decides).",
+            description: cliMessage("createStore.next.reRunWithYesToOverwrite"),
             command: `jolly create store --url ${normalized.endpoint} --yes`,
           },
         ],
@@ -1358,8 +1348,8 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
       command,
       status: "success",
       summary: location
-        ? `Wrote NEXT_PUBLIC_SALEOR_API_URL to .env; resolved organization "${location.organization}" from the endpoint host.`
-        : "Wrote NEXT_PUBLIC_SALEOR_API_URL to .env; the endpoint is stored, not verified.",
+        ? cliMessage("createStore.summary.storedWithOrganization", { organization: location.organization })
+        : cliMessage("createStore.summary.storedNotVerified"),
       data: {
         stored: true,
         envVar: "NEXT_PUBLIC_SALEOR_API_URL",
@@ -1372,15 +1362,12 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
         {
           id: "saleor-endpoint-stored",
           status: "pass",
-          description:
-            "NEXT_PUBLIC_SALEOR_API_URL written to .env; the endpoint is stored, not verified.",
+          description: cliMessage("createStore.check.saleorEndpointStored.pass"),
         },
       ],
       nextSteps: [
         {
-          description:
-            "Run jolly start to continue the end-to-end setup; it recognizes the " +
-            "stored store and resumes rather than redoing it.",
+          description: cliMessage("createStore.next.runStartToContinue"),
           command: "jolly start",
         },
       ],
@@ -1400,12 +1387,12 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
   if (!token) {
     return errorEnvelope(
       command,
-      "No Saleor Cloud token is configured; cannot provision a store.",
+      cliMessage("createStore.summary.noToken"),
       [
         {
           code: "MISSING_CLOUD_TOKEN",
-          message: "JOLLY_SALEOR_CLOUD_TOKEN is required to create a Saleor Cloud store.",
-          remediation: "Run `jolly login` first.",
+          message: cliMessage("createStore.error.missingCloudToken.message"),
+          remediation: cliMessage("createStore.error.missingCloudToken.remediation"),
         },
       ],
       {
@@ -1414,7 +1401,7 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
         },
         nextSteps: [
           {
-            description: "Run jolly login to acquire a Saleor Cloud token.",
+            description: cliMessage("createStore.next.runLoginForToken"),
             command: "jolly login",
           },
         ],
@@ -1451,21 +1438,19 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
   } else if (orgs.length === 0) {
     return errorEnvelope(
       command,
-      "The Cloud token has access to no organizations.",
+      cliMessage("createStore.summary.noOrganizations"),
       [
         {
           code: "NO_ORGANIZATIONS",
-          message: "No organizations are accessible with this Cloud token.",
-          remediation:
-            "Run `jolly login` to sign in through the Saleor device authorization grant, then retry.",
+          message: cliMessage("createStore.error.noOrganizations.message"),
+          remediation: cliMessage("createStore.error.noOrganizations.remediation"),
         },
       ],
       {
         data: { riskContext: createStoreRiskContext(cloudApiBase()) },
         nextSteps: [
           {
-            description:
-              "Sign in with an account that has a Saleor Cloud organization, then retry.",
+            description: cliMessage("createStore.next.signInWithOrganization"),
             command: "jolly login",
           },
         ],
@@ -1495,8 +1480,8 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
       command,
       status: multiOrgWarning ? "warning" : "success",
       summary: multiOrgWarning
-        ? `Previewed environment creation in "${selectedOrg}" (token has multiple organizations).`
-        : `Previewed environment creation in organization "${selectedOrg}".`,
+        ? cliMessage("createStore.env.summary.warning", { selectedOrg })
+        : cliMessage("createStore.env.summary.success", { selectedOrg }),
       data: {
         dryRun: true,
         method: "POST",
@@ -1512,7 +1497,7 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
       },
       nextSteps: [
         {
-          description: "Run the command without --dry-run to create the environment.",
+          description: cliMessage("createStore.env.next.reRunWithoutDryRun"),
           command: "jolly create store --create-environment",
         },
       ],
@@ -1528,7 +1513,7 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
     return envelope({
       command,
       status: "warning",
-      summary: `The Cloud token has multiple organizations; Jolly selected "${selectedOrg}".`,
+      summary: cliMessage("createStore.summary.multipleOrganizations", { selectedOrg }),
       data: {
         availableOrganizations: orgs.map((o) => o.slug),
         selectedOrganization: selectedOrg,
@@ -1538,14 +1523,14 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
         {
           id: "organization-selection",
           status: "warning",
-          description: `Selected "${selectedOrg}". Re-run with --organization <slug> if this is wrong.`,
+          description: cliMessage("createStore.check.organizationSelection.warning", { selectedOrg }),
         },
       ],
       nextSteps: [
         {
-          description: `Re-run with --organization <slug> to choose explicitly. Available: ${orgs
-            .map((o) => o.slug)
-            .join(", ")}.`,
+          description: cliMessage("createStore.next.reRunWithOrganization", {
+            organizations: orgs.map((o) => o.slug).join(", "),
+          }),
           command: `jolly create store --create-environment --organization ${selectedOrg}`,
         },
       ],
@@ -1567,8 +1552,11 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
       command,
       status: result.readinessTimedOut ? "warning" : "success",
       summary: result.readinessTimedOut
-        ? `Saleor Cloud environment "${result.environmentName}" created in "${selectedOrg}", but its endpoint did not become reachable within the readiness budget.`
-        : `Saleor Cloud environment ready in "${selectedOrg}".`,
+        ? cliMessage("createStore.summary.environmentUnreachable", {
+            environmentName: result.environmentName,
+            selectedOrg,
+          })
+        : cliMessage("createStore.summary.environmentReady", { selectedOrg }),
       data: {
         organization: selectedOrg,
         organizationSlug: selectedOrg,
@@ -1587,24 +1575,23 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
           id: "environment-provisioned",
           status: result.readinessTimedOut ? "fail" : "pass",
           description: result.readinessTimedOut
-            ? "Environment created, but its Saleor endpoint did not become reachable within the readiness budget."
+            ? cliMessage("createStore.check.environmentProvisioned.unreachable")
             : result.environmentCreated
-              ? "Environment created and verified via task status."
-              : "Existing environment reused.",
+              ? cliMessage("createStore.check.environmentProvisioned.verified")
+              : cliMessage("createStore.check.environmentProvisioned.pass"),
           ...(result.readinessTimedOut
-            ? { remediation: "The store may still be starting up. Re-run in a few moments to confirm." }
+            ? { remediation: cliMessage("createStore.remediation") }
             : {}),
         },
       ],
       nextSteps: [
         result.readinessTimedOut
           ? {
-              description:
-                "The store may still be starting up. Re-run the doctor checks in a few moments to confirm the endpoint serves.",
+              description: cliMessage("createStore.next.reRunDoctorWhenServing"),
               command: "jolly doctor",
             }
           : {
-              description: "Continue the bootstrap against the new store.",
+              description: cliMessage("createStore.next.continueBootstrap"),
               command: "jolly start",
             },
       ],
@@ -1798,13 +1785,13 @@ function cloudErrorEnvelope(command: string, err: unknown, riskContext: RiskCont
   const message = err instanceof Error ? err.message : String(err);
   const remediation =
     code === "ENVIRONMENT_LIMIT_REACHED"
-      ? "Delete an unused environment or upgrade the plan, then re-run."
+      ? cliMessage("cloudError.remediation.environmentLimitReached")
       : code === "DOMAIN_LABEL_TAKEN"
-        ? "Choose a different domain label with --domain-label <label>."
-        : "Confirm the Cloud token and that the Cloud API is reachable.";
+        ? cliMessage("cloudError.remediation.domainLabelTaken")
+        : cliMessage("cloudError.remediation.default");
   return errorEnvelope(
     command,
-    "The Cloud API request failed. Nothing was created.",
+    cliMessage("cloudError.summary.error"),
     [
       {
         code,
@@ -1818,12 +1805,10 @@ function cloudErrorEnvelope(command: string, err: unknown, riskContext: RiskCont
         code === "ENVIRONMENT_LIMIT_REACHED"
           ? [
               {
-                description:
-                  "Free a sandbox environment by deleting an unused one, then re-run.",
+                description: cliMessage("cloudError.next.freeEnvironment"),
               },
               {
-                description:
-                  "Upgrade the plan to raise the sandbox environment limit, then re-run.",
+                description: cliMessage("cloudError.next.upgradePlan"),
               },
             ]
           : [{ description: remediation }],
@@ -1843,19 +1828,19 @@ function commandCreateHelp(): Envelope {
   return envelope({
     command,
     status: "success",
-    summary: "jolly create exposes the plumbing subcommand store.",
+    summary: cliMessage("create.help.summary.success"),
     data: {
       subcommands: [
         {
           name: "store",
-          description: "Provision a Saleor Cloud store/environment, or store a pasted Saleor URL.",
+          description: cliMessage("create.help.next.store"),
         },
       ],
       note: "Other setup work is run by your agent via the official CLIs, guided by the Jolly skill.",
     },
     nextSteps: [
       {
-        description: "Run jolly create store --create-environment to provision a Saleor Cloud environment.",
+        description: cliMessage("create.help.next.createEnvironment"),
         command: "jolly create store --create-environment",
       },
     ],
@@ -1882,18 +1867,21 @@ async function commandCreate(args: ParsedArgs): Promise<Envelope> {
     default:
       return errorEnvelope(
         "create",
-        `Unknown create subcommand "${sub}".`,
+        cliMessage("create.summary.error", { sub }),
         [
           {
             code: "UNKNOWN_CREATE_SUBCOMMAND",
-            message: `"${sub}" is not a create subcommand. Valid: ${CREATE_SUBCOMMANDS.join(", ")}.`,
-            remediation: "Run `jolly create --help` to list available subcommands.",
+            message: cliMessage("create.error.unknownCreateSubcommand.message", {
+              sub,
+              subcommands: CREATE_SUBCOMMANDS.join(", "),
+            }),
+            remediation: cliMessage("create.error.unknownCreateSubcommand.remediation"),
           },
         ],
         {
           nextSteps: [
             {
-              description: "List the available create subcommands.",
+              description: cliMessage("create.next"),
               command: "jolly create --help",
             },
           ],
@@ -2073,8 +2061,14 @@ function commandInit(_args: ParsedArgs): Envelope {
       id: `skill-${skill.id}`,
       status: present ? "pass" : "fail",
       description: present
-        ? `${skill.id} present on disk${already ? " (already installed)" : ""}.`
-        : `${skill.id} could not be verified on disk after npx skills add.${installStderr ? ` ${installStderr}` : ""}`,
+        ? cliMessage(
+            already ? "init.check.skill.presentAlreadyInstalled" : "init.check.skill.present",
+            { id: skill.id },
+          )
+        : cliMessage("init.check.skill.unverified", {
+            id: skill.id,
+            stderr: installStderr ? ` ${installStderr}` : "",
+          }),
     });
     if (!present) installFailures.push(skill.id);
   }
@@ -2085,8 +2079,8 @@ function commandInit(_args: ParsedArgs): Envelope {
     id: "mcp-config",
     status: mcp.merged ? "pass" : "warning",
     description: mcp.merged
-      ? "Merged saleor-graphql entry into .mcp.json."
-      : mcp.warning ?? "Could not merge .mcp.json.",
+      ? cliMessage("init.check.mcpConfig.pass")
+      : mcp.warning ?? cliMessage("init.check.mcpConfig.warning"),
   });
 
   // Merge AGENTS.md guidance.
@@ -2094,27 +2088,27 @@ function commandInit(_args: ParsedArgs): Envelope {
   checks.push({
     id: "agents-md",
     status: "pass",
-    description: "Merged the Jolly section into AGENTS.md.",
+    description: cliMessage("init.check.agentsMd.pass"),
   });
 
   if (installFailures.length > 0) {
     return errorEnvelope(
       command,
-      `Some skills could not be verified on disk: ${installFailures.join(", ")}.`,
+      cliMessage("init.summary.error", { failures: installFailures.join(", ") }),
       [
         {
           code: "SKILL_INSTALL_FAILED",
-          message: `Failed to install or verify: ${installFailures.join(", ")}.`,
-          remediation:
-            "Ensure `npx skills` is available and the network is reachable, then re-run `jolly init`.",
+          message: cliMessage("init.error.skillInstallFailed.message", {
+            failures: installFailures.join(", "),
+          }),
+          remediation: cliMessage("init.error.skillInstallFailed.remediation"),
         },
       ],
       {
         checks,
         nextSteps: [
           {
-            description:
-              "Check the network is reachable, then re-run the install to verify the skills on disk.",
+            description: cliMessage("init.next.checkNetwork"),
             command: "jolly init",
           },
         ],
@@ -2125,7 +2119,7 @@ function commandInit(_args: ParsedArgs): Envelope {
   return envelope({
     command,
     status: "success",
-    summary: `Installed and verified ${DEFAULT_SKILLS.length} skills; merged .mcp.json and AGENTS.md.`,
+    summary: cliMessage("init.summary.success", { length: DEFAULT_SKILLS.length }),
     data: {
       skills: DEFAULT_SKILLS.map((s) => s.id),
       mcpMerged: mcp.merged,
@@ -2135,11 +2129,10 @@ function commandInit(_args: ParsedArgs): Envelope {
     checks,
     nextSteps: [
       {
-        description:
-          "Restart your agent now, before continuing — the skills just installed only load into a fresh session, so without a restart they stay inactive and Jolly's guidance drifts out of your context. Tell your human to restart you, then resume.",
+        description: cliMessage("init.next.restartAgent"),
       },
       {
-        description: "Run jolly start to bootstrap setup and get the ordered playbook.",
+        description: cliMessage("init.next.runStart"),
         command: "jolly start",
       },
     ],
@@ -2391,18 +2384,21 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
   ) {
     return errorEnvelope(
       "doctor",
-      `Unknown doctor group "${group}".`,
+      cliMessage("doctor.summary.error", { group }),
       [
         {
           code: "UNKNOWN_DOCTOR_GROUP",
-          message: `"${group}" is not a doctor group. Valid: ${DOCTOR_GROUPS.join(", ")}.`,
-          remediation: "Run `jolly doctor` for all checks or name a valid group.",
+          message: cliMessage("doctor.error.unknownDoctorGroup.message", {
+            group,
+            groups: DOCTOR_GROUPS.join(", "),
+          }),
+          remediation: cliMessage("doctor.error.unknownDoctorGroup.remediation"),
         },
       ],
       {
         nextSteps: [
           {
-            description: `Run all the checks, or name one of: ${DOCTOR_GROUPS.join(", ")}.`,
+            description: cliMessage("doctor.next", { groups: DOCTOR_GROUPS.join(", ") }),
             command: "jolly doctor",
           },
         ],
@@ -2417,7 +2413,7 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
     checks.push({
       id: "cli-available",
       status: "pass",
-      description: `Jolly CLI is available (Node ${process.versions.node}).`,
+      description: cliMessage("doctor.check.cliAvailable.pass", { node: process.versions.node }),
     });
   }
 
@@ -2427,7 +2423,10 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
       checks.push({
         id: `skill-${skill.id}`,
         status: present ? "pass" : "fail",
-        description: present ? `${skill.id} present.` : `${skill.id} not installed.`,
+        description: cliMessage(
+          present ? "doctor.check.skill.present" : "doctor.check.skill.notInstalled",
+          { id: skill.id },
+        ),
         command: present ? undefined : "jolly init",
       });
     }
@@ -2439,8 +2438,8 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
       id: "mcp-config",
       status: mcpOk ? "pass" : "fail",
       description: mcpOk
-        ? ".mcp.json carries the saleor-graphql entry."
-        : "No .mcp.json with a saleor-graphql entry; run jolly init to merge it.",
+        ? cliMessage("doctor.check.mcpConfig.pass")
+        : cliMessage("doctor.check.mcpConfig.fail"),
       command: mcpOk ? undefined : "jolly init",
     });
     const agentsOk = agentsMdHasJollyMarker();
@@ -2448,8 +2447,8 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
       id: "agents-md",
       status: agentsOk ? "pass" : "fail",
       description: agentsOk
-        ? "AGENTS.md carries the Jolly marker section."
-        : "AGENTS.md is missing or lacks the Jolly marker section; run jolly init to merge it.",
+        ? cliMessage("doctor.check.agentsMd.pass")
+        : cliMessage("doctor.check.agentsMd.fail"),
       command: agentsOk ? undefined : "jolly init",
     });
   }
@@ -2480,7 +2479,7 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
       checks.push({
         id: "saleor-cloud-token",
         status: "fail",
-        description: "No Saleor Cloud token configured.",
+        description: cliMessage("doctor.check.saleorCloudToken.fail"),
         command: "jolly login",
       });
     } else if (platform.source === "staff" && !cloudToken.includes(".")) {
@@ -2491,10 +2490,7 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
       checks.push({
         id: "saleor-cloud-token",
         status: "warning",
-        description:
-          "JOLLY_SALEOR_CLOUD_TOKEN looks like a store access token, not a " +
-          "Cloud staff token. Run `jolly login` to sign in through the Saleor " +
-          "device authorization grant.",
+        description: cliMessage("doctor.check.saleorCloudToken.storeTokenNotStaff"),
         command: "jolly login",
       });
     } else {
@@ -2507,13 +2503,13 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
           checks.push({
             id: "saleor-cloud-token",
             status: "pass",
-            description: `Cloud token authenticated a read-only GET of ${orgEndpoint}; organization "${slug}".`,
+            description: cliMessage("doctor.check.saleorCloudToken.pass", { orgEndpoint, slug }),
           });
         } else {
           checks.push({
             id: "saleor-cloud-token",
             status: "warning",
-            description: `Cloud token authenticated ${orgEndpoint} but it returned no organizations. Run \`jolly login\` to sign in through the Saleor device authorization grant.`,
+            description: cliMessage("doctor.check.saleorCloudToken.noOrganizations", { orgEndpoint }),
             command: "jolly login",
           });
         }
@@ -2522,14 +2518,17 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
           checks.push({
             id: "saleor-cloud-token",
             status: "warning",
-            description: `Cloud token was rejected: the read-only GET of ${orgEndpoint} returned HTTP ${error.httpStatus}. Run \`jolly login\` to sign in through the Saleor device authorization grant.`,
+            description: cliMessage("doctor.check.saleorCloudToken.rejected", {
+              orgEndpoint,
+              httpStatus: error.httpStatus,
+            }),
             command: "jolly login",
           });
         } else {
           checks.push({
             id: "saleor-cloud-token",
             status: "unknown",
-            description: `Could not reach the Cloud API organizations endpoint (${orgEndpoint}) to verify the token in this run.`,
+            description: cliMessage("doctor.check.saleorCloudToken.unknown", { orgEndpoint }),
           });
         }
       }
@@ -2538,7 +2537,7 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
       checks.push({
         id: "saleor-endpoint",
         status: "fail",
-        description: "No Saleor GraphQL endpoint configured.",
+        description: cliMessage("doctor.check.saleorEndpoint.fail"),
         command: "jolly create store --url <graphql-endpoint>",
       });
     } else {
@@ -2554,16 +2553,16 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
         id: "saleor-endpoint",
         status: reachable ? "pass" : "unknown",
         description: reachable
-          ? "NEXT_PUBLIC_SALEOR_API_URL is reachable and responds as a GraphQL endpoint."
-          : "NEXT_PUBLIC_SALEOR_API_URL is set but live connectivity could not be verified in this run.",
+          ? cliMessage("doctor.check.saleorEndpoint.pass")
+          : cliMessage("doctor.check.saleorEndpoint.unknown"),
       });
     }
     checks.push({
       id: "saleor-token",
       status: hasSaleorToken ? "pass" : "fail",
       description: hasSaleorToken
-        ? "SALEOR_TOKEN is configured for store GraphQL (sent Bearer)."
-        : "No SALEOR_TOKEN configured for store GraphQL.",
+        ? cliMessage("doctor.check.saleorToken.pass")
+        : cliMessage("doctor.check.saleorToken.fail"),
       command: hasSaleorToken ? undefined : "jolly login",
     });
     // `us`-channel purchasability (feature 014): a channel whose products lack a
@@ -2579,8 +2578,7 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
       checks.push({
         id: "us-channel-purchasable",
         status: "skipped",
-        description:
-          "Store endpoint or SALEOR_TOKEN not configured; `us`-channel purchasability was not checked.",
+        description: cliMessage("doctor.check.usChannelPurchasable.skipped"),
       });
     } else {
       const purchasable = await probeChannelPurchasability(
@@ -2592,22 +2590,22 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
         checks.push({
           id: "us-channel-purchasable",
           status: "pass",
-          description: `The \`us\` channel offers ${purchasable.count} product(s) available for purchase.`,
+          description: cliMessage("doctor.check.usChannelPurchasable.pass", {
+            count: purchasable.count,
+          }),
         });
       } else if (purchasable.kind === "none-purchasable") {
         checks.push({
           id: "us-channel-purchasable",
           status: "warning",
-          description:
-            "The store is reachable but no product is available for purchase in the `us` channel — add channel listings (with price + availability) so products can sell; checkout otherwise fails before payment.",
+          description: cliMessage("doctor.check.usChannelPurchasable.warning"),
           command: "npx @saleor/configurator deploy --failOnDelete",
         });
       } else {
         checks.push({
           id: "us-channel-purchasable",
           status: "unknown",
-          description:
-            "Could not reach the store GraphQL to verify `us`-channel purchasability in this run.",
+          description: cliMessage("doctor.check.usChannelPurchasable.unknown"),
         });
       }
     }
@@ -2624,8 +2622,8 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
       id: "pnpm-available",
       status: "pass",
       description: globalPnpm
-        ? `pnpm is available (${pnpmProbe.stdout.trim()}); the storefront stage installs Paper's dependencies with it.`
-        : "No global pnpm; the storefront stage runs `npx pnpm@latest install` (no global pnpm install required).",
+        ? cliMessage("doctor.check.pnpmAvailable.global", { version: pnpmProbe.stdout.trim() })
+        : cliMessage("doctor.check.pnpmAvailable.viaNpx"),
     });
 
     const storefrontPresent =
@@ -2636,8 +2634,8 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
       id: "storefront-present",
       status: storefrontPresent ? "unknown" : "fail",
       description: storefrontPresent
-        ? "A project structure exists; Paper storefront readiness not verified in this run."
-        : "No Paper storefront detected locally. `jolly start` clones and prepares the Paper storefront.",
+        ? cliMessage("doctor.check.storefrontPresent.unknown")
+        : cliMessage("doctor.check.storefrontPresent.fail"),
       command: storefrontPresent ? undefined : "jolly start",
     });
   }
@@ -2648,7 +2646,7 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
     checks.push({
       id: "deployment-status",
       status: "skipped",
-      description: "Deployment is run by your agent via the Vercel CLI; Jolly does not contact Vercel.",
+      description: cliMessage("doctor.check.deploymentStatus.skipped"),
       command: "npx vercel",
     });
 
@@ -2666,8 +2664,8 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
       id: "vercel-auth",
       status: vercelStatus,
       description: probe.signedIn
-        ? `Vercel CLI session confirmed by running \`vercel whoami\`: logged in as ${probe.account}.`
-        : "No Vercel CLI session: `vercel whoami` reported you are not logged in.",
+        ? cliMessage("doctor.check.vercelAuth.signedIn", { account: probe.account })
+        : cliMessage("doctor.check.vercelAuth.notSignedIn"),
       command: probe.signedIn ? undefined : "jolly start",
     });
   }
@@ -2685,17 +2683,12 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
     const endpoint =
       values["NEXT_PUBLIC_SALEOR_API_URL"] ?? process.env["NEXT_PUBLIC_SALEOR_API_URL"];
     const probeToken = resolveSaleorToken(values) ?? cloudPlatformToken(values);
-    const gateStep =
-      "Open the installed Stripe app's configuration in the Saleor Dashboard, " +
-      "paste the publishable and restricted keys, and map the configuration to " +
-      "the `us` channel.";
+    const gateStep = cliMessage("doctor.check.checkoutPaymentGateway.gateStep");
     if (!endpoint || !probeToken) {
       checks.push({
         id: "checkout-payment-gateway",
         status: "skipped",
-        description:
-          "Checkout-readiness probe skipped: no Saleor endpoint and/or token to reach the store. " +
-          "Once the store is reachable, this probe creates a reverted `us` test checkout to confirm the Stripe gateway is offered.",
+        description: cliMessage("doctor.check.checkoutPaymentGateway.skipped"),
         command: "jolly create store --url <graphql-endpoint>",
       });
     } else {
@@ -2705,18 +2698,14 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
           checks.push({
             id: "checkout-payment-gateway",
             status: "pass",
-            description:
-              "Checkout is ready: a `us` checkout is offered the Stripe payment gateway, so checkout can progress to the Stripe test payment step.",
+            description: cliMessage("doctor.check.checkoutPaymentGateway.pass"),
           });
           break;
         case "not-offered":
           checks.push({
             id: "checkout-payment-gateway",
             status: "warning",
-            description:
-              "The store is reachable but a `us` checkout is not yet offered the Stripe gateway. " +
-              "Complete the remaining keys + `us`-channel Dashboard step: " +
-              gateStep,
+            description: cliMessage("doctor.check.checkoutPaymentGateway.warning") + gateStep,
             command: gateStep,
           });
           break;
@@ -2725,9 +2714,7 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
           checks.push({
             id: "checkout-payment-gateway",
             status: "unknown",
-            description:
-              "Checkout-readiness could not be determined: a `us` test checkout could not be created " +
-              "(no buyable variant or no `us` channel). Seed stock and deploy the starter recipe, then re-run.",
+            description: cliMessage("doctor.check.checkoutPaymentGateway.noBuyableVariant"),
             command: "jolly start",
           });
           break;
@@ -2736,8 +2723,7 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
           checks.push({
             id: "checkout-payment-gateway",
             status: "unknown",
-            description:
-              "Checkout-readiness probe could not reach the store's Saleor GraphQL endpoint (NEXT_PUBLIC_SALEOR_API_URL); checkout readiness was not verified.",
+            description: cliMessage("doctor.check.checkoutPaymentGateway.endpointUnreachable"),
             command: "jolly doctor saleor",
           });
           break;
@@ -2752,17 +2738,20 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
   // Gather next steps from actionable checks.
   const nextSteps: NextStep[] = checks
     .filter((c) => (c.status === "fail" || c.status === "warning") && c.command)
-    .map((c) => ({ description: c.description ?? `Address ${c.id}.`, command: c.command }));
+    .map((c) => ({
+      description: c.description ?? cliMessage("cli.next.addressCheck", { id: c.id }),
+      command: c.command,
+    }));
 
   return envelope({
     command: group ? `doctor ${group}` : "doctor",
     status,
     summary:
       status === "success"
-        ? "All performed checks passed."
+        ? cliMessage("doctor.summary.allPassed")
         : status === "warning"
-          ? "Some checks need attention."
-          : "Some checks failed; see next steps.",
+          ? cliMessage("doctor.summary.needsAttention")
+          : cliMessage("doctor.summary.failed"),
     data: { group: group ?? "all" },
     checks,
     nextSteps,
@@ -2770,8 +2759,8 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
       ? [
           {
             code: "DOCTOR_CHECKS_FAILED",
-            message: "One or more diagnostics failed.",
-            remediation: "Address the failing checks listed in nextSteps.",
+            message: cliMessage("doctor.error.doctorChecksFailed.message"),
+            remediation: cliMessage("doctor.error.doctorChecksFailed.remediation"),
           },
         ]
       : [],
@@ -2803,7 +2792,10 @@ async function commandSkills(args: ParsedArgs): Promise<Envelope> {
       return {
         id: `skill-${skill.id}`,
         status: present ? "pass" : "fail",
-        description: present ? `${skill.id} present.` : `${skill.id} not verified on disk.`,
+        description: cliMessage(
+          present ? "skills.check.skill.present" : "skills.check.skill.notVerified",
+          { id: skill.id },
+        ),
       };
     });
     const failed = checks.filter((c) => c.status === "fail").map((c) => c.id);
@@ -2813,12 +2805,12 @@ async function commandSkills(args: ParsedArgs): Promise<Envelope> {
       return envelope({
         command: `skills ${sub}`,
         status: "warning",
-        summary: `Some skills not verified: ${failed.join(", ")}.`,
+        summary: cliMessage("skills.summary.warning", { failed: failed.join(", ") }),
         data: { skills: DEFAULT_SKILLS.map((s) => s.id) },
         checks,
         nextSteps: [
           {
-            description: "Run jolly init (or jolly start) to install the missing skills.",
+            description: cliMessage("skills.next.installMissing"),
             command: "jolly init",
           },
         ],
@@ -2827,7 +2819,9 @@ async function commandSkills(args: ParsedArgs): Promise<Envelope> {
     return envelope({
       command: `skills ${sub}`,
       status: "success",
-      summary: `Skills ${sub === "install" ? "installed" : "checked"}.`,
+      summary: cliMessage(
+        sub === "install" ? "skills.summary.installed" : "skills.summary.checked",
+      ),
       data: { skills: DEFAULT_SKILLS.map((s) => s.id) },
       checks,
       nextSteps: [],
@@ -2840,21 +2834,24 @@ async function commandSkills(args: ParsedArgs): Promise<Envelope> {
     return {
       id: `skill-${skill.id}`,
       status: present ? "pass" : "unknown",
-      description: `${skill.description}${present ? " (installed)" : " (not installed)"}.`,
+      description: cliMessage(
+        present ? "skills.check.skill.installed" : "skills.check.skill.notInstalled",
+        { description: skill.description },
+      ),
     };
   });
 
   return envelope({
     command,
     status: "success",
-    summary: `Jolly manages ${DEFAULT_SKILLS.length} skills (install via npx skills add).`,
+    summary: cliMessage("skills.summary.managed", { length: DEFAULT_SKILLS.length }),
     data: {
       skills: DEFAULT_SKILLS.map((s) => ({ id: s.id, ref: s.ref, description: s.description })),
     },
     checks,
     nextSteps: [
       {
-        description: "Run jolly init (or jolly start) to install the skill set.",
+        description: cliMessage("skills.next.installSet"),
         command: "jolly init",
       },
     ],
@@ -2873,9 +2870,10 @@ function commandUpgrade(_args: ParsedArgs): Envelope {
     return {
       id: `skill-${skill.id}`,
       status: present ? "pass" : "skipped",
-      description: present
-        ? `${skill.id} is managed; checked for updates.`
-        : `${skill.id} not installed; skipped.`,
+      description: cliMessage(
+        present ? "skills.check.skill.managed" : "skills.check.skill.notInstalledSkipped",
+        { id: skill.id },
+      ),
     };
   });
 
@@ -2896,14 +2894,16 @@ function commandUpgrade(_args: ParsedArgs): Envelope {
     id: "paper-baseline",
     status: paperPresent ? "unknown" : "skipped",
     description: paperPresent
-      ? `Paper storefront detected (baseline version ${paperVersion ?? "unknown"}); Jolly plans Paper migrations but does not auto-apply them in v1.`
-      : "No Paper storefront detected; nothing to plan.",
+      ? cliMessage("upgrade.check.paperBaseline.unknown", {
+          version: paperVersion ?? cliMessage("upgrade.value.unknownVersion"),
+        })
+      : cliMessage("upgrade.check.paperBaseline.skipped"),
   });
 
   return envelope({
     command,
     status: "success",
-    summary: "Checked Jolly-managed skills and guidance for updates; Paper changes are plan-only.",
+    summary: cliMessage("upgrade.summary.success"),
     data: {
       skillsChecked: DEFAULT_SKILLS.map((s) => s.id),
       paperBaselineDetected: paperPresent,
@@ -2912,7 +2912,7 @@ function commandUpgrade(_args: ParsedArgs): Envelope {
     },
     checks,
     nextSteps: paperPresent
-      ? [{ description: "Review the Paper upgrade plan before applying any migration manually." }]
+      ? [{ description: cliMessage("upgrade.next") }]
       : [],
   });
 }
@@ -3161,8 +3161,8 @@ function commandStartDryRun(): Envelope {
     }
   }
   const summary = storeEndpoint
-    ? "Previewed the jolly start plan. The store stage is already satisfied (a store endpoint is configured), so no store would be created this run. No files were written and no network requests were made."
-    : "Previewed the jolly start plan. No files were written and no network requests were made.";
+    ? cliMessage("start.summary.previewedPlan.storeSatisfied")
+    : cliMessage("start.summary.previewedPlan");
   // Surface the already-configured store's URLs in the preview `data` too, so a
   // resumed run's --dry-run gives the agent the Dashboard link (feature 002/022).
   const storeUrls = storeEndpoint ? storeDataFromEndpoint(storeEndpoint) : undefined;
@@ -3179,12 +3179,12 @@ function commandStartDryRun(): Envelope {
       {
         id: "start-dry-run",
         status: "skipped",
-        description: "This is a dry-run preview; no stage was executed.",
+        description: cliMessage("start.check.startDryRun.skipped"),
       },
     ],
     nextSteps: [
       {
-        description: "Run jolly start to execute the plan and get the ordered playbook.",
+        description: cliMessage("start.next.runStartForPlaybook"),
         command: "jolly start",
       },
     ],
@@ -3284,7 +3284,7 @@ async function runStoreStage(
     checks.push({
       id: "store-provisioned",
       status: "pass",
-      description: "A Saleor endpoint is already configured; reusing it.",
+      description: cliMessage("start.store.check.storeProvisioned.reusedEndpoint"),
     });
     // Reuse must keep the agent-facing surface current: ensure SALEOR_URL and a
     // freshly-resolved SALEOR_TOKEN are projected from the existing endpoint +
@@ -3299,8 +3299,7 @@ async function runStoreStage(
     checks.push({
       id: "store-provisioned",
       status: "skipped",
-      description:
-        "Cannot provision a store: no JOLLY_SALEOR_CLOUD_TOKEN configured (complete login first).",
+      description: cliMessage("start.store.check.storeProvisioned.skipped"),
     });
     return { status: "blocked" };
   }
@@ -3311,7 +3310,7 @@ async function runStoreStage(
       checks.push({
         id: "store-provisioned",
         status: "fail",
-        description: "The Cloud token has access to no organizations.",
+        description: cliMessage("start.store.check.storeProvisioned.noOrganizations"),
       });
       return { status: "blocked" };
     }
@@ -3331,17 +3330,23 @@ async function runStoreStage(
       checks.push({
         id: "store-provisioned",
         status: "fail",
-        description: `Provisioned Saleor Cloud environment "${result.environmentName}" in "${selectedOrg}", but its Saleor endpoint did not become reachable within the readiness budget.`,
-        remediation: "The store may still be starting up. Re-run jolly start --yes in a few moments.",
+        description: cliMessage("start.store.check.storeProvisioned.unreachable", {
+          environmentName: result.environmentName,
+          selectedOrg,
+        }),
+        remediation: cliMessage("start.store.check.storeProvisioned.fail.remediation"),
       });
       return { status: "blocked" };
     }
     checks.push({
       id: "store-provisioned",
       status: "pass",
-      description: result.environmentCreated
-        ? `Provisioned Saleor Cloud environment "${result.environmentName}" in "${selectedOrg}".`
-        : `Reused Saleor Cloud environment "${result.environmentName}" in "${selectedOrg}".`,
+      description: cliMessage(
+        result.environmentCreated
+          ? "start.store.check.storeProvisioned.provisioned"
+          : "start.store.check.storeProvisioned.reusedEnvironment",
+        { environmentName: result.environmentName, selectedOrg },
+      ),
     });
     return {
       status: "completed",
@@ -3356,7 +3361,9 @@ async function runStoreStage(
     checks.push({
       id: "store-provisioned",
       status: "fail",
-      description: `Store provisioning failed: ${err instanceof Error ? err.message : String(err)}`,
+      description: cliMessage("start.store.check.storeProvisioned.failed", {
+        error: err instanceof Error ? err.message : String(err),
+      }),
     });
     return { status: "blocked" };
   }
@@ -3415,10 +3422,8 @@ async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
     checks.push({
       id: "recipe-deployed",
       status: "skipped",
-      description:
-        "Cannot deploy the starter recipe: NEXT_PUBLIC_SALEOR_API_URL and/or SALEOR_TOKEN are not configured.",
-      remediation:
-        "Complete the store stage so the endpoint and SALEOR_TOKEN are in .env, then re-run jolly start --yes.",
+      description: cliMessage("start.recipe.check.recipeDeployed.skipped"),
+      remediation: cliMessage("start.recipe.check.recipeDeployed.skipped.remediation"),
     });
     return "blocked";
   }
@@ -3428,8 +3433,8 @@ async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
     checks.push({
       id: "recipe-deployed",
       status: "fail",
-      description: `Cannot deploy the starter recipe: bundled recipe not found at ${bundledRecipe}.`,
-      remediation: "Reinstall jolly so the bundled assets/skills/jolly/recipe.yml is present.",
+      description: cliMessage("start.recipe.check.recipeDeployed.bundledMissing", { bundledRecipe }),
+      remediation: cliMessage("start.recipe.check.recipeDeployed.bundledMissing.remediation"),
     });
     return "blocked";
   }
@@ -3446,8 +3451,11 @@ async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
     checks.push({
       id: "recipe-deployed",
       status: "fail",
-      description: `Cannot deploy the starter recipe: could not write it to ${recipePath}: ${err instanceof Error ? err.message : String(err)}.`,
-      remediation: "Ensure the project directory is writable, then re-run jolly start --yes.",
+      description: cliMessage("start.recipe.check.recipeDeployed.writeFailed", {
+        recipePath,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+      remediation: cliMessage("start.recipe.check.recipeDeployed.writeFailed.remediation"),
     });
     return "blocked";
   }
@@ -3529,13 +3537,14 @@ async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
   rmSync(reportPath, { force: true });
 
   if (result.error || result.status === null) {
-    const reason = result.error ? result.error.message : "the configurator could not be spawned";
+    const reason = result.error
+      ? result.error.message
+      : cliMessage("start.recipe.check.recipeDeployed.notDeployed.spawnFailed");
     checks.push({
       id: "recipe-deployed",
       status: "fail",
-      description: `Did not deploy the starter recipe: ${reason}.`,
-      remediation:
-        "Verify npx can reach @saleor/configurator and NEXT_PUBLIC_SALEOR_API_URL/SALEOR_TOKEN reach the store, then re-run jolly start --yes.",
+      description: cliMessage("start.recipe.check.recipeDeployed.notDeployed", { reason }),
+      remediation: cliMessage("start.recipe.check.recipeDeployed.notDeployed.remediation"),
     });
     return "blocked";
   }
@@ -3560,12 +3569,11 @@ async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
       id: "recipe-deployed",
       status: collectionsFailed ? "fail" : "pass",
       description: collectionsFailed
-        ? "The configurator reported the recipe deploy succeeded, but the declared featured collection could not be confirmed populated in the store."
-        : "Deployed the starter recipe via @saleor/configurator deploy; the declared featured collection was confirmed populated in the store.",
+        ? cliMessage("start.recipe.check.recipeDeployed.collectionUnconfirmed")
+        : cliMessage("start.recipe.check.recipeDeployed.pass"),
       ...(collectionsFailed
         ? {
-            remediation:
-              "See the recipe-collections check; re-run jolly start --yes once the catalog deploy is complete so the declared products exist.",
+            remediation: cliMessage("start.recipe.remediation"),
           }
         : {}),
     });
@@ -3577,9 +3585,10 @@ async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
     checks.push({
       id: "recipe-deployed",
       status: "fail",
-      description: `Did not deploy the starter recipe: the configurator detected deletions over a pre-existing store (blocked by --failOnDelete).${stderr ? ` ${stderr}` : ""}`,
-      remediation:
-        "Review the destructive diff. Deploying over an existing catalog requires the customer's explicit approval; the happy path is the blank store jolly start itself provisions.",
+      description: cliMessage("start.recipe.check.recipeDeployed.destructiveDiff", {
+        stderr: stderr ? ` ${stderr}` : "",
+      }),
+      remediation: cliMessage("start.recipe.check.recipeDeployed.destructiveDiff.remediation"),
     });
     return "blocked";
   }
@@ -3587,9 +3596,14 @@ async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
   checks.push({
     id: "recipe-deployed",
     status: "fail",
-    description: `Did not deploy the starter recipe: @saleor/configurator deploy exited ${result.status}${reportStatus ? ` (report status: ${reportStatus})` : ""}.${stderr ? ` ${stderr}` : ""}`,
-    remediation:
-      "Verify NEXT_PUBLIC_SALEOR_API_URL and SALEOR_TOKEN reach the store, then re-run jolly start --yes.",
+    description: cliMessage("start.recipe.check.recipeDeployed.configuratorExit", {
+      status: result.status,
+      reportStatus: reportStatus
+        ? cliMessage("start.recipe.check.recipeDeployed.reportStatusSuffix", { reportStatus })
+        : "",
+      stderr: stderr ? ` ${stderr}` : "",
+    }),
+    remediation: cliMessage("start.recipe.check.recipeDeployed.configuratorExit.remediation"),
   });
   return "blocked";
 }
@@ -3633,25 +3647,32 @@ async function assignRecipeCollections(
       checks.push({
         id: "recipe-collections",
         status: "fail",
-        description: `Populated ${assigned} of ${declared} declared product(s) into the recipe's featured collection(s); ${declared - assigned} declared product(s) were absent from the store.`,
-        remediation:
-          "Re-run jolly start --yes once the catalog deploy is complete so every declared product exists to assign.",
+        description: cliMessage("start.recipe.collections.check.productsAbsent", {
+          assigned,
+          declared,
+          remaining: declared - assigned,
+        }),
+        remediation: cliMessage("start.recipe.collections.check.productsAbsent.remediation"),
       });
       return "blocked";
     }
     checks.push({
       id: "recipe-collections",
       status: "pass",
-      description: `Assigned ${assigned} of ${declared} declared product(s) to the recipe's featured collection(s) via collectionAddProducts (the configurator cannot populate collection membership in a single deploy).`,
+      description: cliMessage("start.recipe.collections.check.recipeCollections.pass", {
+        assigned,
+        declared,
+      }),
     });
     return "completed";
   } catch (err) {
     checks.push({
       id: "recipe-collections",
       status: "fail",
-      description: `Deployed the starter recipe but could not populate its featured collection: ${err instanceof Error ? err.message : String(err)}.`,
-      remediation:
-        "Verify NEXT_PUBLIC_SALEOR_API_URL and SALEOR_TOKEN reach the store, then re-run jolly start --yes.",
+      description: cliMessage("start.recipe.collections.check.populateFailed", {
+        error: err instanceof Error ? err.message : String(err),
+      }),
+      remediation: cliMessage("start.recipe.collections.check.populateFailed.remediation"),
     });
     return "blocked";
   }
@@ -3711,9 +3732,8 @@ async function runStockStage(checks: Check[]): Promise<StageOutcome> {
     checks.push({
       id: "stock-seeded",
       status: "skipped",
-      description:
-        "Cannot seed recipe stock: NEXT_PUBLIC_SALEOR_API_URL and/or SALEOR_TOKEN are not configured.",
-      remediation: "Complete the store stage so the endpoint and SALEOR_TOKEN are in .env, then re-run jolly start --yes.",
+      description: cliMessage("start.stock.check.stockSeeded.skipped"),
+      remediation: cliMessage("start.stock.check.stockSeeded.skipped.remediation"),
     });
     return { status: "blocked" };
   }
@@ -3725,7 +3745,11 @@ async function runStockStage(checks: Check[]): Promise<StageOutcome> {
     checks.push({
       id: "stock-seeded",
       status: "pass",
-      description: `Seeded ${DEFAULT_STOCK_QUANTITY} stock for ${result.seededCount} recipe variant(s) in ${warehouseSlug} via productVariantStocksCreate.`,
+      description: cliMessage("start.stock.check.stockSeeded.pass", {
+        DEFAULT_STOCK_QUANTITY,
+        seededCount: result.seededCount,
+        warehouseSlug,
+      }),
     });
     return {
       status: "completed",
@@ -3738,16 +3762,16 @@ async function runStockStage(checks: Check[]): Promise<StageOutcome> {
     const code = err instanceof CloudApiError ? err.code : "STOCK_SEED_FAILED";
     const reason =
       code === "RECIPE_WAREHOUSE_NOT_FOUND" || code === "NO_RECIPE_VARIANTS"
-        ? "the starter recipe is not deployed yet (no recipe variants/warehouse to seed)"
-        : "the store could not be reached or the seeding request failed";
+        ? cliMessage("start.stock.check.stockSeeded.fail.recipeNotDeployed")
+        : cliMessage("start.stock.check.stockSeeded.fail.endpointUnreachable");
     checks.push({
       id: "stock-seeded",
       status: "fail",
-      description: `Did not seed recipe stock: ${reason}.`,
+      description: cliMessage("start.stock.check.stockSeeded.fail", { reason }),
       remediation:
         code === "RECIPE_WAREHOUSE_NOT_FOUND" || code === "NO_RECIPE_VARIANTS"
-          ? "Deploy the starter recipe with @saleor/configurator first, then re-run jolly start --yes."
-          : "Verify NEXT_PUBLIC_SALEOR_API_URL and SALEOR_TOKEN reach the store, then re-run jolly start --yes.",
+          ? cliMessage("start.stock.check.stockSeeded.deployRecipeFirst.remediation")
+          : cliMessage("start.stock.check.stockSeeded.endpointUnreachable.remediation"),
     });
     return { status: "blocked" };
   }
@@ -3783,10 +3807,8 @@ async function runStripeStage(checks: Check[]): Promise<StageStatus> {
     checks.push({
       id: "stripe-app-installed",
       status: "skipped",
-      description:
-        "Cannot install the Saleor Stripe app: NEXT_PUBLIC_SALEOR_API_URL and/or JOLLY_SALEOR_CLOUD_TOKEN are not configured.",
-      remediation:
-        "Complete the store stage so the endpoint and Cloud token are available, then re-run jolly start --yes.",
+      description: cliMessage("start.stripe.check.stripeAppInstalled.skipped"),
+      remediation: cliMessage("start.stripe.check.stripeAppInstalled.skipped.remediation"),
     });
     return "blocked";
   }
@@ -3797,8 +3819,8 @@ async function runStripeStage(checks: Check[]): Promise<StageStatus> {
       id: "stripe-app-installed",
       status: "pass",
       description: result.reused
-        ? "Reused the already-installed Saleor Stripe app (no duplicate installed)."
-        : "Installed the Saleor Stripe app via Saleor GraphQL appInstall using the Cloud staff token.",
+        ? cliMessage("start.stripe.check.stripeAppInstalled.reused")
+        : cliMessage("start.stripe.check.stripeAppInstalled.installed"),
     });
     return "completed";
   } catch (err) {
@@ -3808,10 +3830,9 @@ async function runStripeStage(checks: Check[]): Promise<StageStatus> {
       status: "fail",
       description:
         code === "STRIPE_APP_INSTALL_FAILED"
-          ? "Did not install the Saleor Stripe app: the appInstall request was rejected."
-          : "Did not install the Saleor Stripe app: the store could not be reached.",
-      remediation:
-        "Verify NEXT_PUBLIC_SALEOR_API_URL and JOLLY_SALEOR_CLOUD_TOKEN reach the store, then re-run jolly start --yes.",
+          ? cliMessage("start.stripe.check.stripeAppInstalled.rejected")
+          : cliMessage("start.stripe.check.stripeAppInstalled.unreachable"),
+      remediation: cliMessage("start.stripe.check.stripeAppInstalled.fail.remediation"),
     });
     return "blocked";
   }
@@ -3831,8 +3852,7 @@ async function runStripeStage(checks: Check[]): Promise<StageStatus> {
  */
 function stripeKeysChannelGateStep(): NextStep {
   return {
-    description:
-      "Open the installed Stripe app's configuration in the Saleor Dashboard, paste the publishable key and the Stripe restricted key, and map the configuration to the `us` channel (keys referenced by name only — Jolly does not perform this guided human gate).",
+    description: cliMessage("start.stripe.next"),
   };
 }
 
@@ -3860,7 +3880,7 @@ async function runStorefrontStage(checks: Check[]): Promise<StageStatus> {
     checks.push({
       id: "storefront-prepared",
       status: "pass",
-      description: "Reused the already-cloned storefront/ with installed dependencies (no re-clone).",
+      description: cliMessage("start.storefront.check.storefrontPrepared.reused"),
     });
     return "completed";
   }
@@ -3872,10 +3892,10 @@ async function runStorefrontStage(checks: Check[]): Promise<StageStatus> {
       checks.push({
         id: "storefront-prepared",
         status: "fail",
-        description:
-          "Did not clone the storefront: storefront/ already exists but is not a Paper checkout.",
-        remediation:
-          "Resolve the storefront/ directory collision (remove or rename it), then re-run jolly start --yes.",
+        description: cliMessage("start.storefront.check.storefrontPrepared.directoryCollision"),
+        remediation: cliMessage(
+          "start.storefront.check.storefrontPrepared.directoryCollision.remediation",
+        ),
       });
       return "blocked";
     }
@@ -3890,13 +3910,18 @@ async function runStorefrontStage(checks: Check[]): Promise<StageStatus> {
     if (clone.error || clone.status !== 0) {
       const reason = clone.error
         ? clone.error.message
-        : `git clone exited ${clone.status}`;
+        : cliMessage("start.storefront.check.storefrontPrepared.cloneExit", {
+            status: String(clone.status),
+          });
       const stderr = (clone.stderr ?? "").toString().slice(0, 2000);
       checks.push({
         id: "storefront-prepared",
         status: "fail",
-        description: `Did not clone the Saleor Paper storefront from main: ${reason}.${stderr ? ` ${stderr}` : ""}`,
-        remediation: "Verify `git` is installed and github.com is reachable, then re-run jolly start --yes.",
+        description: cliMessage("start.storefront.check.storefrontPrepared.cloneFailed", {
+          reason,
+          stderr: stderr ? ` ${stderr}` : "",
+        }),
+        remediation: cliMessage("start.storefront.check.storefrontPrepared.cloneFailed.remediation"),
       });
       return "blocked";
     }
@@ -3907,8 +3932,14 @@ async function runStorefrontStage(checks: Check[]): Promise<StageStatus> {
       checks.push({
         id: "storefront-prepared",
         status: "fail",
-        description: `Cloned Paper but could not initialize a fresh git repository: ${init.error ? init.error.message : `git init exited ${init.status}`}.`,
-        remediation: "Verify `git` is installed, then re-run jolly start --yes.",
+        description: cliMessage("start.storefront.check.storefrontPrepared.gitInitFailed", {
+          error: init.error
+            ? init.error.message
+            : cliMessage("start.storefront.check.storefrontPrepared.gitInitExit", {
+                status: String(init.status),
+              }),
+        }),
+        remediation: cliMessage("start.storefront.check.storefrontPrepared.gitInitFailed.remediation"),
       });
       return "blocked";
     }
@@ -3942,14 +3973,18 @@ async function runStorefrontStage(checks: Check[]): Promise<StageStatus> {
   if (install.error || install.status !== 0) {
     const reason = install.error
       ? install.error.message
-      : `npx pnpm install exited ${install.status}`;
+      : cliMessage("start.storefront.check.storefrontPrepared.installExit", {
+          status: String(install.status),
+        });
     const stderr = (install.stderr ?? "").toString().slice(0, 2000);
     checks.push({
       id: "storefront-prepared",
       status: "fail",
-      description: `Cloned Paper but did not install dependencies: ${reason}.${stderr ? ` ${stderr}` : ""}`,
-      remediation:
-        "Verify the npm registry is reachable (Jolly runs pnpm via `npx`), then re-run jolly start --yes.",
+      description: cliMessage("start.storefront.check.storefrontPrepared.installFailed", {
+        reason,
+        stderr: stderr ? ` ${stderr}` : "",
+      }),
+      remediation: cliMessage("start.storefront.check.storefrontPrepared.installFailed.remediation"),
     });
     return "blocked";
   }
@@ -3957,8 +3992,7 @@ async function runStorefrontStage(checks: Check[]): Promise<StageStatus> {
   checks.push({
     id: "storefront-prepared",
     status: "pass",
-    description:
-      "Cloned saleor/storefront (Paper) from main into storefront/, initialized a fresh git repository, and installed dependencies with pnpm.",
+    description: cliMessage("start.storefront.check.storefrontPrepared.cloned"),
   });
   return "completed";
 }
@@ -4182,7 +4216,7 @@ function clearPendingVercel(): void {
  */
 function vercelSignInNextStep(deviceUrl: string, resumeCommand: string): NextStep {
   return {
-    description: `Hand this link to your human to open and approve the Vercel sign-in in their browser: ${deviceUrl}. Tell them to reply "done" once they've approved; then re-run \`${resumeCommand}\` and I continue.`,
+    description: cliMessage("start.deploy.next", { deviceUrl, resumeCommand }),
     url: deviceUrl,
     command: resumeCommand,
   };
@@ -4336,8 +4370,8 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
     checks.push({
       id: "vercel-deployed",
       status: "skipped",
-      description: "Cannot deploy: storefront/ is not prepared yet (no Paper checkout).",
-      remediation: "Complete the storefront stage so storefront/ exists, then re-run jolly start --yes.",
+      description: cliMessage("start.deploy.check.vercelDeployed.noStorefront"),
+      remediation: cliMessage("start.deploy.check.vercelDeployed.noStorefront.remediation"),
     });
     return { status: "blocked" };
   }
@@ -4353,9 +4387,8 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
     checks.push({
       id: "vercel-deployed",
       status: "skipped",
-      description:
-        "Cannot deploy: NEXT_PUBLIC_SALEOR_API_URL is not configured (complete the store stage first).",
-      remediation: "Complete the store stage so the endpoint is in .env, then re-run jolly start --yes.",
+      description: cliMessage("start.deploy.check.vercelDeployed.noEndpoint"),
+      remediation: cliMessage("start.deploy.check.vercelDeployed.noEndpoint.remediation"),
     });
     return { status: "blocked" };
   }
@@ -4389,8 +4422,8 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
       id: "vercel-sign-in",
       status: "warning",
       description: deviceUrl
-        ? `Vercel sign-in pending: Jolly runs the Vercel sign-in together with you via the official Vercel CLI under its own session (it holds no Vercel token). Approve the sign-in at the verification URL in nextSteps, then re-run jolly start --yes.`
-        : "Vercel sign-in pending: Jolly runs the Vercel sign-in together with you via the official Vercel CLI under its own session, and holds no Vercel token.",
+        ? cliMessage("start.deploy.check.vercelSignIn.pendingWithUrl")
+        : cliMessage("start.deploy.check.vercelSignIn.pending"),
     });
     return { status: "pending", data: deviceUrl ? { vercelSignInUrl: deviceUrl } : {} };
   }
@@ -4452,13 +4485,14 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
   );
 
   if (deploy.error || deploy.status === null) {
-    const reason = deploy.error ? deploy.error.message : "the Vercel CLI could not be spawned";
+    const reason = deploy.error
+      ? deploy.error.message
+      : cliMessage("start.deploy.check.vercelDeployed.reason.spawnFailed");
     checks.push({
       id: "vercel-deployed",
       status: "fail",
-      description: `Did not deploy to Vercel: ${reason}.`,
-      remediation:
-        "Review the reported reason. Jolly runs the Vercel sign-in itself, so this is a deploy failure, not a sign-in step the agent must perform.",
+      description: cliMessage("start.deploy.check.vercelDeployed.reason", { reason }),
+      remediation: cliMessage("start.deploy.check.vercelDeployed.reason.remediation"),
     });
     return { status: "blocked" };
   }
@@ -4469,8 +4503,8 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
       id: "vercel-deployed",
       status: "pass",
       description: deployedUrl
-        ? `Deployed storefront/ to Vercel via the official Vercel CLI: ${deployedUrl}`
-        : "Deployed storefront/ to Vercel via the official Vercel CLI (`npx vercel --prod`).",
+        ? cliMessage("start.deploy.check.vercelDeployed.withUrl", { deployedUrl })
+        : cliMessage("start.deploy.check.vercelDeployed.withoutUrl"),
     });
     // Make the store publicly reachable: Vercel Deployment Protection (SSO /
     // "Vercel Authentication") is on by default and 401s anonymous visitors.
@@ -4495,8 +4529,8 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
       id: "vercel-deployment-protection",
       status: protectionDisabled ? "pass" : "warning",
       description: protectionDisabled
-        ? "Disabled Vercel Deployment Protection via the Vercel CLI; the storefront is publicly reachable."
-        : "Vercel Deployment Protection is on and could not be disabled automatically; disable it in the Vercel project settings so the store is publicly reachable.",
+        ? cliMessage("start.deploy.check.vercelDeploymentProtection.pass")
+        : cliMessage("start.deploy.check.vercelDeploymentProtection.warning"),
     });
     // The deployed storefront was built against this Saleor endpoint; verify the
     // endpoint is reachable so the deployed storefront can reach Saleor Cloud
@@ -4506,8 +4540,12 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
       id: "deployed-storefront-saleor-connectivity",
       status: reachable ? "pass" : "unknown",
       description: reachable
-        ? `The deployed storefront${deployedUrl ? ` (${deployedUrl})` : ""} is built against the Saleor Cloud endpoint and reaches Saleor Cloud (verified by a live GraphQL probe).`
-        : `The deployed storefront${deployedUrl ? ` (${deployedUrl})` : ""} is built against Saleor Cloud, but live connectivity to the endpoint could not be verified in this run.`,
+        ? deployedUrl
+          ? cliMessage("start.deploy.check.storefrontLive.withUrl", { deployedUrl })
+          : cliMessage("start.deploy.check.storefrontLive")
+        : deployedUrl
+          ? cliMessage("start.deploy.check.storefrontLive.unreachableWithUrl", { deployedUrl })
+          : cliMessage("start.deploy.check.storefrontLive.unreachable"),
     });
     // Link storefront/ to the project so the env commands operate on it: a
     // `vercel deploy --project <name>` targets the project but does NOT link the
@@ -4565,9 +4603,12 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
       checks.push({
         id: "deployed-storefront-serving",
         status: serving ? "pass" : "warning",
-        description: serving
-          ? `The deployed storefront ${deployedUrl} answers a live HTTP probe.`
-          : `The deployed storefront ${deployedUrl} did not answer within the readiness budget; the Vercel deployment may still be propagating. Re-run \`jolly start\` to resume.`,
+        description: cliMessage(
+          serving
+            ? "start.deploy.check.deployedStorefrontServing.pass"
+            : "start.deploy.check.deployedStorefrontServing.warning",
+          { deployedUrl },
+        ),
       });
       if (!serving) {
         return {
@@ -4586,9 +4627,11 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
   checks.push({
     id: "vercel-deployed",
     status: "fail",
-    description: `Did not deploy to Vercel: the Vercel CLI exited ${deploy.status}.${stderr ? ` ${stderr}` : ""}`,
-    remediation:
-      "Review the Vercel CLI error above. Jolly runs the Vercel sign-in itself, so this is a deploy/build failure, not a sign-in step the agent must perform.",
+    description: cliMessage("start.deploy.check.vercelDeployed.cliExit", {
+      status: deploy.status,
+      stderr: stderr ? ` ${stderr}` : "",
+    }),
+    remediation: cliMessage("start.deploy.check.vercelDeployed.cliExit.remediation"),
   });
   return { status: "blocked" };
 }
@@ -5442,17 +5485,17 @@ export async function runStartCore(
   }
   if (bootstrapFailed) {
     nextSteps.push({
-      description: "Resolve the bootstrap failure (see errors), then re-run jolly start.",
+      description: cliMessage("start.next.resolveBootstrapFailure"),
       command: "jolly start",
     });
   } else if (gate) {
     nextSteps.push({
-      description: `Approve the "${gate.stage}" stage, then re-run jolly start to proceed.`,
+      description: cliMessage("start.next.approveStage", { stage: gate.stage }),
       command: "jolly start --yes",
     });
   } else if (nextSteps.length === 0) {
     nextSteps.push({
-      description: "Re-run jolly start to resume the remaining stages.",
+      description: cliMessage("start.next.resumeStages"),
       command: "jolly start",
     });
   }
@@ -5463,9 +5506,7 @@ export async function runStartCore(
   // gate Jolly cannot self-clear, never fabricated as done.
   if (needsToken && !authPendingStep) {
     nextSteps.push({
-      description:
-        "Run `jolly login` to sign in through the Saleor device authorization grant, " +
-        "or set JOLLY_SALEOR_CLOUD_TOKEN for non-interactive use, then re-run jolly start.",
+      description: cliMessage("start.next.runLoginOrSetToken"),
       command: "jolly login",
     });
   }
@@ -5487,8 +5528,7 @@ export async function runStartCore(
   // side-effecting stage actually ran, so it never fires on a paused/blocked run.
   if (allStagesDone && !bootstrapFailed) {
     nextSteps.push({
-      description:
-        "Your store is live. Keep building from what's on disk (after the restart above): `storefront/` is the Paper storefront (Next.js), live on Vercel — develop with `npx pnpm dev`, redeploy with `npx vercel`, and drive Paper-specific work from `storefront/AGENTS.md` and the embedded `saleor-paper-storefront` skill (in `storefront/skills/`), falling back to `storefront-builder` for generic patterns. `recipe.yml` is the catalog and config as code — edit it, preview with `npx @saleor/configurator diff`, then apply with `npx @saleor/configurator deploy --failOnDelete` (blocks a destructive apply over real catalog); the `saleor-configurator` skill owns the schema for new product types, attributes, and channels. To build a new Saleor app, the `saleor-app` skill covers the protocol — you already have staff auth (`SALEOR_TOKEN`, wired into `.mcp.json`), so install your finished app yourself with the Saleor GraphQL `appInstall` mutation, the same call Jolly makes for the Stripe app. Guides: https://github.com/saleor/storefront, https://github.com/saleor/configurator, https://docs.saleor.io.",
+      description: cliMessage("start.next.keepBuilding"),
     });
   }
 
@@ -5502,8 +5542,7 @@ export async function runStartCore(
   // installed are already on disk. Offered, never fabricated as performed.
   if (!bootstrapFailed) {
     nextSteps.push({
-      description:
-        "If the agent cannot clear an interactive gate (such as new account creation), ask the human to run `jolly start` in a plain shell, then start their agent in that project to iterate (the skills jolly init installed are already on disk). This is a fallback — Jolly has not run it.",
+      description: cliMessage("start.next.interactiveGateFallback"),
       command: "jolly start",
     });
   }
@@ -5516,8 +5555,7 @@ export async function runStartCore(
   // exist once every side-effecting stage ran.
   if (allStagesDone && !bootstrapFailed) {
     nextSteps.unshift({
-      description:
-        "Restart your agent now, before anything else. The skills Jolly installed (the Jolly skill plus the Saleor/Stripe skills) only load on a fresh session, and these setup instructions will drift out of your context as you keep working — so restarting is required, not optional. Tell your human to restart you; after the restart the skills are active and the steps below will work.",
+      description: cliMessage("start.next.restartAgent"),
     });
   }
 
@@ -5526,12 +5564,12 @@ export async function runStartCore(
     command,
     status,
     summary: bootstrapFailed
-      ? "Bootstrap failed; see errors. No downstream stage was performed."
+      ? cliMessage("start.summary.bootstrapFailed")
       : gate
-        ? `Bootstrap complete; paused for approval before the "${gate.stage}" stage.`
+        ? cliMessage("start.summary.pausedForApproval", { stage: gate.stage })
         : firstBlockedStage
-          ? `Bootstrap complete; blocked at the "${firstBlockedStage}" stage — see nextSteps.`
-          : "Bootstrap complete; proceeding through the orchestrated stages.",
+          ? cliMessage("start.summary.blockedAtStage", { firstBlockedStage })
+          : cliMessage("start.summary.proceeding"),
     data: {
       bootstrap: {
         skillsInstalled: initEnv.checks
@@ -5569,8 +5607,7 @@ function commandHelp(): Envelope {
   return envelope({
     command: "help",
     status: "success",
-    summary:
-      "Jolly — Ahoy, agent. Go build a store. (a tool by Dmytri Kleiner; not an official Saleor/Vercel/Stripe product)",
+    summary: cliMessage("help.summary.success"),
     data: {
       commands: [
         "login",
@@ -5588,7 +5625,7 @@ function commandHelp(): Envelope {
     },
     nextSteps: [
       {
-        description: "Run jolly start to bootstrap setup and get the ordered playbook.",
+        description: cliMessage("help.next"),
         command: "jolly start",
       },
     ],
@@ -5611,7 +5648,7 @@ function commandUsage(args: ParsedArgs): Envelope {
   return envelope({
     command: `${path} --help`,
     status: "success",
-    summary: `Usage: ${usage}`,
+    summary: cliMessage("cli.usage.summary.success", { usage }),
     data: { usage, command: path, flags },
   });
 }
@@ -5677,14 +5714,14 @@ async function commandStage(
   // names re-running itself once its preconditions are met.
   if (status === "error" && nextSteps.length === 0) {
     nextSteps.push({
-      description: `The ${stage} stage failed. Fix the reported error, then re-run the stage.`,
+      description: cliMessage("start.next.stageFailed", { stage }),
       command: `jolly ${stage}`,
     });
   }
   return envelope({
     command: stage,
     status,
-    summary: `Ran the ${stage} stage against its prepared preconditions: ${outcome.status}.`,
+    summary: cliMessage("start.summary", { stage, status: outcome.status }),
     data: {
       stages: [{ stage, status: outcome.status }],
       ...(stage === "deploy" && outcome.data ? { deploy: outcome.data } : {}),
@@ -5728,18 +5765,18 @@ async function dispatch(args: ParsedArgs): Promise<Envelope> {
       if (args.positionals[1] === "status") return commandAuthStatus(args);
       return errorEnvelope(
         "auth",
-        `Unknown auth subcommand "${args.positionals[1] ?? ""}".`,
+        cliMessage("cli.summary.unknownAuthSubcommand", { sub: args.positionals[1] ?? "" }),
         [
           {
             code: "UNKNOWN_AUTH_SUBCOMMAND",
-            message: 'The only auth subcommand is "status".',
-            remediation: "Run `jolly auth status`.",
+            message: cliMessage("cli.error.unknownAuthSubcommand.message"),
+            remediation: cliMessage("cli.error.unknownAuthSubcommand.remediation"),
           },
         ],
         {
           nextSteps: [
             {
-              description: "Report the current authentication status.",
+              description: cliMessage("cli.next.authStatus"),
               command: "jolly auth status",
             },
           ],
@@ -5773,20 +5810,18 @@ async function dispatch(args: ParsedArgs): Promise<Envelope> {
     default:
       return errorEnvelope(
         cmd,
-        `Unknown command "${cmd}".`,
+        cliMessage("cli.summary.unknownCommand", { cmd }),
         [
           {
             code: "UNKNOWN_COMMAND",
-            message: `"${cmd}" is not a Jolly command.`,
-            remediation:
-              "Supported commands: login, logout, auth status, init, start, " +
-              "doctor, upgrade, skills, create, completion. Run `jolly help` for details.",
+            message: cliMessage("cli.error.unknownCommand.message", { cmd }),
+            remediation: cliMessage("cli.error.unknownCommand.remediation"),
           },
         ],
         {
           nextSteps: [
             {
-              description: "List the Jolly commands and pick one.",
+              description: cliMessage("cli.next.listCommands"),
               command: "jolly help",
             },
           ],
@@ -5825,18 +5860,18 @@ async function main(): Promise<void> {
     const bad = args.unknownFlags[0];
     const env = errorEnvelope(
       args.positionals[0] ?? "jolly",
-      `Unsupported flag ${bad}.`,
+      cliMessage("createStore.env.summary.error", { bad }),
       [
         {
           code: "UNSUPPORTED_FLAG",
-          message: `${bad} is not a recognized Jolly flag.`,
-          remediation: "Run `jolly <command> --help` to list the supported flags.",
+          message: cliMessage("createStore.env.error.unsupportedFlag.message", { bad }),
+          remediation: cliMessage("createStore.env.error.unsupportedFlag.remediation"),
         },
       ],
       {
         nextSteps: [
           {
-            description: `List the supported flags, then re-run without ${bad}.`,
+            description: cliMessage("cli.next.listSupportedFlags", { bad }),
             command: `jolly ${args.positionals[0] ?? "help"} --help`,
           },
         ],
@@ -5851,19 +5886,18 @@ async function main(): Promise<void> {
   } catch (err) {
     env = errorEnvelope(
       args.positionals[0] ?? "jolly",
-      "An unexpected error occurred.",
+      cliMessage("cli.summary.error"),
       [
         {
           code: "UNEXPECTED_ERROR",
           message: err instanceof Error ? err.message : String(err),
-          remediation: "Re-run with --json and report the error code.",
+          remediation: cliMessage("cli.error.unexpectedError.remediation"),
         },
       ],
       {
         nextSteps: [
           {
-            description:
-              "Re-run the command with --json and report the error code in the envelope.",
+            description: cliMessage("cli.next.reRunWithJson"),
             command: `jolly ${args.positionals[0] ?? "help"} --json`,
           },
         ],

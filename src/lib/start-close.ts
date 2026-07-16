@@ -131,7 +131,10 @@ export function interactiveCloseSummary<E extends CloseEnvelope>(
     // point at the re-run. Never claim the store is live.
     const stageLabel = incomplete.join(", ");
     const reasons = failureReasons(core);
-    const plural = incomplete.length > 1 ? "stages" : "stage";
+    const plural =
+      incomplete.length > 1
+        ? cliMessage("start.close.stageWord.plural")
+        : cliMessage("start.close.stageWord.singular");
     const reasonsText = reasons.length > 0 ? `: ${reasons.join("; ")}` : "";
     const lines = [
       cliMessage("start.close.notFinished", {

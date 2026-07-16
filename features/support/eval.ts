@@ -825,6 +825,54 @@ function shellCommandRan(shellCommand: string, record: TraceRecord): boolean {
     .every((token) => shellCommand.includes(token));
 }
 
+/** The prompt and completion tokens summed across every invocation. */
+export function totalTokens(invocations: ModelInvocation[]): number {
+  return invocations.reduce(
+    (sum, invocation) => sum + invocation.promptTokens + invocation.completionTokens,
+    0,
+  );
+}
+
+/** A ceiling the run crossed, and the turn at which it crossed it. */
+export interface BudgetBreach {
+  /** Which ceiling was crossed. */
+  budget: "turns" | "tokens";
+  /** The turn at which the running total crossed the ceiling. */
+  turn: number;
+  /** The ceiling itself. */
+  limit: number;
+  /** What the run had spent by that turn. */
+  spent: number;
+}
+
+/**
+ * The first ceiling the run crossed, walking its turns in order, or undefined
+ * when the run stayed inside both.
+ *
+ * The TURN the run crossed at is the finding worth having: a total says the run
+ * got more expensive, the turn says where the agent started to flail, and that
+ * is what names the copy to fix. Tokens are the prompt and completion tokens
+ * summed across every invocation, from the agent's own recorded usage.
+ */
+export function findBudgetBreach(
+  invocations: ModelInvocation[],
+  turnBudget: number,
+  tokenBudget: number,
+): BudgetBreach | undefined {
+  let tokens = 0;
+  for (const invocation of invocations) {
+    tokens += invocation.promptTokens + invocation.completionTokens;
+    const turns = invocation.turn + 1;
+    if (turns > turnBudget) {
+      return { budget: "turns", turn: invocation.turn, limit: turnBudget, spent: turns };
+    }
+    if (tokens > tokenBudget) {
+      return { budget: "tokens", turn: invocation.turn, limit: tokenBudget, spent: tokens };
+    }
+  }
+  return undefined;
+}
+
 /** A turn spent reaching for `--help` to recover from a Jolly command that errored. */
 export interface WastedTurn {
   /** The Jolly command whose envelope failed to carry the recovery. */

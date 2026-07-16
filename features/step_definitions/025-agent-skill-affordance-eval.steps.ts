@@ -37,8 +37,10 @@ import {
   setupEvalContext,
   subcommandOf,
   buildAffordanceMap,
+  findBudgetBreach,
   findWastedHelpTurns,
   readModelInvocations,
+  totalTokens,
   traceCommandLine,
   type AffordanceEntry,
   type ModelInvocation,
@@ -67,6 +69,8 @@ const TRACE = "evalTrace";
 const INVOCATIONS = "evalInvocations";
 const MAP = "evalAffordanceMap";
 const WASTED = "evalWastedTurns";
+const TURN_BUDGET = "evalTurnBudget";
+const TOKEN_BUDGET = "evalTokenBudget";
 
 function ctx(world: JollyWorld): EvalContext {
   const value = world.notes[CTX] as EvalContext | undefined;
@@ -479,67 +483,205 @@ let sharedSetupRun: CompletedSetupRun | undefined;
 
 const SETUP_TASK = "Read https://jolly.cool/setup and follow the instructions to set up Jolly";
 
+/**
+ * Drive the baseline agent over the setup task once, and share the completed
+ * run with every scenario that reads it. A live agent run is the expensive
+ * ambient state of this tier: each scenario asserts its own facet of the SAME
+ * run, so re-driving the agent per scenario would spend a second live run to
+ * measure a different one.
+ */
+async function completeSetupRun(this: JollyWorld): Promise<void> {
+  if (sharedSetupRun) {
+    this.notes[RUN] = sharedSetupRun.run;
+    this.notes[TRACE] = sharedSetupRun.trace;
+    this.notes[INVOCATIONS] = sharedSetupRun.invocations;
+    this.attach(
+      `Reusing the shared completed setup run (${sharedSetupRun.invocations.length} model invocations, ` +
+        `${sharedSetupRun.trace.length} traced Jolly invocations).`,
+      "text/plain",
+    );
+    return;
+  }
+
+  assertRealInputs();
+  const bundleError = ensureCliBundle();
+  assert.ok(!bundleError, `the published CLI bundle must build: ${bundleError}`);
+
+  const context = setupEvalContext(this.namespace, (description, fn) =>
+    this.cleanup.register(description, fn),
+  );
+  this.notes[CTX] = context;
+
+  // Reclaim leftover capacity before the agent provisions, and reclaim what
+  // this run creates afterwards: only the jolly-cannon-fodder namespace is
+  // ever deleted (teardown registered before the agent runs).
+  const cloudToken = process.env.JOLLY_SALEOR_CLOUD_TOKEN;
+  assert.ok(cloudToken, "the eval tier needs the real JOLLY_SALEOR_CLOUD_TOKEN");
+  this.trackSecret(cloudToken);
+  const keep = process.env.HARNESS_EVAL_KEEP_STORE;
+  if (!keep || keep.trim() === "") {
+    this.cleanup.register(`eval jolly-cannon-fodder environments (run ${this.namespace})`, async () => {
+      for (const env of await listAllEnvironments(cloudToken)) {
+        if (env.name.startsWith("jolly-cannon-fodder")) {
+          await deleteEnvironment(cloudToken, env.org, env.key);
+        }
+      }
+    });
+  }
+  await reclaimLeftoverTestEnvironments(cloudToken);
+
+  const resolvedTask = resolveEvalTask(SETUP_TASK, (description, fn) =>
+    this.cleanup.register(description, fn),
+  );
+  const agentRun = runBaselineAgent(context, resolvedTask);
+  const records = parseTrace(context.traceFile);
+  const invocations = readModelInvocations(context.sessionDir);
+  persistEvalTranscript(context, agentRun, this.namespace);
+
+  sharedSetupRun = { run: agentRun, trace: records, invocations };
+  this.notes[RUN] = agentRun;
+  this.notes[TRACE] = records;
+  this.notes[INVOCATIONS] = invocations;
+  this.attach(
+    `Agent exit ${agentRun.exitCode} in ${agentRun.durationMs}ms` +
+      (agentRun.timedOut ? " (TIMED OUT)" : "") +
+      `\nModel invocations: ${invocations.length}` +
+      `\nTraced Jolly invocations: ${records.map((r) => r.argv.join(" ")).join(" | ")}`,
+    "text/plain",
+  );
+}
+
+// Both steps drive the SAME shared run: cucumber binds `this` to the World, so
+// the one implementation serves the Given that reads a completed run and the
+// When that completes it.
 Given(
   "the baseline agent has completed the setup task",
   { timeout: AGENT_STEP_TIMEOUT_MS },
-  async function (this: JollyWorld) {
-    if (sharedSetupRun) {
-      this.notes[RUN] = sharedSetupRun.run;
-      this.notes[TRACE] = sharedSetupRun.trace;
-      this.notes[INVOCATIONS] = sharedSetupRun.invocations;
-      this.attach(
-        `Reusing the shared completed setup run (${sharedSetupRun.invocations.length} model invocations, ` +
-          `${sharedSetupRun.trace.length} traced Jolly invocations).`,
-        "text/plain",
-      );
-      return;
-    }
+  completeSetupRun,
+);
 
-    assertRealInputs();
-    const bundleError = ensureCliBundle();
-    assert.ok(!bundleError, `the published CLI bundle must build: ${bundleError}`);
+When(
+  "the agent completes the setup task",
+  { timeout: AGENT_STEP_TIMEOUT_MS },
+  completeSetupRun,
+);
 
-    const context = setupEvalContext(this.namespace, (description, fn) =>
-      this.cleanup.register(description, fn),
-    );
-    this.notes[CTX] = context;
+// ─── Affordance efficiency: what succeeding COST ────────────────────────────
+//
+// Succeeding is the floor; how much the agent had to spend to succeed is what
+// says whether Jolly's setup copy and CLI output are any good. The ceilings are
+// generous — they redden on an agent that has lost the thread, not on ordinary
+// live variance.
 
-    // Reclaim leftover capacity before the agent provisions, and reclaim what
-    // this run creates afterwards: only the jolly-cannon-fodder namespace is
-    // ever deleted (teardown registered before the agent runs).
-    const cloudToken = process.env.JOLLY_SALEOR_CLOUD_TOKEN;
-    assert.ok(cloudToken, "the eval tier needs the real JOLLY_SALEOR_CLOUD_TOKEN");
-    this.trackSecret(cloudToken);
-    const keep = process.env.HARNESS_EVAL_KEEP_STORE;
-    if (!keep || keep.trim() === "") {
-      this.cleanup.register(`eval jolly-cannon-fodder environments (run ${this.namespace})`, async () => {
-        for (const env of await listAllEnvironments(cloudToken)) {
-          if (env.name.startsWith("jolly-cannon-fodder")) {
-            await deleteEnvironment(cloudToken, env.org, env.key);
-          }
-        }
-      });
-    }
-    await reclaimLeftoverTestEnvironments(cloudToken);
+Given(
+  "a turn budget of {int} model invocations and a token budget of {int} tokens for the baseline agent",
+  function (this: JollyWorld, turnBudget: number, tokenBudget: number) {
+    this.notes[TURN_BUDGET] = turnBudget;
+    this.notes[TOKEN_BUDGET] = tokenBudget;
+  },
+);
 
-    const resolvedTask = resolveEvalTask(SETUP_TASK, (description, fn) =>
-      this.cleanup.register(description, fn),
-    );
-    const agentRun = runBaselineAgent(context, resolvedTask);
-    const records = parseTrace(context.traceFile);
-    const invocations = readModelInvocations(context.sessionDir);
-    persistEvalTranscript(context, agentRun, this.namespace);
+/** The run's invocations, which every budget assertion reads. */
+function invocationsOf(world: JollyWorld): ModelInvocation[] {
+  const invocations = world.notes[INVOCATIONS] as ModelInvocation[] | undefined;
+  assert.ok(invocations, "the setup run did not record its model invocations");
+  assert.ok(
+    invocations.length > 0,
+    "the agent recorded no model invocation, so the run's cost is unknown — a run that reports no invocation cannot report a cost of zero",
+  );
+  return invocations;
+}
 
-    sharedSetupRun = { run: agentRun, trace: records, invocations };
-    this.notes[RUN] = agentRun;
-    this.notes[TRACE] = records;
-    this.notes[INVOCATIONS] = invocations;
+function budgetReport(invocations: ModelInvocation[]): string {
+  return invocations
+    .map(
+      (invocation) =>
+        `turn ${invocation.turn}: ${invocation.promptTokens + invocation.completionTokens} tokens`,
+    )
+    .join("\n");
+}
+
+Then(
+  "the model invocations it made should be within the turn budget",
+  function (this: JollyWorld) {
+    const invocations = invocationsOf(this);
+    const budget = this.notes[TURN_BUDGET] as number;
+    const breach = findBudgetBreach(invocations, budget, Number.POSITIVE_INFINITY);
     this.attach(
-      `Agent exit ${agentRun.exitCode} in ${agentRun.durationMs}ms` +
-        (agentRun.timedOut ? " (TIMED OUT)" : "") +
-        `\nModel invocations: ${invocations.length}` +
-        `\nTraced Jolly invocations: ${records.map((r) => r.argv.join(" ")).join(" | ")}`,
+      `${invocations.length} model invocations against a ceiling of ${budget}.`,
       "text/plain",
+    );
+    assert.ok(
+      !breach,
+      `the agent crossed its turn ceiling of ${budget} at turn ${breach?.turn}: it made ` +
+        `${invocations.length} model invocations. An agent that grinds through many turns is ` +
+        `flailing against Jolly output that failed to tell it what it needed.\n${budgetReport(invocations)}`,
+    );
+  },
+);
+
+Then(
+  "the tokens it consumed, prompt and completion summed across every invocation, should be within the token budget",
+  function (this: JollyWorld) {
+    const invocations = invocationsOf(this);
+    const budget = this.notes[TOKEN_BUDGET] as number;
+    const spent = totalTokens(invocations);
+    const breach = findBudgetBreach(invocations, Number.POSITIVE_INFINITY, budget);
+    this.attach(`${spent} tokens against a ceiling of ${budget}.`, "text/plain");
+    assert.ok(
+      !breach,
+      `the agent crossed its token ceiling of ${budget} at turn ${breach?.turn}, where the run had ` +
+        `spent ${breach?.spent} tokens; it spent ${spent} in total. The turn names where the agent ` +
+        `started to flail, and against which piece of Jolly's output.\n${budgetReport(invocations)}`,
+    );
+  },
+);
+
+Then(
+  "a run that exceeds either budget should redden, naming the turn at which it crossed the ceiling",
+  function (this: JollyWorld) {
+    const invocations = invocationsOf(this);
+
+    // A turn ceiling one below what this run actually spent: the breach is the
+    // last turn it made, which is the turn that crossed.
+    const lastTurn = invocations.length - 1;
+    const overTurns = findBudgetBreach(
+      invocations,
+      invocations.length - 1,
+      Number.POSITIVE_INFINITY,
+    );
+    assert.ok(overTurns, "a run over its turn ceiling must redden rather than pass");
+    assert.equal(overTurns.budget, "turns");
+    assert.equal(
+      overTurns.turn,
+      lastTurn,
+      `a run over its turn ceiling must name the turn at which it crossed (${lastTurn}); it named ${overTurns.turn}`,
+    );
+
+    // A token ceiling one below the run's very first turn: the breach is turn 0.
+    const first = invocations[0]!;
+    const overTokens = findBudgetBreach(
+      invocations,
+      Number.POSITIVE_INFINITY,
+      first.promptTokens + first.completionTokens - 1,
+    );
+    assert.ok(overTokens, "a run over its token ceiling must redden rather than pass");
+    assert.equal(overTokens.budget, "tokens");
+    assert.equal(
+      overTokens.turn,
+      0,
+      `a run over its token ceiling at its first turn must name turn 0; it named ${overTokens.turn}`,
+    );
+
+    // The ceilings this scenario declared leave the detector quiet, so the
+    // planted ceilings above are what reddened it.
+    assert.ok(
+      !findBudgetBreach(
+        invocations,
+        this.notes[TURN_BUDGET] as number,
+        this.notes[TOKEN_BUDGET] as number,
+      ),
+      "the declared ceilings must leave the detector quiet, or the planted breach proves nothing",
     );
   },
 );
