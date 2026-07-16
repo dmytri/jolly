@@ -4,13 +4,23 @@
 
 Binding behaviour lives in `.feature` specs and referenced `assets/**`. History lives in git. These notes carry only what the next cycle needs.
 
-## Deck state (2026-07-15)
+## Deck state (2026-07-16)
 
-Fresh VM, fully fitted and **full regression GREEN at `f718c07`** (`origin/main`, tree clean):
-`@logic` 187/187, `@sandbox` light 15/15, `@sandbox` heavy 41/41, `@eval` 3/3.
+Fresh VM, fully fitted and **full regression GREEN**. Harbour complete. HEAD `98bf2ad`, **2 commits
+ahead of `origin/main`, unpushed** (notes `a4280fe` + harbour `98bf2ad`) — pushing is Captain outbound,
+not yet approved. Green tiers: `@logic` 187/187, `@sandbox` light 15/15, heavy 41/41, `@eval` 3/3.
 
-Harbour inventory complete: `@shipwright` = 0, regression green. Three `@captain` skeletons remain
-(held deliberately, below) — they do NOT block a feature voyage.
+Harbour inventory complete: `@shipwright` = 0. Two `@captain` skeletons remain (held, below) — they do
+NOT block a feature voyage.
+
+**Eval affordance fixed and shipped (2026-07-16).** The `@eval` gate was flaky because
+`assets/homepage/setup.md` told the agent to "first thing, ask the human whether they have [an
+account]" — a proactive pre-ask the agent obeyed and then halted on (0 Jolly commands → red). Fixed:
+the "What needs your human" section now leads with "I start with `jolly start`... never pause up front
+to ask", and the account rides the Saleor sign-in (the only moment Jolly surfaces it). Committed
+`98bf2ad`, homepage redeployed to `jolly.cool` (aliased), published `/setup` byte-matches the shipped
+file, default `@eval` gate 3/3 green against `jolly.cool/setup`. **deepseek-v4-flash is the fixed
+baseline model — an eval red is an affordance fault, never a model fault.**
 
 **Bulkhead now mechanically enforced on this VM.** Shipshape `0.13.28` installed; the Bash custody
 hook (`PreToolUse` → `bash-custody.sh`) is wired and verified. The `*.md` repo-search contamination
@@ -45,12 +55,17 @@ prints resolves through the message catalog") is held `@captain` only for timing
 ## Held `@captain` skeletons (need dk input; none block a voyage)
 
 - `user-facing-copy-from-catalog` — the pending voyage above.
-- `025` baseline-agent budget — needs turn/token ceiling VALUES from dk. Inherits `@eval` at feature
-  level, so any check written in `025` lands in the paid tier — keep method checks in
-  `methodology-conformance.feature`.
-- `005` stripe gate — HELD. Jolly only installs the Stripe app (Saleor `appInstall`); it holds no keys.
-  The "keys-and-channel gate" is a NEXT-STEP message to the Dashboard, not a Jolly action. Do not
-  promote a scenario reading as Jolly handling keys. Its copy is in-scope for the catalog voyage.
+- `025` baseline-agent budget (`025:121`) — promotion pending dk's confirmation of the ceilings.
+  Captain proposed **turn 20 / token 400k** (generous, to redden a flailing agent, not tight — per the
+  scenario's own Rule; healthy run is one orchestrated `jolly start --yes --json` + a handful of turns).
+  Exact token usage is not persisted, so the ceilings are shape-grounded, not measured. On confirm:
+  write the values, remove `@captain`, promote as its own small voyage (its new steps need QM). Inherits
+  `@eval` at feature level — keep method checks in `methodology-conformance.feature`, not here.
+
+`005:23` (keys-and-channel gate) was DISPOSED this session: dk ruled supersede-and-delete (siblings
+13/37/46 bind the Stripe gate); removed in `98bf2ad`. The held-copy rule still stands for the catalog
+voyage: Jolly only installs the Stripe app and points the human to the Dashboard for keys — never
+promote copy reading as Jolly handling keys.
 
 ## The account
 
