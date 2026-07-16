@@ -6,9 +6,8 @@ Binding behaviour lives in `.feature` specs and referenced `assets/**`. History 
 
 ## Deck state (2026-07-16)
 
-Fresh VM, fully fitted and **full regression GREEN**. Harbour complete. HEAD `98bf2ad`, **2 commits
-ahead of `origin/main`, unpushed** (notes `a4280fe` + harbour `98bf2ad`) — pushing is Captain outbound,
-not yet approved. Green tiers: `@logic` 187/187, `@sandbox` light 15/15, heavy 41/41, `@eval` 3/3.
+Fresh VM, fully fitted and **full regression GREEN**. Harbour complete. **Pushed through `187c114`;
+`origin/main` is level.** Green tiers: `@logic` 187/187, `@sandbox` light 15/15, heavy 41/41, `@eval` 3/3.
 
 Harbour inventory complete: `@shipwright` = 0. Two `@captain` skeletons remain (held, below) — they do
 NOT block a feature voyage.
@@ -36,21 +35,48 @@ as discipline anyway.
    `HARNESS_OPENROUTER_API_KEY`. Eval model/provider default fine (`deepseek/deepseek-v4-flash` /
    `openrouter`). Absent creds fail loudly by design (live-by-design), not skip.
 3. `vercel login` (operator, browser; session lives in Vercel's own store, not `.env`).
+4. **`gh auth setup-git`.** `gh` is authenticated but the `origin` remote is https with no credential
+   helper wired, so `git push` dies on `could not read Username for 'https://github.com'`. One command
+   fixes it; without it the push blocks. (Found and fixed 2026-07-16.)
 
 ## PENDING VOYAGE — the catalog migration (dk ruled "do now, verbatim lift")
 
-The `user-facing-copy-from-catalog.feature` `@property` skeleton ("Every user-facing string the CLI
-prints resolves through the message catalog") is held `@captain` only for timing; the ruling stands.
+The `user-facing-copy-from-catalog.feature` `@property` skeleton is held `@captain` only for timing; the
+ruling stands. **Scope re-measured 2026-07-16 against `187c114` — the old "~170 keys / 94 sites"
+estimate was wrong on three counts. Trust the numbers below, not that one.**
 
-- **Scope: ~170 catalog keys / 94 rewrite sites, all in `src/index.ts`** — every command's `message`,
-  `remediation`, `description` prose. Determinate rule (no field exemptions): each such string resolves
-  through `cliMessage`.
-- **Re-derivable** from `src/index.ts`: enumerate every string literal on `message`/`remediation`/
-  `description` not already in a `cliMessage(...)` call; split conditionals; `${expr}` → `{placeholder}`;
-  propose dotted keys by command family extending the existing 47.
-- Sequence: Captain authors `cli.json` (asset) + rewrites the scenario to the determinate surface + a
-  watchbill entry → QM writes a ts-morph "no inline prose literal" checker → Crew rewires the 94 sites,
-  value-matching each literal to its `cli.json` key. Low conceptual risk, high volume.
+- **Scope: 263 rewrite sites → 254 distinct values, all in `src/index.ts`.** (+47 existing keys.)
+- **The surface is six TYPED fields, not three named ones.** dk confirmed `summary` and
+  `SkillSpec.description` IN (2026-07-16), applying dk's own "no field exemptions" rule:
+  `Envelope.summary` (39 sites — **25 as a property + 14 passed POSITIONALLY as `errorEnvelope`'s 2nd
+  arg**, which a property-only checker misses), `Check.description` (78), `Check.remediation` (23),
+  `NextStep.description` (47), `ErrorEntry.message` (14), `ErrorEntry.remediation` (14),
+  `SkillSpec.description` (7). Key the checker on the field's TYPE, not its name: name-keying
+  over-matches (the five `@clack` prompt `message:` sites are already `cliMessage` and must stay out).
+- **Three counting traps, each of which inflates or deflates a naive enumeration:**
+  1. **`+` concatenation is ONE message**, not two sites — the formatter wraps long copy across lines
+     (8 such: e.g. `1382`, `2495`, `5467`). Join `+` chains; only `??`/`||`/ternary are real variants.
+  2. **`errorEnvelope(command, summary, …)` passes prose positionally.** Property-only walk misses 14.
+  3. **6 object literals are un-annotated** (lines `1851`, `2755`, `2806`, `2843`, `2852`, `2876`) —
+     structurally `Check`/`NextStep`/`SkillSpec` but contextually inferred, so a strict
+     declared-type match skips them. `2852` is a REF passthrough (`description: s.description`), not a
+     site.
+- **12 conditional-COPY sites are the one real design problem** (`2076`, `2830`, `2843`, `2899`, `3590`,
+  `3910`, `4509`, `4510`, …). They embed prose in a ternary inside a template:
+  `` `${id} present on disk${already ? " (already installed)" : ""}.` ``. A naive lift makes that
+  `{suffix}` and leaves ` (already installed)` inline — the rule's own violation. Each needs either two
+  keys selected by the condition, or a nested `cliMessage` in the vars. **The checker must redden a
+  prose literal inside a `cliMessage` var**, or the migration can pass while still carrying inline copy.
+- **~84 keys need hand-naming.** Auto-keying `<command>.check.<id>.<status>` (from the `id`/`code`/
+  `status` siblings the code already carries) is unique for ~170; the rest collide because one check
+  fails for several distinct reasons (`recipeStage.check.recipeDeployed.fail` has 6 variants). The
+  existing 47 keys are hand-named and semantic (`start.close.notFinished`) — match that, never `.v2`.
+- Biggest families: `doctor` 43, `createStore` 36, `login` 18, `deployStage` 18, `recipeStage` 15.
+- Sequence: Captain authors `cli.json` + rewrites the scenario to the six-field surface + watchbill →
+  QM writes the ts-morph checker → Crew rewires the 263 sites, value-matching each literal to its key.
+  **The checker is all-or-nothing: it reds until every site is rewired, so this lands as ONE voyage.**
+- Re-derive the full site list any time by walking `src/index.ts` with ts-morph for the six typed fields
+  (`ts-morph` is already a devDependency). The traps above are what a fresh enumeration gets wrong.
 
 ## Held `@captain` skeletons (need dk input; none block a voyage)
 
