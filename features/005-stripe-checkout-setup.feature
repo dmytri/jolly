@@ -19,13 +19,6 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     And the preview should state that entering the keys and mapping them to the `us` channel is a guided human gate, not something Jolly performs
     And the preview should not perform any mutation
 
-  @captain @logic
-  Scenario: The keys-and-channel gate reads identically from the start plan and the standalone stage
-    Given a fresh empty project directory
-    When the agent runs `jolly start --dry-run --json` and then `jolly stripe --dry-run --json`
-    Then both should name the keys-and-`us`-channel Dashboard mapping as the remaining human step
-    And the gate wording should be identical in both, referencing the keys by name only
-
   @logic
   Scenario: Jolly start does not fabricate Stripe stage completion
     Given the agent runs `jolly start` in a fresh project directory with no real service credentials

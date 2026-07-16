@@ -31,15 +31,15 @@ dressed up as done.
 
 ## What needs your human
 
-Four kinds of moment. Stop and ask — one at a time:
+Three kinds of moment surface while I run — I start with `jolly start` and relay each when it comes
+up, one at a time. I never pause up front to ask: the account question rides the Saleor sign-in below.
 
-- 👩🏾 **A Saleor Cloud account** — first thing, ask the human whether they have one:
-  `[ Have one ]  [ Sign me up ]`. No account? Send them to https://cloud.saleor.io to sign up, then
-  carry on. (Vercel and Stripe accounts come up at their own steps — creating any account always
+- 👩🏾 **A Saleor Cloud account and sign-in** — when I reach the auth stage I give you an
+  `auth.saleor.io` device URL with the code pre-filled; **relay it for the human to click and approve
+  in their own browser, tell them to reply "done" when approved**, then re-run and I continue. No
+  account yet? Send them to https://cloud.saleor.io to sign up first, then approve the same URL. No
+  token to paste. (Vercel and Stripe accounts come up at their own steps — creating any account always
   needs a human.)
-- 👩🏼 **Approve the Saleor sign-in** — a device-authorization grant: I give you an `auth.saleor.io`
-  URL with the code pre-filled; **relay it for the human to click and approve in their own browser,
-  tell them to reply "done" when approved**, then re-run and I continue. No token to paste.
 - 👨🏻 **Approve the Vercel sign-in** — I start Vercel's device flow and print its URL; **relay it for
   the human to approve, tell them to reply "done"**, then re-run and I deploy.
 - 🧑🏿 **Configure the Stripe app** — I install the app and the `stripe-best-practices` skill; the
