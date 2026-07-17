@@ -4,110 +4,83 @@
 
 Binding behaviour lives in `.feature` specs and referenced `assets/**`. History lives in git. These notes carry only what the next cycle needs.
 
-## SPEED VOYAGE — custody HALTED on 2 conformance reds, fix leg running (2026-07-17 ~20:05)
+## STATE (2026-07-17 ~21:05): SPEED VOYAGE SHIPPED except npm publish (held on auth)
 
-Boatswain (a3bc1ed478dd4136c) refused to commit — foul deck, 2 `@logic` conformance reds, both
-voyage-caused drift my leg-3 watchbill missed (no @logic watch, so QM never re-ran conformance
-after the respec renamed a step). Comment-only fixes, no runtime behaviour change, so @sandbox
-49/49+6/6 and @eval 4/4 greens HOLD; only @logic conformance needs re-greening. Fix-leg
-watchbill: the two red conformance scenarios + @logic. Base stays `b727087`.
-- **Red 2 (QM in place): DONE** — `cold-store-cloud-api.ts` marker compressed back within the
-  6-line window; check green under the full @logic sweep (196: 195 pass, only red 1 left).
-- **Red 1 (Crew): CAPTAIN OVERRULED QM's harbour deferral.** QM deferred the stale plank
-  `src/index.ts:3271` to harbour ("seam not in src diff"). Overruled: the Planking agreement says
-  harbour is "never where a fault THIS VOYAGE INTRODUCED is parked," and the respec's step rename
-  (feature 002:45, IN the diff) is what staled it. Voyage-introduced → Crew now, not harbour.
-  Fix: correct the plank at 3271 from the concrete-line copy ("the new store's …URL") to the
-  CURRENT step-definition pattern (Crew reads step-usage for the exact pattern; a pattern, not a
-  concrete-line copy, per the agreement). Crew dispatched directly (Captain blocker-resolution;
-  QM abdicated to harbour and harbour can't run without blocking the close).
-**RESOLVED — conformance 55/55 green, Boatswain re-dispatched.** Crew fixed the plank
-(src/index.ts:3271, names current pattern now). Then the budget check surfaced a THIRD issue:
-logic recorded 306.7s (contention) then 210.5s clean — the voyage's own +4 @invariant scenarios
-grew logic from ~202 to 210.5s, past the 210 budget I'd set from the old count. Raised
-budget-logic 210->250 (clean 210.5 + headroom). KEY LESSON for overlap voyage: a tier's wall
-clock inflates hard under contention (logic 210.5 idle vs 306.7 contended) — serial-derived
-budgets DO NOT transfer to concurrent operation; overlap voyage must re-derive under load, which
-is why it instruments memory/pressure into the wake. @sandbox 49/49+6/6 and @eval 4/4 hold from
-QM leg 3 (all changes since were comment/plank/budget only, no runtime behaviour). Next:
-Boatswain commit -> push+publish (dk approved) -> overlap voyage. dk signed off; autonomous.
+Speed voyage CLOSED and PUSHED. `origin/main` at `79d7ff2` (voyage = commits `b727087` +
+`79d7ff2`). Working tree clean, package.json 0.12.4.
 
-Closing leg (QM a9b7dc44afdfa6abe): watch1 respec GREEN; @sandbox 49/49 + 6/6 GREEN; @eval 4/4
-GREEN; budget check GREEN after Captain corrected an under-set value (below).
+**Delivered:** golden-capture eval (live agent, captured services — eval 9m36->~1m47, 5.4x),
+licensed spends + spend-ledger invariants, budgets in RIGGING (ratchet), resume-aware
+`jolly start` (`storeHoldsRecipeCatalog` skips satisfied recipe/deploy stages — interactive
+completion 5m26->50s), cold-start readiness gate as `@exceptional-double`. Suite ~54m -> ~34m
+warm. Full @logic conformance 55/55 green; @sandbox 49/49+6/6; @eval 4/4.
 
-HONEST MEASUREMENT (warm, this leg): logic ~195s, sandbox 824s, sandbox-serial 843s, eval 157s
-= ~2019s (~34 min). Down from ~54 min pre-voyage (~37% cut). NOT the 1200 aspiration — that is
-the overlap voyage. Budgets in RIGGING set to measurement + ~10% headroom (total 2250, sandbox
-900). **Captain error corrected transparently**: I first set budget-sandbox=480 and total=1830,
-both BELOW the measured sandbox parallel leg (~824s — it carries the one-time recipe-on-shared
-provisioning). QM's budget check reddened on it; I raised the values to measurement per dk's
-"budgets from measurement" ruling. No product effect; only the ceiling value was wrong.
+**Budgets (RIGGING ## Tiers), set from measurement:** total 2250, logic 250 (clean 210.5s;
+voyage's own +4 @invariant scenarios grew the tier), sandbox 900, sandbox-serial 900, eval 240.
+dk's 1200 (20-min) is ASPIRATION, delivered by the overlap voyage, never a bare value edit.
 
-Two real defects QM fixed this leg: (1) golden-capture corruption — a per-run deploy overwrote
-the stable `jolly-cannon-fodder-shared-deploy` family; `eval-captures.ts` now rejects
-per-run-tainted observations by CONTENT (argv+stdout), capture reverted to base and proven
-byte-clean across serial+eval reruns. (2) capture not byte-stable across runs (earlier fold bug).
+### ⚠️ OPEN — dk action needed: npm publish BLOCKED on auth
+`npm publish` of 0.12.5 failed E404 on PUT (`you do not have permission to access @dk/jolly`) —
+not authenticated with publish rights to the `@dk` scope. Build + dry-run were CLEAN (dist
+257.8kb, 18 files), so this is auth only. HELD per dk's standing rule (auth failure -> hold
+publish, push still lands). To ship: `npm login` (or set the @dk publish token), then
+`npm version patch` (-> 0.12.5), `npm publish`, `git push origin main --follow-tags`, verify
+`npm view @dk/jolly version` = 0.12.5 and `npx @dk/jolly@0.12.5 --help`. Homepage target already
+verified serving (200 on / and /setup; assets unchanged, no redeploy).
 
-DK RULINGS (2026-07-17, before sign-off):
-- Speed voyage OUTBOUND: **PUSH NOW** — after Boatswain, push `main` + npm publish (resume-aware
-  `jolly start` + this voyage's product changes) + verify the published bundle. Homepage assets
-  unchanged this voyage; verify current homepage still serves, no redeploy needed.
-- Overlap voyage: **run AUTONOMOUSLY overnight**, Captain carrying the loop, reporting here.
-- Overlap scope: **safe partial first, then tighten** — instrument memory into the wake, prove
-  run-scoped isolation, overlap cheap tiers (logic+eval) alongside sandbox to land ~1400-1500s,
-  then let wake data guide tightening toward 1200. Low OOM-churn risk over the aggressive path.
+## NEXT VOYAGE: TIER OVERLAP (dk-ruled, run autonomously; author from a FRESH context)
 
-Report-only finding (self-cleared, for the overlap voyage): during a serial leg, `vercel login`
-device-flow children orphaned to init and polled ~5-10 min before teardown reaped them — reap
-the login child once its device URL is captured. Direct evidence for the resource-awareness work.
+Goal: full regression <= 1200s by running tier legs CONCURRENTLY. Serial floor is ~34m; the
+cut comes only from overlap. dk-ruled design:
 
-## Deck state (2026-07-17 eve): speed voyage COMMITTED at `b727087`, closing leg in flight
+1. **Isolation FIRST (the enabling blocker).** Invocation-global reclaim races a live sibling:
+   a sweep's BeforeAll reclaim deletes another run's run-namespaced scratch/env. Make reclaim
+   RUN-SCOPED (touch only this run's leftovers + age-stale ones, never a live sibling's). Until
+   this holds, concurrent invocations corrupt each other. This is harness/verification-support
+   work (QM scope), spec'd as a scenario: "two concurrent cucumber invocations do not reclaim
+   each other's live resources."
+2. **Resource-aware via THE WAKE (dk: "we can/should use the wake for this").** OOM -> rerun ->
+   latency. Tier runs record memory pressure (peak RSS, OOM/OOM-kill events) into the weather
+   stream ALONGSIDE wall clock (same `<tier>.ndjson`, no new artifact — upstream weather law
+   already names pressure signals). The concurrency prior READS the record and backs off on live
+   pressure rather than crashing. An OOM is a RED harness-defect finding, never a silent rerun.
+   Scenario shape mirrors the existing "tier run writes its wall-clock record" @invariant.
+3. **Scope: SAFE PARTIAL FIRST, then tighten (dk-ruled).** Overlap the cheap tiers (logic ||
+   eval ~210+157) alongside sandbox first; land ~1400-1500s; then let wake data guide tightening
+   toward 1200. NOT max-concurrency-from-the-start (OOM-churn risk on 7.9 GB).
+4. **Budgets re-derived UNDER concurrency.** HARD LESSON this session: logic measured 210.5s idle
+   vs 306.7s under contention. Serial-derived budgets DO NOT transfer to concurrent operation.
+   Every per-tier budget must be re-measured under the overlap it will actually run in; dk
+   re-rules the values from that measurement.
 
-Custody clean at `b727087` (36 files, 1 ahead of origin — push pending dk at voyage close).
-Measured warm: logic 195.5s, sandbox 810.1s, sandbox-serial 835.9s, eval 107s (was 9m36 —
-captures won 5.4x; interactive completion 50s, was 5m26). Suite ~54m -> ~32.5m.
-
-Closing leg (QM leg 3, dispatched after `b727087`): 002 fresh-store readiness RESPECCED per
-dk ruling — `@exceptional-double` cold-start window over store-stage gating; real cold-start
-proof lives at the shared provisioning seam (first build + self-heal); 026's admissible list
-gained that ground. Budgets set from measurement per dk's respec ruling: total 1830, logic
-210, sandbox 480, sandbox-serial 900, eval 240. dk's 1200 stands as ASPIRATION in the budget
-prose, delivered by the overlap voyage, never by value edits. Watchbill: respec target,
-@sandbox re-measure, @eval (closes Boatswain's labelled residual: eval-captures.ts last write
-postdates the eval run), budget target last.
-
-## NEXT VOYAGE: TIER OVERLAP (dk-ruled 2026-07-17, author after this closes, fresh context)
-
-Goal: full regression <= 1200s by running tier legs CONCURRENTLY. Arithmetic: logic 195 ||
-eval 107 || sandbox-light ~450 alongside serial ~840 -> ~15 min wall clock.
-
-dk-ruled design constraints:
-1. **Isolation first.** Invocation-global reclaim races a live sibling (QM-named: a sweep's
-   reclaim deletes a live run's run-namespaced scratch state). Becomes run-scoped
-   reclaim/isolation so concurrent invocations are safe by construction.
-2. **Resource-aware via THE WAKE (dk: "we can/should use the wake for this").** OOM causes
-   reruns, reruns are latency. Tier runs record memory pressure (peak RSS, OOM events) into
-   the weather stream alongside wall clock; the concurrency prior READS the record and backs
-   off on live pressure rather than crashing. An OOM is a red harness defect finding, never
-   a silent rerun. No new artifact type — upstream weather law already names pressure
-   signals; this voyage makes them executable on the 7.9 GB VM.
-3. Budgets then tighten toward 1200 from the overlap measurement, dk to re-rule values.
+Order: author isolation + wake-pressure scenarios -> watchbill -> QM builds run-scoped reclaim +
+pressure recording -> prove isolation (concurrent invocations, no cross-reclaim) -> measure
+overlapped -> re-derive budgets -> dk rules final values.
 
 ## THE ONE FACT NO MECHANISM CARRIES ANY MORE
 
 **`deepseek/deepseek-v4-flash` is Jolly's FIXED `@eval` baseline model. An eval red is an
-affordance fault, never a model fault.** Never propose a stronger or different eval model;
-never touch `HARNESS_EVAL_MODEL`. On any `@eval` red, fix Jolly's affordance (the
-`assets/skills/jolly` copy or the `/setup` page). If this ever needs to bind QM, it becomes
-a `.feature` scenario, never a note and never a memory.
+affordance fault, never a model fault.** Never propose a different eval model; never touch
+`HARNESS_EVAL_MODEL`. On any `@eval` red, fix Jolly's affordance (the `assets/skills/jolly` copy
+or the `/setup` page). If it must bind QM, it becomes a `.feature` scenario, never a note.
+
+## Resume-loop mechanics (proven this session — carry until upstream mechanizes it)
+
+Captain hand-carries QM/Crew resume across detached runs: QM launches a tier detached, ends its
+turn; Captain waits on the run, SendMessages QM on exit. WAIT CORRECTLY:
+- `tail --pid=<EXACT NUMBER>` only. NEVER pgrep in the waiter: node's comm is "MainThread" here
+  (so `pgrep -x node` finds nothing), and `pgrep -f cucumber` self-matches the waiter's own
+  command line. Both trapped a full HOUR this session.
+- Capture the exact wrapper pid in the FOREGROUND first (read it yourself), then background a
+  pure `tail --pid=<n>`. A nested Crew mate cannot be signalled through QM — tell QM the run
+  exited and to collect/re-run itself rather than wait on a nested child.
 
 ## Upstream (~/shipshape, dk: edit directly, no ceremony)
 
-- 0.13.29 installed to project skills; budget + licensed-spend law live and proven this voyage.
-- Resume-on-signal machinery: this voyage hand-carried the loop ~15 times (waiter on exit +
-  signal-only SendMessage worked cleanly every time — the pattern is proven; mechanize it).
-- Blockers-first handoff upstream; retire stale AGENTS.md local addition at next harbour.
-- Boatswain dead-code divergence stands; no urgency.
+- 0.13.29 installed; budget + licensed-spend law proven live this voyage.
+- Resume-on-signal machinery is the top work item — hand-carried ~20 times this session, cost an
+  hour to waiter bugs. Mechanize: resume a role on its detached run's exit signal.
+- Retire stale AGENTS.md local blockers-first addition at next harbour (AGENTS is Shipwright's).
 
 ## Fresh-VM fitting-out (git-invisible, manual)
 
@@ -115,43 +88,47 @@ a `.feature` scenario, never a note and never a memory.
 1. `npm ci`; confirm `node_modules/.bin/cucumber-js` resolves to `@cucumber/cucumber`.
 2. `.env`: `JOLLY_SALEOR_CLOUD_TOKEN` + `HARNESS_OPENROUTER_API_KEY`.
 3. `vercel login` (operator, browser) — @sandbox only; eval needs no Vercel session.
-4. `gh auth setup-git`.
+4. `gh auth setup-git`. **npm publish also needs `npm login` / @dk publish token (see blocker).**
 
 ## Held product rules
 
 - Stripe keys stay the human's: Jolly installs the app and points at the Dashboard.
 - `.env` org is 100% cannon fodder, cap 2 environments; delete a fresh account's default store.
-  `jolly-cannon-fodder-` prefix is the only safety boundary; never widen.
+  `jolly-cannon-fodder-` prefix is the ONLY safety boundary; never widen.
 - Shared-store transient death self-heals next invocation; retry a heavy 404 ONCE.
 - One licence: `@pipeline` = 002 operational-readiness proof only. Element licence for
-  `@creates-env` guard deploys. One creation test per seam; different parameters, not
+  `@creates-env` guard deploys (004). One creation test per seam; different parameters, not
   different sequences.
+- Golden captures record against the PERSISTENT shared store + shared deployment (live URLs);
+  reject per-run-tainted observations by CONTENT. Harbour re-verifies captures vs live services.
 
 ## For next harbour (report-only, re-derivable)
 
-- Stale `@heavy` prose: `AGENTS.md:119,123`; comments in 002/004/029 step files and
-  `features/support/fast-forward-deploy.ts` (Boatswain refreshed recipe-on-shared.ts only).
-- AGENTS.md eval prose (live Vercel deploy, KEEP_STORE) stale vs golden-capture design.
+- Stale `@heavy` prose: `AGENTS.md:119,123`; comments in 002/004/029 step files,
+  `features/support/fast-forward-deploy.ts`. AGENTS.md eval prose (live Vercel deploy, KEEP_STORE)
+  stale vs golden-capture design. All Shipwright's (AGENTS is not Captain's).
 - 16 baseline zero-usage step definitions (two at `006-npx-cli-command-surface.steps.ts:502,521`).
-- Still no derived check joining RIGGING `## Dependencies` to `package.json`.
+- No derived check joining RIGGING `## Dependencies` to `package.json`.
 - `report.html`/`report.json` tracked but are wake.
-- Harbour re-verifies golden captures against live services (026's stated cadence) — standing
-  duty from this voyage.
-- Wake-wipe incident (unverified, QM leg 1): out-of-band coverage/ rewrite ~13:03-13:05
-  destroyed morning ledger+shims; watch for recurrence.
+- `vercel login` device-flow children orphan to init and poll ~5-10 min before teardown reaps
+  them — reap once the device URL is captured. Resource pressure; overlap-voyage relevant.
+- Wake-wipe incident (unverified): out-of-band coverage/ rewrite ~13:03-13:05 this day destroyed
+  a ledger+shims; watch for recurrence.
 
 ## Standing rules, learned the hard way
 
 - NEVER quote these notes to another role; give the command that answers, never the note.
-- Grep is an opinion; run the join. A check that enumerates a set is trusted only after you
-  verify it enumerated the set.
-- Never let anything follow a verification run in the same command; the summary line is the
-  evidence, the exit code is hearsay.
-- `pgrep -f` matches its own command line; kill by task ID (or exact ps-listed PID).
+- Grep is an opinion; run the join. Trust a set-enumerating check only after verifying it enumerated.
+- Never let anything follow a verification run in the same command; the summary line is evidence,
+  the exit code is hearsay.
+- Kill by exact ps-listed PID, never `pgrep -f` (self-matches). Wait on exact PIDs only.
 - Interactive-path changes verify through `features/support/pty.ts` `runUnderPty`.
 - `--max-old-space-size=4096` on this 7.9 GB box.
-- dk wants live play-by-play; never poll a dispatched agent, resume it on the observed signal
-  (waiter-on-exit + signal-only SendMessage, proven this voyage).
+- dk wants live play-by-play; resume a dispatched agent on the observed signal, never poll.
+- A tier's wall clock inflates hard under contention; measure budgets on an IDLE deck (or, for
+  overlap, under the concurrency it will actually run in).
 - Do not let a remedy outrun its measurement; never let an approved plan survive a refuted premise.
-- One writer at a time; dispatch thin: role and base commit. Hold ALL Captain writes while
-  Boatswain holds the deck.
+- One writer at a time; dispatch thin (role + base commit); hold Captain writes while a role holds the deck.
+- Conformance family (@logic @property/@invariant) must be green before custody — it catches
+  voyage-introduced drift (stale planks from step renames, marker-window, budget growth) that
+  focused watches miss. Include an @logic watch whenever specs/steps are renamed.
