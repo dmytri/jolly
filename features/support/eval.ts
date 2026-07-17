@@ -43,20 +43,21 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  deleteEnvironment,
-  leftoverTestEnvironments,
-  listAllEnvironments,
-  type CloudEnvironment,
-} from "./cloud.ts";
+import { listAllEnvironments } from "./cloud.ts";
 import { findEnvelope, type Envelope } from "./envelope.ts";
-import { cachedStoreSpareNames } from "./provision.ts";
-import { makeNamespace, runId } from "./sandbox.ts";
+import {
+  assertCapturesComplete,
+  readEvalCaptures,
+  EVAL_CAPTURES_PATH,
+  type EvalCaptures,
+} from "./eval-captures.ts";
+import { STOREFRONT_TEMPLATE_DIRNAME } from "./storefront-fixture.ts";
 
 const REPO_ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const JOLLY_BIN = join(REPO_ROOT, "bin", "jolly");
@@ -141,28 +142,52 @@ export interface EvalContext {
    * estimate the harness computes for itself.
    */
   sessionDir: string;
+  /** The golden captures the run serves the expensive effects from, once armed. */
+  captures?: Required<EvalCaptures>;
+  /** The capture-layer Cloud API base the workspace points Jolly at. */
+  cloudApiUrl?: string;
+  /** JSONL request log the capture Cloud API writes (intercepts/passthroughs). */
+  cloudApiLog?: string;
+  /** Cloud environment keys standing in the org BEFORE the agent run. */
+  preRunEnvironmentKeys?: Set<string>;
+}
+
+/** The newest mtime across a directory tree (the bundle-staleness signal). */
+function newestMtimeMs(dir: string): number {
+  let newest = 0;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    const t = entry.isDirectory() ? newestMtimeMs(full) : statSync(full).mtimeMs;
+    if (t > newest) newest = t;
+  }
+  return newest;
 }
 
 /**
- * Ensure the published-shape CLI bundle exists (`dist/index.js`, what
- * `bin/jolly` imports). The eval drives the published shape, not the raw-`.ts`
- * dev entry, so the bundle must be built. Returns an error message on failure
- * (the caller turns it into a skip), or undefined on success.
+ * Ensure the published-shape CLI bundle exists AND is current (`dist/index.js`,
+ * what `bin/jolly` imports). The eval drives the published shape, not the
+ * raw-`.ts` dev entry, so the bundle must be built — and a bundle older than
+ * the newest source file is a stale build of code no longer in the tree, so it
+ * is rebuilt rather than trusted. Returns an error message on failure, or
+ * undefined on success.
  */
 export function ensureCliBundle(): string | undefined {
-  if (existsSync(JOLLY_DIST)) return undefined;
-  const built = spawnSync(
-    "npx",
-    [
-      "esbuild",
-      "src/index.ts",
-      "--bundle",
-      "--platform=node",
-      "--format=esm",
-      `--outfile=${JOLLY_DIST}`,
-    ],
-    { cwd: REPO_ROOT, encoding: "utf8", timeout: 120_000 },
-  );
+  if (
+    existsSync(JOLLY_DIST) &&
+    statSync(JOLLY_DIST).mtimeMs >= newestMtimeMs(join(REPO_ROOT, "src"))
+  ) {
+    return undefined;
+  }
+  // Build through the package's OWN build script — the same invocation
+  // `prepublishOnly` ships with — so the eval drives the exact published
+  // shape. An inline esbuild line here once drifted from the script (it
+  // lacked `--external:yaml`), which bundled yaml's CJS into the ESM output
+  // and crashed every published-shape invocation at import.
+  const built = spawnSync("npm", ["run", "build"], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    timeout: 120_000,
+  });
   if (built.status !== 0 || !existsSync(JOLLY_DIST)) {
     return `could not build the published CLI bundle: ${built.stderr ?? built.error?.message ?? "unknown error"}`;
   }
@@ -193,14 +218,29 @@ function realNpxPath(): string {
   return first?.trim() || "npx";
 }
 
+/** What the capture-serving shims need baked in (armGoldenCaptures). */
+interface ShimCaptureConfig {
+  /** The committed capture store the vercel replay reads. */
+  capturesPath: string;
+  /** The prepared-storefront template the git-clone replay materializes. */
+  templateDir: string;
+  /** JSONL log of every capture the shims served (run evidence). */
+  serveLogFile: string;
+}
+
 /**
- * Write the `jolly` and `npx` PATH shims. Each logs argv (and the real
- * invocation's stdout/stderr/exit) to the JSONL trace, then execs the real
+ * Write the `jolly` and `npx` PATH shims — and, once the golden captures are
+ * armed, the `git` shim and the npx `vercel` replay. Each logs argv (and the
+ * real invocation's stdout/stderr/exit) to the JSONL trace, then execs the real
  * binary — so the eval observes exactly what the agent ran (feature 025: "a
  * PATH shim that logs argv and then execs the real binary"). Absolute paths
  * are baked into the scripts so they need no env to function.
  */
-function writeShims(shimDir: string, traceFile: string): void {
+function writeShims(
+  shimDir: string,
+  traceFile: string,
+  captures?: ShimCaptureConfig,
+): void {
   const cliTimeout = evalCliTimeoutMs();
   const jollyShim = `#!/usr/bin/env node
 "use strict";
@@ -218,6 +258,39 @@ if (r.stdout) process.stdout.write(r.stdout);
 if (r.stderr) process.stderr.write(r.stderr);
 process.exit(r.status == null ? 1 : r.status);
 `;
+
+  // The npx `vercel` replay, present only once the golden captures are armed:
+  // serve the recorded real invocation of the same subcommand family — the
+  // stdout and exit the licensed run observed — never a hand-authored response.
+  // A family the captures lack fails LOUDLY, so a flow the recording never
+  // exercised reddens instead of being invented. `login` is never replayed.
+  const vercelReplay = captures
+    ? `
+if (pkg === "vercel" || (pkg || "").startsWith("vercel@")) {
+  const rest = argv.slice(i + 1);
+  // @golden-capture: recorded mechanically from the licensed @pipeline sandbox
+  // tier's shared-pipeline provisioning (sourceRun fields in the committed
+  // capture store); the replayed stdout/exit are the real Vercel CLI's.
+  const captures = JSON.parse(fs.readFileSync(${JSON.stringify(captures.capturesPath)}, "utf8"));
+  const words = [];
+  for (const token of rest) {
+    if (token.startsWith("-")) continue;
+    words.push(token);
+    if (words.length >= 3) break;
+    if (!["project", "env"].includes(words[0])) break;
+  }
+  const family = words.join("-") || "(none)";
+  const record = ((captures.vercel || {}).families || {})[family];
+  if (!record) {
+    process.stderr.write("golden-capture layer: no recorded capture for vercel family '" + family + "'; run the sandbox tier so the licensed run records it\\n");
+    process.exit(1);
+  }
+  try { fs.appendFileSync(${JSON.stringify(captures.serveLogFile)}, JSON.stringify({ served: "vercel", family, argv: rest }) + "\\n"); } catch {}
+  if (record.stdout) process.stdout.write(record.stdout);
+  process.exit(record.exit == null ? 1 : record.exit);
+}
+`
+    : "";
 
   const npxShim = `#!/usr/bin/env node
 "use strict";
@@ -240,12 +313,41 @@ if (pkg === "@dk/jolly" || pkg === "jolly") {
   if (r.stderr) process.stderr.write(r.stderr);
   process.exit(r.status == null ? 1 : r.status);
 }
-const r = spawnSync(${JSON.stringify(realNpxPath())}, argv, { stdio: "inherit" });
+${vercelReplay}const r = spawnSync(${JSON.stringify(realNpxPath())}, argv, { stdio: "inherit" });
 process.exit(r.status == null ? 1 : r.status);
 `;
 
   writeFileSync(join(shimDir, "jolly"), jollyShim, { mode: 0o755 });
   writeFileSync(join(shimDir, "npx"), npxShim, { mode: 0o755 });
+
+  // The `git` shim serves the storefront clone+install effect from the golden
+  // material: a clone of Saleor Paper materializes the prepared-storefront
+  // template — the tree the licensed run's real `git clone` + `npx pnpm
+  // install` produced — and every other git invocation runs the real git.
+  if (captures) {
+    const gitShim = `#!/usr/bin/env node
+"use strict";
+const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
+const argv = process.argv.slice(2);
+if (argv[0] === "clone" && argv.some((a) => a.includes("saleor/storefront"))) {
+  const dest = argv[argv.length - 1];
+  // @golden-capture: the materialized tree is the prepared-storefront template
+  // recorded by the licensed @pipeline sandbox tier's shared-pipeline
+  // provisioning (real git clone + real npx pnpm install; sourceRun in the
+  // committed capture store).
+  fs.cpSync(${JSON.stringify(captures.templateDir)}, dest, { recursive: true });
+  try { fs.appendFileSync(${JSON.stringify(captures.serveLogFile)}, JSON.stringify({ served: "git-clone", dest }) + "\\n"); } catch {}
+  process.exit(0);
+}
+const ownDir = path.dirname(process.argv[1]);
+const real = (process.env.PATH || "").split(path.delimiter).filter((d) => d !== ownDir).join(path.delimiter);
+const r = spawnSync("git", argv, { stdio: "inherit", env: { ...process.env, PATH: real } });
+process.exit(r.status == null ? 1 : r.status);
+`;
+    writeFileSync(join(shimDir, "git"), gitShim, { mode: 0o755 });
+  }
 }
 
 /**
@@ -287,21 +389,16 @@ export function setupEvalContext(
   }
   const skillDir = join(skillsBase, "jolly");
 
-  // Seed the workspace `.env` with the REAL integrated test-env credentials
-  // (feature 025: live by design). This is the "scaffolded `.env`" artifact and
-  // the file-form the agent reads (Jolly reads .env via loadEnvValues); the same
-  // real values reach the agent process below. No dummy creds, no `.invalid`.
-  //
-  // Also default the store name to this run's `jolly-cannon-fodder`-namespace, so the
-  // autonomous agent's `jolly start`/`create store` provisions a
-  // `jolly-cannon-fodder`-namespaced environment (feature 025: every created resource
-  // jolly-cannon-fodder-namespaced and reclaimable). Without it Jolly falls through to its
-  // product default "jolly-store", which the jolly-cannon-fodder teardown cannot reclaim —
-  // leaking the env and failing the namespacing assertion.
-  writeFileSync(
-    join(workspace, ".env"),
-    `${realEnvFileContents()}JOLLY_STORE_NAME=${namespace}\nJOLLY_STORE_DOMAIN_LABEL=${namespace}\n`,
-  );
+  // Seed the workspace `.env` with ONLY the real authentication credential the
+  // documented flow expects (feature 025): the runtime `JOLLY_SALEOR_CLOUD_TOKEN`
+  // (plus any Cloud API override), never the store endpoint or `SALEOR_TOKEN`,
+  // so the agent exercises the full documented path from a fresh start. This is
+  // the "scaffolded `.env`" artifact and the file-form the agent reads (Jolly
+  // reads .env via loadEnvValues); the same real values reach the agent process
+  // below. No dummy creds, no `.invalid`. No store name is seeded: the run's
+  // expensive effects are served from the golden captures, so no cloud resource
+  // is created under any name.
+  writeFileSync(join(workspace, ".env"), realEnvFileContents());
 
   const traceFile = join(root, "jolly-trace.jsonl");
   writeFileSync(traceFile, "");
@@ -311,14 +408,203 @@ export function setupEvalContext(
 }
 
 /**
+ * The tiny Cloud API capture layer run in a child Node process (the agent step
+ * blocks the event loop with spawnSync, so an in-process server would
+ * deadlock, exactly like the local-setup server). argv: [portFile,
+ * capturesPath, upstreamBase, logFile, prefix]. It PASSES EVERY READ THROUGH
+ * to the real Cloud API under the caller's own Authorization header — the
+ * organization, project, service, and environment lists stay live — and
+ * serves exactly ONE thing from the golden capture: the environment-creation
+ * POST, answered with the shared store's recorded real record, so the run
+ * creates no cloud resource while every recorded endpoint stays a live one.
+ * Any other mutating request is blocked loudly and logged.
+ */
+const CAPTURE_CLOUD_API_SRC = `
+const http = require("node:http");
+const fs = require("node:fs");
+const [portFile, capturesPath, upstreamBase, logFile, prefix] = process.argv.slice(1);
+const captures = JSON.parse(fs.readFileSync(capturesPath, "utf8"));
+const log = (rec) => { try { fs.appendFileSync(logFile, JSON.stringify(rec) + "\\n"); } catch {} };
+// @golden-capture: the environment-creation response is the shared store's
+// record, recorded mechanically by the licensed @pipeline sandbox tier's
+// shared-pipeline provisioning (sourceRun in the committed capture store);
+// every read passes through to the real Cloud API.
+const server = http.createServer((req, res) => {
+  let body = "";
+  req.on("data", (chunk) => { body += chunk; });
+  req.on("end", async () => {
+    const method = req.method || "GET";
+    const rawPath = req.url || "/";
+    const path = rawPath.startsWith(prefix) ? rawPath.slice(prefix.length) : rawPath;
+    res.setHeader("content-type", "application/json");
+    if (method === "POST" && /\\/environments\\/?($|\\?)/.test(path)) {
+      log({ kind: "intercepted-creation", method, path });
+      res.statusCode = 201;
+      res.end(JSON.stringify({
+        name: captures.environmentCreation.name,
+        domain: captures.environmentCreation.domain,
+      }));
+      return;
+    }
+    if (method !== "GET" && method !== "HEAD") {
+      log({ kind: "blocked-mutation", method, path });
+      res.statusCode = 502;
+      res.end(JSON.stringify({ error: "mutating Cloud API request blocked by the golden-capture layer" }));
+      return;
+    }
+    try {
+      const upstream = await fetch(upstreamBase + path, {
+        method,
+        headers: { authorization: req.headers["authorization"] || "" },
+      });
+      const text = await upstream.text();
+      log({ kind: "passthrough", method, path, status: upstream.status });
+      res.statusCode = upstream.status;
+      res.end(text);
+    } catch (error) {
+      log({ kind: "passthrough-error", method, path, error: String(error) });
+      res.statusCode = 502;
+      res.end(JSON.stringify({ error: String(error) }));
+    }
+  });
+});
+server.listen(0, "127.0.0.1", () => {
+  fs.writeFileSync(portFile, String(server.address().port));
+});
+`;
+
+/** Poll a captured URL until it answers a real HTTP response, bounded. */
+async function capturedUrlServes(url: string, budgetMs: number): Promise<boolean> {
+  const deadline = Date.now() + budgetMs;
+  for (;;) {
+    try {
+      const response = await fetch(url, { method: "GET", redirect: "follow" });
+      if (response.status < 500) return true;
+    } catch {
+      // Not reachable yet.
+    }
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 5_000));
+  }
+}
+
+/**
+ * Arm the golden-capture layer on an eval context (feature 025 "Live agent,
+ * golden-captured services"): load the committed captures and fail loudly when
+ * a section was never recorded; prove each captured endpoint still answers for
+ * real (the shared store and the shared deployment outlive runs, so a capture
+ * whose endpoint died is stale and reddens); start the Cloud API capture layer
+ * in a child process; point the workspace at it; rewrite the PATH shims with
+ * the vercel replay and the storefront-template materializer; and snapshot the
+ * org's environment keys so the no-cloud-resource assertion has a before
+ * picture. Returns the captures for the step-level assertions.
+ */
+export async function armGoldenCaptures(
+  ctx: EvalContext,
+  register: (description: string, fn: () => void) => void,
+): Promise<Required<EvalCaptures>> {
+  const captures = readEvalCaptures();
+  assertCapturesComplete(captures);
+
+  const templateDir = join(tmpdir(), captures.storefrontTemplate.dirname);
+  if (
+    !existsSync(join(templateDir, "package.json")) ||
+    !existsSync(join(templateDir, "node_modules"))
+  ) {
+    throw new Error(
+      `the prepared-storefront template ${templateDir} named by ${EVAL_CAPTURES_PATH} ` +
+        `is absent or incomplete; run the sandbox tier (broad-sandbox in RIGGING.md) ` +
+        `so the licensed shared-pipeline provisioning rebuilds it`,
+    );
+  }
+
+  // Re-verify the recorded endpoints answer for real before spending an agent
+  // turn on them: the captures are recorded against persistent resources, so a
+  // dead endpoint is a stale capture, and stale captures fail loudly.
+  const storeUrl = `https://${captures.environmentCreation.domain}/graphql/`;
+  for (const [label, url] of [
+    ["shared store", storeUrl],
+    ["shared deployment", captures.deployment.url],
+  ] as const) {
+    if (!(await capturedUrlServes(url, 90_000))) {
+      throw new Error(
+        `the golden capture's ${label} (${url}) no longer answers; the capture is ` +
+          `stale — run the sandbox tier so the shared-pipeline provisioning ` +
+          `self-heals the resource and re-records the capture`,
+      );
+    }
+  }
+
+  // The Cloud API capture layer, as a separate child process (the agent step
+  // blocks the event loop). Reads pass through to the real Cloud API.
+  const scratch = mkdtempSync(join(tmpdir(), "jolly-eval-captures-"));
+  register(`eval capture scratch ${scratch}`, () =>
+    rmSync(scratch, { recursive: true, force: true }),
+  );
+  const portFile = join(scratch, "port");
+  const logFile = join(scratch, "cloud-api.jsonl");
+  const serveLogFile = join(scratch, "served.jsonl");
+  writeFileSync(logFile, "");
+  writeFileSync(serveLogFile, "");
+  const prefix = "/platform/api";
+  const upstream = process.env.JOLLY_SALEOR_CLOUD_API_URL?.trim()
+    ? process.env.JOLLY_SALEOR_CLOUD_API_URL.trim()
+    : "https://cloud.saleor.io/platform/api";
+  const child = spawn(
+    process.execPath,
+    ["-e", CAPTURE_CLOUD_API_SRC, portFile, EVAL_CAPTURES_PATH, upstream, logFile, prefix],
+    { stdio: "ignore", detached: false },
+  );
+  register(`eval capture Cloud API (pid ${child.pid})`, () => {
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // best-effort
+    }
+  });
+  const port = waitForPortFile(portFile);
+  const cloudApiUrl = `http://127.0.0.1:${port}${prefix}`;
+
+  // Point the workspace at the capture layer: the Cloud API override is an
+  // authentication-documented seed (feature 026's eval-seed scenario), and the
+  // agent env gets the same value in runBaselineAgent.
+  const envFile = join(ctx.workspace, ".env");
+  const kept = (existsSync(envFile) ? readFileSync(envFile, "utf8") : "")
+    .split("\n")
+    .filter((line) => line.trim() !== "" && !line.startsWith("JOLLY_SALEOR_CLOUD_API_URL="));
+  writeFileSync(envFile, [...kept, `JOLLY_SALEOR_CLOUD_API_URL=${cloudApiUrl}`].join("\n") + "\n");
+
+  // Rewrite the shims with the capture-serving branches.
+  writeShims(ctx.shimDir, ctx.traceFile, {
+    capturesPath: EVAL_CAPTURES_PATH,
+    templateDir,
+    serveLogFile,
+  });
+
+  // The before picture for "the run should have created no cloud resource".
+  const cloudToken = process.env.JOLLY_SALEOR_CLOUD_TOKEN;
+  if (cloudToken && cloudToken.trim() !== "") {
+    ctx.preRunEnvironmentKeys = new Set(
+      (await listAllEnvironments(cloudToken)).map((env) => `${env.org}/${env.key}`),
+    );
+  }
+
+  ctx.captures = captures;
+  ctx.cloudApiUrl = cloudApiUrl;
+  ctx.cloudApiLog = logFile;
+  return captures;
+}
+
+/**
  * The runtime credentials the eval workspace `.env` is seeded with: ONLY the
  * ones a baseline agent needs to AUTHENTICATE to the real services (feature 025
  * / 026). The store endpoint `NEXT_PUBLIC_SALEOR_API_URL` and the
  * `SALEOR_TOKEN` are deliberately left unset so `jolly start`
- * provisions a fresh `jolly-cannon-fodder` store on the real creation path instead of
+ * provisions a fresh store on the documented creation path instead of
  * reusing a pre-seeded one (a seeded endpoint makes `jolly start` treat the
  * store as pre-existing, so the configurator's `--failOnDelete` guard blocks
- * the starter recipe and the live stages can never complete).
+ * the starter recipe and the live stages can never complete) — with the
+ * creation's expensive effect served from the golden capture.
  */
 export const SEEDED_CREDENTIAL_VARS = [
   "JOLLY_SALEOR_CLOUD_TOKEN",
@@ -335,38 +621,6 @@ export function realEnvFileContents(): string {
     .filter(([, v]) => v !== undefined && v.trim() !== "")
     .map(([k, v]) => `${k}=${v}`);
   return lines.join("\n") + (lines.length > 0 ? "\n" : "");
-}
-
-/**
- * The eval's pre-run capacity reclamation (features 025 + 026): BEFORE the
- * baseline agent's `jolly start` provisions its fresh store, delete every
- * leftover `jolly-cannon-fodder`-namespaced environment standing in the org from previous
- * runs, so a finite org environment limit never starves the run at its store
- * stage — the same capacity reclamation the @sandbox provision path performs.
- * The `jolly-cannon-fodder-` prefix IS the protection boundary (AGENTS.md): only
- * `jolly-cannon-fodder`-namespaced environments are ever deleted; anything lacking the
- * prefix is never touched. Deletion is idempotent and returns the environments it
- * removed, for observability and the feature 026 conformance assertion. A no-op
- * when no leftover stands.
- */
-export async function reclaimLeftoverTestEnvironments(
-  token: string,
-): Promise<CloudEnvironment[]> {
-  const all = await listAllEnvironments(token);
-  // Reclaim PRIOR-run leftovers only (the run-scoped helper excludes this run's
-  // namespace). At eval reclaim time this run has provisioned nothing yet, so
-  // this clears every standing leftover exactly as before — and under a parallel
-  // @sandbox run it never deletes a sibling worker's live environment. Also
-  // spares BOTH the @sandbox tier's currently-cached shared store and the
-  // feature-004 recipe-deployed store (by exact name, via their marker files) so
-  // an eval run never tears down a store a concurrent or later @sandbox run is
-  // relying on.
-  const spareNames = cachedStoreSpareNames();
-  const leftovers = leftoverTestEnvironments(all, makeNamespace(runId()), spareNames);
-  for (const env of leftovers) {
-    await deleteEnvironment(token, env.org, env.key);
-  }
-  return leftovers;
 }
 
 export interface AgentRun {
@@ -427,6 +681,24 @@ export function runBaselineAgent(ctx: EvalContext, task: string): AgentRun {
   env.OPENROUTER_API_KEY = modelApiKey() ?? "";
   // Never leak the harness's own knobs into the agent.
   delete env.HARNESS_OPENROUTER_API_KEY;
+  // Route Jolly's Cloud API calls through the golden-capture layer when armed
+  // (feature 025): reads pass through live, the creation is served recorded.
+  if (ctx.cloudApiUrl) env.JOLLY_SALEOR_CLOUD_API_URL = ctx.cloudApiUrl;
+  // Pin every Jolly invocation's project directory to the per-run workspace
+  // (Jolly's own JOLLY_PROJECT_DIR affordance). Harmless-by-design containment:
+  // an agent that wanders out of its cwd — observed once improvising around a
+  // broken bundle by cd-ing into this repository — must never make Jolly write
+  // .env, AGENTS.md, or a storefront clone outside the throwaway workspace. In
+  // the documented flow the agent's cwd IS the workspace, so the pin changes
+  // nothing it measures.
+  env.JOLLY_PROJECT_DIR = ctx.workspace;
+  // Warm package caches, as world.runCli points every spawned CLI at them: the
+  // real `npx pnpm install` over the materialized template re-links from the
+  // shared store instead of re-fetching.
+  const pkgCache =
+    process.env.HARNESS_PKG_CACHE ?? join(tmpdir(), "jolly-cannon-fodder-pkg-cache");
+  if (!env.npm_config_store_dir) env.npm_config_store_dir = join(pkgCache, "pnpm-store");
+  if (!env.npm_config_cache) env.npm_config_cache = join(pkgCache, "npm-cache");
 
   // Pass a real Vercel CLI session into the agent's isolated home when one
   // exists on the runner (live by design): the customer's own agent would be

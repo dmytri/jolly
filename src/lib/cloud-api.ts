@@ -628,6 +628,33 @@ export async function storeHoldsForeignCatalog(
   return edges.some((edge) => !recipeSlugs.has(edge.node.slug));
 }
 
+/**
+ * Whether the store already holds every product the recipe declares — the
+ * observable remote state a completed recipe deploy leaves behind. `jolly
+ * start`'s resumable recipe stage reads it to detect already-completed work
+ * (feature 022): a store holding the full declared catalog needs no
+ * configurator re-deploy. An empty declared list never reads as satisfied.
+ * @planks("When `jolly start` runs to completion in an interactive terminal")
+ */
+export async function storeHoldsRecipeCatalog(
+  graphqlUrl: string,
+  token: string,
+  recipeProductSlugs: readonly string[],
+): Promise<boolean> {
+  const data = await graphqlFetch(
+    graphqlUrl,
+    token,
+    `query { products(first: 100) { edges { node { slug } } } }`,
+  );
+  const edges = ((data.products as { edges?: unknown } | undefined)?.edges ??
+    []) as Array<{ node: { slug: string } }>;
+  const present = new Set(edges.map((edge) => edge.node.slug));
+  return (
+    recipeProductSlugs.length > 0 &&
+    recipeProductSlugs.every((slug) => present.has(slug))
+  );
+}
+
 // ── Recipe stock seeding (feature 004 Rule "Recipe products need seeded stock")
 //
 // @saleor/configurator cannot make products buyable (its variant schema has no

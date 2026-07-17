@@ -38,53 +38,48 @@ Feature: Agent skill affordance evaluation
       input as a fitting-out blocker. A tier that skips itself when its credential
       is absent reports green while proving nothing, so absence must be loud.
 
-  Rule: Live by design — real integrated test env, namespaced and disposable
-    - The agent runs in a unique per-run temporary workspace seeded with only the
-      REAL test-env credentials it needs to AUTHENTICATE — the runtime
-      `JOLLY_SALEOR_CLOUD_TOKEN` — but NOT
-      the store endpoint (`NEXT_PUBLIC_SALEOR_API_URL`) or `SALEOR_TOKEN`: those are
-      left unset so `jolly start` provisions a fresh `jolly-cannon-fodder`-namespaced
-      Saleor environment and derives them, exercising the real store-creation path
-      rather than reusing a pre-seeded store. There are NO fakes: no dummy
-      credentials, no `.invalid` endpoints, no fake configurator CLIs. The
-      agent acts against the real services exactly as a customer's agent would.
+  Rule: Live agent, golden-captured services
+    - The agent side is LIVE end to end: a real baseline agent on the fixed
+      baseline model, the real installed skill, the real published-shape Jolly
+      CLI, and a real fetch of the entry point. What this tier measures — the
+      affordance — is exercised for real on every run.
+    - The expensive service effects Jolly's commands would produce — the Saleor
+      Cloud environment creation, the configurator deploy, the storefront clone
+      and install, and the Vercel deploy — are served from golden captures:
+      recorded mechanically from the licensed `@pipeline` sandbox runs of the
+      same commands, committed with the verification support, and re-verified
+      against the live services at harbour. This is the layered golden-capture
+      ground feature 026 admits: the eval measures the affordance a layer above
+      those effects, the effects themselves stay covered for real in the
+      `@sandbox` tier, and every canned response is a recorded capture, never
+      hand-authored. Each capture site is marked and justified inline, naming
+      its source run.
+    - The workspace still seeds only what authentication documents expect — the
+      runtime `JOLLY_SALEOR_CLOUD_TOKEN`, but NOT the store endpoint
+      (`NEXT_PUBLIC_SALEOR_API_URL`) or `SALEOR_TOKEN` — so the agent exercises
+      the full documented path from a fresh start, with the effects served from
+      the captures. No hand-authored fake stands anywhere: no dummy credentials,
+      no `.invalid` endpoints, no invented CLI output.
     - The task is the REAL entry point, not a hand-held script: the agent is
       given exactly the string the homepage copy box hands a customer's agent —
       "Read https://jolly.cool/setup and follow the instructions to set up
       Jolly" — and nothing more (the `HARNESS_EVAL_SETUP_LOCAL` knob may point it
       at the local source of that same page for pre-deploy iteration). The eval
       thus measures the affordance from the true starting point.
-    - Safety is harmless-by-design, NOT faking (see AGENTS.md): every resource
-      the agent creates is `jolly-cannon-fodder`-namespaced and removed in best-effort
-      teardown; Saleor Cloud environments are disposable cannon fodder. Because
-      the org has a finite environment limit, the harness reclaims capacity
-      BEFORE the agent provisions — deleting leftover `jolly-cannon-fodder`-namespaced
-      environments from previous runs (the same reclamation the `@sandbox`
-      provision path performs) so a leftover never starves the run at its store
-      stage — and an environment-limit rejection encountered mid-run is likewise
-      reclaimed by deleting `jolly-cannon-fodder`-namespaced environments, never by
-      faking. Only `jolly-cannon-fodder`-namespaced resources are ever deleted.
-    - Best-effort teardown of created cloud resources is the DEFAULT (harmless).
-      An opt-in `HARNESS_EVAL_KEEP_STORE` knob (set → retain) skips that teardown
-      so the run's created store — the `jolly-cannon-fodder`-namespaced Saleor environment
-      and its Vercel deployment — is left standing and its reported URLs stay
-      usable for inspection. Retained resources keep the `jolly-cannon-fodder` namespace,
-      so the next run's leftover-reclamation removes them; the knob is operability
-      only and never changes pass/fail. Unset → normal best-effort teardown.
-    - Live Vercel deploy: a deploy needs a real `vercel login` session. When the
-      runner has one, the eval makes that session available to the spawned Vercel
-      CLI — the throwaway `$HOME` isolates the agent's own config and any creds it
-      acquires, but the official CLI sessions the deploy depends on are provided —
-      so the deploy actually runs and Jolly reports the real storefront URL the
-      CLI returned. The `vercel login` session is fitted, so absent one the run
-      FAILS and names it as a fitting-out blocker, exactly as an absent model key
-      does. The run exercises every stage, and a stage it cannot reach is a
-      blocker to report, never a step to gate away.
+    - The captures are recorded against the run-shared persistent resources —
+      the shared store and the shared deployment, which outlive runs, are never
+      torn down, and self-heal — so every recorded endpoint stays live: a
+      readiness probe against a captured URL answers for real, and the surfaced
+      URLs are recorded, real, and still serving.
+    - The run creates no cloud resource, so it needs no Vercel session, no
+      capacity reclamation, and no cloud teardown. The eval's cost is the
+      agent's own turns.
     - The agent reaches `https://jolly.cool/setup` (or the local source) over the
       network and may install skills from github; these fetches are expected, and
       the eval also smoke-tests that the entry point is reachable.
-    - The per-run workspace and the throwaway `$HOME` are removed in teardown;
-      the eval never touches resources outside its `jolly-cannon-fodder` namespace.
+    - Every URL the run surfaces is the recorded real URL from the capture's
+      source run, observed from Jolly's own output; the harness invents none.
+    - The per-run workspace and the throwaway `$HOME` are removed in teardown.
 
   Rule: Affordance efficiency — what succeeding COST is the measure
 
@@ -141,29 +136,28 @@ Feature: Agent skill affordance evaluation
       merged `.mcp.json`, a scaffolded `.env`, and the marker-merged `AGENTS.md`).
     - Jolly's diagnostics must have run and emitted the standard feature 020
       output envelope.
-    - With the real Saleor token present the agent authenticates and can proceed
-      through the live stages (create a `jolly-cannon-fodder`-namespaced store, deploy the
-      recipe, seed stock), so the eval may observe real namespaced resources, not
-      just local files. It asserts the live result WHERE the capability is present
-      and honest gating where it is not — it never asserts an outcome the agent
-      did not actually achieve.
-    - For each live stage the run completes, the eval surfaces the real endpoint
-      Jolly reported in its output envelope: the Saleor dashboard URL for the
-      `jolly-cannon-fodder`-namespaced environment it created, and the deployed storefront
-      URL when the Vercel deploy completed. These are observed from Jolly's own
-      output, never fabricated — a gated deploy yields no storefront URL and the
-      run reports its absence rather than inventing one.
+    - With the token seeded the agent authenticates and proceeds through the
+      stages, their expensive effects served from the golden captures, so the
+      eval observes the full documented flow. It asserts the result WHERE the
+      flow reached it and honest gating where it did not — it never asserts an
+      outcome the agent did not actually achieve.
+    - For each stage the run completes, the eval surfaces the endpoint Jolly
+      reported in its output envelope: the Saleor dashboard URL and the deployed
+      storefront URL, each the recorded real URL from the capture's source run.
+      These are observed from Jolly's own output, never invented — a gated
+      deploy yields no storefront URL and the run reports its absence rather
+      than inventing one.
     - The eval must NOT fabricate or assume outcomes (no working-store claim the
       run did not produce) and must NOT assert artifacts Jolly does not produce
-      (there is no `jolly.config.ts`). Any cloud resource the agent created must
-      be `jolly-cannon-fodder`-namespaced and cleaned up.
+      (there is no `jolly.config.ts`). The run creates no cloud resource.
 
   Scenario: A baseline agent follows the published /setup entry point to set up a project
-    Given the actual published-shape Jolly CLI and the actual shipped Jolly skill (no mocks)
+    Given the actual published-shape Jolly CLI and the actual shipped Jolly skill
     And feature 007 defines the local artifacts `jolly init` produces
     And a fresh per-run temporary workspace with the Jolly skill and CLI available
     And the baseline agent runs under a throwaway `$HOME` so its own config and credentials stay isolated
-    And the agent is run with the real integrated test-env credentials, every resource it creates `jolly-cannon-fodder`-namespaced and removed in teardown
+    And the workspace seeds only the authentication credential `JOLLY_SALEOR_CLOUD_TOKEN`, never a store endpoint or `SALEOR_TOKEN`
+    And the expensive service effects Jolly's commands produce are served from the golden captures recorded by the licensed @pipeline sandbox runs
     And Jolly's CLI invocations in the workspace are traced
     When a baseline agent is given the task:
       """
@@ -172,6 +166,6 @@ Feature: Agent skill affordance evaluation
     Then the agent should have invoked Jolly's documented CLI commands, including `jolly start`
     And the workspace should contain the local artifacts `jolly init` produces (the installed Jolly skill, a merged `.mcp.json`, a scaffolded `.env`, and the marker-merged `AGENTS.md`)
     And Jolly's diagnostics should have run and emitted the standard output envelope
-    And when the store stage completed, the run must surface the real Saleor Dashboard URL Jolly emitted for the `jolly-cannon-fodder`-namespaced environment it created — a real `.saleor.cloud/dashboard/` URL observed from Jolly's output, never fabricated — and likewise the deployed storefront URL when the Vercel deploy completed
+    And when the store stage completed, the run must surface the Saleor Dashboard URL Jolly emitted — the recorded real `.saleor.cloud/dashboard/` URL from the capture's source run, observed from Jolly's output, never invented — and likewise the deployed storefront URL when the deploy stage completed
     And the run should report only outcomes it actually achieved, stopping honestly at any remaining human gate without fabricating success
-    And every cloud resource the agent created should be `jolly-cannon-fodder`-namespaced and, unless retention is explicitly requested via `HARNESS_EVAL_KEEP_STORE`, removed in best-effort teardown, with nothing outside that namespace touched
+    And the run should have created no cloud resource, with the per-run workspace and the throwaway `$HOME` removed in teardown

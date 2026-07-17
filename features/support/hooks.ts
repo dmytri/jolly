@@ -35,10 +35,29 @@ import {
   reclaimStaleResources,
   teardownSharedEnvironment,
 } from "./provision.ts";
+import {
+  armSandboxSpendRecording,
+  clearSpendAttribution,
+  setSpendAttribution,
+} from "./spend-ledger.ts";
 import type { JollyWorld } from "./world.ts";
 
 BeforeAll({ timeout: 120_000 }, async function () {
   await reclaimStaleResources();
+});
+
+// Arm the sandbox spend recorder and attribute the scenario BEFORE the
+// provisioning hook below runs, so the shared-store provisioning it triggers is
+// itself recorded and attributed (feature verification-economy: expensive spend
+// is licensed, recorded, and joined). Defined first: cucumber runs Before hooks
+// in definition order.
+Before({ tags: "@sandbox" }, function (this: JollyWorld, { pickle }) {
+  armSandboxSpendRecording();
+  setSpendAttribution(pickle.name);
+});
+
+After({ tags: "@sandbox" }, function () {
+  clearSpendAttribution();
 });
 
 // Provision the run's one shared jolly-cannon-fodder store (endpoint + SALEOR_TOKEN

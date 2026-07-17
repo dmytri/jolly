@@ -137,6 +137,11 @@ export class CleanupRegistry {
     return this.entries.length;
   }
 
+  /** The registered descriptions, for assertions that teardown is armed. */
+  get descriptions(): string[] {
+    return this.entries.map((entry) => entry.description);
+  }
+
   async runAll(): Promise<CleanupFailure[]> {
     const failures: CleanupFailure[] = [];
     while (this.entries.length > 0) {

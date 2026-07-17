@@ -6,7 +6,7 @@ Feature: Saleor source repositories and integration boundaries
   Background:
     Given a fresh empty project directory
 
-  @sandbox @heavy
+  @sandbox
   Scenario: Use Saleor Paper as the storefront baseline
     When the agent runs `jolly start --dry-run --json`
     Then the plan's storefront stage should name `saleor/storefront` as the baseline to clone

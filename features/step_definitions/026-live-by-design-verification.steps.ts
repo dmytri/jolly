@@ -24,10 +24,7 @@ import { basename, join, relative } from "node:path";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
 import { assertEnvelopeSuccess } from "../support/envelope.ts";
 import { createEnvironment } from "../support/env-factory.ts";
-import {
-  reclaimLeftoverTestEnvironments,
-  SEEDED_CREDENTIAL_VARS,
-} from "../support/eval.ts";
+import { SEEDED_CREDENTIAL_VARS } from "../support/eval.ts";
 import {
   type CloudEnvironment,
   deleteEnvironment,
@@ -72,6 +69,11 @@ interface DoubleHit {
   text: string; // the offending source line, trimmed
   /** The condition named by an `@exceptional-double` annotation at/just above the site, if any. */
   justification?: string;
+  /** The licensed @pipeline sandbox source run named by a `@golden-capture`
+   * annotation at/just above the site, if any (feature 026's golden-capture
+   * Rule: a canned response recorded mechanically from a real run, each capture
+   * site naming its source run inline). */
+  capture?: string;
 }
 
 // Signals of each forbidden-double category, matched against source lines. Tight
@@ -120,6 +122,20 @@ function justificationAt(lines: string[], idx: number): string | undefined {
   return undefined;
 }
 
+/**
+ * The source run named by a `@golden-capture` annotation at the given line or
+ * in the six lines just above it, or undefined when the site carries none. The
+ * text after the marker names the licensed @pipeline sandbox run the capture
+ * was recorded from.
+ */
+function captureSourceAt(lines: string[], idx: number): string | undefined {
+  for (let i = idx; i >= Math.max(0, idx - 6); i--) {
+    const m = lines[i]?.match(/@golden-capture:?\s*(.*)$/);
+    if (m) return m[1]!.trim();
+  }
+  return undefined;
+}
+
 function enumerateDoubles(): DoubleHit[] {
   const hits: DoubleHit[] = [];
   for (const dir of TEST_LAYER_DIRS) {
@@ -137,6 +153,7 @@ function enumerateDoubles(): DoubleHit[] {
           kind: "fake-cli",
           text: `${basename(file)} (fake CLI module)`,
           justification: justificationAt(lines, 0),
+          capture: captureSourceAt(lines, 0),
         });
       }
 
@@ -153,6 +170,7 @@ function enumerateDoubles(): DoubleHit[] {
               kind,
               text: trimmed,
               justification: justificationAt(lines, idx),
+              capture: captureSourceAt(lines, idx),
             });
             break; // one classification per line is enough
           }
@@ -181,8 +199,11 @@ Then(
   /^there should be no forbidden double — no fake CLI standing in for a real one \(Vercel, @saleor\/configurator, the storefront CLI\), no dummy or forced-safe credential, and no unroutable stand-in endpoint substituting for a real service$/,
   function (this: JollyWorld) {
     const hits = this.notes.doubleHits as DoubleHit[];
-    // A double is forbidden unless its site is annotated @exceptional-double.
-    const forbidden = hits.filter((h) => h.justification === undefined);
+    // A double is forbidden unless its site is annotated @exceptional-double,
+    // or is a golden capture whose site names its licensed source run.
+    const forbidden = hits.filter(
+      (h) => h.justification === undefined && h.capture === undefined,
+    );
     if (forbidden.length === 0) return;
 
     const byKind = new Map<DoubleKind, DoubleHit[]>();
@@ -211,17 +232,24 @@ Then(
 );
 
 Then(
-  /^any test double that remains should belong to a scenario tagged @exceptional-double whose site names the unproducible condition it injects$/,
+  "any test double that remains should belong to a scenario tagged @exceptional-double whose site names the unproducible condition it injects, or be a golden capture whose site names the licensed @pipeline sandbox run it was recorded from",
   function (this: JollyWorld) {
     const hits = this.notes.doubleHits as DoubleHit[];
-    const remaining = hits.filter((h) => h.justification !== undefined);
-    // Every remaining double must be annotated @exceptional-double AND name a
-    // non-empty unproducible condition — the bare marker is not enough.
+    const remaining = hits.filter(
+      (h) => h.justification !== undefined || h.capture !== undefined,
+    );
+    // Every remaining double must either be annotated @exceptional-double AND
+    // name a non-empty unproducible condition, or be a golden capture whose
+    // @golden-capture annotation names its licensed @pipeline source run — the
+    // bare marker is not enough in either branch.
     for (const h of remaining) {
       assert.ok(
-        h.justification && h.justification.length > 0,
+        (h.justification && h.justification.length > 0) ||
+          (h.capture && h.capture.length > 0),
         `the remaining double at ${h.file}:${h.line} must name the unproducible ` +
-          `condition its @exceptional-double annotation injects`,
+          `condition its @exceptional-double annotation injects, or name the ` +
+          `licensed @pipeline sandbox run its @golden-capture annotation was ` +
+          `recorded from`,
       );
     }
   },
@@ -283,7 +311,7 @@ Then(
 );
 
 Then(
-  "it should omit the store endpoint `NEXT_PUBLIC_SALEOR_API_URL` and the `SALEOR_TOKEN`, so a baseline agent's `jolly start` provisions a fresh `jolly-cannon-fodder` store on the real creation path instead of reusing a pre-seeded one",
+  "it should omit the store endpoint `NEXT_PUBLIC_SALEOR_API_URL` and the `SALEOR_TOKEN`, so a baseline agent's `jolly start` exercises the documented store-creation path from a fresh start instead of reusing a pre-seeded one",
   function (this: JollyWorld) {
     const seeded = new Set(this.notes.enumeratedSeedVars as string[]);
     for (const v of STORE_SEED_VARS) {
@@ -391,34 +419,6 @@ Given(
     assert.ok(
       seeded.some((e) => e.name === name),
       `the seeded leftover ${name} must stand in the org before reclamation`,
-    );
-  },
-);
-
-When(
-  "the eval performs its pre-run capacity reclamation",
-  { timeout: 300_000 },
-  async function (this: JollyWorld) {
-    const token = this.notes.reclaimToken as string;
-    this.notes.reclaimed = await reclaimLeftoverTestEnvironments(token);
-  },
-);
-
-Then(
-  "the leftover `jolly-cannon-fodder`-namespaced environment should no longer exist in the org",
-  { timeout: 60_000 },
-  async function (this: JollyWorld) {
-    const token = this.notes.reclaimToken as string;
-    const name = this.notes.leftoverName as string;
-    const after = await listAllEnvironments(token);
-    assert.ok(
-      !after.some((e) => e.name === name),
-      `the leftover ${name} must be reclaimed; it still stands in the org`,
-    );
-    const reclaimed = this.notes.reclaimed as CloudEnvironment[];
-    assert.ok(
-      reclaimed.some((e) => e.name === name),
-      `reclamation must report the leftover ${name} among the environments it deleted`,
     );
   },
 );

@@ -1,22 +1,24 @@
 Feature: Sandbox worker isolation
   As the maintainer of Jolly's verification suite
-  I want each parallel @sandbox worker to provision its own isolated store, with heavy scenarios serialized
-  So that the light query scenarios run in parallel while no two full jolly-start deploys pile onto the instance at once
+  I want parallel @sandbox workers to share ambient state safely, with every worker-created resource namespaced and the licensed spends serialized
+  So that the light query scenarios run fast in parallel while no two full toolchain chains pile onto the instance at once
 
-  Rule: Per-worker isolation, with a heavy/light phase split
-    - AGENTS.md "Sandbox harness mechanics" is the binding contract. Each parallel
-      worker provisions its own isolated jolly-cannon-fodder environment,
-      namespaced by run id and worker id, so no two workers share a store. This
-      feature makes the isolation clause executable: a harness that pins every
-      worker onto one shared per-run store fails here, because two workers then
-      derive the same environment name and the same Vercel project name.
-    - Isolation removes cross-worker collision, not concurrent load, and the
+  Rule: Shared ambient state, namespaced creation, licensed spends serial
+    - AGENTS.md "Sandbox harness mechanics" is the binding contract. A run's
+      workers coordinate so exactly one provisions or adopts the shared store and
+      the rest adopt its derived values; ambient state no scenario asserts is
+      provisioned once and shared, per feature verification-economy.
+    - Anything a worker itself creates stays namespaced by run id and worker id —
+      the harmless-by-design boundary — so a creating scenario never collides
+      with a sibling worker's resources, and reclamation can positively identify
+      every disposable leftover.
+    - Sharing removes redundant provisioning, not concurrent load, and the
       binding constraint is the local test VM rather than the Saleor instance.
-      Each heavy scenario runs a full toolchain (clone, install, configurator
-      deploy, Vercel deploy), and two at once saturate this VM's CPU, memory,
-      and network. So the heavy scenarios (tagged @heavy) and the env-creating
-      scenarios (@creates-env) run serially, and only the light query and check
-      scenarios run in parallel across the two isolated worker environments.
+      A full toolchain chain (clone, install, configurator deploy, Vercel
+      deploy) saturates this VM's CPU, memory, and network, so the licensed
+      full-pipeline proofs (@pipeline) and the env-creating scenarios
+      (@creates-env) run serially, and only the light query and check scenarios
+      run in parallel.
 
   @logic @property
   Scenario: Two parallel sandbox workers provision distinct Saleor environments
@@ -31,8 +33,8 @@ Feature: Sandbox worker isolation
     Then the two workers derive different jolly-cannon-fodder-namespaced Vercel project names
 
   @logic @property
-  Scenario: The @sandbox tier serializes heavy scenarios and parallelizes the light ones
+  Scenario: The @sandbox tier serializes the licensed spends and parallelizes the light ones
     Given the project's cucumber run profiles
     When the @sandbox run profiles are enumerated
-    Then the parallel @sandbox profile runs its workers in parallel and excludes the heavy scenarios
-    And a separate profile runs the heavy scenarios serially
+    Then the parallel @sandbox profile runs its workers in parallel and excludes the @pipeline and @creates-env scenarios
+    And a separate profile runs the @pipeline and @creates-env scenarios serially

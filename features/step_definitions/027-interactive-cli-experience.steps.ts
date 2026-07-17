@@ -24,10 +24,11 @@ import { acceptEveryPrompt, startPromptSequence } from "../support/start-prompts
 import { findEnvelope } from "../support/envelope.ts";
 import { listOrganizations } from "../support/cloud.ts";
 import {
-  addVercelProject,
-  removeVercelProject,
-  workerNamespace,
-} from "../support/sandbox.ts";
+  ensureSharedDeployment,
+  linkStorefrontToSharedProject,
+  type SharedDeployment,
+} from "../support/deployed-storefront.ts";
+import { materializePreparedStorefront } from "../support/storefront-fixture.ts";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
 import { writeEnvValues } from "../../src/lib/env-file.ts";
 import { cliMessage } from "../../src/lib/messages.ts";
@@ -1212,16 +1213,17 @@ Then(
 
 // ─── Completed interactive run: the human close names the live store and the ──
 // remaining human step (feature 027 @sandbox). A REAL interactive `jolly start`
-// driven to completion: the configured Cloud token auto-provisions the store
-// (so the close can name the live store's Saleor Dashboard URL), Jolly clones,
-// installs, and deploys, and the deploy reaches a real Vercel deploy under the
-// authenticated CLI session (gated as a capability). Harmless by design: the
-// created Saleor environment and Vercel project are both `jolly-cannon-fodder`-namespaced
-// (the env name is typed at the prompt; the Vercel project name is the
-// JOLLY_VERCEL_PROJECT deploy hook), and teardown of both is registered BEFORE
-// the run creates them. Driven against separate stdout/stderr PTYs so the human
-// RESULT summary emit() prints to stdout (the "closing summary") is observable
-// apart from the per-stage progress on stderr (feature 020/027 stream split).
+// driven to completion over a project whose store, storefront, and deployment
+// stages are already satisfied — the wrapper around already-proven stages is
+// tested against their satisfied state, not by running them again (feature
+// verification-economy's licence Rule). The satisfied state is what a completed
+// earlier run leaves, assembled from the run's shared fixtures: the shared
+// store's creds in .env, a real prepared Paper tree in storefront/, and the
+// run-shared live deployment on the long-lived shared Vercel project
+// (support/deployed-storefront.ts). Driven against separate stdout/stderr PTYs
+// so the human RESULT summary emit() prints to stdout (the "closing summary")
+// is observable apart from the per-stage progress on stderr (feature 020/027
+// stream split).
 
 // The real process environment (real JOLLY_* credentials), with overrides — the
 // completing run must reach the real accounts, so absentCredentialsEnv is NOT
@@ -1237,6 +1239,49 @@ function realChildEnv(
   return env;
 }
 
+// The satisfied starting state is what a COMPLETED earlier run leaves in a
+// project, assembled from the run's shared fixtures rather than by running the
+// chain again: the shared store's creds (store stage satisfied), a real
+// materialized Paper tree with production's framework pin (storefront stage
+// satisfied), and the run-shared live deployment with the project link
+// production writes after a completed deploy (deployment stage satisfied).
+Given(
+  "a project whose store, storefront, and deployment stages are already satisfied",
+  { timeout: 1_500_000 },
+  async function (this: JollyWorld) {
+    const endpoint = process.env["NEXT_PUBLIC_SALEOR_API_URL"];
+    const token = process.env["SALEOR_TOKEN"];
+    assert.ok(
+      endpoint && token,
+      "the @sandbox Before hook must have provisioned the shared store " +
+        "(NEXT_PUBLIC_SALEOR_API_URL + SALEOR_TOKEN in process.env)",
+    );
+    // Store stage satisfied: a configured endpoint short-circuits runStoreStage
+    // to reuse, and the channel is the value a completed deploy writes back
+    // (src/index.ts runDeployStage).
+    writeEnvValues(this.projectDir, {
+      NEXT_PUBLIC_SALEOR_API_URL: endpoint!,
+      SALEOR_URL: endpoint!,
+      SALEOR_TOKEN: token!,
+      NEXT_PUBLIC_DEFAULT_CHANNEL: "us",
+    });
+    // Storefront stage satisfied: a real prepared Paper tree (the shared
+    // template), plus the vercel.json framework pin production writes before
+    // its deploy.
+    await materializePreparedStorefront(join(this.projectDir, "storefront"));
+    writeFileSync(
+      join(this.projectDir, "storefront", "vercel.json"),
+      JSON.stringify({ framework: "nextjs" }, null, 2) + "\n",
+    );
+    // Deployment stage satisfied: the run's ONE shared live deployment, and the
+    // storefront linked to its project exactly as production links after a
+    // completed deploy.
+    const deployment = await ensureSharedDeployment();
+    linkStorefrontToSharedProject(join(this.projectDir, "storefront"), deployment.project);
+    this.notes.satisfiedDeployment = deployment;
+  },
+);
+
 When(
   "`jolly start` runs to completion in an interactive terminal",
   { timeout: 1_560_000 },
@@ -1244,31 +1289,21 @@ When(
     assert.ok(ptyAvailable(), "the PTY driver must be available");
     const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
     assert.ok(cloudToken, "the Saleor Cloud token must be present");
-
-    // The @sandbox gate pre-provisioned one shared `jolly-cannon-fodder`-namespaced store
-    // (endpoint + SALEOR_TOKEN now in process.env) and torn-down at run end. Seed the
-    // fresh project's .env with it so the interactive run REUSES that namespaced
-    // live store (runStoreStage reuses a configured endpoint; it never creates a
-    // default-named environment) — harmless, and the close can name its Dashboard URL.
     const endpoint = process.env["NEXT_PUBLIC_SALEOR_API_URL"];
     const storeToken = process.env["SALEOR_TOKEN"];
     assert.ok(endpoint, "the provisioned store endpoint must be present");
     assert.ok(storeToken, "the provisioned SALEOR_TOKEN must be present");
 
-    // The configured-store gate reads the project's .env file (loadEnvValues in
-    // src/index.ts), not the process environment, so write the shared store there.
-    // With NEXT_PUBLIC_SALEOR_API_URL configured, `jolly start` silently reuses
-    // the store (feature 027 "start.reusingConfiguredStore") — no create/reuse
-    // prompt and no environment-name prompt — and the close names its Dashboard URL.
-    writeEnvValues(this.projectDir, {
-      NEXT_PUBLIC_SALEOR_API_URL: endpoint,
-      SALEOR_TOKEN: storeToken,
-    });
-
-    // One `jolly-cannon-fodder` namespace for the Vercel project the deploy stage
-    // creates, per worker so no two workers share a project — attributable cannon
-    // fodder torn down after the run.
-    const namespace = workerNamespace();
+    // The satisfied-stages Given assembled the project: shared store in .env,
+    // prepared storefront on disk, and the run-shared live deployment. The run
+    // targets that SAME long-lived shared Vercel project, so the deploy stage
+    // operates on the deployment the Given declared satisfied; the shared
+    // project persists by design and no removal is registered.
+    const deployment = this.notes.satisfiedDeployment as SharedDeployment | undefined;
+    assert.ok(
+      deployment,
+      "the satisfied-stages Given must have provisioned the shared deployment",
+    );
 
     // Pin the organization deterministically (a real feature 012 affordance) so a
     // multi-org token never inserts an org-choice prompt that would misalign the
@@ -1276,13 +1311,6 @@ When(
     const orgs = await listOrganizations(cloudToken);
     const organization = orgs[0];
     assert.ok(organization, "the Cloud token must resolve at least one organization");
-
-    // Pre-create the namespaced Vercel project the deploy targets and register its
-    // removal BEFORE the run creates the deployment (harmless by design).
-    addVercelProject(namespace);
-    this.cleanup.register(`jolly-cannon-fodder Vercel project (run ${namespace})`, () => {
-      removeVercelProject(namespace);
-    });
 
     // Inputs, in prompt order (Cloud token configured → no device sign-in;
     // --organization pinned → no org choice; store configured in .env → no
@@ -1298,7 +1326,7 @@ When(
       env: realChildEnv({
         NEXT_PUBLIC_SALEOR_API_URL: endpoint,
         SALEOR_TOKEN: storeToken,
-        JOLLY_VERCEL_PROJECT: namespace,
+        JOLLY_VERCEL_PROJECT: deployment.project,
       }),
       inputs: ["\r", "\r"],
       waitFor: ["Storefront project directory", "Build your store now?"],

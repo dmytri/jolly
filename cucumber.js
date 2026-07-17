@@ -35,19 +35,19 @@ export default { ...common, tags: "not @eval" };
 // worker id (features/support/provision.ts, features/support/sandbox.ts). Isolation
 // removes cross-worker COLLISION, but does not remove concurrent LOAD. The binding
 // cause is LOCAL, per AGENTS.md "Sandbox harness mechanics": this test VM is
-// resource-limited, and each heavy scenario runs a full toolchain (`git clone` Paper,
-// `pnpm install` a whole Next.js app, `@saleor/configurator` deploy, `npx vercel`
-// deploy, node). Two of those at once saturate the VM's CPU, memory, and network,
-// and that is where the "unable to connect" errors come from. So the tier is a
-// heavy/light phase split. HEAVY scenarios (a full `jolly start` / real deploy /
-// provision, tagged @heavy) run SERIAL — only one toolchain fits the VM. The lever
-// for heavy parallelism is a bigger test-runner VM. The env-creating scenarios
-// (@creates-env) also run serial, since they need a slot the parallel phase's two
-// isolated envs would consume. Everything else is a light query/check that runs in
-// parallel across the two isolated worker envs.
+// resource-limited, and a full toolchain chain (`git clone` Paper, `pnpm install`
+// a whole Next.js app, `@saleor/configurator` deploy, `npx vercel` deploy, node)
+// saturates the VM's CPU, memory, and network; two at once is where the "unable
+// to connect" errors come from. So the tier serializes the LICENSED spends, per
+// feature verification-economy's licence Rule and feature 028: the full-pipeline
+// proofs (@pipeline) and the env-creating scenarios (@creates-env, which need a
+// slot the parallel phase's isolated envs would consume) run SERIAL — only one
+// toolchain fits the VM, and the lever for pipeline parallelism is a bigger
+// test-runner VM. Everything else is a light query/check that runs in parallel
+// across the isolated worker envs.
 export const logic = { ...common, tags: "@logic", parallel: 2 };
-export const sandbox = { ...common, tags: "@sandbox and not @heavy and not @creates-env", parallel: 2 };
-export const sandboxSerial = { ...common, tags: "@sandbox and (@heavy or @creates-env)", parallel: 1 };
+export const sandbox = { ...common, tags: "@sandbox and not @pipeline and not @creates-env", parallel: 2 };
+export const sandboxSerial = { ...common, tags: "@sandbox and (@pipeline or @creates-env)", parallel: 1 };
 
 // The eval profile runs ONLY the opt-in @eval tier (feature 025). `eval` is a
 // reserved identifier, so it is exported under that name via an alias.

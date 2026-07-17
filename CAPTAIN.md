@@ -4,71 +4,91 @@
 
 Binding behaviour lives in `.feature` specs and referenced `assets/**`. History lives in git. These notes carry only what the next cycle needs.
 
-## Deck state (2026-07-17): upgrade voyage CLOSED at `bed36d0`, deck clean
+## VERDICT (2026-07-17 eve): watchbill SPENT; one Captain-owned red — BUDGETS, dk to rule
 
-One voyage carried: the latest-stable dep wave (Cucumber 13, c8 12, TS7 gate green after the 006
-ts-morph port), the four harbour-ruled checks (catalog key join both directions, loud-fail render
-with the `!` driven out of `src/lib/messages.ts`, once-per-run ambient provisioning, ARCHITECTURE.md
-pinned), and the `start.vercelSigninIncomplete` cut (catalog 331). All tiers re-earned fresh on the
-new rig. Boatswain custody clean; watchbill struck. Push ordered by dk: catalog + harbour + upgrades
-together.
+Measured warm, fresh this session: logic 195.5s (fits 210), sandbox 810.1s (vs 210),
+sandbox-serial 835.9s (vs 540), eval 107s (fits 240, was 9m36 live — captures won 5.4x).
+Sum ~1948s vs 1200s regression budget. Dominant single scenarios: 002 "jolly start waits
+for a freshly-provisioned store to serve" 357.8s (real fresh store + real cold-start wait,
+mandated by its text); the licensed chain proof 347.0s (inherent, one per run). dk options:
+raise values to measured, respec the fresh-store readiness scenarios (fold cold-start proof
+into the shared provisioning seam — biggest lever, ~6 min), or tier overlap (hardware;
+invocations currently must stay serial per reclaim races). Do NOT touch values without dk.
 
-Measured tier times on the new rig: @logic 192 scenarios 3m22s; @sandbox light 15 3m28s; @sandbox
-heavy 41 serial 37m20s; @eval 4 9m36s. The once-per-run fix already halved light and eval.
+Golden-capture layer landed: `features/support/eval-captures.ts` + committed
+`captures/eval-captures.json` (no secrets, rg-confirmed), reads pass live / creation served
+recorded, endpoint re-verification gates, `@golden-capture` sites name source runs.
+Harness defects engineered out: ensureCliBundle drift (missing --external:yaml, stale-mtime
+rebuild added); agent workspace escape during the broken-bundle run (cleaned + JOLLY_PROJECT_DIR
+pin); one transient Vercel mid-poll auth blip (second heal green, no tolerance recorded).
 
-## NEXT: THE SPEED VOYAGE (dk-ruled, author immediately)
+## Deck state (2026-07-17): SPEED VOYAGE authored and dispatched at base `20d57e0`
 
-dk: a month of stagnation; suite cost kills iteration; full regression MUST fit 20 minutes, 10 the
-real target. Budgets are dk's ruling, now upstream skill law (shipshape 0.13.29): budget values in
-RIGGING `## Tiers`, breach reds via derived check reading the weather record.
+All dk-ruled design captured into durable artifacts this pass:
 
-Design, all dk-ruled:
-1. **Licensed spend.** The heavy tier's 41 full pipelines violate the Verification agreement's own
-   reuse rule. Licence by tag: `@creates-env` keeps its licence; tag the 2 or 3 true end-to-end
-   proofs (pick by reading tags: 027 interactive full start, the 002 e2e candidate). Spend recorded
-   by PATH-shim ledger (025's idiom) with per-scenario attribution via hook-set env var; a derived
-   join reds an unlicensed toolchain spawn, a twice-provisioned resource class, and a missing ledger.
-   Planted-red proof at adoption.
-2. **Strategy: invariant-first, smallest change.** Do NOT hand-respec 41 scenarios. Author the
-   invariant + tags + budgets; QM restructures SUPPORT to satisfy existing scenario text against
-   shared once-per-run ambient state (shared store + one shared pipeline's artifacts). Only where
-   scenario TEXT itself mandates a fresh full run does Captain respec (state-over-navigation), on
-   QM's named blocker.
-3. **Golden-capture eval.** Rewrite 025's live-by-design Rule: the agent stays live (fixed baseline
-   model, never changed); Jolly's side becomes golden-capture spies recorded mechanically from real
-   @sandbox runs, re-verified at harbour; `@exceptional-double` ground three. Real end-to-end proof
-   lives only in the licensed pipelines. Eval drops to agent-turns time.
-4. **Budgets in RIGGING** under the 0.13.29 shape: plain `budget` 20m for the regression,
-   tier-suffixed values sized to the restructured tiers. Captain writes them with dk's numbers
-   (write-scope exception, dk ruled 20/10). Target arithmetic: 3.5 + 3.5 + ~9 pipelines + ~4 eval
-   is under 20 serial; 10 needs tier overlap, which is hardware, not methodology.
+- **Licences (dk re-ruled mid-voyage, one licence)**: `@pipeline` on exactly ONE proof —
+  002 "The deployed storefront serves the Saleor catalog and a working cart". dk's principle,
+  now in the verification-economy Rule: one creation test per creation seam; a re-run is
+  licensed only when it tests creation DIFFERENTLY (parameters), never a different sequence.
+  027's interactive completion respecced to resume-over-satisfied-stages, licence dropped.
+  `@creates-env` keeps its licence. `@heavy` RETIRED corpus-wide; 028 respecced to
+  shared-ambient + licensed-serial. First QM dispatch (2-licence geometry) was stopped
+  mid-sweep and superseded; its support work (spend-ledger.ts, wake, provisioning, profiles)
+  rides in the tree as role-advanced work in flight.
+- **Invariants**: four new `@logic @invariant` scenarios in `verification-economy.feature`
+  (unlicensed-spend join, once-per-resource-class, missing-ledger, budget check). Planted-red
+  proof at adoption is QM's.
+- **Eval**: 025 rewritten to live-agent-over-golden-captures; 026 admits the recorded-capture
+  ground (hand-authored fakes stay forbidden) and drops the eval-provisions-for-real clauses.
+  Eval needs no Vercel session now.
+- **Budgets in RIGGING `## Tiers`** (seconds, dk-ruled 20m hard / 10m target-by-overlap):
+  budget 1200, logic 210, sandbox 210, sandbox-serial 540, eval 240. Changing them is dk's
+  call only. A budget red is a measured finding to report, never to tolerate.
+- **Watchbill (leg 2, after QM's first final report)**: watch1 = 025 /setup capture scenario;
+  watch2 @sandbox warm re-measure; watch3 @eval; watch4 = spend-join + budget invariants
+  (read the warm records). First leg proved everything else green: sandbox 49/49 + 6/6,
+  logic swept (one Crew fix), 027 completion 50s (was 5m26s — Crew made production
+  resume-aware: `storeHoldsRecipeCatalog` read-back skips satisfied recipe/deploy stages).
 
-After the speed voyage: PRODUCT voyages only. Methodology gets touched only when it removes cost.
+**QM leg-1 rulings made (2026-07-17 late)**: (1) 004 destructive-diff guard is the element
+licence — @creates-env may drive ONE toolchain element against its own env where the element
+exercised differently is the assertion; never the chain. (2) Eval captures record against the
+persistent shared store + shared deployment, so recorded URLs stay live and probes answer for
+real. (3) Budgets: dk's values UNTOUCHED; first-pass breaches (sandbox 606/210, serial
+822/540, eval 265/240, logic 195.5 fits) were structurally cold (first pipeline through fresh
+fixtures, shim regeneration, store adoption after the marker fix). Warm re-measure is the
+honest next measurement; if warm still breaches, the numbers go to dk for re-rule — never
+quietly raised by Captain.
+
+**Wake-wipe note (QM, unverified)**: something out-of-band rewrote coverage/ ~13:03-13:05
+destroying the morning ledger+shims; no current effect after QM's fixes. Watch for recurrence;
+harbour item if seen again.
+
+**Respec trigger (dk-ruled)**: do NOT hand-respec former-heavy scenarios. QM restructures
+SUPPORT to satisfy existing text against shared once-per-run ambient state (shared store +
+one shared pipeline's artifacts). Only where scenario TEXT itself mandates a fresh full run
+does Captain respec (state-over-navigation), on QM's NAMED blocker. Expect candidates: 002
+concurrent-stage-timing, 022 resume scenarios. Judge each on its text when named.
+
+After this voyage: PRODUCT voyages only. Methodology gets touched only when it removes cost.
 
 ## THE ONE FACT NO MECHANISM CARRIES ANY MORE
 
-**`deepseek/deepseek-v4-flash` is Jolly's FIXED `@eval` baseline model. An eval red is an affordance
-fault, never a model fault.** Never propose a stronger or different eval model; never touch
-`HARNESS_EVAL_MODEL`. On any `@eval` red, fix Jolly's affordance (the `assets/skills/jolly` copy or
-the `/setup` page). dk has run many successful tests on exactly this model. If this ever needs to
-bind QM, it becomes a `.feature` scenario, never a note and never a memory.
+**`deepseek/deepseek-v4-flash` is Jolly's FIXED `@eval` baseline model. An eval red is an
+affordance fault, never a model fault.** Never propose a stronger or different eval model;
+never touch `HARNESS_EVAL_MODEL`. On any `@eval` red, fix Jolly's affordance (the
+`assets/skills/jolly` copy or the `/setup` page). If this ever needs to bind QM, it becomes
+a `.feature` scenario, never a note and never a memory.
 
 ## Upstream (~/shipshape, dk: edit directly, no ceremony)
 
-- `0.13.29` committed: Budgets subsection + licensed-spend rule in the Verification agreement,
-  `budget`/`budget-<tier>` in the rigging shape, seventh derived check. Skill-only safe; nothing
-  plugin-dependent. Constraint standing: skill-only baseline, open-plugin compatible, no agent
-  special-casing.
-- Open design: resume-on-signal machinery. No portable async primitive in the hook surface; the one
-  portable shape is a Stop/SubagentStop hook blocking on a detach-marker file, but it fights hook
-  timeouts on 40-minute runs. Own work item in the shipshape repo. This session hand-carried the
-  loop six times; the case is made.
-- Blockers-first handoff is ALREADY upstream (shipshape SKILL.md Role transitions): retire the stale
-  AGENTS.md local addition at next harbour (AGENTS is Shipwright's).
-- Boatswain dead-code duty diverges by design (upstream: report and defer to harbour; local: remove).
+- 0.13.29 installed into project skills this session (budget + licensed-spend law loaded).
+- Open design: resume-on-signal machinery for 40-minute runs; own work item in the shipshape
+  repo. This voyage's sweeps are the next test of hand-carrying the loop.
+- Blockers-first handoff is upstream; retire the stale AGENTS.md local addition at next
+  harbour (AGENTS is Shipwright's).
+- Boatswain dead-code duty diverges by design (upstream: defer to harbour; local: remove).
   dk to rule someday; no urgency.
-- Jolly still runs the 0.13.28 install; update via the AGENTS.md install line at the next session
-  boundary so the budget shape is in the loaded skills.
 
 ## Fresh-VM fitting-out (git-invisible, manual)
 
@@ -76,7 +96,7 @@ bind QM, it becomes a `.feature` scenario, never a note and never a memory.
 1. `npm ci`; confirm `node_modules/.bin/cucumber-js` resolves to `@cucumber/cucumber` (public-npm
    placeholder exits 0 = false green).
 2. `.env`: `JOLLY_SALEOR_CLOUD_TOKEN` + `HARNESS_OPENROUTER_API_KEY`.
-3. `vercel login` (operator, browser).
+3. `vercel login` (operator, browser) — needed for @sandbox only now; eval no longer uses it.
 4. `gh auth setup-git`.
 
 ## Held product rules
@@ -88,21 +108,24 @@ bind QM, it becomes a `.feature` scenario, never a note and never a memory.
 
 ## For next harbour (report-only, re-derivable)
 
+- AGENTS.md now stale in three places (Shipwright refits; AGENTS is not Captain's): the
+  "Sandbox harness mechanics" heavy/light prose (now licensed @pipeline/@creates-env split),
+  the eval live-deploy prose (now golden-capture), and the old local blockers-first addition.
+- RIGGING measurement prose drift: step-def and conformance-family counts grew again
+  (+4 @invariant this voyage).
 - 16 zero-usage step definitions (two at `006-npx-cli-command-surface.steps.ts:502,521`).
-- RIGGING measurement prose drift: 986 -> 1006 step defs, conformance family 48 -> 51 (Shipwright).
-- Still no derived check joining RIGGING `## Dependencies` to `package.json` (RIGGING records it).
-- `AGENTS.md:92` happy-dom claim stale; `runtime: node@20` publishes one runtime for two.
+- Still no derived check joining RIGGING `## Dependencies` to `package.json`.
 - `report.html`/`report.json` tracked but are wake.
-- Shared-store mid-run death: generation-keyed fixture (QM, this voyage) fixed the follow; the
-  AGENTS.md pre-run validate/refresh demand still lacks a mid-run gate.
-- Spawn-target test (dist vs src) for the @logic slow cluster: likely moot if the speed voyage's
-  budgets hold; measure only if @logic misses its budget.
+- Harbour re-verifies the golden captures against live services (026's stated cadence) — new
+  standing harbour duty from this voyage.
+- Support comments referencing `@sandbox @heavy` (`fast-forward-deploy.ts`,
+  `recipe-on-shared.ts`) — QM likely cleans with the restructure; verify gone.
 
 ## Standing rules, learned the hard way
 
 - NEVER quote these notes to another role; give the command that answers, never the note.
-- Grep is an opinion; run the join. A check that enumerates a set is trusted only after you verify
-  it enumerated the set.
+- Grep is an opinion; run the join. A check that enumerates a set is trusted only after you
+  verify it enumerated the set.
 - Never let anything follow a verification run in the same command; the summary line is the
   evidence, the exit code is hearsay.
 - `pgrep -f` matches its own command line; kill by task ID.

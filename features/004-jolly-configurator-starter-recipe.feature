@@ -3,7 +3,7 @@ Feature: Jolly Configurator starter recipe
   I want a Jolly-specific Configurator recipe
   So that the Saleor store is configured to work with the Paper storefront immediately
 
-  @sandbox @heavy
+  @sandbox
   Scenario: Jolly prepares the starter recipe
     Given the customer has created or selected a Saleor Cloud environment
     When the agent runs `jolly start --dry-run --json`
@@ -12,7 +12,7 @@ Feature: Jolly Configurator starter recipe
     And the plan should deploy it by spawning `npx @saleor/configurator@latest deploy`
     And the plan should name the deploy token as `SALEOR_TOKEN` (the resolved store token Jolly holds)
 
-  @sandbox @heavy @creates-env
+  @sandbox @creates-env
   Scenario: Jolly blocks a recipe re-deploy over a pre-existing store's destructive diff
     Given a Saleor Cloud environment that already holds catalog data
     When the agent runs `jolly recipe --yes --json` to apply the starter recipe to Saleor Cloud
@@ -29,7 +29,7 @@ Feature: Jolly Configurator starter recipe
     And the preview should name the real Saleor GraphQL request, the recipe warehouse, and the default per-variant quantity
     And the preview should not perform any mutation
 
-  @sandbox @heavy
+  @sandbox
   Scenario: Jolly start seeds stock so the recipe catalog is buyable
     Given a freshly created Saleor Cloud environment with the starter recipe deployed
     When Jolly start completes the recipe stage
@@ -37,7 +37,7 @@ Feature: Jolly Configurator starter recipe
     And a checkout in the `us` channel should not be blocked by INSUFFICIENT_STOCK
     And re-running the stage should update the quantities idempotently rather than creating duplicate stock
 
-  @sandbox @heavy
+  @sandbox
   Scenario: Jolly start seeds stock and assigns collections with concurrent Saleor requests
     Given a freshly created Saleor Cloud environment with the starter recipe deployed
     When Jolly start runs the stock stage over the recipe's variants and collections
@@ -73,7 +73,7 @@ Feature: Jolly Configurator starter recipe
     And the overall envelope status should be "warning", not "success"
     And Jolly should not print a fabricated deployment result
 
-  @sandbox @heavy
+  @sandbox
   Scenario: Jolly start deploys the starter recipe with @saleor/configurator
     Given a freshly created Saleor Cloud environment with the starter recipe deployed
     Then Jolly should spawn `npx @saleor/configurator@latest deploy` of its bundled starter recipe against the store, never reimplementing it against raw APIs
@@ -81,13 +81,13 @@ Feature: Jolly Configurator starter recipe
     And the stage should be reported completed only when the configurator's deployment report records success
     And re-running the stage should reconcile to a no-op diff rather than creating duplicate entities
 
-  @sandbox @heavy
+  @sandbox
   Scenario: The recipe deploy reports completed and activates the `us` channel over a create-store environment
     Given a freshly created Saleor Cloud environment with the starter recipe deployed
     Then the recipe stage should be reported "completed", not "blocked"
     And the recipe's `us` channel should exist and be active in the store
 
-  @sandbox @heavy
+  @sandbox
   Scenario: Jolly start confirms the recipe's featured collection exists before reporting the recipe stage completed
     Given a freshly created Saleor Cloud environment with the starter recipe deployed
     Then the recipe's `featured-products` collection should exist in the store holding its declared products

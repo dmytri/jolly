@@ -19,6 +19,7 @@ import {
   leftoverTestEnvironments,
   listAllEnvironments,
 } from "./cloud.ts";
+import { recordSpend } from "./spend-ledger.ts";
 import type { CliResult, RunCliOptions } from "./world.ts";
 
 /** The one place the create-environment CLI verb string literals live. */
@@ -101,6 +102,9 @@ export async function createEnvironment(
   opts: CreateEnvironmentOptions = {},
 ): Promise<CliResult> {
   const args = buildArgs(opts);
+  // The expensive spend is recorded at this single creation seam, attributed to
+  // the running scenario or to shared provisioning (feature verification-economy).
+  recordSpend({ spend: "environment-creation", argv: args });
   const deadline = Date.now() + (opts.limitBudgetMs ?? 0);
   let result = await run(args, opts.runOptions);
   while (atEnvironmentLimit(result) && Date.now() < deadline) {

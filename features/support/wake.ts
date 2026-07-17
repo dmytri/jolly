@@ -214,6 +214,136 @@ export function fixtureTier(label: string): FixtureTier {
   };
 }
 
+// ─── Tier budgets (the verification-economy budget scenario) ────────────────
+
+export interface TierBudgets {
+  /** The plain full-regression ceiling, in seconds. */
+  plainSeconds?: number;
+  /** Per-tier ceilings, keyed by the kebab-case tier name, in seconds. */
+  perTierSeconds: Record<string, number>;
+}
+
+/** A `## Tiers` budget line: `- budget: 1200` or `- budget-<tier>: 210`. */
+const BUDGET_LINE = /^- budget(-[a-z-]+)?: (\d+)/;
+
+/** The tier budgets as `RIGGING.md` configures them, read from `## Tiers`. */
+export function readTierBudgets(riggingFile: string): TierBudgets {
+  const text = readFileSync(join(REPO_ROOT, riggingFile), "utf8");
+  const budgets: TierBudgets = { perTierSeconds: {} };
+  let inTiers = false;
+  for (const line of text.split("\n")) {
+    if (line.startsWith("## ")) {
+      inTiers = line.trim() === "## Tiers";
+      continue;
+    }
+    if (!inTiers) continue;
+    const value = BUDGET_LINE.exec(line.trim());
+    if (!value) continue;
+    const [, suffix, seconds] = value;
+    if (suffix === undefined) budgets.plainSeconds = Number(seconds);
+    else budgets.perTierSeconds[suffix.slice(1)] = Number(seconds);
+  }
+  return budgets;
+}
+
+/** The kebab-case tier name a record path carries: `sandboxSerial` → `sandbox-serial`. */
+export function tierNameFromRecordPath(recordPath: string): string {
+  const base = recordPath.split("/").pop() ?? recordPath;
+  return base
+    .replace(/\.ndjson$/, "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .toLowerCase();
+}
+
+export interface TierClock {
+  /** The kebab-case tier name, matching the `budget-<tier>` key. */
+  tier: string;
+  recordPath: string;
+  /** The run's wall clock, testRunStarted to testRunFinished, in seconds. */
+  seconds: number;
+}
+
+/**
+ * The wall clock of the run a tier's wake record carries: the span between its
+ * testRunStarted and testRunFinished timestamps. Undefined when the record is
+ * absent or carries no complete run.
+ */
+export function readTierWallClock(recordPath: string): TierClock | undefined {
+  if (!existsSync(recordPath)) return undefined;
+  let startedNs: number | undefined;
+  let finishedNs: number | undefined;
+  for (const line of readFileSync(recordPath, "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    let message: {
+      testRunStarted?: { timestamp: Timestamp };
+      testRunFinished?: { timestamp: Timestamp };
+    };
+    try {
+      message = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (message.testRunStarted) startedNs = toNanos(message.testRunStarted.timestamp);
+    if (message.testRunFinished) finishedNs = toNanos(message.testRunFinished.timestamp);
+  }
+  if (startedNs === undefined || finishedNs === undefined) return undefined;
+  return {
+    tier: tierNameFromRecordPath(recordPath),
+    recordPath,
+    seconds: (finishedNs - startedNs) / 1_000_000_000,
+  };
+}
+
+export interface BudgetViolation {
+  tier: string;
+  budgetSeconds: number;
+  recordedSeconds: number;
+  message: string;
+}
+
+export interface BudgetJudgment {
+  /** Tiers whose recorded wall clock exceeds their budget. */
+  perTier: BudgetViolation[];
+  /** The tier records summed, in seconds. */
+  sumSeconds: number;
+  /** The summed-records breach of the plain budget, when one exists. */
+  sum?: BudgetViolation;
+}
+
+/** Compare each tier's recorded wall clock, and their sum, to the budgets. */
+export function checkTierBudgets(
+  budgets: TierBudgets,
+  clocks: TierClock[],
+): BudgetJudgment {
+  const perTier: BudgetViolation[] = [];
+  for (const clock of clocks) {
+    const budgetSeconds = budgets.perTierSeconds[clock.tier];
+    if (budgetSeconds !== undefined && clock.seconds > budgetSeconds) {
+      perTier.push({
+        tier: clock.tier,
+        budgetSeconds,
+        recordedSeconds: clock.seconds,
+        message:
+          `the ${clock.tier} tier recorded ${clock.seconds.toFixed(1)}s against ` +
+          `its ${budgetSeconds}s budget`,
+      });
+    }
+  }
+  const sumSeconds = clocks.reduce((sum, clock) => sum + clock.seconds, 0);
+  const judgment: BudgetJudgment = { perTier, sumSeconds };
+  if (budgets.plainSeconds !== undefined && sumSeconds > budgets.plainSeconds) {
+    judgment.sum = {
+      tier: "(all tiers summed)",
+      budgetSeconds: budgets.plainSeconds,
+      recordedSeconds: sumSeconds,
+      message:
+        `the tier records summed reach ${sumSeconds.toFixed(1)}s against the ` +
+        `plain ${budgets.plainSeconds}s regression budget`,
+    };
+  }
+  return judgment;
+}
+
 export interface TierRun {
   /** The wake record the command wrote, absolute; absent when it wrote none. */
   recordPath?: string;

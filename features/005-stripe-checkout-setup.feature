@@ -27,7 +27,7 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     And it must report the keys-and-channel-mapping step as a pending human gate and name it in nextSteps
     And it must not claim that checkout is ready or that the Stripe keys were configured
 
-  @sandbox @heavy
+  @sandbox
   Scenario: The Stripe stage installs the Stripe app and surfaces the keys and channel gate
     Given a configured Saleor Cloud store with a resolvable Cloud staff token
     When `jolly stripe` runs the Stripe app-install stage against that store
@@ -52,7 +52,7 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     And with no reachable store the checkout-readiness check should be "skipped", "unknown", or "fail", never "pass"
     And the summary must not claim checkout is ready when it was not verified
 
-  @sandbox @heavy
+  @sandbox
   Scenario: Jolly doctor verifies the Stripe payment gateway is reachable for checkout
     Given a deployed store whose Stripe app is configured and mapped to the `us` channel
     When `jolly doctor` probes checkout payment readiness

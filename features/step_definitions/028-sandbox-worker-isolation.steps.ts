@@ -64,10 +64,11 @@ Then(
   },
 );
 
-// Scenario 3: the @sandbox tier's run profiles are shaped for per-worker
-// parallel bulk execution plus a serial env-creating phase. The seam under test
-// is cucumber.js's exported run profiles (the "test tiers and harness mechanics"
-// config). Importing the config module enumerates its real profile objects.
+// Scenario 3: the @sandbox tier's run profiles serialize the licensed spends
+// (@pipeline and @creates-env, per feature verification-economy's licence Rule)
+// and run the light remainder in parallel. The seam under test is cucumber.js's
+// exported run profiles (the "test tiers and harness mechanics" config).
+// Importing the config module enumerates its real profile objects.
 interface CucumberProfile {
   tags?: string;
   parallel?: number;
@@ -99,7 +100,7 @@ When(
 );
 
 Then(
-  "the parallel @sandbox profile runs its workers in parallel and excludes the heavy scenarios",
+  "the parallel @sandbox profile runs its workers in parallel and excludes the @pipeline and @creates-env scenarios",
   function (this: JollyWorld) {
     const sandboxProfiles = this.notes.sandboxProfiles as [
       string,
@@ -115,16 +116,18 @@ Then(
         JSON.stringify(sandboxProfiles),
     );
     const [name, profile] = parallel[0];
-    assert.ok(
-      profile.tags!.includes("not @heavy"),
-      `parallel @sandbox profile "${name}" tags "${profile.tags}" do not exclude ` +
-        `the heavy scenarios`,
-    );
+    for (const licensed of ["@pipeline", "@creates-env"]) {
+      assert.ok(
+        profile.tags!.includes(`not ${licensed}`),
+        `parallel @sandbox profile "${name}" tags "${profile.tags}" do not ` +
+          `exclude the licensed ${licensed} scenarios`,
+      );
+    }
   },
 );
 
 Then(
-  "a separate profile runs the heavy scenarios serially",
+  "a separate profile runs the @pipeline and @creates-env scenarios serially",
   function (this: JollyWorld) {
     const sandboxProfiles = this.notes.sandboxProfiles as [
       string,
@@ -133,21 +136,24 @@ Then(
     const serial = sandboxProfiles.filter(
       ([, p]) =>
         typeof p.tags === "string" &&
-        p.tags.includes("@heavy") &&
-        !p.tags.includes("not @heavy"),
+        p.tags.includes("@pipeline") &&
+        !p.tags.includes("not @pipeline") &&
+        p.tags.includes("@creates-env") &&
+        !p.tags.includes("not @creates-env"),
     );
     assert.equal(
       serial.length,
       1,
-      `expected exactly one heavy-serial @sandbox profile, found ` +
-        `${serial.length}: ${JSON.stringify(sandboxProfiles)}`,
+      `expected exactly one licensed-serial @sandbox profile selecting the ` +
+        `@pipeline and @creates-env scenarios, found ${serial.length}: ` +
+        JSON.stringify(sandboxProfiles),
     );
     const [name, profile] = serial[0];
     const workers = profile.parallel ?? 1;
     assert.ok(
       workers <= 1,
-      `heavy @sandbox profile "${name}" runs ${workers} workers in parallel; ` +
-        `heavy scenarios must run serially`,
+      `licensed @sandbox profile "${name}" runs ${workers} workers in parallel; ` +
+        `the @pipeline and @creates-env scenarios must run serially`,
     );
   },
 );

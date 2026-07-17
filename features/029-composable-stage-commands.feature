@@ -6,7 +6,7 @@ Feature: Composable stage commands
   Background:
     Given each side-effecting stage `jolly start` performs is also a first-class `jolly` command that runs that one stage against already-prepared preconditions, never the whole pipeline
 
-  @sandbox @heavy
+  @sandbox
   Scenario: jolly deploy deploys the prepared storefront and makes the Vercel project turnkey
     Given a prepared storefront directory and a configured Saleor store
     When the agent runs `jolly deploy --yes --json`
@@ -15,26 +15,26 @@ Feature: Composable stage commands
     And it should write `NEXT_PUBLIC_DEFAULT_CHANNEL` to `.env`, so the local storefront and a re-deploy read the store channel with no key juggling
     And it should not provision a store, clone the storefront, or run any other stage
 
-  @sandbox @heavy
+  @sandbox
   Scenario: jolly storefront prepares the Paper storefront alone
     Given a fresh project directory with no storefront prepared
     When the agent runs `jolly storefront --yes --json`
     Then the `storefront` stage should report "completed", backed by a real cloned Paper storefront with installed dependencies on disk
     And it should not provision a store, deploy, or run any other stage
 
-  @sandbox @heavy
+  @sandbox
   Scenario: jolly recipe deploys the starter recipe alone
     Given the shared recipe store, whose starter recipe was deployed by a single `jolly recipe --yes --json` run against a freshly configured store
     Then that run should report the `recipe` stage "completed", having deployed the bundled starter recipe through `@saleor/configurator`
     And that run should not have provisioned a store, prepared the storefront, or deployed
 
-  @sandbox @heavy
+  @sandbox
   Scenario: jolly stock seeds the recipe stock alone
     Given the shared recipe store, whose stock was seeded by a single `jolly stock --yes --json` run after its recipe was deployed
     Then that run should report the `stock` stage "completed", having seeded stock for the recipe variants through Saleor GraphQL
     And that run should not have deployed or run any other stage
 
-  @sandbox @heavy
+  @sandbox
   Scenario: jolly stripe installs the Stripe app alone
     Given a configured Saleor store with a resolvable staff token
     When the agent runs `jolly stripe --yes --json`

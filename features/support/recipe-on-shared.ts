@@ -35,7 +35,8 @@
 // deploys onto its creds. It is LAZY (CARVE-OUT B): triggered only when 004/029
 // consume it, never from the @sandbox Before hook, so light-only runs and 026's
 // direct provisionSharedEnvironment call don't pay the multi-minute deploy. The
-// @sandbox @heavy serial tier guarantees no concurrent toolchain.
+// run-scoped lock above is what guarantees no concurrent toolchain chain, and
+// feature verification-economy records the one deploy as shared provisioning.
 import { spawnSync } from "node:child_process";
 import {
   closeSync,
@@ -51,6 +52,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { findEnvelope } from "./envelope.ts";
 import { ensureSharedEnvironment, readSharedStoreMarker } from "./provision.ts";
+import { withSharedProvisioningSpend } from "./spend-ledger.ts";
 import { saleorGraphql } from "./saleor-graphql.ts";
 import { makeNamespace, runId, workerNamespace } from "./sandbox.ts";
 import { REPO_ROOT } from "./repo-root.ts";
@@ -216,7 +218,12 @@ async function deployRecipeOnShared(): Promise<RecipeOnSharedFixture> {
   // block on --failOnDelete and then cascade a misleading "recipe stage not
   // completed" across every 004/029 consumer (Fix 4 cleanliness diagnostic).
   await assertSharedStoreClean(endpoint, token);
-  const { recipeResult, stockResult } = deployRecipe(endpoint, token);
+  // The one recipe deploy onto the shared store is a shared-provisioning spend,
+  // recorded once per resource class per run (feature verification-economy).
+  const { recipeResult, stockResult } = await withSharedProvisioningSpend(
+    "starter-recipe",
+    () => deployRecipe(endpoint, token),
+  );
   return { endpoint, token, recipeResult, stockResult };
 }
 

@@ -43,7 +43,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { recordStorefrontTemplateCapture } from "./eval-captures.ts";
 import { makeNamespace, runId } from "./sandbox.ts";
+import { withSharedProvisioningSpendSync } from "./spend-ledger.ts";
 
 /**
  * The FIXED basename of the persistent prepared-storefront template dir under
@@ -131,7 +133,24 @@ async function coordinatePreparedStorefront(): Promise<string> {
  */
 function buildTemplate(): string {
   const dir = templateDir();
-  if (templateIsComplete(dir)) return dir;
+  if (templateIsComplete(dir)) {
+    // The adopted template is the golden-capture material for the eval's
+    // storefront clone+install effect (feature 025).
+    recordStorefrontTemplateCapture(STOREFRONT_TEMPLATE_DIRNAME, false);
+    return dir;
+  }
+  // A fresh template build is a shared-provisioning spend, recorded once per
+  // resource class per run; adopting a complete template above records nothing
+  // (feature verification-economy).
+  const built = withSharedProvisioningSpendSync("storefront-template", () =>
+    buildTemplateFresh(dir),
+  );
+  recordStorefrontTemplateCapture(STOREFRONT_TEMPLATE_DIRNAME, true);
+  return built;
+}
+
+/** The build itself, run only when no complete template can be adopted. */
+function buildTemplateFresh(dir: string): string {
   // A partial dir from a crashed prior build must not be adopted — start clean.
   rmSync(dir, { recursive: true, force: true });
 

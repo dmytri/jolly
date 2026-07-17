@@ -47,9 +47,12 @@ import {
 } from "./cloud.ts";
 import { findEnvelope, type Envelope } from "./envelope.ts";
 import { createEnvironment, type CliRunner } from "./env-factory.ts";
+import { recordEnvironmentCreationCapture } from "./eval-captures.ts";
 import { CleanupRegistry, makeNamespace, runId, workerNamespace, type CleanupFailure } from "./sandbox.ts";
+import { withSharedProvisioningSpend } from "./spend-ledger.ts";
 import { REPO_ROOT } from "./repo-root.ts";
 import { STOREFRONT_TEMPLATE_DIRNAME } from "./storefront-fixture.ts";
+import { SHARED_DEPLOY_MARKER_FILENAME } from "./deployed-storefront.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
 import { probeEndpointConnectivity } from "../../src/lib/cloud-api.ts";
 
@@ -195,7 +198,9 @@ export async function reclaimStaleResources(
       entry.startsWith("jolly-cannon-fodder-") &&
       !entry.startsWith(runNamespace) &&
       entry !== "jolly-cannon-fodder-pkg-cache" &&
-      entry !== STOREFRONT_TEMPLATE_DIRNAME
+      entry !== STOREFRONT_TEMPLATE_DIRNAME &&
+      entry !== SHARED_STORE_MARKER_FILENAME &&
+      entry !== SHARED_DEPLOY_MARKER_FILENAME
     ) {
       rmSync(join(tmpdir(), entry), { recursive: true, force: true });
     }
@@ -203,12 +208,24 @@ export async function reclaimStaleResources(
   return leftovers;
 }
 
+/**
+ * The FIXED basename of the persistent cross-invocation shared-store marker.
+ * Not run-namespaced (it must outlive every run so a LATER invocation can find
+ * the cached store), so the tmpdir-reclaim sweep MUST spare it by EXACT name,
+ * like the pkg-cache and the storefront template. Deleting it orphans the
+ * cached store: the next reclaim pass then sees no spare name, deletes the
+ * store as a leftover, and every invocation pays a fresh multi-minute
+ * environment creation — the exact cost this marker exists to save.
+ */
+export const SHARED_STORE_MARKER_FILENAME =
+  "jolly-cannon-fodder-shared-store-marker.json";
+
 /** The persistent cross-invocation marker recording the last known-good
  * shared store, independent of any single run's id so a LATER invocation can
  * find it. Lives in tmpdir alongside the run-scoped lock/state files but
  * carries no run id in its own path. */
 function sharedStoreMarkerPath(): string {
-  return join(tmpdir(), "jolly-cannon-fodder-shared-store-marker.json");
+  return join(tmpdir(), SHARED_STORE_MARKER_FILENAME);
 }
 
 interface SharedStoreMarker {
@@ -217,6 +234,8 @@ interface SharedStoreMarker {
   name: string;
   url: string;
   token: string;
+  /** The licensed sandbox run that created this store (golden-capture source). */
+  sourceRun?: string;
 }
 
 export function readSharedStoreMarker(): SharedStoreMarker | undefined {
@@ -395,6 +414,10 @@ export async function provisionSharedEnvironment(): Promise<ProvisionOutcome> {
   if (marker && (await probeEndpointConnectivity(marker.url)).kind === "reachable") {
     process.env["NEXT_PUBLIC_SALEOR_API_URL"] = marker.url;
     process.env["SALEOR_TOKEN"] = marker.token;
+    // The adopted store is the golden-capture source for the eval's
+    // environment-creation effect (feature 025): keep the committed capture
+    // current with the live shared store.
+    recordEnvironmentCreationCapture(marker);
     return { status: "ready" };
   }
   // The marker is absent, or its store is gone/unreachable — best-effort
@@ -409,7 +432,12 @@ export async function provisionSharedEnvironment(): Promise<ProvisionOutcome> {
     }
   }
 
-  const created = await createSharedStore(freshSharedStoreName());
+  // A fresh shared store is a shared-provisioning spend, recorded once per
+  // resource class per run; adopting the marker's cached store above records
+  // nothing (feature verification-economy).
+  const created = await withSharedProvisioningSpend("saleor-environment", () =>
+    createSharedStore(freshSharedStoreName()),
+  );
   process.env["NEXT_PUBLIC_SALEOR_API_URL"] = created.url;
   process.env["SALEOR_TOKEN"] = created.token;
 
@@ -423,12 +451,15 @@ export async function provisionSharedEnvironment(): Promise<ProvisionOutcome> {
     );
   }
 
-  writeSharedStoreMarker({
+  const freshMarker: SharedStoreMarker = {
     org: created.org,
     key: created.key,
     name: created.name,
     url: created.url,
     token: created.token,
-  });
+    sourceRun: runId(),
+  };
+  writeSharedStoreMarker(freshMarker);
+  recordEnvironmentCreationCapture(freshMarker);
   return { status: "ready" };
 }

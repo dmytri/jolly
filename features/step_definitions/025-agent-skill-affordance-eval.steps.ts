@@ -23,6 +23,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { assertEnvelopeShape, type Envelope, findEnvelope } from "../support/envelope.ts";
 import {
+  armGoldenCaptures,
   assertRealInputs,
   ensureCliBundle,
   type AgentRun,
@@ -31,7 +32,6 @@ import {
   envelopeFromTrace,
   parseTrace,
   persistEvalTranscript,
-  reclaimLeftoverTestEnvironments,
   resolveEvalTask,
   runBaselineAgent,
   setupEvalContext,
@@ -47,7 +47,7 @@ import {
   type TraceRecord,
   type WastedTurn,
 } from "../support/eval.ts";
-import { listAllEnvironments, deleteEnvironment } from "../support/cloud.ts";
+import { listAllEnvironments } from "../support/cloud.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 // A live LLM agent run is slow; the When step that runs it carries an explicit
@@ -81,7 +81,7 @@ function ctx(world: JollyWorld): EvalContext {
 // ─── Background ─────────────────────────────────────────────────────────────
 
 Given(
-  "the actual published-shape Jolly CLI and the actual shipped Jolly skill \\(no mocks)",
+  "the actual published-shape Jolly CLI and the actual shipped Jolly skill",
   function () {
     // Fail loudly (not skip) if the real inputs are missing — the @eval Before
     // hook has already confirmed the runner and key, so this is a real defect.
@@ -118,45 +118,53 @@ Given(
 );
 
 Given(
-  "the agent is run with the real integrated test-env credentials, every resource it creates `jolly-cannon-fodder`-namespaced and removed in teardown",
+  "the workspace seeds only the authentication credential `JOLLY_SALEOR_CLOUD_TOKEN`, never a store endpoint or `SALEOR_TOKEN`",
   function (this: JollyWorld) {
-    // The workspace `.env` was seeded with the REAL runtime credentials by
-    // setupEvalContext; confirm it carries the real Saleor Cloud token (live by
-    // design — no dummy stand-in).
+    // The workspace `.env` was seeded by setupEvalContext; confirm it carries
+    // the REAL Saleor Cloud token (live by design — no dummy stand-in) and
+    // nothing that would pre-provision the store: no store endpoint, no
+    // SALEOR_TOKEN, so the agent's `jolly start` exercises the documented
+    // store-creation path from a fresh start.
     const realToken = process.env.JOLLY_SALEOR_CLOUD_TOKEN;
     assert.ok(realToken, "feature 025 needs the real JOLLY_SALEOR_CLOUD_TOKEN in the test env");
     const envFile = join(ctx(this).workspace, ".env");
     assert.ok(existsSync(envFile), "the workspace must carry a seeded .env");
+    const seeded = readFileSync(envFile, "utf8");
     assert.ok(
-      readFileSync(envFile, "utf8").includes(realToken),
+      seeded.includes(`JOLLY_SALEOR_CLOUD_TOKEN=${realToken}`),
       "the seeded .env must carry the REAL Saleor Cloud token (live by design)",
     );
-    // Track the real secrets so the no-leak assertions cover them.
-    for (const name of [
-      "JOLLY_SALEOR_CLOUD_TOKEN",
-      "SALEOR_TOKEN",
-    ]) {
-      const v = process.env[name];
-      if (v && v.trim() !== "") this.trackSecret(v);
+    for (const forbidden of ["NEXT_PUBLIC_SALEOR_API_URL", "SALEOR_TOKEN"]) {
+      assert.ok(
+        !seeded.split("\n").some((line) => line.startsWith(`${forbidden}=`)),
+        `the seed must not carry ${forbidden}: the agent exercises the documented ` +
+          `store-creation path from a fresh start, never a pre-seeded store`,
+      );
     }
-    // Best-effort teardown reclaiming the jolly-cannon-fodder-namespaced Saleor
-    // environments the run created — unless retention is explicitly requested.
-    // jolly-cannon-fodder-namespaced environments are this test org's disposable
-    // resources (AGENTS.md); only that namespace is ever deleted.
-    const keep = process.env.HARNESS_EVAL_KEEP_STORE;
-    if (keep && keep.trim() !== "") {
-      this.attach("HARNESS_EVAL_KEEP_STORE set: created store retained, teardown skipped.", "text/plain");
-      return;
-    }
-    const token = realToken;
-    const runNamespace = this.namespace;
-    this.cleanup.register(`eval jolly-cannon-fodder environments (run ${runNamespace})`, async () => {
-      for (const env of await listAllEnvironments(token)) {
-        if (env.name.startsWith("jolly-cannon-fodder")) {
-          await deleteEnvironment(token, env.org, env.key);
-        }
-      }
-    });
+    this.trackSecret(realToken);
+  },
+);
+
+Given(
+  "the expensive service effects Jolly's commands produce are served from the golden captures recorded by the licensed @pipeline sandbox runs",
+  { timeout: 300_000 },
+  async function (this: JollyWorld) {
+    // Arm the golden-capture layer (support/eval.ts): committed captures are
+    // loaded and each recorded endpoint is re-proven live; the Cloud API
+    // capture layer starts (reads pass through, the creation is served
+    // recorded); the PATH shims gain the vercel replay and the
+    // storefront-template materializer. Absent or stale captures fail loudly,
+    // naming the sandbox-tier recording route.
+    const captures = await armGoldenCaptures(ctx(this), (description, fn) =>
+      this.cleanup.register(description, fn),
+    );
+    this.attach(
+      `Golden captures armed:\n` +
+        `  store ${captures.environmentCreation.domain} (source: ${captures.environmentCreation.sourceRun})\n` +
+        `  deployment ${captures.deployment.url} (source: ${captures.deployment.sourceRun})\n` +
+        `  vercel families: ${Object.keys(captures.vercel.families).join(", ")} (source: ${captures.vercel.sourceRun})`,
+      "text/plain",
+    );
   },
 );
 
@@ -174,17 +182,8 @@ When(
   "a baseline agent is given the task:",
   { timeout: AGENT_STEP_TIMEOUT_MS },
   async function (this: JollyWorld, task: string) {
-    // Pre-run capacity reclamation (features 025 + 026): before the agent's
-    // `jolly start` provisions its fresh jolly-cannon-fodder store, delete leftover
-    // jolly-cannon-fodder-namespaced environments from previous runs so a finite org
-    // environment limit never starves the run at its store stage. Only
-    // jolly-cannon-fodder-namespaced environments are ever deleted (the prefix is the
-    // protection boundary); the feature 026 @sandbox conformance drives this same
-    // seam and asserts its real effect.
-    const cloudToken = process.env.JOLLY_SALEOR_CLOUD_TOKEN;
-    if (cloudToken && cloudToken.trim() !== "") {
-      await reclaimLeftoverTestEnvironments(cloudToken);
-    }
+    // No capacity reclamation: the expensive effects are served from the golden
+    // captures, so the run provisions no cloud resource and needs no slot.
     // Default: the live `jolly.cool/setup` URL the docstring carries, unchanged.
     // Opt-in HARNESS_EVAL_SETUP_LOCAL: serve `assets/homepage/setup.md` over an
     // ephemeral 127.0.0.1 server (torn down via the scenario cleanup registry)
@@ -367,13 +366,16 @@ Then(
 );
 
 Then(
-  "when the store stage completed, the run must surface the real Saleor Dashboard URL Jolly emitted for the `jolly-cannon-fodder`-namespaced environment it created — a real `.saleor.cloud\\/dashboard\\/` URL observed from Jolly's output, never fabricated — and likewise the deployed storefront URL when the Vercel deploy completed",
+  "when the store stage completed, the run must surface the Saleor Dashboard URL Jolly emitted — the recorded real `.saleor.cloud\\/dashboard\\/` URL from the capture's source run, observed from Jolly's output, never invented — and likewise the deployed storefront URL when the deploy stage completed",
   function (this: JollyWorld) {
     // Surface, from Jolly's OWN output envelopes, the real URLs reported for the
-    // stages that actually completed — never fabricated. The assertion is
-    // CONDITIONAL on stage completion: a run that honestly paused at the store
-    // approval gate (or whose Vercel deploy was gated) completed no such stage
-    // and is required to surface no URL — its absence is reported, not invented.
+    // stages that actually completed — never invented. The assertion is
+    // CONDITIONAL on stage completion: a run that honestly paused at a gate
+    // completed no such stage and is required to surface no URL — its absence
+    // is reported, not invented. A URL that IS surfaced must be the recorded
+    // real URL from the capture's source run, still live by construction.
+    const captures = ctx(this).captures;
+    assert.ok(captures, "the golden captures must be armed before this assertion");
     const envelopes = trace(this)
       .map((rec) => (rec.stdout ? findEnvelope(rec.stdout) : undefined))
       .filter((e): e is Envelope => Boolean(e));
@@ -406,27 +408,37 @@ Then(
 
     this.attach(
       `Reported Saleor dashboard URL(s): ${[...dashboardUrls].join(", ") || "(none — store stage not completed)"}\n` +
-        `Reported storefront URL(s): ${[...storefrontUrls].join(", ") || "(none — Vercel deploy gated/not completed)"}`,
+        `Reported storefront URL(s): ${[...storefrontUrls].join(", ") || "(none — deploy stage gated/not completed)"}`,
       "text/plain",
     );
 
-    // When a stage genuinely completed, its real URL must be present (never a
-    // fabricated or guessed value); when it did not, no URL is required.
+    // When a stage genuinely completed, the recorded real URL must be present
+    // (never an invented value); when it did not, no URL is required.
     if (stageCompleted("store")) {
       const dash = [...dashboardUrls].find((u) => /\.saleor\.cloud\/dashboard\//.test(u));
       assert.ok(
         dash,
         "the store stage completed, so the run must surface the real .saleor.cloud/dashboard/ URL Jolly emitted",
       );
+      assert.equal(
+        dash,
+        captures.environmentCreation.dashboardUrl,
+        "the surfaced dashboard URL must be the recorded real URL from the capture's source run",
+      );
     }
     if (stageCompleted("deploy")) {
       assert.ok(
         storefrontUrls.size > 0,
-        "the Vercel deploy stage completed, so the run must surface the deployed storefront URL Jolly captured",
+        "the deploy stage completed, so the run must surface the deployed storefront URL Jolly captured",
+      );
+      assert.ok(
+        storefrontUrls.has(captures.deployment.url),
+        `the surfaced storefront URL must be the recorded real URL from the capture's ` +
+          `source run (${captures.deployment.url}); got ${[...storefrontUrls].join(", ")}`,
       );
     }
-    // Any URL the run reports must be a real https URL emitted by Jolly, never a
-    // fabricated placeholder.
+    // Any URL the run reports must be a real https URL emitted by Jolly, never
+    // an invented placeholder.
     for (const url of [...dashboardUrls, ...storefrontUrls]) {
       assert.match(url, /^https:\/\/[^/\s]+\.[^/\s]+/, `a reported URL must be a real https URL: ${url}`);
     }
@@ -434,33 +446,52 @@ Then(
 );
 
 Then(
-  "every cloud resource the agent created should be `jolly-cannon-fodder`-namespaced and, unless retention is explicitly requested via `HARNESS_EVAL_KEEP_STORE`, removed in best-effort teardown, with nothing outside that namespace touched",
-  function (this: JollyWorld) {
-    // Any environment/store the run reports in its envelopes must be
-    // jolly-cannon-fodder-namespaced. Best-effort teardown reclamation was registered by
-    // the credentials Given (skipped only when HARNESS_EVAL_KEEP_STORE is set);
-    // it deletes only jolly-cannon-fodder-namespaced environments, nothing else.
-    const envelopes = trace(this)
-      .map((rec) => (rec.stdout ? findEnvelope(rec.stdout) : undefined))
-      .filter((e): e is Envelope => Boolean(e));
-    for (const env of envelopes) {
-      const data = env.data as Record<string, unknown>;
-      for (const key of ["environmentName", "storeName", "environmentKey", "environment"]) {
-        const v = data[key];
-        if (typeof v === "string" && v.trim() !== "") {
-          assert.ok(
-            v.includes("jolly-cannon-fodder"),
-            `a created cloud resource (${key}="${v}") must be jolly-cannon-fodder-namespaced`,
-          );
-        }
-      }
-    }
-    const keep = process.env.HARNESS_EVAL_KEEP_STORE;
-    this.attach(
-      keep && keep.trim() !== ""
-        ? "HARNESS_EVAL_KEEP_STORE set: created jolly-cannon-fodder store retained for inspection."
-        : "Created jolly-cannon-fodder resources will be reclaimed in best-effort teardown.",
-      "text/plain",
+  "the run should have created no cloud resource, with the per-run workspace and the throwaway `$HOME` removed in teardown",
+  { timeout: 120_000 },
+  async function (this: JollyWorld) {
+    const c = ctx(this);
+    // (a) The capture layer's request log: no mutating Cloud API request passed
+    // through to the real service (the creation was intercepted and served
+    // recorded; a blocked mutation would have failed the flow loudly).
+    assert.ok(
+      c.cloudApiLog && existsSync(c.cloudApiLog),
+      "the capture Cloud API request log must exist",
+    );
+    const requests = readFileSync(c.cloudApiLog, "utf8")
+      .split("\n")
+      .filter((line) => line.trim() !== "")
+      .map((line) => JSON.parse(line) as { kind: string; method?: string; path?: string });
+    const blocked = requests.filter((entry) => entry.kind === "blocked-mutation");
+    assert.equal(
+      blocked.length,
+      0,
+      `mutating Cloud API requests reached the capture layer: ${JSON.stringify(blocked)}`,
+    );
+    // (b) The org's real state: no environment stands that was not standing
+    // before the run — the observable proof no cloud resource was created.
+    const token = process.env.JOLLY_SALEOR_CLOUD_TOKEN;
+    assert.ok(token, "the eval tier needs the real JOLLY_SALEOR_CLOUD_TOKEN");
+    assert.ok(
+      c.preRunEnvironmentKeys,
+      "the before picture of the org's environments must have been taken when the captures were armed",
+    );
+    const after = await listAllEnvironments(token);
+    const created = after.filter(
+      (env) => !c.preRunEnvironmentKeys!.has(`${env.org}/${env.key}`),
+    );
+    assert.equal(
+      created.length,
+      0,
+      `the run created cloud environment(s): ${created.map((env) => env.name).join(", ")}`,
+    );
+    // (c) Teardown is armed for the per-run workspace and throwaway $HOME: the
+    // eval temp root (their parent) is registered for removal, and the After
+    // hook fails loudly when a registered removal fails.
+    assert.ok(existsSync(c.workspace) && existsSync(c.fakeHome),
+      "the per-run workspace and throwaway $HOME must exist at assertion time");
+    assert.ok(
+      this.cleanup.descriptions.some((d) => d.startsWith("eval temp root ")),
+      "the eval temp root (workspace + throwaway $HOME) must be registered for teardown removal",
     );
   },
 );
@@ -512,23 +543,15 @@ async function completeSetupRun(this: JollyWorld): Promise<void> {
   );
   this.notes[CTX] = context;
 
-  // Reclaim leftover capacity before the agent provisions, and reclaim what
-  // this run creates afterwards: only the jolly-cannon-fodder namespace is
-  // ever deleted (teardown registered before the agent runs).
+  // The expensive service effects are served from the golden captures, so the
+  // run creates no cloud resource and needs no capacity reclamation and no
+  // cloud teardown (feature 025).
   const cloudToken = process.env.JOLLY_SALEOR_CLOUD_TOKEN;
   assert.ok(cloudToken, "the eval tier needs the real JOLLY_SALEOR_CLOUD_TOKEN");
   this.trackSecret(cloudToken);
-  const keep = process.env.HARNESS_EVAL_KEEP_STORE;
-  if (!keep || keep.trim() === "") {
-    this.cleanup.register(`eval jolly-cannon-fodder environments (run ${this.namespace})`, async () => {
-      for (const env of await listAllEnvironments(cloudToken)) {
-        if (env.name.startsWith("jolly-cannon-fodder")) {
-          await deleteEnvironment(cloudToken, env.org, env.key);
-        }
-      }
-    });
-  }
-  await reclaimLeftoverTestEnvironments(cloudToken);
+  await armGoldenCaptures(context, (description, fn) =>
+    this.cleanup.register(description, fn),
+  );
 
   const resolvedTask = resolveEvalTask(SETUP_TASK, (description, fn) =>
     this.cleanup.register(description, fn),

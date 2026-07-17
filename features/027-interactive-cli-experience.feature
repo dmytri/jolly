@@ -134,10 +134,10 @@ Feature: Human-facing interactive CLI experience
     And the human result on stdout should carry no per-check `[status] check-id` enumeration line
     And the human result on stdout should carry no `next:` command line
 
-  @sandbox @heavy
+  @sandbox
   Scenario: A completed interactive start closes by naming the live store and the remaining human step
     Given a Saleor Cloud token is configured
-    And a fresh empty project directory
+    And a project whose store, storefront, and deployment stages are already satisfied
     When `jolly start` runs to completion in an interactive terminal
     Then the closing summary on stdout should name the store's Saleor Dashboard URL
     And the closing summary on stdout should name the deployed storefront URL

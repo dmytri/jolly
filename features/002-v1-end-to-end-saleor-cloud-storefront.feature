@@ -27,7 +27,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And a nextStep should carry the Saleor device verification URL for the human to open and approve
     And it should not fabricate that authentication succeeded
 
-  @sandbox @heavy
+  @sandbox
   Scenario: Jolly registers a new Saleor Cloud store via the Cloud API
     Given `JOLLY_SALEOR_CLOUD_TOKEN` is set for an organization with no project
     When the agent runs `jolly create store --create-environment --json`
@@ -37,7 +37,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And `nextSteps` should direct new-account signup to cloud.saleor.io
     And Jolly's code should send no signup request and contact only first-party hosts
 
-  @sandbox @heavy
+  @sandbox
   Scenario: jolly start waits for a freshly-provisioned store to serve before completing the store stage
     Given `jolly start` auto-provisions a new Saleor Cloud store
     And the new store's Saleor GraphQL endpoint is briefly not yet serving
@@ -47,7 +47,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And `jolly start` should write that `NEXT_PUBLIC_SALEOR_API_URL` (mirrored to `SALEOR_URL`) and the resolved `SALEOR_TOKEN` to `.env`
     And the `recipe` and `stock` stages should not report "blocked" for a missing Saleor endpoint
 
-  @sandbox @heavy @exceptional-double
+  @sandbox @exceptional-double
   Scenario: jolly start blocks the store stage when a freshly-provisioned store never becomes reachable
     Given `jolly start` auto-provisions a new Saleor Cloud store
     And the new store's Saleor GraphQL endpoint stays unreachable past the readiness budget
@@ -55,7 +55,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     Then the `store` stage status should be "blocked", not "completed"
     And the remediation should tell the human the store may still be starting up and to re-run `jolly start`
 
-  @sandbox @heavy @exceptional-double
+  @sandbox @exceptional-double
   Scenario: jolly create store --create-environment reports a warning when the new environment never becomes reachable
     Given `JOLLY_SALEOR_CLOUD_TOKEN` is set for an organization with no project
     And a freshly-created Saleor Cloud environment's GraphQL endpoint stays unreachable past the readiness budget
@@ -79,14 +79,14 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And it should not name a Cloud API request to create a new project or environment
     And it should not create, configure, or store anything
 
-  @sandbox @heavy
+  @sandbox
   Scenario: Jolly connects an existing Saleor store and verifies connectivity
     Given a store URL `https://example.saleor.cloud` and a valid `SALEOR_TOKEN`
     When the agent runs `jolly init --json` with that store URL
     Then `data` should report the normalized GraphQL endpoint `https://example.saleor.cloud/graphql/`
     And a `saleor-connectivity` check should report status "pass"
 
-  @sandbox @heavy
+  @sandbox
   Scenario: Jolly start creates a deployable storefront from Saleor Paper
     Given Saleor connectivity has been verified
     When `jolly start` prepares the storefront project by spawning `git` and `pnpm`
@@ -99,14 +99,14 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And `jolly doctor storefront --full-validation` should run Paper's generate, typecheck, and build steps and report each as a check
     And it should leave Paper's source and theme files unmodified after the clone and install
 
-  @sandbox @heavy
+  @sandbox
   Scenario: Jolly start lets Paper's native dependencies run their build scripts so the Vercel build succeeds
     Given Jolly has cloned and installed the Paper storefront
     When `jolly start` prepares the storefront for the Vercel deploy
     Then `pnpm install` in the storefront should report no ignored build scripts for Paper's native dependencies `sharp` and `esbuild`
     And the `npx vercel@latest --prod` production build should complete, not fail on unbuilt native modules
 
-  @sandbox @heavy
+  @sandbox
   Scenario: Jolly start deploys to Vercel by spawning the official Vercel CLI
     Given the storefront is ready for deployment
     When `jolly start` deploys to Vercel
@@ -120,7 +120,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And the envelope `data` should report the deployed storefront URL captured from the Vercel CLI's deploy output, not a fabricated or guessed value
     And `nextSteps` should list the remaining human gates
 
-  @sandbox @heavy
+  @sandbox
   Scenario: Jolly start prepares the storefront concurrently with the Saleor Cloud stages
     Given the agent runs `jolly start --yes` on a fresh project that needs a new store
     When the run executes the store, recipe, and storefront stages
@@ -129,7 +129,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And each stage should report its own honest status, never a fabricated completion
     And the store, recipe, and deploy stages should each emit their feature 021 `riskContext`
 
-  @sandbox @heavy
+  @sandbox
   Scenario: jolly deploy spawns the Vercel sign-in itself when there is no Vercel session
     Given the storefront is ready for deployment
     And the Vercel CLI is pointed at an isolated config with no signed-in session
@@ -186,7 +186,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     Then the nextSteps should offer the human-run fallback of running `jolly start` in a shell
     And it should not fabricate that the human-run step was completed
 
-  @sandbox @heavy
+  @sandbox
   Scenario: jolly deploy owns the Vercel sign-in rather than telling the agent to run it
     Given the storefront is ready for deployment
     And the Vercel CLI is pointed at an isolated config with no signed-in session
@@ -337,7 +337,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     - GitHub is the default Git provider for optional source-control setup; other providers are deferred to v2.
     - Git setup is convenience, not the deployment mechanism — deployment is always the official Vercel CLI (`npx vercel@latest`), spawned by `jolly start` (see "jolly start orchestrates the setup by spawning the official CLIs"). The durable Vercel invariants (official CLI only, its own `vercel login` session, no `JOLLY_VERCEL_TOKEN`, no `api.vercel.com` in Jolly's own code) live in that rule and feature 020's "First-party hosts only".
 
-  @sandbox @heavy
+  @sandbox @pipeline
   Scenario: The deployed storefront serves the Saleor catalog and a working cart
     Given `jolly start` has deployed the storefront to Vercel against the configured Saleor Cloud store
     When the deployed storefront URL is opened
@@ -345,7 +345,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And it should list products from the Saleor Cloud catalog
     And adding a product to the cart should update the cart
 
-  @sandbox @heavy
+  @sandbox
   Scenario: A re-run of the deploy stage before Vercel approval reuses the same pending sign-in URL until it expires
     Given `jolly deploy` reached its Vercel sign-in gate without `--dry-run` and surfaced a Vercel device sign-in URL
     And the human has not yet approved the Vercel sign-in

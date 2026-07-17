@@ -42,6 +42,7 @@ import {
   assignCollectionProducts,
   assignRecipeCollectionsConcurrent,
   storeHoldsForeignCatalog,
+  storeHoldsRecipeCatalog,
   DEFAULT_STOCK_QUANTITY,
   deriveRecipeIdentifiers,
   installStripeApp,
@@ -3406,8 +3407,12 @@ function bundledRecipePath(): string {
  * @planks("When the agent runs `jolly start --dry-run --json`")
  * @planks("When the agent runs `jolly recipe --yes --json` to apply the starter recipe to Saleor Cloud")
  * @planks("When the run reaches the configurator-deploy stage without `--dry-run`")
+ * @planks("When `jolly start` runs to completion in an interactive terminal")
  */
-async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
+async function runRecipeStage(
+  checks: Check[],
+  opts: { resume?: boolean } = {},
+): Promise<StageStatus> {
   // The preceding storefront stage (clone + pnpm install) can outlast the ~5-min
   // access JWT SALEOR_TOKEN rides on, so refresh it before the configurator deploy
   // spends it — otherwise the store 401s "Authentication failed" (feature 018).
@@ -3458,6 +3463,34 @@ async function runRecipeStage(checks: Check[]): Promise<StageStatus> {
       remediation: cliMessage("start.recipe.check.recipeDeployed.writeFailed.remediation"),
     });
     return "blocked";
+  }
+
+  // Idempotency on the resumable `jolly start` path (feature 022): the recipe's
+  // completed work is observable remote state — a store that already holds
+  // every product the recipe declares. Such a store needs no configurator
+  // re-deploy, so the stage is treated as satisfied and continues with the
+  // collections read-back it still owns (idempotent, feature 004), keeping the
+  // pass grounded in the store's real state. A store whose state cannot be
+  // read deploys as before, mirroring the --failOnDelete guard below. The
+  // standalone `jolly recipe` command keeps its always-deploy semantics.
+  if (opts.resume) {
+    let alreadyDeployed = false;
+    try {
+      const { productSlugs } = deriveRecipeIdentifiers(bundledRecipe);
+      alreadyDeployed = await storeHoldsRecipeCatalog(endpoint, token, productSlugs);
+    } catch {
+      alreadyDeployed = false;
+    }
+    if (alreadyDeployed) {
+      // The collections read-back pushes its own catalog-backed
+      // `recipe-collections` check either way, so the stage's evidence is the
+      // read-back's real result and no this-run deploy is claimed.
+      const collectionsStatus = await assignRecipeCollections(endpoint, token, checks);
+      const collectionsFailed =
+        collectionsStatus !== "completed" ||
+        checks.find((c) => c.id === "recipe-collections")?.status === "fail";
+      return collectionsFailed ? "blocked" : "completed";
+    }
   }
 
   // The configurator writes a structured deployment report; we read its own
@@ -4232,6 +4265,34 @@ function extractVercelUrl(stdout: string | undefined): string | undefined {
 }
 
 /**
+ * The newest READY production deployment's https URL from `npx vercel ls
+ * --format json` output — the official Vercel CLI under its own session, never
+ * a raw Vercel API call. Returns undefined when the listing shows none or
+ * cannot be read, which sends the resumable deploy stage down its normal
+ * deploying path.
+ * @planks("When `jolly start` runs to completion in an interactive terminal")
+ */
+function listedReadyProductionUrl(stdout: string | undefined): string | undefined {
+  const text = stdout ?? "";
+  const start = text.indexOf("{");
+  if (start < 0) return undefined;
+  try {
+    const listing = JSON.parse(text.slice(start)) as {
+      deployments?: Array<{ url?: unknown; state?: unknown; target?: unknown }>;
+    };
+    const ready = (listing.deployments ?? []).find(
+      (deployment) =>
+        typeof deployment.url === "string" &&
+        deployment.state === "READY" &&
+        deployment.target === "production",
+    );
+    return ready ? `https://${ready.url as string}` : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Run the Vercel sign-in for the INTERACTIVE human path (feature 027 Rule
  * "Interactive start runs end-to-end in one session"): the human approves the
  * device grant in their browser and the CLI's session is established before the
@@ -4362,8 +4423,12 @@ function tailVercelSignInLog(logPath: string, lines = 6): string {
  * @planks(`Then the `deploy` stage should report "completed" with the deployed `*.vercel.app` URL captured from the Vercel CLI's output`)
  * @planks("Then it should persist `NEXT_PUBLIC_SALEOR_API_URL` and `NEXT_PUBLIC_DEFAULT_CHANNEL` on the Vercel project through the Vercel CLI, so a plain `npx vercel deploy` re-deploy also builds them")
  * @planks("Then it should write `NEXT_PUBLIC_DEFAULT_CHANNEL` to `.env`, so the local storefront and a re-deploy read the store channel with no key juggling")
+ * @planks("When `jolly start` runs to completion in an interactive terminal")
  */
-async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
+async function runDeployStage(
+  checks: Check[],
+  opts: { resume?: boolean } = {},
+): Promise<StageOutcome> {
   const dir = join(projectDir(), "storefront");
 
   if (!existsSync(join(dir, "package.json"))) {
@@ -4429,6 +4494,64 @@ async function runDeployStage(checks: Check[]): Promise<StageOutcome> {
   }
   // Signed in: a prior run's pending sign-in (if any) completed.
   clearPendingVercel();
+
+  // Idempotency on the resumable `jolly start` path (feature 022): a completed
+  // earlier deploy leaves the storefront LINKED to its Vercel project
+  // (`.vercel/project.json`), and the deployment itself is observable remote
+  // state. When the linked project already serves a READY production
+  // deployment, the deploy stage is satisfied: reuse the live deployment
+  // rather than deploying again. Detection asks the official Vercel CLI under
+  // its own session (`npx vercel ls`) — never a raw Vercel API call — and
+  // trusts the listed URL only once it actually serves; anything short of that
+  // falls through to a real deploy. The standalone `jolly deploy` command
+  // keeps its always-deploy semantics.
+  if (opts.resume && existsSync(join(dir, ".vercel", "project.json"))) {
+    const listed = spawnSync(
+      "npx",
+      [
+        "--yes",
+        VERCEL_PKG,
+        "ls",
+        "--format",
+        "json",
+        "--environment",
+        "production",
+        "--status",
+        "READY",
+        "--yes",
+      ],
+      { cwd: dir, encoding: "utf8", timeout: 120_000, env: { ...process.env } },
+    );
+    const liveUrl = listed.error ? undefined : listedReadyProductionUrl(listed.stdout);
+    if (liveUrl) {
+      const reuseDeadline = Date.now() + 90_000;
+      let alreadyServing = false;
+      while (Date.now() < reuseDeadline) {
+        try {
+          const response = await fetch(liveUrl, { method: "GET", redirect: "follow" });
+          if (response.status < 400) {
+            alreadyServing = true;
+            break;
+          }
+        } catch {
+          // Not reachable yet.
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+      }
+      if (alreadyServing) {
+        // The check reports the fact this path verified — the live deployment
+        // answers a real HTTP probe — through the catalog copy that owns it.
+        checks.push({
+          id: "deployed-storefront-serving",
+          status: "pass",
+          description: cliMessage("start.deploy.check.deployedStorefrontServing.pass", {
+            deployedUrl: liveUrl,
+          }),
+        });
+        return { status: "completed", data: { deploymentUrl: liveUrl, storefrontUrl: liveUrl } };
+      }
+    }
+  }
 
   // Pin the Next.js framework so Vercel serves the storefront. Vercel auto-detects
   // the framework only when it creates the project during deploy; deploying into a
@@ -5114,11 +5237,14 @@ const DEFAULT_STAGE_RUNNERS: Record<string, StageRunner> = {
       domainLabel: typeof domainOpt === "string" ? domainOpt : undefined,
     });
   },
-  recipe: (checks) => runRecipeStage(checks).then((status) => ({ status })),
+  // `jolly start` is resumable (feature 022): its recipe and deploy stages
+  // detect already-completed work and skip it, while the standalone commands
+  // keep their always-execute semantics.
+  recipe: (checks) => runRecipeStage(checks, { resume: true }).then((status) => ({ status })),
   stock: (checks) => runStockStage(checks),
   storefront: (checks) => runStorefrontStage(checks).then((status) => ({ status })),
   stripe: (checks) => runStripeStage(checks).then((status) => ({ status })),
-  deploy: (checks) => runDeployStage(checks),
+  deploy: (checks) => runDeployStage(checks, { resume: true }),
 };
 
 /**
