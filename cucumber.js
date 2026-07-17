@@ -33,17 +33,15 @@ export default { ...common, tags: "not @eval" };
 // in parallel for fast status/worklist feedback. The sandbox tier gives EACH
 // worker its own isolated jolly-cannon-fodder environment, namespaced by run id +
 // worker id (features/support/provision.ts, features/support/sandbox.ts). Isolation
-// removes cross-worker COLLISION, but MEASURED against the free org it does not
-// remove concurrent LOAD: two workers each running a full `jolly start` (provision
-// + configurator deploy + storefront + Vercel) drive the free instance to
-// sustained not-serving (503 / "unable to connect"), which no retry budget rides
-// out. So the tier is a heavy/light phase split. HEAVY scenarios (a full
-// `jolly start` / real deploy / provision, tagged @heavy) run SERIAL — the free
-// instance sustains exactly one heavy stream. The env-creating scenarios
+// removes cross-worker COLLISION, but does not remove concurrent LOAD: two workers
+// each running a full `jolly start` (provision + configurator deploy + storefront
+// + Vercel) drive the instance to sustained not-serving (503 / "unable to connect"),
+// which no retry budget rides out. So the tier is a heavy/light phase split. HEAVY
+// scenarios (a full `jolly start` / real deploy / provision, tagged @heavy) run SERIAL
+// — the instance sustains exactly one heavy stream. The env-creating scenarios
 // (@creates-env) also run serial, since they need a slot the parallel phase's two
 // isolated envs would consume. Everything else is a light query/check that runs in
-// parallel across the two isolated worker envs. Real parallel speedup on the heavy
-// bulk needs a paid instance; on the free org, serial-heavy is the reliable point.
+// parallel across the two isolated worker envs.
 export const logic = { ...common, tags: "@logic", parallel: 2 };
 export const sandbox = { ...common, tags: "@sandbox and not @heavy and not @creates-env", parallel: 2 };
 export const sandboxSerial = { ...common, tags: "@sandbox and (@heavy or @creates-env)", parallel: 1 };

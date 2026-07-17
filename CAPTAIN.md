@@ -4,17 +4,30 @@
 
 Binding behaviour lives in `.feature` specs and referenced `assets/**`. History lives in git. These notes carry only what the next cycle needs.
 
-## Deck state (2026-07-16)
+## Deck state (2026-07-17) — HARBOUR COMPLETE, catalog voyage still UNPUSHED
 
-Fresh VM, fully fitted. **Pushed through `187c114`; `origin/main` is level.** Base for the in-flight
-voyage is `4df60f7`. Harbour inventory complete: `@shipwright` = 0, `@captain` = 0, no perturbation.
+Catalog voyage committed `34b5a96`; `main` is **3 ahead of `origin/main`** (`4df60f7`, `34b5a96`,
+`1cd8c96`). Harbour ran 2026-07-16/17 on dk's ruling: harbour first, then ship.
 
-**Deck is DIRTY by design** — the catalog voyage below is work in flight (Captain's assets + specs,
-QM's verification, Crew's `src/index.ts`), uncommitted. Boatswain commits it with the change it orders.
-Nothing here is dirt.
+**Harbour full regression, all four tiers, every one FRESH (no run-record entry was inheritable —
+the `c8` install moved the deck hash):**
 
-Last full regression (at `187c114`, before this voyage): `@logic` 187/187, `@sandbox` light 15/15,
-heavy 41/41, `@eval` 3/3. **Superseded by this voyage** — current numbers in IN FLIGHT below.
+- `@logic` **188/188 scenarios, 1093/1093 steps**
+- `@sandbox` light **15/15 scenarios, 85/85 steps**
+- `@sandbox` heavy **38/41 direct; the 3 reds passed on ONE focused retry** (transient: 2× shared-store
+  404, 1× Cloud API `fetch failed`). NOT 41/41 clean — see the harness-defect finding below.
+- `@eval` **4/4 scenarios, 28/28 steps**
+
+Gates: `typecheck` 0, `gplint` 0, `conformance` 48/48, perturbation quiescence 0 tokens, `discover` 0
+undefined. Planks **414, 0 stale, 0 provisional** (check-verified, not read). Coverage merged
+**84.87% stmts / 76.17% funcs**; production `src/` **87.8–100%**, ZERO modules at zero coverage.
+
+**`027:A completed interactive start closes by naming the live store and the remaining human step`
+RAN AND PASSED (196.3s).** That was the catalog voyage's real exposure and it is now closed: the 274
+rewritten sites are proven against a live store, a real configurator deploy, and a real Vercel deploy.
+
+`@captain` skeletons written: **0**. `@shipwright` condemnations: **0**. Nothing to skeleton (no
+uncovered modules) and nothing to condemn.
 
 ## THE ONE FACT NO MECHANISM CARRIES ANY MORE
 
@@ -113,22 +126,9 @@ in the catalog — `start.storefront.check.storefrontPrepared.gitInitExit` = `"g
 the clone and install siblings were simply missed. Every value **DERIVED from the AST by script, never
 hand-typed**; the script refused to overwrite any existing key; existing values byte-unchanged.
 
-**BEFORE OUTBOUND — two tiers carry NO green evidence at this deck state. This is the gate:**
-
-1. **37 `@sandbox` scenarios are unrun and they assert the exact copy surface this voyage rewrote.**
-   QM joined `@planks` through `step-usage`: the touched seams carry 199 plank patterns (0 stale),
-   binding 145 scenarios — 108 `@logic` (green), **37 `@sandbox` (unrun)**. Example:
-   `027-interactive-cli-experience.feature:A completed interactive start closes by naming the live store
-   and the remaining human step`. Outside the watchbill by design, so QM named them rather than running
-   them; the watchbill is the only channel that creates QM targets.
-2. **`@eval` run-record entries are VOID.** They sit at hash `059fcb947fbb`; the deck moved to
-   `20b3185106cd`. Any difference voids an entry — that is the whole invalidation rule. Worse,
-   `features/support/eval.ts` and the 025 steps are **touched support**, which per the Planking
-   agreement selects that tier's **enumeration sweep**, not a focused re-run.
-
-**The route is HARBOUR, not a bare rerun** — it pairs the full regression with coverage triage and the
-economy audit, which is what makes a whole-suite run worth its cost. A copy migration that rewrote 274
-user-facing sites, with 37 scenarios asserting that surface unrun, should not ship on `@logic` alone.
+**THE OUTBOUND GATE IS DISCHARGED (harbour, 2026-07-17).** Both items that held it are closed: the
+37 unrun `@sandbox` scenarios ran in harbour's full regression, and the void `@eval` entries were
+re-earned by a fresh `@eval` 4/4. Harbour's own regression is the proof this work ships on.
 
 **Two checker holes QM found and closed — both were false GREENS. Remember the class:**
 
@@ -184,7 +184,94 @@ can pass its readiness probe then die (free-tier infra), 404ing recipe/stock.
 so a re-run deletes the dead marker store and provisions a fresh one. If a heavy run 404s on the shared
 store, retry ONCE; it self-heals. A second failure is a real defect.
 
+## HARBOUR 2026-07-17 — dk's rulings, and what each still owes
+
+1. **Key resolution: BOTH scenarios** (dk ruled). `src/lib/messages.ts` `cliMessageCatalog[key]!` still
+   ships `undefined`. Author a `@logic @property` static join (every `cliMessage` key referenced in
+   `src`/`bin` resolves) AND a behaviour scenario (an unresolvable key fails loudly, driving the `!`
+   out). The static join should run BOTH directions — the harbour found the mirror defect below.
+2. **025 Rule rewrite** (dk ruled): say `@eval` is excluded from the default profile and required at
+   the full-tier boundary. Current wording invites "a red eval is tolerable", which the fixed-baseline
+   policy denies. Captain's to fix; `AGENTS.md`/`RIGGING.md` are not.
+3. **Verification-economy: add the missing rule** (dk ruled). `007:The Jolly skill installs from the
+   bundled copy with no network` spends **162s** pre-warming the `skills` CLI into the npm cache
+   (`spawnSync npx --yes skills --version`, 120s timeout) — ambient state NO scenario asserts, rebuilt
+   per scenario with no once-per-run guard, while `provision.ts` already has that idiom. The rule set
+   has no rule for this breach kind, so the debt stays green and invisible to QM. Add a fourth
+   `@logic @invariant` to `verification-economy.feature` and watchbill it.
+4. **ARCHITECTURE.md: keep it, make it executable** (dk ruled). dk created it 2026-07-16 from
+   <https://architecture.md/>; the generator prompt is
+   <https://github.com/timajwilliams/architecture/blob/main/prompt.md>. It is ~95% ACCURATE (30 feature
+   files, 32 step-def files, 8 tests, 5,914 lines all verified) and DESCRIPTIVE, so the Artifact-authority
+   policy's target — BINDING work-creating artifacts — does not catch it. It even gets the Node dev/prod
+   split RIGHT where `RIGGING.md` is ambiguous.
+   - **Three errors to fix:** duplicate `bin/` block (and "Shell launcher" is wrong — it is a Node
+     program); "Four-role agent workflow (Captain/QM/Crew/Boatswain)" — there are FIVE, Shipwright is
+     missing; `happy-dom` listed as a verification technology with ZERO refs.
+   - **The `happy-dom` error is the whole argument in miniature:** `AGENTS.md` makes the same stale
+     claim, so ARCHITECTURE.md faithfully INHERITED its source's drift on day one.
+   - **The real tension, and why the check resolves it:** the prompt MANDATES the doc be "entirely
+     self-contained — do not say 'see X file' as a substitute for explanation". So the duplication is
+     DELIBERATE, traded for agent orientation. Shipshape says one home per fact. dk's ruling is the
+     synthesis: deliberate duplication is safe IF a check keeps the copies honest — exactly how
+     `copy-catalog-conformance.ts` already pins the message catalog. Pin its checkable structural
+     claims with a `@logic @invariant`.
+   - **Do NOT adopt the prompt's 18 sections wholesale.** Sections 15 (Architectural Decisions &
+     Rationale) and 17 (Roadmap) ARE the `decision-log` and `roadmap` types the policy names. Ours
+     carries a Roadmap section (§9) — drop it. Rationale lives in git history.
+
+## THE TIER-COST FINDING — measured, but my remedy was WRONG. Do not act on the old framing.
+
+**Measured (harbour weather records, trustworthy):** `@logic` 477.5s total; **15 scenarios = 63.1%**
+(301s); the 111 fastest = 4.6%. Mean 2.54s vs median 0.34s = **7.6x**. `@sandbox` light 481.2s;
+**top 3 = 92.2%** (172s + 162s + 109s), mean 32.1s vs median 3.0s. Heavy: 41 scenarios, 40.9 min,
+mean 59.9s vs median 7.7s.
+
+**I proposed an opt-in `@tui` tier and dk approved it — then the tree refuted the premise.** I picked
+the 15 by DURATION and called them "the PTY cluster". PTY is driven only from `027`, `006`, `020`,
+`018`, `verification-economy`. The 15 span `027`, `002`, `020`, `006`, `021`, `005`, `001`, `029` — so
+`002`/`021`/`005`/`001`/`029` are slow with NO PTY at all. `029` uses recording spies, no terminal,
+17.7s. **A `@tui` tier keyed on "interactive" would split the cluster on a criterion unrelated to why
+it is slow.** Deferred deliberately: a tier retag on a wrong criterion relabels cost without moving it
+and bakes in a bad boundary.
+
+**The real common factor: each of the 15 SPAWNS the CLI to drive `jolly start`.** Prime suspect for the
+root cause, UNVERIFIED: every spawn makes Node type-strip a **5,914-line** TypeScript file, paid 15+
+times per run. Test it before designing any tier — if that is it, the lever is the spawn target
+(`dist/index.js` vs `src/index.ts`), not a tag. A tier only helps if the cost must be paid at all.
+
 ## Open items (report-only; re-derivable next harbour)
+
+- **HARNESS DEFECT (new, real): the shared store can die MID-RUN and no gate catches it.** Heavy's 3
+  reds were 2× GraphQL 404 on the shared recipe store + 1× Cloud API `fetch failed`; all 3 passed on one
+  focused retry. `AGENTS.md` requires the harness to validate/refresh the store endpoint BEFORE a run so
+  a dead store never reaches a scenario. The health probe runs at PROVISIONING; a store dying between
+  `BeforeAll` and the scenario is uncaught, and self-heal only fires on the NEXT invocation. "Retry once
+  and it goes green" is exactly the excuse `AGENTS.md` forbids treating as a pass.
+- **Catalog mirror defect:** exactly **1 of 332** keys has no reference in `src`/`bin` —
+  `start.vercelSigninIncomplete` (command-verified; my first check said 320 because a non-globstar
+  `src/**/*.ts` silently skipped `src/index.ts` — where 285 of 414 planks live). Dead asset content:
+  wire it or cut it. Note this is the MIRROR of item 1 above; one checker discharges both directions.
+- **`RIGGING.md` `runtime: node@20` is AMBIGUOUS, not drift.** I called it drift and was WRONG:
+  `engines: >=20.12.0`, esbuild targets `node20.12`, and `reclaim-cli.ts` deliberately avoids
+  `import.meta.main` (Node 24.2) to hold that floor. But the value publishes ONE runtime for TWO: the
+  product floors at 20.12, the harness needs >=23 for type-stripping. A role provisioning to it builds a
+  VM that cannot run the suite. ARCHITECTURE.md gets this right; RIGGING does not.
+- **`bin/jolly` is absent from coverage entirely** — an instrumentation artifact, NOT an unplanked seam.
+  It IS planked (2) and IS exercised (006's version guard drives its real `process.versions.node` check;
+  `eval.ts` drives it as the published launcher). It runs as a spawned subprocess, so c8 never sees it.
+  The coverage number understates production reality by that much.
+- **16 orphaned step definitions** (`002`, `006`, `008`, `012`, `018`, `027`, `shared`). Dead
+  verification support. Re-measured at harbour: **986 step definitions** (`RIGGING.md` said 972; fixed).
+- `report.html` / `report.json` **tracked in git** — they are wake. `coverage/` IS correctly ignored.
+- `happy-dom`: unused devDependency, zero refs, `locked` policy. `AGENTS.md` still claims "DOM-level
+  checks use happy-dom" — that stale claim is what ARCHITECTURE.md inherited.
+- Fail-fast capacity: at cap with nothing reclaimable, `BeforeAll` should name the squatter in seconds.
+- `src/index.ts` at **5,914 lines / 98 functions / 285 planks**. Standing, un-perturbed by dk's call.
+  8 unplanked functions across the tree are all PRIVATE helpers below the seam boundary — correct by the
+  hoisting rule, NOT a finding.
+- Tautological assertion in `025` steps: a per-entry loop checks strings its own array produced.
+  (Unverified read; re-locate rather than trusting a line number.)
 
 - **16 orphaned step definitions** (`002`, `006`, `012`, `027`, `shared`). Dead verification support.
 - **`start.vercelSigninIncomplete`** is the one catalog key of 332 with no reference in `src`/`bin`.
@@ -224,6 +311,21 @@ store, retry ONCE; it self-heals. A second failure is a real defect.
   one you wrote.
 - **A check that inspects shape rather than value is not a check.** When you write a guard, ask what
   live counterexample still passes it.
+- **`pgrep -f <pattern>` MATCHES ITS OWN COMMAND LINE.** Shipwright ran
+  `kill $(pgrep -f "until ! pgrep -f")` and killed the shell carrying that very string, taking a live
+  `@sandbox` run with it (both exit 144). Same class as the `; echo "EXIT=$?"` trap: the tool reports on
+  itself, not on the target. Kill by task ID, never by a pattern the killer's own command line contains.
+- **My own checks were wrong THREE times this harbour, each reporting CLEAN or CATASTROPHIC falsely.**
+  (1) `src/**/*.ts` without globstar skipped `src/index.ts` → "320 of 332 dead keys" (real: 1).
+  (2) "zero-coverage files: none" only examined files PRESENT in the coverage JSON — `bin/jolly` is
+  absent entirely, so absence read as coverage. (3) Called `node@20` drift by reading; the tree showed a
+  deliberate floor. **A check that enumerates a set can only be trusted after you verify it enumerated
+  the set.** The 320 figure was the lucky one: absurd enough to disbelieve. A check that is subtly wrong
+  and plausible is the one that ships.
+- **Do not let a remedy outrun its measurement.** The tier-cost numbers were solid; my "PTY cluster"
+  label was a guess I then proposed a whole tier around, and dk approved it before the tree refuted the
+  premise. Measure the COST, then derive the MECHANISM by a second independent command, then name a
+  remedy. Never let an approved plan survive a refuted premise.
 - **Check precedence is not a formality — it retired four phantom findings this voyage.** Boatswain's
   raw text searches reported ~400 stale planks, 3 orphaned keys and 7 placeholder bugs; every one was
   its own parser, and all vanished when it ran the real `plank-inventory` × `step-usage` join. A QM

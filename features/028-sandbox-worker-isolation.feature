@@ -1,7 +1,7 @@
 Feature: Sandbox worker isolation
   As the maintainer of Jolly's verification suite
   I want each parallel @sandbox worker to provision its own isolated store, with heavy scenarios serialized
-  So that the light query scenarios run in parallel while no two full jolly-start deploys pile onto the free instance at once
+  So that the light query scenarios run in parallel while no two full jolly-start deploys pile onto the instance at once
 
   Rule: Per-worker isolation, with a heavy/light phase split
     - AGENTS.md "Sandbox harness mechanics" is the binding contract. Each parallel
@@ -10,13 +10,12 @@ Feature: Sandbox worker isolation
       feature makes the isolation clause executable: a harness that pins every
       worker onto one shared per-run store fails here, because two workers then
       derive the same environment name and the same Vercel project name.
-    - Isolation removes cross-worker collision, not concurrent load. Measured
-      against the free org, two workers each running a full jolly-start (provision,
-      configurator deploy, storefront, Vercel) drive the instance to sustained
-      not-serving, which no retry rides out. So the heavy scenarios (tagged @heavy)
-      and the env-creating scenarios (@creates-env) run serially, and only the
-      light query and check scenarios run in parallel across the two isolated
-      worker environments.
+    - Isolation removes cross-worker collision, not concurrent load. Two workers
+      each running a full jolly-start (provision, configurator deploy, storefront,
+      Vercel) drive the instance to sustained not-serving, which no retry rides
+      out. So the heavy scenarios (tagged @heavy) and the env-creating scenarios
+      (@creates-env) run serially, and only the light query and check scenarios
+      run in parallel across the two isolated worker environments.
 
   @logic @property
   Scenario: Two parallel sandbox workers provision distinct Saleor environments
