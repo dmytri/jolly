@@ -33,12 +33,15 @@ export default { ...common, tags: "not @eval" };
 // in parallel for fast status/worklist feedback. The sandbox tier gives EACH
 // worker its own isolated jolly-cannon-fodder environment, namespaced by run id +
 // worker id (features/support/provision.ts, features/support/sandbox.ts). Isolation
-// removes cross-worker COLLISION, but does not remove concurrent LOAD: two workers
-// each running a full `jolly start` (provision + configurator deploy + storefront
-// + Vercel) drive the instance to sustained not-serving (503 / "unable to connect"),
-// which no retry budget rides out. So the tier is a heavy/light phase split. HEAVY
-// scenarios (a full `jolly start` / real deploy / provision, tagged @heavy) run SERIAL
-// — the instance sustains exactly one heavy stream. The env-creating scenarios
+// removes cross-worker COLLISION, but does not remove concurrent LOAD. The binding
+// cause is LOCAL, per AGENTS.md "Sandbox harness mechanics": this test VM is
+// resource-limited, and each heavy scenario runs a full toolchain (`git clone` Paper,
+// `pnpm install` a whole Next.js app, `@saleor/configurator` deploy, `npx vercel`
+// deploy, node). Two of those at once saturate the VM's CPU, memory, and network,
+// and that is where the "unable to connect" errors come from. So the tier is a
+// heavy/light phase split. HEAVY scenarios (a full `jolly start` / real deploy /
+// provision, tagged @heavy) run SERIAL — only one toolchain fits the VM. The lever
+// for heavy parallelism is a bigger test-runner VM. The env-creating scenarios
 // (@creates-env) also run serial, since they need a slot the parallel phase's two
 // isolated envs would consume. Everything else is a light query/check that runs in
 // parallel across the two isolated worker envs.

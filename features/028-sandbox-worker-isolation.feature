@@ -10,12 +10,13 @@ Feature: Sandbox worker isolation
       feature makes the isolation clause executable: a harness that pins every
       worker onto one shared per-run store fails here, because two workers then
       derive the same environment name and the same Vercel project name.
-    - Isolation removes cross-worker collision, not concurrent load. Two workers
-      each running a full jolly-start (provision, configurator deploy, storefront,
-      Vercel) drive the instance to sustained not-serving, which no retry rides
-      out. So the heavy scenarios (tagged @heavy) and the env-creating scenarios
-      (@creates-env) run serially, and only the light query and check scenarios
-      run in parallel across the two isolated worker environments.
+    - Isolation removes cross-worker collision, not concurrent load, and the
+      binding constraint is the local test VM rather than the Saleor instance.
+      Each heavy scenario runs a full toolchain (clone, install, configurator
+      deploy, Vercel deploy), and two at once saturate this VM's CPU, memory,
+      and network. So the heavy scenarios (tagged @heavy) and the env-creating
+      scenarios (@creates-env) run serially, and only the light query and check
+      scenarios run in parallel across the two isolated worker environments.
 
   @logic @property
   Scenario: Two parallel sandbox workers provision distinct Saleor environments
