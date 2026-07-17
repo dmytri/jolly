@@ -3268,7 +3268,7 @@ interface StageOutcome {
  * when an environment was actually created or reused; `blocked` (with an
  * explaining check) when no Cloud token is configured or provisioning failed —
  * never a fabricated completion.
- * @planks("Then the envelope `data` should include the new store's `*.saleor.cloud` GraphQL API URL and its Saleor Dashboard URL ending in `.saleor.cloud\/dashboard\/`")
+ * @planks("Then the envelope `data` should include the store's `*.saleor.cloud` GraphQL API URL and its Saleor Dashboard URL ending in `.saleor.cloud\/dashboard\/`")
  * @planks("Then `jolly start` should write that `NEXT_PUBLIC_SALEOR_API_URL` \(mirrored to `SALEOR_URL`) and the resolved `SALEOR_TOKEN` to `.env`")
  * @planks(`Then the `store` stage should report "completed" only once the endpoint answers a live GraphQL probe`)
  * @planks(`Then the `store` stage status should be "blocked", not "completed"`)
@@ -5260,6 +5260,7 @@ const DEFAULT_STAGE_RUNNERS: Record<string, StageRunner> = {
  * @planks("When the agent runs `jolly start` again")
  * @planks("Then the run should report only outcomes it actually achieved, stopping honestly at any remaining human gate without fabricating success")
  * @planks("When the run executes the store, recipe, and storefront stages")
+ * @planks(`Then the `store` stage should report "completed" only once the endpoint answers a live GraphQL probe`)
  * @planks("Then the run's reported stage timing should show the storefront preparation starting before the store stage finishes")
  * @planks("Then the run's reported stage timing should show the deploy stage starting only after the storefront preparation finishes")
  * @planks("Then each stage should report its own honest status, never a fabricated completion")
@@ -5405,15 +5406,40 @@ export async function runStartCore(
       // still reprojects the agent-facing surface (SALEOR_URL + a freshly
       // resolved SALEOR_TOKEN) so the resume's downstream recipe/stock stages and
       // configurator/curl/MCP never read a stale or missing store token.
-      projectSaleorAgentEnv({ SALEOR_URL: storeEndpoint });
-      // Announced as satisfied (feature 022 Rule), never a pending approval gate —
-      // the riskContext drops to the no-category skip preview the dry-run shows
-      // (commandStartDryRun), and no gate is set.
-      status = "completed";
-      // Surface the configured store's URLs in `data.store` (feature 002/022) so a
-      // resumed run still hands the agent the Saleor Dashboard link for the
-      // remaining human Dashboard step — same shape a fresh provision emits.
-      storeData = storeDataFromEndpoint(storeEndpoint);
+      //
+      // A resolved store can still be inside its cold-start window (e.g. it was
+      // provisioned moments ago and recorded in .env), answering 404/5xx/refused
+      // until its instance stands up. The stage reports `completed` only once
+      // the endpoint answers a live GraphQL readiness probe (feature 002) — the
+      // same bounded gate a fresh provision waits on in provisionStore, with the
+      // same env-tunable budget/poll — so the downstream recipe/stock stages
+      // never run against a cold endpoint. An endpoint that never answers within
+      // the budget leaves the stage `blocked` honestly, never a fabricated
+      // completion.
+      const readinessBudgetMs = readPositiveIntEnvMs("JOLLY_READINESS_BUDGET_MS", 600_000);
+      const readinessPollMs = readPositiveIntEnvMs("JOLLY_READINESS_POLL_MS", 5_000);
+      const readinessDeadline = Date.now() + readinessBudgetMs;
+      let endpointAnswered = true;
+      while ((await probeEndpointConnectivity(storeEndpoint)).kind !== "reachable") {
+        if (Date.now() >= readinessDeadline) {
+          endpointAnswered = false;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, readinessPollMs));
+      }
+      if (endpointAnswered) {
+        projectSaleorAgentEnv({ SALEOR_URL: storeEndpoint });
+        // Announced as satisfied (feature 022 Rule), never a pending approval gate —
+        // the riskContext drops to the no-category skip preview the dry-run shows
+        // (commandStartDryRun), and no gate is set.
+        status = "completed";
+        // Surface the configured store's URLs in `data.store` (feature 002/022) so a
+        // resumed run still hands the agent the Saleor Dashboard link for the
+        // remaining human Dashboard step — same shape a fresh provision emits.
+        storeData = storeDataFromEndpoint(storeEndpoint);
+      } else {
+        status = "blocked";
+      }
       stageRiskContext = {
         action: "skip store provisioning",
         target: `already-configured store ${storeEndpoint}`,

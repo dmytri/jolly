@@ -37,13 +37,12 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And `nextSteps` should direct new-account signup to cloud.saleor.io
     And Jolly's code should send no signup request and contact only first-party hosts
 
-  @sandbox
-  Scenario: jolly start waits for a freshly-provisioned store to serve before completing the store stage
-    Given `jolly start` auto-provisions a new Saleor Cloud store
-    And the new store's Saleor GraphQL endpoint is briefly not yet serving
+  @sandbox @exceptional-double
+  Scenario: jolly start waits for a not-yet-serving store to serve before completing the store stage
+    Given `jolly start`'s store stage resolves a store whose Saleor GraphQL endpoint is briefly not yet serving
     When the store stage runs
     Then the `store` stage should report "completed" only once the endpoint answers a live GraphQL probe
-    And the envelope `data` should include the new store's `*.saleor.cloud` GraphQL API URL and its Saleor Dashboard URL ending in `.saleor.cloud/dashboard/`
+    And the envelope `data` should include the store's `*.saleor.cloud` GraphQL API URL and its Saleor Dashboard URL ending in `.saleor.cloud/dashboard/`
     And `jolly start` should write that `NEXT_PUBLIC_SALEOR_API_URL` (mirrored to `SALEOR_URL`) and the resolved `SALEOR_TOKEN` to `.env`
     And the `recipe` and `stock` stages should not report "blocked" for a missing Saleor endpoint
 

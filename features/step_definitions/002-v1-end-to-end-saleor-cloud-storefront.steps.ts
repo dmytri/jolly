@@ -23,10 +23,12 @@ import assert from "node:assert/strict";
 import { createEnvironment } from "../support/env-factory.ts";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
 import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 import { startColdStoreCloudApi, type ColdStoreHarness } from "../support/cold-store-cloud-api.ts";
+import { ensureRecipeOnSharedStore } from "../support/recipe-on-shared.ts";
 import { probeEndpointConnectivity } from "../../src/lib/cloud-api.ts";
 import { deleteEnvironment, leftoverTestEnvironments, listAllEnvironments } from "../support/cloud.ts";
 import { cachedStoreSpareNames } from "../support/provision.ts";
@@ -1553,12 +1555,12 @@ Then(
 );
 
 Then(
-  "the envelope `data` should include the new store's `*.saleor.cloud` GraphQL API URL and its Saleor Dashboard URL ending in `.saleor.cloud\\/dashboard\\/`",
+  "the envelope `data` should include the store's `*.saleor.cloud` GraphQL API URL and its Saleor Dashboard URL ending in `.saleor.cloud\\/dashboard\\/`",
   function (this: JollyWorld) {
     const blob = JSON.stringify(this.envelope.data ?? {});
     assert.ok(
       /https:\/\/[a-z0-9.-]+\.saleor\.cloud\/graphql\//i.test(blob),
-      `start data must include the new store's *.saleor.cloud GraphQL API URL: ${blob}`,
+      `start data must include the store's *.saleor.cloud GraphQL API URL: ${blob}`,
     );
     assert.ok(
       /https:\/\/[a-z0-9.-]+\.saleor\.cloud\/dashboard\//i.test(blob),
@@ -2023,27 +2025,44 @@ Then(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Scenarios: the store stage's cold-start readiness gate (@sandbox @heavy)
+// Scenarios: the store stage's cold-start readiness gate (@sandbox)
 //
-// A freshly-provisioned Saleor Cloud store answers 404 / 5xx until its instance
-// stands up. `runStoreStage` waits for a live GraphQL probe before reporting the
-// store stage `completed`, and blocks (with a re-run remediation) when the
-// endpoint never becomes reachable within the readiness budget.
-//   - "waits" (@sandbox): a REAL `jolly start --yes` auto-provision. The fresh
-//     store genuinely cold-starts, so a `completed` store stage proves the gate
-//     waited — the resulting endpoint answers a live GraphQL probe now.
+// A Saleor Cloud store answers 404 / 5xx / refused until its instance stands
+// up. The store stage completes only once the endpoint answers a live GraphQL
+// probe, and blocks (with a re-run remediation) when the endpoint never
+// becomes reachable within the readiness budget.
+//   - "waits" (@sandbox @exceptional-double): the store stage RESOLVES the
+//     LIVE shared store (real *.saleor.cloud domain, recipe + stock state
+//     built by the licensed shared provisioning seams); only the brief
+//     not-yet-serving window is doubled, by the cold-window fetch shim
+//     (features/support/cold-window-shim.mjs) preloaded into the CLI process.
+//     The real fresh-provision wait is proven for real at the shared
+//     provisioning seam's first build and self-heal (feature 026 Rule).
 //   - "blocks" (@sandbox @exceptional-double): a real store cannot be held
 //     unreachable on demand, so a loopback Cloud API drives the real create path
 //     to environmentCreated = true and hands back a namespaced, non-existent
 //     *.saleor.cloud endpoint the gate probes until the budget elapses.
 //
-// The differentiating `And` selects the path; the shared `When` dispatches on it.
+// The differentiating Given selects the path; the shared `When` dispatches on it.
 // ═══════════════════════════════════════════════════════════════════════════
 
 interface ColdStoreNotes {
-  mode: "real" | "double";
+  mode: "double" | "resolved-cold";
   harness?: ColdStoreHarness;
+  /** resolved-cold: the resolved store's live endpoint. */
+  endpoint?: string;
+  /** resolved-cold: the cold-window shim's observation ledger (ndjson). */
+  ledgerPath?: string;
 }
+
+/** The cold-start-window fetch shim the resolved-cold When preloads into the
+ * CLI process (NODE_OPTIONS --import). */
+const COLD_WINDOW_SHIM = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "support",
+  "cold-window-shim.mjs",
+);
 
 /** Reclaim leftover jolly-cannon-fodder environments so the org's shared sandbox
  * environment limit does not reject this run's real provision. Spares this run's
@@ -2065,17 +2084,38 @@ async function reclaimLeftoverEnvironments(runNamespace: string): Promise<void> 
 
 Given("`jolly start` auto-provisions a new Saleor Cloud store", function (this: JollyWorld) {
   // Shared precondition: no store endpoint is configured, so the store stage
-  // provisions one. The differentiating `And` below selects the real cold-start
-  // path or the never-serving exceptional-double. Default to the real path.
-  this.notes.coldStore = { mode: "real" } satisfies ColdStoreNotes;
+  // takes its provisioning path. The differentiating `And` that follows selects
+  // the cold-store double (the loopback Cloud API drives the real create path).
 });
 
 Given(
-  "the new store's Saleor GraphQL endpoint is briefly not yet serving",
-  function (this: JollyWorld) {
-    // A real fresh Saleor Cloud store IS briefly not-yet-serving during cold
-    // start — the real path exercises exactly this condition.
-    this.notes.coldStore = { mode: "real" } satisfies ColdStoreNotes;
+  "`jolly start`'s store stage resolves a store whose Saleor GraphQL endpoint is briefly not yet serving",
+  { timeout: 900_000 },
+  async function (this: JollyWorld) {
+    // @exceptional-double (feature 026 Rule "Live-by-design conformance"): a
+    // store endpoint inside its cold-start window. The resolved store is the
+    // LIVE shared store — real *.saleor.cloud domain, recipe + stock state
+    // built by the licensed shared provisioning seams — and only the brief
+    // not-yet-serving window is doubled, by the cold-window fetch shim the
+    // When preloads into the CLI process. The real fresh-provision wait is
+    // proven for real at the shared provisioning seam's first build and
+    // self-heal; re-provisioning a store per run to reproduce the window is
+    // the re-spend the licensed-spend rule forbids.
+    const fixture = await ensureRecipeOnSharedStore();
+    // The project arrives already CONFIGURED with the store — that is the
+    // "resolves" state: the endpoint sits in the project's .env, so the store
+    // stage resolves it rather than provisioning a new one.
+    writeFileSync(
+      join(this.projectDir, ".env"),
+      `NEXT_PUBLIC_SALEOR_API_URL=${fixture.endpoint}\n`,
+    );
+    const ledgerPath = join(this.newTempDir("cold-window"), "ledger.ndjson");
+    writeFileSync(ledgerPath, "");
+    this.notes.coldStore = {
+      mode: "resolved-cold",
+      endpoint: fixture.endpoint,
+      ledgerPath,
+    } satisfies ColdStoreNotes;
   },
 );
 
@@ -2091,7 +2131,7 @@ Given(
 );
 
 When("the store stage runs", { timeout: 900_000 }, async function (this: JollyWorld) {
-  const cold = this.notes.coldStore as ColdStoreNotes;
+  const cold = this.notes.coldStore as ColdStoreNotes | undefined;
   // The behaviour under test is the store stage's readiness gate. Neutralize the
   // unrelated downstream stages so the run spends its time on that gate, not on
   // the storefront clone or a live Vercel deploy:
@@ -2103,7 +2143,7 @@ When("the store stage runs", { timeout: 900_000 }, async function (this: JollyWo
   mkdirSync(join(storefront, "node_modules"), { recursive: true });
   writeFileSync(join(storefront, "package.json"), JSON.stringify({ name: "paper", version: "0.0.0" }));
   const vercelXdg = isolatedVercelXdg(this);
-  if (cold.mode === "double") {
+  if (cold?.mode === "double") {
     // runCliAsync (not runCli): the cold-store Cloud API is an in-process server
     // the CLI must reach during provisioning; spawnSync would block this worker's
     // event loop and deadlock it (same reason feature 012's loopback scenario
@@ -2128,21 +2168,36 @@ When("the store stage runs", { timeout: 900_000 }, async function (this: JollyWo
     });
     return;
   }
-  // Real auto-provision: a fresh jolly-cannon-fodder store cold-starts for real.
-  // Reclaim leftover jolly-cannon-fodder capacity first (the org's sandbox
-  // environment limit is shared; leaked cannon fodder from a cut-off run would
-  // otherwise reject creation), then register teardown of the new namespaced env.
-  await reclaimLeftoverEnvironments(makeNamespace(this.runId));
-  await registerAutoProvisionTeardown(this);
-  this.runCli(["start", "--yes", "--json"], {
-    env: absentCredentialsEnv({
-      JOLLY_SALEOR_CLOUD_TOKEN: process.env["JOLLY_SALEOR_CLOUD_TOKEN"],
-      JOLLY_STORE_NAME: this.namespace,
-      JOLLY_VERCEL_PROJECT: workerNamespace(),
-      ...vercelXdg,
-    }),
-    timeoutMs: 840_000,
-  });
+  if (cold?.mode === "resolved-cold") {
+    // The resolved store is LIVE (the shared store): the CLI runs with the
+    // ambient real credentials exactly as a configured project would, and the
+    // cold-window shim doubles only the endpoint's first readiness probes.
+    // NODE_OPTIONS appends rather than replaces, so a coverage run's own
+    // options survive. Fast poll keeps the doubled window sub-second; the
+    // readiness budget stays the production default.
+    const nodeOptions = [
+      process.env["NODE_OPTIONS"],
+      `--import ${pathToFileURL(COLD_WINDOW_SHIM).href}`,
+    ]
+      .filter(Boolean)
+      .join(" ");
+    this.runCli(["start", "--yes", "--json"], {
+      env: {
+        NODE_OPTIONS: nodeOptions,
+        HARNESS_COLD_HOST: new URL(cold.endpoint!).hostname,
+        HARNESS_COLD_LEDGER: cold.ledgerPath!,
+        HARNESS_COLD_PROBE_REFUSALS: "3",
+        JOLLY_READINESS_POLL_MS: "100",
+        JOLLY_VERCEL_PROJECT: workerNamespace(),
+        ...vercelXdg,
+      },
+      timeoutMs: 840_000,
+    });
+    return;
+  }
+  throw new Error(
+    `the differentiating Given must select a cold-store mode before the store stage runs; got ${JSON.stringify(cold)}`,
+  );
 });
 
 Then(
@@ -2155,7 +2210,33 @@ Then(
       "completed",
       `the store stage must report completed after the readiness gate; got "${store!.status}"`,
     );
-    // Proof the completion waited for a live endpoint: the provisioned endpoint
+    // "Only once": the run's FIRST contact with the store host must be the
+    // stage's own live GraphQL readiness probe, observed while the endpoint
+    // was not yet serving (refused by the cold window). A store stage that
+    // completed without probing — or whose first store-host traffic was some
+    // later stage's query — did not wait for the endpoint to serve.
+    const cold = this.notes.coldStore as ColdStoreNotes;
+    const ledger = readFileSync(cold.ledgerPath!, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map(
+        (line) =>
+          JSON.parse(line) as { path: string; probeShaped: boolean; refused: boolean },
+      );
+    assert.ok(
+      ledger.length > 0,
+      "the CLI must have contacted the resolved store's endpoint during the run",
+    );
+    assert.ok(
+      ledger[0]!.probeShaped && ledger[0]!.refused,
+      `the store stage must probe the not-yet-serving endpoint before completing; ` +
+        `the run's first store-host contact was ${JSON.stringify(ledger[0])}`,
+    );
+    assert.ok(
+      ledger.some((entry) => entry.probeShaped && !entry.refused),
+      "the endpoint must have answered a live GraphQL probe once its cold-start window passed",
+    );
+    // Proof the completion waited for a live endpoint: the resolved endpoint
     // answers a live GraphQL probe now. A gate that did not wait could report
     // completed against a still-cold (unreachable) endpoint.
     const endpoint = loadEnvValues(this.lastRun!.cwd)["NEXT_PUBLIC_SALEOR_API_URL"] ?? "";

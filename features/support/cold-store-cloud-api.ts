@@ -11,9 +11,11 @@
 // @exceptional-double: a freshly-provisioned Saleor Cloud store whose GraphQL
 // endpoint NEVER becomes reachable cannot be produced against the real Cloud (a
 // real store cold-starts and then serves). This loopback injects that
-// never-serving endpoint. It never replaces the real path: the sibling "waits"
-// scenario exercises a real `jolly start --yes` auto-provision, whose fresh
-// store genuinely cold-starts and then serves.
+// never-serving endpoint. It never replaces the real path: the fresh-provision
+// cold-start wait is proven for real at the shared provisioning seam's first
+// build and self-heal (provision.ts), and the sibling "waits" scenario doubles
+// only the cold-start window in front of the LIVE shared store
+// (cold-window-shim.mjs).
 import { createServer, type Server } from "node:http";
 import type { JollyWorld } from "./world.ts";
 
@@ -40,8 +42,8 @@ export async function startColdStoreCloudApi(
   // endpoint never becomes reachable cannot be produced on demand against the
   // real Cloud (a real store cold-starts and then serves). This in-process Cloud
   // API drives the real create path, then hands back a never-serving endpoint so
-  // the store stage's readiness gate blocks. It never replaces normal-path real
-  // coverage: the sibling "waits" scenario exercises a real auto-provision.
+  // the store stage's readiness gate blocks. It never replaces normal-path
+  // coverage: the cold-start wait is proven for real in provision.ts.
   const server = createServer((req, res) => {
     const method = req.method ?? "GET";
     const url = req.url ?? "/";

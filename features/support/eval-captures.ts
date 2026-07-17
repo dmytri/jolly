@@ -206,13 +206,25 @@ export function recordDeploymentCapture(marker: {
   const observed = readVercelObservations(runId());
   if (Object.keys(observed).length > 0) {
     const families = { ...(captures.vercel?.families ?? {}) };
-    // A run that performed the real deploy (a heal) re-recorded the whole
-    // family set, so its observations refresh everything. A merely consuming
-    // run (shared-deployment adopt: ls, whoami, link) only fills families the
-    // store lacks: its observations of volatile listings differ every run and
-    // would churn this committed file without adding coverage.
-    const healed = "deploy" in observed;
+    // A per-run namespaced token marks an observation the eval can never ask
+    // for: it names one run's throwaway per-worker project, not the stable
+    // shared deployment. Such an observation reaches this fold because the
+    // run-scoped observation file mixes EVERY worker's Vercel calls, so a
+    // scenario's own disposable `vercel deploy` lands in the stable-keyed
+    // "deploy" family and, unfiltered, overwrites the shared-deployment heal's
+    // stable record — the exact corruption a per-run deploy URL in the
+    // committed capture, surfaced by the eval, comes from. Reject it by
+    // CONTENT, not only by family key: the tainted record's key is the stable
+    // "deploy", so the key-only filter below admits it.
+    const perRunToken = /-run-[a-z0-9]+-/;
+    const stable = (record: VercelCapture): boolean =>
+      !perRunToken.test(JSON.stringify(record.argv)) && !perRunToken.test(record.stdout);
+    // A heal is a STABLE shared-deployment deploy; a per-run "deploy"
+    // observation is a scenario's own disposable deploy and must never refresh
+    // the family set.
+    const healed = "deploy" in observed && stable(observed["deploy"]!);
     for (const [family, record] of Object.entries(observed)) {
+      if (!stable(record)) continue;
       if (healed || !(family in families)) families[family] = record;
     }
     // Keep only stable, replayable families. A family keyed on a per-run
@@ -220,7 +232,7 @@ export function recordDeploymentCapture(marker: {
     // asked for by the eval and would churn this committed file on every
     // sandbox run.
     for (const family of Object.keys(families)) {
-      if (/-run-[a-z0-9]+-/.test(family)) delete families[family];
+      if (perRunToken.test(family)) delete families[family];
     }
     // Re-record only when the folded content differs: an observing run whose
     // families match what is already recorded leaves the committed file — and
