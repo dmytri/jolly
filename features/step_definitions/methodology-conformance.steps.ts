@@ -12,7 +12,7 @@
 // the text-search plank inventory cannot: plank FORM.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
@@ -42,6 +42,11 @@ import {
   type Plank,
   type PlankViolation,
 } from "../support/plank-conformance.ts";
+import {
+  findArchitectureDrift,
+  type ArchitectureViolation,
+  type ClaimKind,
+} from "../support/architecture-conformance.ts";
 
 /** The implementation directories from RIGGING.md. */
 const IMPLEMENTATION_DIRS = ["src/", "bin/"];
@@ -451,3 +456,129 @@ Then("it should invoke no model", function (this: JollyWorld) {
     `the tier reached the baseline agent — the one seam that invokes a model — and persisted ${runs.length} agent run(s): ${runs.join(", ")}. A tier missing its credential fails at the gate, before it spends a model invocation.`,
   );
 });
+
+// ─── The architecture document's structural claims ──────────────────────────
+//
+// ARCHITECTURE.md is a deliberate second copy of tree facts, kept honest by
+// this check rather than by discipline. Each claim family is proven by its own
+// planted drift inside the redden step.
+
+const TECHNOLOGIES_MARKER = "**Technologies:**";
+
+function architectureViolations(
+  world: JollyWorld,
+  kind: ClaimKind,
+): ArchitectureViolation[] {
+  return (world.notes.architectureViolations as ArchitectureViolation[]).filter(
+    (violation) => violation.kind === kind,
+  );
+}
+
+function assertNoArchitectureDrift(world: JollyWorld, kind: ClaimKind): void {
+  const violations = architectureViolations(world, kind);
+  assert.equal(
+    violations.length,
+    0,
+    `architecture-document ${kind} claims drifted from the tree:\n${violations
+      .map((violation) => `  - ${violation.message}`)
+      .join("\n")}`,
+  );
+}
+
+Given(
+  "the architecture document {string}",
+  function (this: JollyWorld, name: string) {
+    const path = join(REPO_ROOT, name);
+    assert.ok(existsSync(path), `${name} is absent from the project root`);
+    this.notes.architectureText = readFileSync(path, "utf8");
+  },
+);
+
+When(
+  "the architecture-conformance check reads its structural claims",
+  function (this: JollyWorld) {
+    this.notes.architectureViolations = findArchitectureDrift(
+      this.notes.architectureText as string,
+    );
+  },
+);
+
+Then(
+  "the counts it states for feature files, step-definition files, and unit-test files should match the tree",
+  function (this: JollyWorld) {
+    assertNoArchitectureDrift(this, "count");
+  },
+);
+
+Then(
+  "every module it lists under {string} should exist, and every module in {string} should be listed",
+  function (this: JollyWorld, _listedDir: string, _treeDir: string) {
+    assertNoArchitectureDrift(this, "module");
+  },
+);
+
+Then(
+  "every verification technology it names should be referenced in the tree",
+  function (this: JollyWorld) {
+    assertNoArchitectureDrift(this, "technology");
+  },
+);
+
+Then(
+  "a drifted count, a missing or unlisted module, or a named technology with no reference should redden the check",
+  function (this: JollyWorld) {
+    const text = this.notes.architectureText as string;
+
+    // A drifted count.
+    const drifted = text.replace(
+      /(\d+)(\s+Gherkin\s+feature files)/,
+      (_match, count: string, rest: string) => `${Number(count) + 1}${rest}`,
+    );
+    assert.notEqual(
+      drifted,
+      text,
+      "the document no longer states a feature-file count in a plantable form",
+    );
+    assert.ok(
+      findArchitectureDrift(drifted).some((violation) => violation.kind === "count"),
+      "a drifted feature-file count was not reported",
+    );
+
+    // A listed module that does not exist.
+    const modulesHeading = text.match(/^#{1,6}\s.*Library Modules.*$/m);
+    assert.ok(
+      modulesHeading,
+      "the document no longer carries a Library Modules heading to plant under",
+    );
+    const ghost = "planted-ghost-module.ts";
+    const withGhost = text.replace(
+      modulesHeading[0],
+      `${modulesHeading[0]}\n\n| \`${ghost}\` | planted |`,
+    );
+    assert.ok(
+      findArchitectureDrift(withGhost).some(
+        (violation) =>
+          violation.kind === "module" && violation.message.includes(ghost),
+      ),
+      `the planted listing of "src/lib/${ghost}" was not reported as missing`,
+    );
+
+    // A named technology with no reference.
+    const verificationIndex = text.indexOf("BDD Verification");
+    const markerIndex = text.indexOf(TECHNOLOGIES_MARKER, verificationIndex);
+    assert.ok(
+      verificationIndex !== -1 && markerIndex !== -1,
+      "the document no longer carries a BDD Verification Technologies line to plant on",
+    );
+    const insertAt = markerIndex + TECHNOLOGIES_MARKER.length;
+    const plantedTech = "planted-untraceable-tech";
+    const withTech = `${text.slice(0, insertAt)} \`${plantedTech}\`,${text.slice(insertAt)}`;
+    assert.ok(
+      findArchitectureDrift(withTech).some(
+        (violation) =>
+          violation.kind === "technology" && violation.message.includes(plantedTech),
+      ),
+      `the planted technology "${plantedTech}" was not reported as unreferenced`,
+    );
+  },
+);

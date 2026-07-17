@@ -18,9 +18,12 @@ import type { JollyWorld } from "../support/world.ts";
 import { normalizeSaleorUrl } from "../../src/lib/saleor-url.ts";
 import {
   findInlineProseLiterals,
+  joinCliMessageKeys,
+  type CatalogJoin,
   type InjectedSource,
   type ProseLiteral,
 } from "../support/copy-catalog-conformance.ts";
+import { cliMessage } from "../../src/lib/messages.ts";
 
 const CLI_MESSAGES_PATH = join(REPO_ROOT, "assets", "messages", "cli.json");
 const CLARIFICATION_KEY = "saleorUrl.clarification";
@@ -180,6 +183,168 @@ Then(
       planted.some((literal) => literal.text.includes("planted stage")),
       `the planted word selected by a condition must be reported; got: ` +
         `${planted.map((literal) => JSON.stringify(literal.text)).join(", ")}`,
+    );
+  },
+);
+
+// ─── A key is a contract, resolved or refused ─────────────────────────────
+//
+// The join between code and catalog is total in both directions. A site
+// referencing a key the catalog lacks and a catalog entry no site references
+// are both reported; each direction is proven by its own planted red.
+
+/** A site referencing a key the catalog lacks, for the planted-red proof. */
+const PLANTED_MISSING_KEY = "planted.key.the.catalog.lacks";
+const PLANTED_MISSING_KEY_SITE: InjectedSource = {
+  file: "src/planted-missing-key-reference.ts",
+  text: [
+    "declare function cliMessage(key: string): string;",
+    `export const planted = cliMessage("${PLANTED_MISSING_KEY}");`,
+  ].join("\n"),
+};
+
+/** A catalog entry no site references, for the planted-red proof. */
+const PLANTED_UNREFERENCED_ENTRY = "planted.entry.no.site.references";
+
+Given("Jolly's source tree and the message catalog", function (this: JollyWorld) {
+  const catalog = JSON.parse(readFileSync(CLI_MESSAGES_PATH, "utf8")) as Record<
+    string,
+    string
+  >;
+  assert.ok(
+    Object.keys(catalog).length > 0,
+    `the message catalog at ${CLI_MESSAGES_PATH} defines no entries`,
+  );
+});
+
+When(
+  "every `cliMessage` key referenced in {string} and {string} is joined against the catalog entries",
+  function (this: JollyWorld, _sourceDir: string, _binDir: string) {
+    this.notes.catalogJoin = joinCliMessageKeys();
+  },
+);
+
+Then(
+  "every referenced key should resolve to a catalog entry",
+  function (this: JollyWorld) {
+    const join = this.notes.catalogJoin as CatalogJoin;
+    assert.equal(
+      join.unresolved.length,
+      0,
+      `referenced keys the catalog lacks — each would ship the word "undefined" ` +
+        `as prose. Give each its own entry in ${CLI_MESSAGES_PATH}:\n${join.unresolved
+          .map((ref) => `  - ${ref.file}:${ref.line} "${ref.key}"`)
+          .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "every catalog entry should be referenced by at least one site",
+  function (this: JollyWorld) {
+    const join = this.notes.catalogJoin as CatalogJoin;
+    assert.equal(
+      join.unreferenced.length,
+      0,
+      `catalog entries no site references — dead copy that drifts unread. ` +
+        `Reference each from the implementation or remove it from ` +
+        `${CLI_MESSAGES_PATH}:\n${join.unreferenced
+          .map((key) => `  - "${key}"`)
+          .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "planting a reference to a key the catalog lacks should redden the check",
+  function () {
+    const join = joinCliMessageKeys([PLANTED_MISSING_KEY_SITE]);
+    assert.ok(
+      join.unresolved.some(
+        (ref) =>
+          ref.file === PLANTED_MISSING_KEY_SITE.file &&
+          ref.key === PLANTED_MISSING_KEY,
+      ),
+      `a reference to the missing key "${PLANTED_MISSING_KEY}" was not reported, ` +
+        `so an unresolvable key would ship "undefined" as prose unnoticed`,
+    );
+  },
+);
+
+Then(
+  "planting a catalog entry no site references should redden the check",
+  function () {
+    const join = joinCliMessageKeys([], {
+      [PLANTED_UNREFERENCED_ENTRY]: "planted dead copy",
+    });
+    assert.ok(
+      join.unreferenced.includes(PLANTED_UNREFERENCED_ENTRY),
+      `the planted entry "${PLANTED_UNREFERENCED_ENTRY}" is referenced by no ` +
+        `site and was not reported, so dead copy would drift unread`,
+    );
+  },
+);
+
+// ─── A missing key fails loudly instead of rendering prose ────────────────
+//
+// Exercises the real renderer seam: `cliMessage` from src/lib/messages.ts.
+
+const RENDERED_NOTE = "missingKeyRendered";
+const RENDER_FAILURE_NOTE = "missingKeyFailure";
+
+Given(
+  "the message catalog has no entry for the key {string}",
+  function (this: JollyWorld, key: string) {
+    const catalog = JSON.parse(readFileSync(CLI_MESSAGES_PATH, "utf8")) as Record<
+      string,
+      string
+    >;
+    assert.ok(
+      !(key in catalog),
+      `the catalog at ${CLI_MESSAGES_PATH} defines "${key}", so this scenario ` +
+        `cannot exercise the missing-key path with it`,
+    );
+    this.notes.missingKey = key;
+  },
+);
+
+When(
+  /^the CLI renders the `([\w.]+)` message$/,
+  function (this: JollyWorld, key: string) {
+    try {
+      this.notes[RENDERED_NOTE] = cliMessage(key);
+    } catch (error) {
+      this.notes[RENDER_FAILURE_NOTE] = error;
+    }
+  },
+);
+
+Then(
+  "the render should fail, naming {string} as the missing key",
+  function (this: JollyWorld, key: string) {
+    const failure = this.notes[RENDER_FAILURE_NOTE];
+    assert.ok(
+      failure instanceof Error,
+      `rendering the missing key "${key}" did not fail; it rendered ` +
+        `${JSON.stringify(String(this.notes[RENDERED_NOTE]))} — a silent fallback ` +
+        `puts "undefined" on a human's screen`,
+    );
+    assert.ok(
+      failure.message.includes(key),
+      `the render failed without naming "${key}" as the missing key; it said: ` +
+        `${failure.message}`,
+    );
+  },
+);
+
+Then(
+  "no rendered output should carry the text {string}",
+  function (this: JollyWorld, forbidden: string) {
+    const rendered = this.notes[RENDERED_NOTE];
+    const output = rendered === undefined ? "" : String(rendered);
+    assert.ok(
+      !output.includes(forbidden),
+      `the rendered output carries the text "${forbidden}": ${JSON.stringify(output)}`,
     );
   },
 );

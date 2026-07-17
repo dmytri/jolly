@@ -34,6 +34,7 @@
 // This checker reads only the implementation directories (src/, bin/), so the
 // verification layer's own pattern literals are never self-flagged.
 import { Node, Project, SyntaxKind } from "ts-morph";
+import { readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { REPO_ROOT } from "./repo-root.ts";
 
@@ -345,4 +346,98 @@ export function findInlineProseLiterals(
     for (const source of added) project().removeSourceFile(source);
   }
   return found;
+}
+
+// ─── The key join (feature user-facing-copy-from-catalog) ────────────────────
+//
+// The join between code and catalog is total in both directions: a referenced
+// key the catalog lacks would ship the word "undefined" as prose, and a catalog
+// entry no site references is dead copy that drifts unread.
+
+/** A `cliMessage` key reference in the implementation. */
+export interface KeyReference {
+  /** Repo-root-relative path of the referencing site. */
+  file: string;
+  /** 1-based line number of the reference. */
+  line: number;
+  /** The referenced key, or the expression text where the key is not a literal. */
+  key: string;
+}
+
+/** Both directions of the code-to-catalog join. */
+export interface CatalogJoin {
+  /** References whose key resolves to no catalog entry. */
+  unresolved: KeyReference[];
+  /** Catalog entries no site references. */
+  unreferenced: string[];
+}
+
+const CLI_CATALOG_PATH = join(REPO_ROOT, "assets", "messages", "cli.json");
+
+/**
+ * The literal keys a `cliMessage` key argument statically resolves to. A key
+ * selected by a condition references BOTH branch keys, so each branch is
+ * followed. Undefined means the expression carries no statically readable key.
+ */
+function literalKeys(node: Node): string[] | undefined {
+  if (Node.isStringLiteral(node) || Node.isNoSubstitutionTemplateLiteral(node)) {
+    return [node.getLiteralValue()];
+  }
+  if (Node.isParenthesizedExpression(node) || Node.isAsExpression(node)) {
+    return literalKeys(node.getExpression());
+  }
+  if (Node.isConditionalExpression(node)) {
+    const whenTrue = literalKeys(node.getWhenTrue());
+    const whenFalse = literalKeys(node.getWhenFalse());
+    return whenTrue && whenFalse ? [...whenTrue, ...whenFalse] : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Join every `cliMessage` key referenced in the implementation directories
+ * against the catalog entries, in both directions.
+ *
+ * Pass `injected` to plant a referencing site, and `injectedEntries` to plant a
+ * catalog entry, for the planted-red proofs; both are virtual and never on disk.
+ * A non-literal key expression cannot be joined statically, so it is reported
+ * as unresolved: a key the check cannot read is a key nobody proved resolves.
+ */
+export function joinCliMessageKeys(
+  injected: InjectedSource[] = [],
+  injectedEntries: Record<string, string> = {},
+): CatalogJoin {
+  const catalog: Record<string, string> = {
+    ...(JSON.parse(readFileSync(CLI_CATALOG_PATH, "utf8")) as Record<string, string>),
+    ...injectedEntries,
+  };
+  const referenced = new Set<string>();
+  const unresolved: KeyReference[] = [];
+  const added = injected.map((source) =>
+    project().createSourceFile(join(REPO_ROOT, source.file), source.text, {
+      overwrite: true,
+    }),
+  );
+  try {
+    for (const source of project().getSourceFiles()) {
+      const file = repoRelative(source.getFilePath());
+      if (!IMPLEMENTATION.some((dir) => file.startsWith(dir))) continue;
+      for (const call of source.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+        if (calleeName(call) !== CLI_MESSAGE) continue;
+        const keyArgument = call.getArguments()[0];
+        if (!keyArgument) continue;
+        const line = keyArgument.getStartLineNumber();
+        // A key the check cannot read is a key nobody proved resolves.
+        const keys = literalKeys(keyArgument) ?? [keyArgument.getText()];
+        for (const key of keys) {
+          referenced.add(key);
+          if (!(key in catalog)) unresolved.push({ file, line, key });
+        }
+      }
+    }
+  } finally {
+    for (const source of added) project().removeSourceFile(source);
+  }
+  const unreferenced = Object.keys(catalog).filter((key) => !referenced.has(key));
+  return { unresolved, unreferenced };
 }

@@ -508,6 +508,11 @@ Then(
 const NET_BLOCKED_ENV_NOTE = "netBlockedEnv";
 const BUNDLED_JOLLY_SKILL = join(REPO_ROOT, "assets", "skills", "jolly");
 
+// The npm-cache pre-warm is ambient state no scenario asserts, so it is paid
+// once per worker behind this module-level memo (feature verification-economy,
+// "Ambient state is provisioned once and shared").
+let skillsCliPrewarmed = false;
+
 Given(
   "`jolly init` runs with outbound network blocked",
   function (this: JollyWorld) {
@@ -519,11 +524,14 @@ Given(
     // upcoming network-blocked init can still launch `npx skills` (only the
     // skill SOURCE fetch should be exercised against the block, not npx's own
     // package resolution).
-    spawnSync("npx", ["--yes", "skills", "--version"], {
-      encoding: "utf8",
-      timeout: 120_000,
-      stdio: "ignore",
-    });
+    if (!skillsCliPrewarmed) {
+      spawnSync("npx", ["--yes", "skills", "--version"], {
+        encoding: "utf8",
+        timeout: 120_000,
+        stdio: "ignore",
+      });
+      skillsCliPrewarmed = true;
+    }
     // Block every outbound connection by routing all proxy protocols at an
     // unroutable local port; a git clone or HTTPS fetch then fails fast.
     // `npm_config_offline` keeps `npx` from spending ~70s probing the registry

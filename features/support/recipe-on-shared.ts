@@ -50,7 +50,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { findEnvelope } from "./envelope.ts";
-import { ensureSharedEnvironment } from "./provision.ts";
+import { ensureSharedEnvironment, readSharedStoreMarker } from "./provision.ts";
 import { saleorGraphql } from "./saleor-graphql.ts";
 import { makeNamespace, runId, workerNamespace } from "./sandbox.ts";
 import { REPO_ROOT } from "./repo-root.ts";
@@ -70,30 +70,49 @@ export interface RecipeOnSharedFixture {
   stockResult: CliResult;
 }
 
-/** Filesystem paths every worker of a run agrees on (the run id is shared): a
- * lock so exactly one worker deploys the recipe, and a state file the winner
- * writes with the captured envelopes for the rest to read. */
-function recipeLockPath(): string {
-  return join(tmpdir(), `${makeNamespace(runId())}-recipe-on-shared.lock`);
+/** Filesystem paths every worker of a run agrees on (the run id is shared), one
+ * pair PER SHARED-STORE GENERATION: a lock so exactly one worker deploys the
+ * recipe onto that store, and a state file the winner writes with the captured
+ * envelopes for the rest to read. The paths carry the store's own name, so a
+ * fixture is only ever adopted for the store it was built on. */
+function recipeLockPath(generation: string): string {
+  return join(tmpdir(), `${makeNamespace(runId())}-recipe-on-shared-${generation}.lock`);
 }
-function recipeStatePath(): string {
-  return join(tmpdir(), `${makeNamespace(runId())}-recipe-on-shared.json`);
+function recipeStatePath(generation: string): string {
+  return join(tmpdir(), `${makeNamespace(runId())}-recipe-on-shared-${generation}.json`);
 }
 
-let ensuring: Promise<RecipeOnSharedFixture> | undefined;
+/** Fixtures memoized per shared-store generation (the store's name). The shared
+ * store can be REPLACED mid-run: provision.ts self-heals an unreachable store
+ * under a freshly-named replacement, and feature 026 drives that provision path
+ * directly. A fixture memoized once per run then hands out the DEAD store's
+ * endpoint, and every later read-back 404s (observed: a serial-sweep read-back
+ * probed the pre-heal store after the marker had moved on). Keying the memo,
+ * lock, and state file on the store's identity re-coordinates one fresh deploy
+ * per replacement instead. */
+const fixturesByStore = new Map<string, Promise<RecipeOnSharedFixture>>();
 
 /**
  * Ensure the starter recipe has been deployed onto the primary shared store once
  * this run (standalone `jolly recipe` then `jolly stock`); return the shared
  * store's creds + BOTH captured run results. Exactly one worker across the whole
- * run runs the chain (whoever wins the filesystem lock); every other worker reads
- * the captured envelopes the winner publishes to the state file. Memoized per
- * worker. LAZY: only the 004/029 consumers call this, so a run that never touches
- * the recipe scenarios never pays the deploy.
+ * run runs the chain per store generation (whoever wins the filesystem lock);
+ * every other worker reads the captured envelopes the winner publishes to the
+ * state file. Memoized per worker per store generation. LAZY: only the 004/029
+ * consumers call this, so a run that never touches the recipe scenarios never
+ * pays the deploy.
  */
-export function ensureRecipeOnSharedStore(): Promise<RecipeOnSharedFixture> {
-  ensuring ??= coordinateRecipeOnShared();
-  return ensuring;
+export async function ensureRecipeOnSharedStore(): Promise<RecipeOnSharedFixture> {
+  // The current store identity gates adoption: a memoized fixture is valid only
+  // while the marker still names the store it was built on.
+  await ensureSharedEnvironment();
+  const generation = readSharedStoreMarker()?.name ?? "unmarked";
+  let fixture = fixturesByStore.get(generation);
+  if (!fixture) {
+    fixture = coordinateRecipeOnShared(generation);
+    fixturesByStore.set(generation, fixture);
+  }
+  return fixture;
 }
 
 /** The subset of a CliResult carried across workers via the state file; the
@@ -134,10 +153,12 @@ function deserializeResult(state: SerializedResult): CliResult {
  * captured stdout; the rest wait for the state file and reconstruct both results
  * (each envelope re-parsed from the published stdout).
  */
-async function coordinateRecipeOnShared(): Promise<RecipeOnSharedFixture> {
+async function coordinateRecipeOnShared(
+  generation: string,
+): Promise<RecipeOnSharedFixture> {
   let owner = false;
   try {
-    closeSync(openSync(recipeLockPath(), "wx")); // atomic O_EXCL: one winner
+    closeSync(openSync(recipeLockPath(generation), "wx")); // atomic O_EXCL: one winner
     owner = true;
   } catch {
     owner = false;
@@ -145,7 +166,7 @@ async function coordinateRecipeOnShared(): Promise<RecipeOnSharedFixture> {
   if (owner) {
     const fixture = await deployRecipeOnShared();
     writeFileSync(
-      recipeStatePath(),
+      recipeStatePath(generation),
       JSON.stringify({
         endpoint: fixture.endpoint,
         token: fixture.token,
@@ -157,8 +178,8 @@ async function coordinateRecipeOnShared(): Promise<RecipeOnSharedFixture> {
   }
   const deadline = Date.now() + 900_000;
   for (;;) {
-    if (existsSync(recipeStatePath())) {
-      const state = JSON.parse(readFileSync(recipeStatePath(), "utf8")) as {
+    if (existsSync(recipeStatePath(generation))) {
+      const state = JSON.parse(readFileSync(recipeStatePath(generation), "utf8")) as {
         endpoint: string;
         token: string;
         recipe: SerializedResult;

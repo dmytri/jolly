@@ -31,6 +31,7 @@ import {
   findGlobalOutputFlagViolations,
   type Violation,
 } from "../support/module-conformance.ts";
+import { Node, Project, SyntaxKind, type ObjectLiteralExpression } from "ts-morph";
 
 /**
  * Scan PATH for a genuine Node.js >= 20 binary, skipping Bun (and Bun shims
@@ -816,22 +817,23 @@ interface SeamScan {
   cliMessageKeys: string[];
 }
 
-async function scanInteractiveSeams(): Promise<SeamScan> {
-  const tsmod = (await import("typescript")) as unknown as { default?: unknown };
-  // typescript ships CommonJS; the namespace is the default export under ESM.
-  const ts = (tsmod.default ?? tsmod) as typeof import("typescript");
+// Comparison/equality operand tokens: their operands are stage-slug or status
+// DATA, not render copy, so a comparison subtree is skipped.
+const COMPARISON_TOKENS = new Set<SyntaxKind>([
+  SyntaxKind.EqualsEqualsEqualsToken,
+  SyntaxKind.ExclamationEqualsEqualsToken,
+  SyntaxKind.EqualsEqualsToken,
+  SyntaxKind.ExclamationEqualsToken,
+  SyntaxKind.LessThanToken,
+  SyntaxKind.GreaterThanToken,
+  SyntaxKind.LessThanEqualsToken,
+  SyntaxKind.GreaterThanEqualsToken,
+]);
 
-  const COMPARISON_TOKENS = new Set<number>([
-    ts.SyntaxKind.EqualsEqualsEqualsToken,
-    ts.SyntaxKind.ExclamationEqualsEqualsToken,
-    ts.SyntaxKind.EqualsEqualsToken,
-    ts.SyntaxKind.ExclamationEqualsToken,
-    ts.SyntaxKind.LessThanToken,
-    ts.SyntaxKind.GreaterThanToken,
-    ts.SyntaxKind.LessThanEqualsToken,
-    ts.SyntaxKind.GreaterThanEqualsToken,
-  ]);
-
+// A syntax-only scan via ts-morph, which vendors its own TypeScript: the
+// `typescript` package's main entry exports only the version under TS 7, so
+// the compiler API is not importable here (RIGGING.md "## Dependencies").
+function scanInteractiveSeams(): SeamScan {
   const violations: string[] = [];
   const cliMessageKeys: string[] = [];
   // Any alphabetic run marks human-readable copy. Catalog keys live inside
@@ -839,146 +841,153 @@ async function scanInteractiveSeams(): Promise<SeamScan> {
   // literal is always render-site copy.
   const hasLetters = (s: string): boolean => /[A-Za-z]/.test(s);
 
-  function flagLiteralsIn(root: import("typescript").Node, where: string): void {
-    const visit = (n: import("typescript").Node): void => {
+  function flagLiteralsIn(root: Node, where: string): void {
+    const visit = (n: Node): void => {
       // cliMessage(key, vars) is the sanctioned source: record the key, then
       // inspect only the vars (run-data) — never flag the key literal itself.
-      if (
-        ts.isCallExpression(n) &&
-        ts.isIdentifier(n.expression) &&
-        n.expression.text === "cliMessage"
-      ) {
-        const first = n.arguments[0];
-        if (first && ts.isStringLiteralLike(first)) cliMessageKeys.push(first.text);
-        for (const extra of n.arguments.slice(1)) visit(extra);
-        return;
-      }
-      // Comparison/equality operands are stage-slug or status DATA, not render
-      // copy (e.g. `s.stage !== "init"` inside a render argument's filter), so a
-      // comparison subtree is skipped.
-      if (ts.isBinaryExpression(n) && COMPARISON_TOKENS.has(n.operatorToken.kind)) {
-        return;
-      }
-      if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) {
-        if (hasLetters(n.text)) violations.push(`${where}: inline literal ${JSON.stringify(n.text)}`);
-        return;
-      }
-      if (ts.isTemplateExpression(n)) {
-        if (hasLetters(n.head.text)) {
-          violations.push(`${where}: inline template text ${JSON.stringify(n.head.text)}`);
-        }
-        for (const span of n.templateSpans) {
-          if (hasLetters(span.literal.text)) {
-            violations.push(`${where}: inline template text ${JSON.stringify(span.literal.text)}`);
+      if (Node.isCallExpression(n)) {
+        const callee = n.getExpression();
+        if (Node.isIdentifier(callee) && callee.getText() === "cliMessage") {
+          const args = n.getArguments();
+          const first = args[0];
+          if (
+            first &&
+            (Node.isStringLiteral(first) ||
+              Node.isNoSubstitutionTemplateLiteral(first))
+          ) {
+            cliMessageKeys.push(first.getLiteralValue());
           }
-          visit(span.expression);
+          for (const extra of args.slice(1)) visit(extra);
+          return;
+        }
+      }
+      if (
+        Node.isBinaryExpression(n) &&
+        COMPARISON_TOKENS.has(n.getOperatorToken().getKind())
+      ) {
+        return;
+      }
+      if (Node.isStringLiteral(n) || Node.isNoSubstitutionTemplateLiteral(n)) {
+        if (hasLetters(n.getLiteralValue())) {
+          violations.push(`${where}: inline literal ${JSON.stringify(n.getLiteralValue())}`);
         }
         return;
       }
-      ts.forEachChild(n, visit);
+      if (Node.isTemplateExpression(n)) {
+        const head = n.getHead().getLiteralText();
+        if (hasLetters(head)) {
+          violations.push(`${where}: inline template text ${JSON.stringify(head)}`);
+        }
+        for (const span of n.getTemplateSpans()) {
+          const literal = span.getLiteral().getLiteralText();
+          if (hasLetters(literal)) {
+            violations.push(`${where}: inline template text ${JSON.stringify(literal)}`);
+          }
+          visit(span.getExpression());
+        }
+        return;
+      }
+      n.forEachChild(visit);
     };
     visit(root);
   }
 
-  function propValue(
-    obj: import("typescript").ObjectLiteralExpression,
-    name: string,
-  ): import("typescript").Expression | undefined {
-    for (const p of obj.properties) {
+  function propValue(obj: ObjectLiteralExpression, name: string): Node | undefined {
+    for (const p of obj.getProperties()) {
       if (
-        ts.isPropertyAssignment(p) &&
-        ((ts.isIdentifier(p.name) && p.name.text === name) ||
-          (ts.isStringLiteral(p.name) && p.name.text === name))
+        Node.isPropertyAssignment(p) &&
+        p.getName().replace(/^["']|["']$/g, "") === name
       ) {
-        return p.initializer;
+        return p.getInitializer();
       }
     }
     return undefined;
   }
 
+  // A throwaway in-memory project: the scan is syntactic, so no tsconfig
+  // program is built and the two sources are parsed from their on-disk text.
+  const project = new Project({ useInMemoryFileSystem: true });
+
   // ── src/index.ts: clack render seams + STAGE_DESCRIPTIONS map ──────────────
-  const indexSource = ts.createSourceFile(
-    INTERACTIVE_SRC,
+  const indexSource = project.createSourceFile(
+    "scan/index.ts",
     readFileSync(INTERACTIVE_SRC, "utf8"),
-    ts.ScriptTarget.Latest,
-    true,
   );
 
-  const walkIndex = (n: import("typescript").Node): void => {
+  const walkIndex = (n: Node): void => {
     // STAGE_DESCRIPTIONS: every per-stage progress description value.
-    if (
-      ts.isVariableDeclaration(n) &&
-      ts.isIdentifier(n.name) &&
-      n.name.text === "STAGE_DESCRIPTIONS" &&
-      n.initializer
-    ) {
-      flagLiteralsIn(n.initializer, "STAGE_DESCRIPTIONS");
+    if (Node.isVariableDeclaration(n) && n.getName() === "STAGE_DESCRIPTIONS") {
+      const initializer = n.getInitializer();
+      if (initializer) flagLiteralsIn(initializer, "STAGE_DESCRIPTIONS");
     }
-    if (ts.isCallExpression(n)) {
-      const callee = n.expression;
+    if (Node.isCallExpression(n)) {
+      const callee = n.getExpression();
+      const calleeTarget = Node.isPropertyAccessExpression(callee)
+        ? callee.getExpression()
+        : undefined;
       // clackLog.<method>(message, ...)
       if (
-        ts.isPropertyAccessExpression(callee) &&
-        ts.isIdentifier(callee.expression) &&
-        callee.expression.text === "clackLog"
+        calleeTarget &&
+        Node.isIdentifier(calleeTarget) &&
+        calleeTarget.getText() === "clackLog"
       ) {
-        if (n.arguments[0]) flagLiteralsIn(n.arguments[0], "clackLog");
-      } else if (ts.isIdentifier(callee) && CLACK_POSITIONAL.has(callee.text)) {
-        for (const arg of n.arguments) flagLiteralsIn(arg, callee.text);
-      } else if (ts.isIdentifier(callee) && CLACK_OBJECT.has(callee.text)) {
-        const optsArg = n.arguments[0];
-        if (optsArg && ts.isObjectLiteralExpression(optsArg)) {
+        const first = n.getArguments()[0];
+        if (first) flagLiteralsIn(first, "clackLog");
+      } else if (Node.isIdentifier(callee) && CLACK_POSITIONAL.has(callee.getText())) {
+        for (const arg of n.getArguments()) flagLiteralsIn(arg, callee.getText());
+      } else if (Node.isIdentifier(callee) && CLACK_OBJECT.has(callee.getText())) {
+        const optsArg = n.getArguments()[0];
+        if (optsArg && Node.isObjectLiteralExpression(optsArg)) {
           const msg = propValue(optsArg, "message");
-          if (msg) flagLiteralsIn(msg, callee.text);
+          if (msg) flagLiteralsIn(msg, callee.getText());
           for (const label of ["active", "inactive"]) {
             const v = propValue(optsArg, label);
-            if (v) flagLiteralsIn(v, `${callee.text}.${label}`);
+            if (v) flagLiteralsIn(v, `${callee.getText()}.${label}`);
           }
           const options = propValue(optsArg, "options");
-          if (options && ts.isArrayLiteralExpression(options)) {
-            for (const el of options.elements) {
-              if (ts.isObjectLiteralExpression(el)) {
+          if (options && Node.isArrayLiteralExpression(options)) {
+            for (const el of options.getElements()) {
+              if (Node.isObjectLiteralExpression(el)) {
                 const lbl = propValue(el, "label");
-                if (lbl) flagLiteralsIn(lbl, `${callee.text} option label`);
+                if (lbl) flagLiteralsIn(lbl, `${callee.getText()} option label`);
               }
             }
           }
         }
       }
     }
-    ts.forEachChild(n, walkIndex);
+    n.forEachChild(walkIndex);
   };
   walkIndex(indexSource);
 
   // ── src/lib/start-close.ts: the human summary lines (array init + push) ────
-  const closeSource = ts.createSourceFile(
-    START_CLOSE_SRC,
+  const closeSource = project.createSourceFile(
+    "scan/start-close.ts",
     readFileSync(START_CLOSE_SRC, "utf8"),
-    ts.ScriptTarget.Latest,
-    true,
   );
-  const walkClose = (n: import("typescript").Node): void => {
+  const walkClose = (n: Node): void => {
     // `const lines = [ <summary line>, ... ]`
-    if (
-      ts.isVariableDeclaration(n) &&
-      ts.isIdentifier(n.name) &&
-      n.name.text === "lines" &&
-      n.initializer &&
-      ts.isArrayLiteralExpression(n.initializer)
-    ) {
-      for (const el of n.initializer.elements) flagLiteralsIn(el, "start-close summary line");
+    if (Node.isVariableDeclaration(n) && n.getName() === "lines") {
+      const initializer = n.getInitializer();
+      if (initializer && Node.isArrayLiteralExpression(initializer)) {
+        for (const el of initializer.getElements()) {
+          flagLiteralsIn(el, "start-close summary line");
+        }
+      }
     }
     // `lines.push(<summary line>)`
-    if (
-      ts.isCallExpression(n) &&
-      ts.isPropertyAccessExpression(n.expression) &&
-      ts.isIdentifier(n.expression.expression) &&
-      n.expression.expression.text === "lines" &&
-      n.expression.name.text === "push"
-    ) {
-      for (const arg of n.arguments) flagLiteralsIn(arg, "start-close summary line");
+    if (Node.isCallExpression(n)) {
+      const callee = n.getExpression();
+      if (Node.isPropertyAccessExpression(callee) && callee.getName() === "push") {
+        const target = callee.getExpression();
+        if (Node.isIdentifier(target) && target.getText() === "lines") {
+          for (const arg of n.getArguments()) {
+            flagLiteralsIn(arg, "start-close summary line");
+          }
+        }
+      }
     }
-    ts.forEachChild(n, walkClose);
+    n.forEachChild(walkClose);
   };
   walkClose(closeSource);
 

@@ -1,6 +1,5 @@
 {
   "start.vercelSignin": "Jolly runs the Vercel sign-in (`vercel login`) with you up front, before the unattended stages.",
-  "start.vercelSigninIncomplete": "Vercel sign-in didn't complete — no session was established. The deploy stage will surface a fresh sign-in link you can approve; the rest of the setup continues.",
   "start.vercelSignin.failNoUrl": "Vercel sign-in didn't complete — the Vercel CLI never printed a sign-in link, so there was nothing to approve. The CLI said:\n\n{detail}\n\nFull output: {logPath}. A stale sign-in can wedge this — `pkill -f 'vercel login'`, then re-run. The deploy stage will offer a fresh link; the rest of the setup continues.",
   "start.vercelSignin.failSpawn": "Vercel sign-in didn't complete — Jolly could not launch the Vercel CLI at all, so no sign-in link could be produced. Check that `npx vercel whoami` runs. The deploy stage will offer a fresh link; the rest of the setup continues.",
   "start.vercelSignin.noOutput": "(the Vercel CLI produced no output at all — it could not be launched, e.g. no network route to install or run it)",

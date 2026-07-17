@@ -39,3 +39,20 @@ Feature: Verification economy
     When the reads it performs before asserting on the terminal output are enumerated
     Then each should be ended by the output it asserts on, appearing in the terminal
     And a read ended by a fixed timeout, returning whatever the terminal had produced by then, should redden the check
+
+  Rule: Ambient state is provisioned once and shared
+
+    - State that no scenario asserts is setup cost: it is built once per run behind
+      a lock, marker, or module-level memo, or reused where already present, never
+      rebuilt per scenario. The shared-store provisioning in
+      "features/support/provision.ts" is the house idiom.
+    - The breach is invisible on a green run: every scenario passes while one of
+      them quietly pays the same provisioning cost again on every execution. Only a
+      check over the support code itself can redden on it.
+
+  @logic @invariant
+  Scenario: Ambient setup cost is paid once per run, never per scenario
+    Given the verification support and step-definition files
+    When the sites that provision ambient state no scenario asserts, such as pre-warming an external CLI into the npx cache, are enumerated
+    Then each should run behind a once-per-run guard such as a lock, marker file, or module-level memo
+    And a site that re-provisions per scenario without a guard should redden the check

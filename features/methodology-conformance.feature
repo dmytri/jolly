@@ -75,3 +75,12 @@ Feature: Methodology conformance
       | rg -l -e . .          |
       | rg -l -t md -e . .    |
       | rg -l --hidden -e . . |
+
+  @logic @invariant
+  Scenario: The architecture document's structural claims match the tree
+    Given the architecture document "ARCHITECTURE.md"
+    When the architecture-conformance check reads its structural claims
+    Then the counts it states for feature files, step-definition files, and unit-test files should match the tree
+    And every module it lists under "src/lib/" should exist, and every module in "src/lib/" should be listed
+    And every verification technology it names should be referenced in the tree
+    And a drifted count, a missing or unlisted module, or a named technology with no reference should redden the check

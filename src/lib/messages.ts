@@ -24,6 +24,7 @@ function catalogPath(): string {
 
 /**
  * @planks('When ^the CLI renders the `([\w.]+)` message with organization "([^"]+)"$')
+ * @planks('When ^the CLI renders the `([\w.]+)` message$')
  */
 export function cliMessage(
   key: string,
@@ -32,7 +33,10 @@ export function cliMessage(
   if (!cliMessageCatalog) {
     cliMessageCatalog = JSON.parse(readFileSync(catalogPath(), "utf8")) as Record<string, string>;
   }
-  let value = cliMessageCatalog[key]!;
+  let value = cliMessageCatalog[key];
+  if (value === undefined) {
+    throw new Error(`the message catalog has no entry for the key "${key}"`);
+  }
   if (vars) {
     for (const [name, replacement] of Object.entries(vars)) {
       value = value.replaceAll(`{${name}}`, String(replacement));

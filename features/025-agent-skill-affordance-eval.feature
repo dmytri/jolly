@@ -13,10 +13,13 @@ Feature: Agent skill affordance evaluation
     - The skill's editorial quality stays a real-use concern outside normal
       deterministic testing; this tier tests the agent's ability to ACT on it.
 
-  Rule: Opt-in, outside the default worklist
-    - The eval is tagged `@eval` and excluded from the default BDD profile; it
-      never gates normal green/red CI.
-    - It runs only through an explicit `eval` profile / command, on demand.
+  Rule: Excluded from the default profile, required at the full-tier boundary
+    - The eval is tagged `@eval` and excluded from the default BDD profile, so the
+      fast inner loop never invokes a model.
+    - At the full-tier boundary, an ordered `@eval` watch or the harbour full
+      regression, the eval is a required green/red gate: it runs, and it MUST
+      pass. A persistent red is a real defect in the skill's affordance, never a
+      tolerated flake and never skipped.
 
   Rule: Driven by a baseline agent, fail loudly when its inputs are absent
     - The eval drives a BASELINE coding agent — the bundled `pi` agent

@@ -18,6 +18,7 @@ import {
   readWakeRecord,
   runTierCommand,
   withoutRecordWrite,
+  type ScenarioCost,
   type TierCommand,
   type TierRun,
 } from "../support/wake.ts";
@@ -30,6 +31,10 @@ import {
   findTimerEndedReads,
   type ReadViolation,
 } from "../support/interactive-reads.ts";
+import {
+  findUnguardedAmbientProvisioning,
+  type ProvisionViolation,
+} from "../support/ambient-provisioning.ts";
 
 Given(
   "the tier commands configured in {string}",
@@ -81,7 +86,11 @@ Then(
     );
     for (const name of (this.notes.fixtureTier as { scenarioNames: string[] })
       .scenarioNames) {
-      const cost = record.scenarios.find((scenario) => scenario.name === name);
+      // Explicitly typed: an inferred const narrowed by `assert.ok` inside a
+      // loop trips TS7022 under the TS 7 checker.
+      const cost: ScenarioCost | undefined = record.scenarios.find(
+        (scenario) => scenario.name === name,
+      );
       assert.ok(cost, `the record carries no entry for the scenario "${name}"`);
       assert.ok(
         cost.durationNs > 0,
@@ -215,6 +224,63 @@ Then(
     assert.ok(
       violations.some((violation) => violation.file === planted.file),
       "a terminal read left to end on the fixed `timeoutMs` was not reported",
+    );
+  },
+);
+
+// ─── Ambient state is provisioned once and shared ──────────────────────────
+
+Given(
+  "the verification support and step-definition files",
+  function (this: JollyWorld) {
+    this.notes.provisioningDirs = [
+      "features/support/",
+      "features/step_definitions/",
+    ];
+  },
+);
+
+When(
+  "the sites that provision ambient state no scenario asserts, such as pre-warming an external CLI into the npx cache, are enumerated",
+  function (this: JollyWorld) {
+    this.notes.provisionViolations = findUnguardedAmbientProvisioning();
+  },
+);
+
+Then(
+  "each should run behind a once-per-run guard such as a lock, marker file, or module-level memo",
+  function (this: JollyWorld) {
+    const violations = this.notes.provisionViolations as ProvisionViolation[];
+    assert.equal(
+      violations.length,
+      0,
+      `ambient provisioning paid again on every scenario that runs through it:\n${violations
+        .map((violation) => `  - ${violation.message}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "a site that re-provisions per scenario without a guard should redden the check",
+  function (this: JollyWorld) {
+    const planted = {
+      file: "features/step_definitions/.planted-reprovision.steps.ts",
+      text: [
+        'import { spawnSync } from "node:child_process";',
+        "export function prewarmOnEveryScenario(): void {",
+        '  spawnSync("npx", ["--yes", "some-cli", "--version"], {',
+        '    encoding: "utf8",',
+        "    timeout: 60_000,",
+        '    stdio: "ignore",',
+        "  });",
+        "}",
+      ].join("\n"),
+    };
+    const violations = findUnguardedAmbientProvisioning([planted]);
+    assert.ok(
+      violations.some((violation) => violation.file === planted.file),
+      "an unguarded per-scenario re-provision of ambient state was not reported",
     );
   },
 );
