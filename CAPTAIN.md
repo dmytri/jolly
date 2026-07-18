@@ -4,59 +4,121 @@
 
 Binding behaviour lives in `.feature` specs and referenced `assets/**`. History lives in git. These notes carry only what the next cycle needs.
 
-## STATE (2026-07-18, later): OVERLAP VOYAGE CLOSED at e4225d0; HARBOUR ENTERED; publish PARKED
+## STATE (2026-07-18, late): ELEMENT LICENCE RULED + AUTHORED; final QM pass dispatched
 
-Voyage landed: commit e4225d0 (15 files, +1604/-140), tree clean, main AHEAD OF ORIGIN BY 2
-(26e0edf notes + e4225d0 voyage) — push NOT yet approved by dk; offer with harbour exit.
-Custody re-proved voided tiers fresh: logic 202/202 (198.7s), sandbox 49/49 (863.4s),
-sandboxSerial 6/6 (807.3s). Boatswain's one read-judgment: NO broad-eval at custody (diff
-eval-neutral); harbour full regression closes it with a real run. dk asked for harbour +
-"full inspection and latency stats" — Shipwright dispatched at base e4225d0. Budget proposal
-(below, in the superseded-state section) still awaits dk's ruling; present it beside
-harbour's own regression numbers. dk also probed custody-sweep breadth — if it still reads
-as waste, put the economy question to Shipwright's audit.
+QM's diagnosis: checker MATCHES the law; the LAW contradicted six binding @sandbox scenarios
+whose element spends ARE their assertions. RESOLVED (Captain, within dk's delegated
+direction, mirroring the @creates-env clause): new `@toolchain-element` licence tag —
+elements that are the scenario's own assertion, against its own namespaced resources, never
+the chain; stand-in spends by @exceptional-double scenarios classify to the double; the
+check judges EVERY profile leg of the last sweep (leg order can never hide a breach again).
+Tagged: 029 storefront-alone + deploy-turnkey, 002 native-deps, 020 serving-confirmation,
+022 resume-bootstrap + composed-agree. verification-economy Rule + invariant Then extended.
+002:89 "creates a deployable storefront" NOT tagged (absent from the evidence's spender
+list); if the final sweep names it, extend then. Watchbill: ledger scenario + @logic/@eval/
+@sandbox full re-proof at the FINAL tree. Fresh QM dispatched (bulkhead). Then EDIT-FREE
+custody commits on inherited greens -> PUSH (approved). Earlier state detail in git history.
 
-## SUPERSEDED STATE (kept for the ruling + harbour review)
+Recovery pass 1 DONE (tests/ retired w/ triage, def repaired, all tiers green fresh, budgets
+fit: logic 227, eval 107, sandbox 838/823). ARCHITECTURE refit (counts + section + row) +
+checker edge cases cured (absent-dir, absent-claim-over-zero-tree). THEN custody #2 refused:
+its fresh @logic sweep read the batch's NEW sandbox ledger first (sequencing hole: all logic
+sweeps predated the sandbox writes) and found 14 UNLICENSED toolchain spends — the element
+gap flagged in Upstream notes, now a live red. Spenders: new 020 serving scenario
+(vercel-deploy — should probably assert against the SHARED deployment, fixture debt), 029
+storefront-alone (clone+install = its assertion, licence candidate), composed-agree,
+resume-bootstrap, native-deps, cold-start double's configurator attempts. Boatswain did 9
+hygiene edits (stale tests/ refs in AGENTS/ARCHITECTURE/README/package.json) -> hash moved
+-> all tier greens voided. QM (warm) diagnosing checker-vs-spec: over-policing = QM fixes in
+place; genuine licence gap = comes to dk as ONE question with QM's classification. Watchbill:
+watch1 ledger scenario + full tier re-proof at FINAL tree. Then custody that EDITS NOTHING
+(hygiene already done) commits on inherited greens — breaks the hash-void treadmill. Then
+PUSH (approved). Boatswain harbour findings: 002 supersede re-plank owed (5 orphaned defs +
+4 planks on orchestrator seam — harbour re-planks to @composition steps), 16 baseline
+zero-usage. QUEUED for dk post-close: 3 spec-gap candidates from retired tests (failure-close
+honesty; literal host/package bans; cross-command no-fabricated-success @property), budget
+VALUES ruling (needs a dedicated quiet-deck overlap measurement; current budgets all FIT).
 
-Base commit 26e0edf, everything in flight on the tree. QM pass 1 (isolation + pressure +
-@logic sweep) and pass 2 (architecture count fix + 026 stale respecification, real reclaim
-proofs) both SPENT, green. **Overlapped MEASUREMENT DONE (safe partial: [sandbox ->
-sandboxSerial] || logic || eval): wall clock 1584s vs ~2035 serial warm.** Legs: eval 145.3
-(4/4), logic 237.6 contended (200/201), sandbox 874.8 (49/49), sandboxSerial 680.3 (6/6,
-ran on quiet box). Pressure recorded all lanes, concurrent peaks sum ~6.4GB vs 8.32 ceiling,
-ZERO OOM. Sandbox lane (1555s) IS the critical path; logic+eval fully shadowed. Road to
-dk's 1200 runs through the sandbox legs (org cap 2 envs binds leg-on-leg overlap — dk rules).
+Boatswain refused custody at hash c5b86d6: my blocker-resolution edit to the every-surface
+Then text ORPHANED QM's fresh step definition (undefined scenario) — **LESSON, hard: a
+Captain spec edit rides a watchbill entry EVEN during blocker resolution; an edit to a
+scenario QM just made executable orphans the definition.** Plus budget-fit red rides every
+@logic run (logic record 257.9>250 contended; sandbox 1031.3 pre-separation instrumented),
+5 old 002 concurrency steps orphaned by the supersede (normal debris), and a NEW find:
+pressure recorder mis-keyed a workers:1 line into eval.ndjson from a non-eval invocation
+(wake stream-keying defect, QM's).
 
-The one measurement red: spend-ledger invariant under overlap — the check read a LIVE
-sibling's/own partial ledger ("last run" not run-scoped). Same class OBSERVED on the
-budget-fit check: it ran minute ~4 reading sandbox's partial weather record — its green was
-unsound. Spec'd the general law (verification-economy Rule "The wake is read run-scoped" +
-scenario). QM pass 3 dispatched: watch1 = [run-scoped-read scenario, ledger invariant,
-budget-fit invariant].
+RECOVERY (one QM cycle, folds dk's re-measure in): watchbill = watch1 every-surface (QM
+repairs def text, retires tests/ under the durable Rule, cleans 6 orphans, fixes wake
+keying) + watch2 @logic, watch3 @eval, watch4 @sandbox tier sweeps RUN AS CONCURRENT LANES
+per adopted procedure — regenerates all wake records under real overlap at the current deck
+= custody greens + budget-fit verdict + THE measurement dk rules budget values from. If
+logic's overlapped wall exceeds 250, that red IS the measurement; dk rules the value; RIGGING
+edit + sum->window spec edit follow; one scenario re-proves. Then custody rerun -> commit ->
+PUSH (approved). Status cron CANCELLED (event-driven narration adopted).
 
-Voyage sequence: QM pass 3 -> Boatswain custody over the WHOLE voyage -> budget proposal ->
-dk RULES values. Custody advanced targets: pass 1's five + 026 domain-label recognition;
-pass 2's three; pass 3's three.
+Boatswain also flagged for Shipwright next harbour: RIGGING prose drift (step-usage counts
+986/16 -> 1101/22; dependency-audit note calls the landed dependency-join scenario "standing
+finding"); usage-json dry-run exits 0 on undefined steps (rigging note candidate).
 
-**Budget proposal for dk (measured overlapped, ~10% headroom ratchet):** plain budget 1750
-as the OVERLAPPED regression wall-clock ceiling (measured 1584); logic 265 (237.6 contended);
-sandbox 960 (874.8); sandbox-serial 750 (680.3, ratchet DOWN from 900); eval 160 (145.3,
-ratchet DOWN from 240). REQUIRES the pending spec edit: budget-fit's plain-budget assertion
-moves from tier-SUM to the overlapped window (sum 2135 exceeds 1750 by design once legs
-overlap). Both edits land together on dk's word.
+QM spent the batch: 24/24 targets green fresh, sweep 216 (212+4 reds all routed), zero
+perturbation tokens, typecheck clean. Crew landed: sign-in seams consolidated to one, five
+fetch sites guarded first-party, HARNESS knob gated, three perturbed clusters rebuilt.
+Captain blocker resolutions: 029 compose-order scenario tagged @composition (lane's first
+pre-existing member, found by the new invariant); every-surface scenario generalized + Rule
+"A surface outside the tiers is retired, never accumulated" (dk's consumer rationale);
+tests/ removal = Boatswain custody (orphaned by the red invariant + the Rule). STANDING
+REDS riding to re-measure per dk's ruling: budget-fit (sandbox record 1031 polluted-harbour,
+logic 257.9 contended; clean overlap numbers 874.8/237.6 FIT — the re-measure greens it).
+QUEUED next watchbill: destructive-diff scenario strengthening (stale-green alarm: crash
+path also produced blocked+exit-6; assert the block NAMES the observed diff), zero-usage
+step sweep. AFTER custody: push (approved) -> overlapped re-measure (quiet deck, THREE lanes
+per measurement plan in git history) -> dk rules budget values + sum->window spec edit.
+Upstream additions: support-edit selection refinement (join-selected recheck for joinable
+support; tier sweep only for tier-global files; conformance family via its own command) —
+proposed to dk, awaiting adoption word; 3 more lost resume signals this batch (relay chain
+QM->mate->run needed hand-carry at every link).
 
-**PENDING SPEC EDIT, rides dk's budget ruling:** verification-economy "Each tier's recorded
-wall clock fits its budget" asserts tier records SUMMED fit the plain budget — correct
-serial, wrong under overlap (sum > overlapped wall clock). When dk rules post-measurement
-values, re-spec the plain-budget assertion to the overlapped regression's wall clock (wake
-records give per-leg spans; union window is derivable), then watchbill that scenario.
+Harbour CLOSED green (all tiers, coverage composed src 91.6%/96.8%, refit applied). dk ruled the
+full batch in-session via structured questions; ALL rulings executed and the voyage dispatched:
 
-### npm publish — PARKED by dk (ship on a later outbound)
-0.12.4 on npm predates speed-voyage code. Login works; wall is 2FA-at-publish (E403).
-To ship: `npm version patch` then `npm publish --otp=<current TOTP>` (run immediately,
-~30s expiry) OR granular @dk token with 2FA-bypass; then `git push origin main
---follow-tags`, verify `npm view @dk/jolly version` and `npx @dk/jolly@<v> --help`.
-Homepage verified serving; assets unchanged, no redeploy.
+1. All 10 @captain skeletons PROMOTED (two host-policy ones assert the pre-flight Rule the code
+   violates -> intended failing targets; Crew fixes probeCheckoutPaymentGateway,
+   probeChannelPurchasability, runDeployStage serving probe).
+2. tests/ RETIRED by rule (dk: keep only scantling-grade, "we can't afford unneeded latency").
+   Mechanism: promoted every-surface invariant reds on tests/ as an untiered surface; QM's only
+   in-scope fix is removal (wiring needs RIGGING, not QM's). The one scantling-grade survivor
+   became 006 @contract manifest scenario (engines floor + bin). honesty.test.ts (.invalid
+   double) dies with the surface. 012 outline + 020 checkers absorb the rest.
+3. Scenario #1 SUPERSEDED: 002 concurrency scenario now @logic @composition ordering assertion.
+   @composition lane ADOPTED (dk): 026 Rule bullet + spy-lane invariant.
+4. #3 fixture: 029 deploy Given pins "served from the shared storefront template". dk asked if
+   deploy is a mixed seam needing decomposition — ruled NO (029 already decomposed stages;
+   its real deploy is its own assertion; only the prep fixture was fat).
+5. Primaries-first RULED + written into RIGGING sandbox tier note (serial leg before parallel).
+6. Budgets: dk ruled separate-streams-then-re-measure. RIGGING coverage-* now write
+   coverage/weather/instrumented/<tier>.ndjson; operational prior reads broad-* only. Budget
+   VALUES wait for a fresh overlapped measurement AFTER this batch lands; then dk rules; the
+   budget-fit sum->overlapped-window spec edit rides that ruling too.
+7. Knob rename RULED: 026 @property knob-classification scenario added; reds drive Crew rename
+   JOLLY_READINESS_* -> HARNESS_* + guard HARNESS_AGENT_POLL_WINDOW_SECONDS.
+8. Clones: dk ruled PERTURB NOW. Six plants standing (guard form, typecheck-green:
+   `const perturbationStanding: boolean = true; if (perturbationStanding) throw ...` — a bare
+   head-throw KILLS TS narrowing in the unreachable body, 4 errors; guard form preserves the
+   verbatim throw + token + red). Sites: deviceGrantLogin (index.ts ~775) + inline sign-in block
+   (~4990) | runRecipeStage (~3416) + runStockStage (~3757) | storeHoldsForeignCatalog +
+   storeHoldsRecipeCatalog (cloud-api.ts ~620/~645). Crew consolidates each pair into one seam.
+9. OUTBOUND APPROVED by dk: push origin/main AFTER this batch's custody. npm publish stays
+   PARKED (2FA; see git history for ship steps).
+
+Watchbill: watch1 @logic promotions+new (14 refs incl. plank-form provisional extension),
+watch2 perturbation @logic pinning (5), watch3 @sandbox (5: serving-probe, deploy+fixture,
+destructive-diff, stock, recipe-alone), watch4 @logic sweep. QM dispatched base 42f6fda.
+
+Expected reds beyond targets: perturbations red their pinned scenarios (by design); a pinned
+scenario staying GREEN through watch4 = unexercised seam alarm, mine to read. Boatswain custody
+next after QM; THEN push (approved). ARCHITECTURE.md counts will drift again this voyage
+(tests/ removal, steps files) — the conformance scenario reds and routes to me; expect it.
 
 ## THE ONE FACT NO MECHANISM CARRIES ANY MORE
 
@@ -67,20 +129,75 @@ copy or the `/setup` page). If it must bind QM, it becomes a `.feature` scenario
 
 ## Resume-loop mechanics (proven; carry until upstream mechanizes it)
 
-Captain hand-carries QM/Crew resume across detached runs: QM launches a tier detached, ends its
-turn; Captain waits on the run, SendMessages QM on exit. WAIT CORRECTLY:
-- `tail --pid=<EXACT NUMBER>` only. NEVER pgrep in the waiter: node's comm is "MainThread"
-  (`pgrep -x node` finds nothing) and `pgrep -f cucumber` self-matches the waiter. Both
-  trapped a full HOUR once.
-- Capture the exact wrapper pid in the FOREGROUND first, then background a pure
-  `tail --pid=<n>`. A nested Crew mate cannot be signalled through QM — tell QM the run
-  exited and to collect/re-run itself rather than wait on a nested child.
+Captain hand-carries role resume across detached runs: role launches detached, ends turn;
+Captain waits on the run, SendMessages the role on exit. THIS SESSION: 2 of 4 detached-run
+signals were LOST (role's own monitor never fired); the Captain-side `tail --pid` fallback
+waiter saved both. ALWAYS arm the fallback:
+- `tail --pid=<EXACT NUMBER>` only, pid read from `ps` in the FOREGROUND first. NEVER pgrep
+  in the waiter (self-matches; node comm is "MainThread" here).
+- A nested role cannot be signalled through its parent — tell the parent the run exited and
+  to collect/re-run itself.
 
 ## Upstream (~/shipshape, dk: edit directly, no ceremony)
 
-- 0.13.29 installed; budget + licensed-spend law proven live.
-- Resume-on-signal machinery is the top work item — mechanize: resume a role on its
-  detached run's exit signal.
+- Resume-on-signal machinery remains the TOP work item — 2 lost signals this session even with
+  role-side monitors; the harness must resume a role on its detached run's exit, not discipline.
+- **Tier-taxonomy findings from dk discussion 2026-07-18 (detailed, dk asked these kept):**
+  - **Tiers are execution profiles; lanes are tags.** A tier is justified by cost/credential/
+    cadence profile (@eval: model credential, live-agent economics). A proof-technique grouping
+    (spy-based composition tests) has the SAME profile as @logic -> it is a LANE (tag + closing
+    conformance invariant), never a tier. Promoting a tag to a tier later is mechanical; the
+    reverse dismantles rigging. Candidate upstream pattern beside @contract/@conformance:
+    **@composition** — asserts launch order/await joins/seam wiring, never service effects;
+    closing invariant: every composition-ground spy serves only @composition scenarios. Adopted
+    in jolly 2026-07-18; watch how it wears before upstreaming.
+  - **"Primary tier" collapses into the licence tags.** dk asked for a run-first tier of primary
+    seam proofs; analysis showed @pipeline/@creates-env ALREADY enumerate that set. The missing
+    piece was ORDER, not taxonomy: primaries-first (licensed serial leg before derivative
+    parallel leg) is free when legs are sequential anyway, and reds the foundation in the first
+    ~12 min instead of minute 25. Shared-store REUSE means a broken creation path can stay green
+    for days behind derivative scenarios — primaries-first is the countermeasure. Candidate
+    upstream law: "the licensed set runs before the derivative set where legs serialize."
+  - **Eval-gating boundary:** capture-consuming tiers depend on COMMITTED captures, not this
+    run's primaries — their coupling point is harbour re-verification cadence. Do not gate them
+    behind primaries at run time.
+  - **Element-spend licence gap:** the spend-ledger law polices the chain (@pipeline) and
+    env-creation (@creates-env) but single toolchain ELEMENTS escape (a scenario freshly
+    clone+installing where a template fixture serves). Lightweight fix used here: pin the
+    fixture SOURCE in the scenario's Given ("served from the shared storefront template").
+    Heavyweight candidate if element spends recur: element-licence tags (@spends-<element>)
+    closing the ledger fully.
+  - **Golden-capture tiers are the general cheap-composite pattern:** @eval's design (live
+    subject, captured services) is how composite seams get cheap coverage everywhere; jolly's
+    @logic orchestration cluster is the same move at logic cadence.
+  - **Perturbation vs TypeScript:** a bare head-throw kills control-flow narrowing in the
+    unreachable body -> typecheck reds. Guard form preserves the verbatim statement + token +
+    runtime red while staying typecheck-green. Upstream the guard form as the TS-stack perturb
+    idiom (RIGGING ## Perturbation could carry a stack-specific placement note).
+  - **Instrumented-stream separation:** harbour coverage runs polluted the operational weather
+    prior (budget-fit red at next sweep). Upstream candidate: the weather law should name the
+    instrumented stream as a SEPARATE wake path by construction.
+- **Latency findings 2026-07-18 (dk: "soul crushing... latency is killing all momentum"; dk
+  ordered this noted for upstream).** Measured decomposition of the batch voyage: actual
+  verification runtime ~20 min; wall clock ~100+ min. Roughly FOUR-FIFTHS of wall clock is
+  agent latency, not test execution: (a) serial role turns, each isolated role re-deriving
+  the deck from durable artifacts — the bulkhead's price paid in LLM turns; (b) think-run-think
+  alternation per focused target instead of concurrent groups; (c) nested relay hops
+  (QM->mate->run), each a wake-collect-launch round; (d) lost resume signals (3 more this
+  batch; 5 total today) hand-carried by Captain fallback waiters. Levers, in leverage order:
+  1. **Concurrent focused groups** (ADOPTED here as standing QM procedure): independent
+     focused targets run as one concurrent group — run-scoped isolation (feature 030) makes
+     it safe by construction; ~15 serial minutes -> ~4. Upstream candidate: QM skill wording
+     "batch independent focused runs into one concurrent group".
+  2. **Parallel Crew mates** (ADOPTED here): independent seam clusters get parallel mates —
+     the dispatch contract already permits it; serial mates were habit, not law.
+  3. **Resume-on-signal machinery** — the standing top item; the relay tax is pure dead time.
+  4. **Event-driven narration over fixed-cadence polling** (ADOPTED here): report on state
+     change (hand-off, red, commit, outbound), not on a clock; a 2-min status cron costs an
+     interleaved turn per tick and adds latency to the very pipeline it watches.
+  Also proposed to dk and awaiting word: support-edit selection refinement (join-selected
+  recheck for joinable support; tier sweep only for tier-global files; conformance family via
+  its own command — would have halved this batch's watch4).
 - Retire stale AGENTS.md local blockers-first addition at next harbour (AGENTS is Shipwright's).
 
 ## Fresh-VM fitting-out (git-invisible, manual)
@@ -99,22 +216,11 @@ turn; Captain waits on the run, SendMessages QM on exit. WAIT CORRECTLY:
 - Shared-store transient death self-heals next invocation; retry a heavy 404 ONCE.
 - One licence: `@pipeline` = 002 operational-readiness proof only. Element licence for
   `@creates-env` guard deploys (004). One creation test per seam; different parameters, not
-  different sequences.
+  different sequences. Fixture SOURCE pinned in Givens where a template serves (029 deploy).
 - Golden captures record against the PERSISTENT shared store + shared deployment (live URLs);
   reject per-run-tainted observations by CONTENT. Harbour re-verifies captures vs live services.
-
-## For next harbour (report-only, re-derivable)
-
-- Stale `@heavy` prose: `AGENTS.md:119,123`; comments in 002/004/029 step files,
-  `features/support/fast-forward-deploy.ts`. AGENTS.md eval prose (live Vercel deploy, KEEP_STORE)
-  stale vs golden-capture design. All Shipwright's (AGENTS is not Captain's).
-- 16 baseline zero-usage step definitions (two at `006-npx-cli-command-surface.steps.ts:502,521`).
-- No derived check joining RIGGING `## Dependencies` to `package.json`.
-- `report.html`/`report.json` tracked but are wake.
-- `vercel login` device-flow children orphan to init and poll ~5-10 min before teardown reaps
-  them — reap once the device URL is captured. Resource pressure; overlap-voyage relevant.
-- Wake-wipe incident (unverified): out-of-band coverage/ rewrite ~13:03-13:05 on 2026-07-18
-  destroyed a ledger+shims; watch for recurrence.
+- Reclamation is age-gated (feature 030): stale = older than the full-regression budget; a
+  younger namespaced resource is a live sibling's. Shared store exempt by name, as before.
 
 ## Standing rules, learned the hard way
 
@@ -126,10 +232,10 @@ turn; Captain waits on the run, SendMessages QM on exit. WAIT CORRECTLY:
 - Interactive-path changes verify through `features/support/pty.ts` `runUnderPty`.
 - `--max-old-space-size=4096` on this 7.9 GB box.
 - dk wants live play-by-play; resume a dispatched agent on the observed signal, never poll.
+- dk wants QUESTIONS AS QUESTIONS: crisp, structured, one decision each — never embedded in
+  walls of text. The structured-question tool worked well 2026-07-18; keep using it.
 - A tier's wall clock inflates hard under contention; measure budgets under the concurrency
-  they will actually run in.
+  they will actually run in; instrumented runs never stand as operational priors.
 - Do not let a remedy outrun its measurement; never let an approved plan survive a refuted premise.
 - One writer at a time; dispatch thin (role + base commit); hold Captain writes while a role holds the deck.
-- Conformance family (@logic @property/@invariant) must be green before custody — it catches
-  voyage-introduced drift (stale planks from step renames, marker-window, budget growth) that
-  focused watches miss. Include an @logic watch whenever specs/steps are renamed.
+- Conformance family (@logic @property/@invariant) must be green before custody.

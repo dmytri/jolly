@@ -763,15 +763,29 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
   });
 }
 
-// Interactive sign-in through the Saleor device authorization grant. Request a
-// device code, display the user code + verification URL through Bombshell's
-// prompt UI, then poll the token endpoint while the human authorizes.
+// The interactive Saleor sign-in through the device authorization grant — the
+// ONE seam the interactive `jolly login` (feature 018) and the inline `jolly
+// start` sign-in (feature 027, "the same grant as `jolly login`") share.
+// Request a device code, display the user code + the verification URL carrying
+// that code as its `user_code` query parameter — wrapped as an OSC 8 hyperlink,
+// copy from the message catalog — through Bombshell's prompt UI, then poll the
+// token endpoint while the human authorizes (the poll honours the grant's
+// interval and backs off on slow_down, src/lib/device-grant.ts). On approval:
+// write only the access + refresh variables to .env — never the staff token
+// JOLLY_SALEOR_CLOUD_TOKEN (feature 018 scheme rule) — make them live in the
+// current process so the same session continues with the acquired credentials,
+// and project the agent-facing SALEOR_TOKEN so .env never holds a stale store
+// token after a sign-in.
 /**
  * @planks("When the user runs `jolly login`")
+ * @planks("When `jolly start` runs in an interactive terminal")
  * @planks("Then it should display the returned user code and the verification URL `https:\/\/auth.saleor.io\/realms\/saleor-cloud\/device?user_code=` followed by that user code through Bombshell's interactive prompt UI")
+ * @planks("Then the interactive output should show the device user code and the verification URL before any setup stage runs")
  * @planks("Then it should store the device-grant access token in .env as JOLLY_SALEOR_ACCESS_TOKEN")
+ * @planks("Then it should store the device-grant refresh token in .env as JOLLY_SALEOR_REFRESH_TOKEN")
+ * @planks("Then the run should continue past the auth stage in the same session")
  */
-async function deviceGrantLogin(command: string): Promise<Envelope> {
+async function interactiveDeviceGrantSignIn(): Promise<void> {
   const auth = await requestDeviceCode();
   const signInUrl = `${auth.verificationUri}?user_code=${auth.userCode}`;
   clackNote(
@@ -780,17 +794,22 @@ async function deviceGrantLogin(command: string): Promise<Envelope> {
     CLACK_STDERR,
   );
   const tokens = await pollForDeviceTokens(auth);
-  // The device grant writes only the access + refresh variables and never
-  // overwrites JOLLY_SALEOR_CLOUD_TOKEN (feature 018 scheme rule). The access
-  // token authenticates the platform API as Bearer; the refresh token mints a
-  // fresh one when it expires.
   writeEnvValues(projectDir(), {
     JOLLY_SALEOR_ACCESS_TOKEN: tokens.accessToken,
     JOLLY_SALEOR_REFRESH_TOKEN: tokens.refreshToken,
   }, SALEOR_ENV_HEADER);
-  // Project the fresh access token into the agent-facing SALEOR_TOKEN so the
-  // .env never holds a stale store token after a sign-in.
+  process.env["JOLLY_SALEOR_ACCESS_TOKEN"] = tokens.accessToken;
+  process.env["JOLLY_SALEOR_REFRESH_TOKEN"] = tokens.refreshToken;
   projectSaleorAgentEnv();
+}
+
+// Interactive `jolly login`: the shared device-grant sign-in, closed with the
+// login success envelope.
+/**
+ * @planks("When the user runs `jolly login`")
+ */
+async function deviceGrantLogin(command: string): Promise<Envelope> {
+  await interactiveDeviceGrantSignIn();
   return envelope({
     command,
     status: "success",
@@ -810,9 +829,12 @@ async function deviceGrantLogin(command: string): Promise<Envelope> {
 const AGENT_RESUME_POLL_DEFAULT_SECONDS = 12;
 /**
  * @planks("When ^the agent runs `jolly (?!(?:start|doctor|upgrade) --json`)(login|init|start|doctor|upgrade|skills|create store) (--json|--quiet|--yes)`$")
+ * @planks("Then each should be a `JOLLY_*` product setting, a target project's own expected variable, or a harness affordance readable only when the harness guard is set")
  */
 function agentResumePollSeconds(): number {
-  const override = process.env.HARNESS_AGENT_POLL_WINDOW_SECONDS;
+  const override = harnessGuardActive()
+    ? process.env.HARNESS_AGENT_POLL_WINDOW_SECONDS
+    : undefined;
   return override ? Number(override) : AGENT_RESUME_POLL_DEFAULT_SECONDS;
 }
 
@@ -2373,6 +2395,9 @@ async function ensureFreshStoreAuth(): Promise<void> {
  * @planks("When the agent runs `jolly doctor stripe --json`")
  * @planks("Given the agent runs `jolly doctor --json` with no group argument")
  * @planks(`Then each should carry at least one `nextSteps` entry naming what to do next`)
+ * @planks("Then the refusal should name the non-first-party host evil.example.com")
+ * @planks(`Then the `us-channel-purchasable` and `checkout-payment-gateway` checks should each report a non-pass status`)
+ * @planks("Then no request should be sent to evil.example.com")
  */
 async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
   const group = args.positionals[1];
@@ -2544,19 +2569,33 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
     } else {
       // Presence is detectable; run a real READ-ONLY live connectivity probe.
       // Reachable GraphQL endpoint → "pass"; configured but unreachable / not a
-      // GraphQL endpoint → "unknown" (never a fabricated pass, never "fail").
+      // GraphQL endpoint → "unknown" (never a fabricated pass). A non-first-party
+      // endpoint is refused PRE-FLIGHT (feature 020 Rule "First-party hosts
+      // only"): nothing is sent, and the check reports the refusal naming the
+      // host — a definite "fail", not an "unknown".
       const saleorEndpoint = String(
         values["NEXT_PUBLIC_SALEOR_API_URL"] ?? process.env["NEXT_PUBLIC_SALEOR_API_URL"],
       );
       const outcome = await probeEndpointConnectivity(saleorEndpoint);
-      const reachable = outcome.kind === "reachable";
-      checks.push({
-        id: "saleor-endpoint",
-        status: reachable ? "pass" : "unknown",
-        description: reachable
-          ? cliMessage("doctor.check.saleorEndpoint.pass")
-          : cliMessage("doctor.check.saleorEndpoint.unknown"),
-      });
+      if (outcome.kind === "refused") {
+        checks.push({
+          id: "saleor-endpoint",
+          status: "fail",
+          description: cliMessage("createStore.error.nonFirstPartyHost.message", {
+            pastedHost: outcome.host,
+          }),
+          command: "jolly create store --url https://<store>.saleor.cloud/graphql/",
+        });
+      } else {
+        const reachable = outcome.kind === "reachable";
+        checks.push({
+          id: "saleor-endpoint",
+          status: reachable ? "pass" : "unknown",
+          description: reachable
+            ? cliMessage("doctor.check.saleorEndpoint.pass")
+            : cliMessage("doctor.check.saleorEndpoint.unknown"),
+        });
+      }
     }
     checks.push({
       id: "saleor-token",
@@ -2601,6 +2640,17 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
           status: "warning",
           description: cliMessage("doctor.check.usChannelPurchasable.warning"),
           command: "npx @saleor/configurator deploy --failOnDelete",
+        });
+      } else if (purchasable.kind === "refused") {
+        // The probe refused the non-first-party endpoint pre-flight: the
+        // purchasability read was never attempted (skipped, per the feature 014
+        // vocabulary), and the refusal names the host.
+        checks.push({
+          id: "us-channel-purchasable",
+          status: "skipped",
+          description: cliMessage("createStore.error.nonFirstPartyHost.message", {
+            pastedHost: purchasable.host,
+          }),
         });
       } else {
         checks.push({
@@ -3384,10 +3434,10 @@ function bundledRecipePath(): string {
 
 /**
  * Genuinely perform the configurator-deploy stage (feature 004 Rule
- * "Configurator deploy is a genuinely-executing stage"). This is the FIRST
- * spawned-CLI `jolly start` stage: Jolly SPAWNS `npx @saleor/configurator deploy`
- * of its bundled starter recipe against the store, never reimplementing it
- * against raw APIs. Resolves the store GraphQL endpoint and SALEOR_TOKEN from
+ * "Configurator deploy"). This is the FIRST spawned-CLI `jolly start` stage:
+ * Jolly SPAWNS `npx @saleor/configurator@latest deploy` — the official, current
+ * CLI — of its bundled starter recipe against the store, never reimplementing
+ * it against raw APIs. Resolves the store GraphQL endpoint and SALEOR_TOKEN from
  * .env/process.env (first-party Saleor host only — the same creds Jolly already
  * manages); if either is missing it pushes a skipped check and blocks rather
  * than fabricating. The bootstrap path is decided by the store's STATE, not by
@@ -3400,9 +3450,13 @@ function bundledRecipePath(): string {
  * catalog it passes `--failOnDelete` so a destructive apply is blocked (exit 6)
  * for the customer's explicit approval, not silently destructive. (The
  * configurator binary exposes only `--failOnDelete`; it has no breaking-changes
- * guard.) Reads the configurator's EXIT CODE and reports honestly:
- * `completed`/`pass` only when it exited 0; `blocked`/`fail` (with the real
- * error) on any non-zero exit or a configurator that cannot be spawned — never a
+ * guard.) Reads the configurator's EXIT CODE and its deployment report, and
+ * reports honestly: `completed` only when the configurator exited 0 OR its
+ * report records success (the bootstrap apply's protected-default deletions
+ * yield a spurious exit-5 "partial"), and only after the store read-back
+ * confirms the recipe's declared catalog — never from the configurator's
+ * optimistic summary counts alone; `blocked`/`fail` (with the real error) on
+ * any other non-zero exit or a configurator that cannot be spawned — never a
  * fabricated deploy.
  * @planks("When the agent runs `jolly start --dry-run --json`")
  * @planks("When the agent runs `jolly recipe --yes --json` to apply the starter recipe to Saleor Cloud")
@@ -3518,7 +3572,7 @@ async function runRecipeStage(
 
   const deployArgs = [
     "--yes",
-    "@saleor/configurator",
+    "@saleor/configurator@latest",
     "deploy",
     "--config",
     recipePath,
@@ -4424,6 +4478,7 @@ function tailVercelSignInLog(logPath: string, lines = 6): string {
  * @planks("Then it should persist `NEXT_PUBLIC_SALEOR_API_URL` and `NEXT_PUBLIC_DEFAULT_CHANNEL` on the Vercel project through the Vercel CLI, so a plain `npx vercel deploy` re-deploy also builds them")
  * @planks("Then it should write `NEXT_PUBLIC_DEFAULT_CHANNEL` to `.env`, so the local storefront and a re-deploy read the store channel with no key juggling")
  * @planks("When `jolly start` runs to completion in an interactive terminal")
+ * @planks("Then each should reach the network only through a seam that applies the first-party host predicate before sending")
  */
 async function runDeployStage(
   checks: Check[],
@@ -4523,7 +4578,12 @@ async function runDeployStage(
       { cwd: dir, encoding: "utf8", timeout: 120_000, env: { ...process.env } },
     );
     const liveUrl = listed.error ? undefined : listedReadyProductionUrl(listed.stdout);
-    if (liveUrl) {
+    // Pre-flight before probing (feature 020 Rule "First-party hosts only"):
+    // the serving probe contacts only the captured `*.vercel.app` deployment
+    // URL the Vercel CLI reported, or a first-party host; anything else is
+    // refused unsent, falling through to a real deploy.
+    const liveHost = liveUrl ? new URL(liveUrl).hostname : "";
+    if (liveUrl && (liveHost.endsWith(".vercel.app") || isFirstPartyHost(liveHost))) {
       const reuseDeadline = Date.now() + 90_000;
       let alreadyServing = false;
       while (Date.now() < reuseDeadline) {
@@ -4708,7 +4768,11 @@ async function runDeployStage(
     // moment to route. Poll the deployed URL, following the root redirect to the
     // channel home, until it answers within a budget; report the deployment as
     // still propagating otherwise, never a fabricated completion (feature 002).
-    if (deployedUrl) {
+    // Pre-flight before probing (feature 020 Rule "First-party hosts only"):
+    // the GET goes only to the captured `*.vercel.app` URL from the Vercel
+    // CLI's own output, or a first-party host; anything else is refused unsent.
+    const deployedHost = deployedUrl ? new URL(deployedUrl).hostname : "";
+    if (deployedUrl && (deployedHost.endsWith(".vercel.app") || isFirstPartyHost(deployedHost))) {
       const readinessDeadline = Date.now() + 180_000;
       let serving = false;
       while (Date.now() < readinessDeadline) {
@@ -4981,24 +5045,7 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
       process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ??
       env["JOLLY_SALEOR_ACCESS_TOKEN"] ??
       process.env["JOLLY_SALEOR_ACCESS_TOKEN"];
-    if (!existingAuth) {
-      const auth = await requestDeviceCode();
-      const signInUrl = `${auth.verificationUri}?user_code=${auth.userCode}`;
-      clackNote(
-        cliMessage("start.note.signInBody", { link: osc8Hyperlink(signInUrl), code: auth.userCode }),
-        cliMessage("start.note.signIn"),
-        CLACK_STDERR,
-      );
-      const tokens = await pollForDeviceTokens(auth);
-      writeEnvValues(projectDir(), {
-        JOLLY_SALEOR_ACCESS_TOKEN: tokens.accessToken,
-        JOLLY_SALEOR_REFRESH_TOKEN: tokens.refreshToken,
-      }, SALEOR_ENV_HEADER);
-      process.env["JOLLY_SALEOR_ACCESS_TOKEN"] = tokens.accessToken;
-      process.env["JOLLY_SALEOR_REFRESH_TOKEN"] = tokens.refreshToken;
-      // Project the fresh access token into the agent-facing SALEOR_TOKEN.
-      projectSaleorAgentEnv();
-    }
+    if (!existingAuth) await interactiveDeviceGrantSignIn();
   }
 
   // Organization: prompt only when the token resolves more than one (feature

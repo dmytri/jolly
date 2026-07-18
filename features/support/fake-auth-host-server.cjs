@@ -15,6 +15,12 @@ const { randomBytes } = require("node:crypto");
 const MARKER = process.env.FAKE_AUTH_MARKER;
 const USER_CODE = process.env.FAKE_AUTH_USER_CODE;
 const VERIFICATION_URI = process.env.FAKE_AUTH_VERIFICATION_URI;
+// Optional first-poll error mode (e.g. "slow_down"): the first token poll is
+// answered with this OAuth error and the next poll approves, so Jolly's real
+// backoff path runs. Poll arrival times are recorded and served at GET /polls
+// so a scenario can assert the observed backoff.
+const FIRST_POLL_ERROR = process.env.FAKE_AUTH_FIRST_POLL || "";
+const pollTimes = [];
 
 function jwt(extra) {
   const b64 = (obj) => Buffer.from(JSON.stringify(obj)).toString("base64url");
@@ -49,7 +55,14 @@ const server = createServer((req, res) => {
       // poll so the real poll-and-store path completes without waiting. The same
       // endpoint answers the refresh grant (grant_type=refresh_token) with a
       // fresh marker-stamped access token, so Jolly's real refresh-and-store path
-      // completes headlessly.
+      // completes headlessly. In first-poll-error mode the first poll is
+      // answered with the configured OAuth error instead, and the next approves.
+      pollTimes.push(Date.now());
+      if (FIRST_POLL_ERROR && pollTimes.length === 1) {
+        res.statusCode = 400;
+        res.end(JSON.stringify({ error: FIRST_POLL_ERROR }));
+        return;
+      }
       const now = Math.floor(Date.now() / 1000);
       res.statusCode = 200;
       res.end(
@@ -60,6 +73,13 @@ const server = createServer((req, res) => {
           expires_in: 300,
         }),
       );
+      return;
+    }
+    if (req.method === "GET" && url.includes("/polls")) {
+      // Observation endpoint for the step file: the recorded arrival time of
+      // every token poll, so the backoff between polls is assertable.
+      res.statusCode = 200;
+      res.end(JSON.stringify({ polls: pollTimes }));
       return;
     }
     if (req.method === "GET" && url.includes("/organizations")) {

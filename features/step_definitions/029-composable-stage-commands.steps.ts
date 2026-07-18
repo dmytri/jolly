@@ -86,7 +86,7 @@ Given(
 // ─── jolly deploy ───────────────────────────────────────────────────────────
 
 Given(
-  "a prepared storefront directory and a configured Saleor store",
+  "a prepared storefront directory served from the shared storefront template, and a configured Saleor store",
   { timeout: HEAVY },
   async function (this: JollyWorld) {
     writeStoreEnv(this);

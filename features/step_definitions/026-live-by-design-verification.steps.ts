@@ -41,6 +41,19 @@ import {
   findUnguardedHarnessAffordances,
 } from "../support/harness-affordance-conformance.ts";
 import type { InjectedSource } from "../support/module-conformance.ts";
+import {
+  collectExecutablePickles,
+  enumerateCompositionSpies,
+  findCompositionLaneViolations,
+  type CompositionSpy,
+  type PickleInfo,
+} from "../support/composition-lane-conformance.ts";
+import {
+  enumerateProductionEnvReads,
+  findEnvNamespaceViolations,
+  type EnvRead,
+  type EnvViolation,
+} from "../support/env-namespace-conformance.ts";
 import { makeNamespace } from "../support/sandbox.ts";
 import {
   cachedStoreSpareNames,
@@ -1040,6 +1053,182 @@ Then(
     assert.ok(
       reddened.some((violation) => violation.file === unguarded.file),
       "an unguarded harness-only affordance did not redden the check",
+    );
+  },
+);
+
+// ─── The composition lane: composition-ground spies serve only @composition ─
+// A spy justified on the composition ground (internal wiring / launch order /
+// await joins) is admissible because the seams it wires are proven for real at
+// their own seams. The lane stays legible only while every such spy serves
+// scenarios that DECLARE it with the @composition tag (feature 026 Rule).
+
+When(
+  "the test doubles justified on the composition ground are enumerated",
+  { timeout: 60_000 },
+  function (this: JollyWorld) {
+    this.notes.compositionSpies = enumerateCompositionSpies();
+    this.notes.executablePickles = collectExecutablePickles();
+    assert.ok(
+      (this.notes.compositionSpies as CompositionSpy[]).length > 0,
+      "no composition-ground spy was found — the enumeration is not reading the verification layer",
+    );
+  },
+);
+
+Then(
+  "each should serve only scenarios tagged {string}",
+  function (this: JollyWorld, tag: string) {
+    const violations = findCompositionLaneViolations(
+      this.notes.compositionSpies as CompositionSpy[],
+      this.notes.executablePickles as PickleInfo[],
+      tag,
+    );
+    assert.equal(
+      violations.length,
+      0,
+      `composition-ground spies serving scenarios outside the ${tag} lane:\n${violations
+        .map((violation) => `  - ${violation.message}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "a composition-ground spy serving a scenario without the tag should redden the check, naming the spy and the scenario",
+  function (this: JollyWorld) {
+    // Enumeration half: a planted composition-ground spy source is seen. The
+    // annotation marker is assembled at run time so THIS file's own source
+    // never carries it as a literal — the scanner reads raw lines, and a
+    // literal here would read as a real composition-ground annotation tied to
+    // whatever step registration follows it.
+    const marker = ["@exceptional", "double:"].join("-");
+    const planted: InjectedSource = {
+      file: "features/support/.planted-composition-spy.ts",
+      text: [
+        'import { Given } from "@cucumber/cucumber";',
+        `// ${marker} internal composition/wiring — the planted seams are`,
+        "// replaced with recording spies to observe launch order (composition ground).",
+        'Given("the planted seams are replaced with recording spies", function () {});',
+      ].join("\n"),
+    };
+    const spies = enumerateCompositionSpies([planted]).filter(
+      (spy) => spy.file === planted.file,
+    );
+    assert.ok(
+      spies.length > 0,
+      "a planted composition-ground spy was not enumerated",
+    );
+    // Join half: an untagged scenario binding the spy's pattern is reported,
+    // naming both.
+    const untagged: PickleInfo = {
+      uri: "features/.planted-untagged.feature",
+      name: "A planted scenario outside the composition lane",
+      tags: ["@logic"],
+      steps: ["the planted seams are replaced with recording spies"],
+    };
+    const violations = findCompositionLaneViolations(spies, [untagged], "@composition");
+    assert.ok(
+      violations.some(
+        (violation) =>
+          violation.file === planted.file &&
+          violation.message.includes(untagged.name),
+      ),
+      "a composition-ground spy serving an untagged scenario was not reported naming the spy and the scenario",
+    );
+  },
+);
+
+// ─── Production env namespace: JOLLY_* products, guarded HARNESS_* knobs ────
+
+When(
+  "the environment variables production code reads are enumerated",
+  function (this: JollyWorld) {
+    this.notes.productionEnvReads = enumerateProductionEnvReads("src/");
+    assert.ok(
+      (this.notes.productionEnvReads as EnvRead[]).length > 0,
+      "no environment read was found — the enumeration is not reading Jolly's production source",
+    );
+  },
+);
+
+Then(
+  "each should be a `JOLLY_*` product setting, a target project's own expected variable, or a harness affordance readable only when the harness guard is set",
+  function (this: JollyWorld) {
+    const violations = findEnvNamespaceViolations(
+      this.notes.productionEnvReads as EnvRead[],
+    );
+    assert.equal(
+      violations.length,
+      0,
+      `environment reads outside the namespace contract:\n${violations
+        .map((violation) => `  - ${violation.message}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "a harness-only knob should carry the `HARNESS_` prefix, never `JOLLY_`",
+  function (this: JollyWorld) {
+    const misNamespaced = findEnvNamespaceViolations(
+      this.notes.productionEnvReads as EnvRead[],
+    ).filter((violation) => violation.kind === "mis-namespaced");
+    assert.equal(
+      misNamespaced.length,
+      0,
+      `harness-only knobs hiding outside the HARNESS_ prefix:\n${misNamespaced
+        .map((violation) => `  - ${violation.message}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "a mis-namespaced knob or an unguarded harness read should redden the check, naming the variable and the site",
+  function (this: JollyWorld) {
+    // A harness-only knob hiding under the JOLLY_ prefix.
+    const misNamespaced: InjectedSource = {
+      file: "src/.planted-mis-namespaced-knob.ts",
+      text: [
+        "export function plantedMisNamespacedKnob(): string | undefined {",
+        "  return process.env.JOLLY_HARNESS_SPEED;",
+        "}",
+      ].join("\n"),
+    };
+    const misReads = enumerateProductionEnvReads("src/", [misNamespaced]);
+    const misViolations = findEnvNamespaceViolations(misReads).filter(
+      (violation) => violation.file === misNamespaced.file,
+    );
+    assert.ok(
+      misViolations.some(
+        (violation) =>
+          violation.kind === "mis-namespaced" &&
+          violation.message.includes("JOLLY_HARNESS_SPEED"),
+      ),
+      "a planted mis-namespaced knob was not reported naming the variable and the site",
+    );
+
+    // A HARNESS_* affordance read with no guard consulted in its seam.
+    const unguarded: InjectedSource = {
+      file: "src/.planted-unguarded-harness-read.ts",
+      text: [
+        "export function plantedUnguardedRead(): string | undefined {",
+        "  return process.env.HARNESS_PLANTED_KNOB;",
+        "}",
+      ].join("\n"),
+    };
+    const unguardedReads = enumerateProductionEnvReads("src/", [unguarded]);
+    const unguardedViolations = findEnvNamespaceViolations(unguardedReads).filter(
+      (violation) => violation.file === unguarded.file,
+    );
+    assert.ok(
+      unguardedViolations.some(
+        (violation) =>
+          violation.kind === "unguarded-harness" &&
+          violation.message.includes("HARNESS_PLANTED_KNOB"),
+      ),
+      "a planted unguarded harness read was not reported naming the variable and the site",
     );
   },
 );

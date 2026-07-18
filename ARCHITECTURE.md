@@ -49,15 +49,6 @@ jolly/
 │       ├── envelope.ts      # Output envelope assertion helpers
 │       ├── eval.ts          # @eval tier harness (live agent)
 │       └── ...              # 25+ additional support files
-├── tests/                   # Logic-tier unit tests (node --test)
-│       ├── cloud-api-scheme.test.ts
-│       ├── env-file.test.ts
-│       ├── envelope.test.ts
-│       ├── first-party-hosts.test.ts
-│       ├── honesty.test.ts
-│       ├── node-launcher.test.ts
-│       ├── saleor-url.test.ts
-│       └── start-close.test.ts
 ├── assets/                  # (see above)
 ├── AGENTS.md                # Agent/tooling configuration
 ├── RIGGING.md               # Machine-readable tooling values (tiers, commands, deps)
@@ -181,12 +172,6 @@ Policies: real services only (no mocks/fakes), harmless-by-design (namespace + t
 
 **Technologies:** TypeScript, `@cucumber/cucumber`, `ts-morph` (structural conformance checkers), `c8` (coverage)
 
-### 3.4. Logic-Tier Unit Tests (tests/)
-
-**Name:** Unit tests
-
-**Description:** 8 files covering pure-logic modules (CLI envelope, env-file, hosts, Saleor URL parsing, etc.). Run via `node --test`.
-
 ## 4. Data Stores
 
 ### 4.1. Environment Variables / .env
@@ -251,7 +236,6 @@ Policies: real services only (no mocks/fakes), harmless-by-design (namespace + t
 | **Logic tests** | `npm run test:logic` — `cucumber-js -p logic` (parallel, fast) |
 | **Sandbox tests** | `npm run test:sandbox` — real Saleor Cloud + Vercel |
 | **Eval tests** | `npm run test:eval` — live agent (requires `HARNESS_OPENROUTER_API_KEY`) |
-| **Unit tests** | `npm test` — `node --test tests/**/*.test.ts` |
 | **Type check** | `npm run typecheck` — `tsc --noEmit` |
 | **Lint** | `npx gplint "features/*.feature"` |
 | **Coverage** | `npx c8` with logic, sandbox, and eval profiles |

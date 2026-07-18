@@ -22,10 +22,11 @@ import {
 import {
   lastRunEntries,
   readSpendLedger,
+  sweepLegEntries,
   SHARED_PROVISIONING,
   type SpendEntry,
 } from "./spend-ledger.ts";
-import { readTierWallClock } from "./wake.ts";
+import { readTierWallClock, recordRunWindow } from "./wake.ts";
 
 export interface WakeReaderFixture {
   dir: string;
@@ -54,6 +55,11 @@ export function writeWakeReaderFixture(dir: string): WakeReaderFixture {
   const completedRunId = "run-completed-fixture";
   const liveRunId = "run-live-fixture";
   const completedWorkers = 3;
+  // The ledger's epoch times sit against the record files' just-written
+  // mtimes, so the sweep-leg selection — which joins run-ends onto the leg
+  // window a completed record occupies — reads this fixture wake exactly as
+  // it reads the real one.
+  const nowMs = Date.now();
 
   const completedRecordPath = join(dir, "completed-sandbox.ndjson");
   const pressure: PressureRecord = {
@@ -103,14 +109,14 @@ export function writeWakeReaderFixture(dir: string): WakeReaderFixture {
     {
       run: completedRunId,
       tier: "sandbox",
-      at: 1_000_000,
+      at: nowMs - 42_500,
       scenario: "(run)",
       spend: "run-start",
     },
     {
       run: completedRunId,
       tier: "sandbox",
-      at: 1_000_500,
+      at: nowMs - 42_000,
       scenario: SHARED_PROVISIONING,
       spend: "shared-provisioning",
       class: "saleor-environment",
@@ -118,28 +124,28 @@ export function writeWakeReaderFixture(dir: string): WakeReaderFixture {
     {
       run: liveRunId,
       tier: "sandbox",
-      at: 1_010_000,
+      at: nowMs - 32_500,
       scenario: "(run)",
       spend: "run-start",
     },
     {
       run: completedRunId,
       tier: "sandbox",
-      at: 1_020_000,
+      at: nowMs - 22_500,
       scenario: "The full pipeline proof",
       spend: "vercel-deploy",
     },
     {
       run: completedRunId,
       tier: "sandbox",
-      at: 1_042_500,
+      at: nowMs,
       scenario: "(run)",
       spend: "run-end",
     },
     {
       run: liveRunId,
       tier: "sandbox",
-      at: 1_043_000,
+      at: nowMs + 500,
       scenario: "A sibling's pipeline proof",
       spend: "git-clone",
     },
@@ -194,9 +200,17 @@ export function enumerateWakeReaderSelections(
   const ledgerSelection = options.ledgerSelection ?? lastRunEntries;
   const selections: ReaderSelection[] = [];
 
-  // The spend-ledger join: the selection the licence and shared-once checks
-  // consume as "the sandbox tier's last run".
-  const selected = ledgerSelection(readSpendLedger(fixture.ledgerPath));
+  // The spend-ledger join: both selections the real checks consume — the
+  // last completed run (the shared-once and ledger-presence checks) and the
+  // sweep-leg union (the licence check's "every profile leg of the last
+  // sweep"). Each must consume the completed run's record only.
+  const ledger = readSpendLedger(fixture.ledgerPath);
+  const legWindow = recordRunWindow(fixture.completedRecordPath);
+  const sweep = sweepLegEntries(
+    ledger,
+    legWindow ? [{ tier: "sandbox", ...legWindow }] : [],
+  );
+  const selected = [...ledgerSelection(ledger), ...sweep.entries];
   const runs = new Set(selected.map((entry) => entry.run));
   selections.push({
     reader: "spend-ledger join",

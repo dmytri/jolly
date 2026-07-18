@@ -96,8 +96,11 @@ When(
 When(
   "its real `npx @saleor\\/configurator deploy` invocations are located",
   function (this: JollyWorld) {
+    // Feature 004 pins the spawned form as `npx @saleor/configurator@latest
+    // deploy` (official current CLI), so the locator matches that exact spawn
+    // element; a drift to any other form reddens this check loudly.
     this.notes.seamLocations = locateProductionSpawnSeams([
-      "@saleor/configurator",
+      "@saleor/configurator@latest",
       "deploy",
     ]);
   },

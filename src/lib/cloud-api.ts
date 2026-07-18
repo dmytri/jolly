@@ -114,14 +114,18 @@ export function platformAuthScheme(token: string): "Bearer" | "Token" {
 }
 
 /** The one seam that sends a Saleor Cloud platform API request, under the
- * resolved token and scheme. Every Cloud read and write goes through here.
+ * resolved token and scheme. Every Cloud read and write goes through here,
+ * behind the first-party pre-flight (feature 020 Rule "First-party hosts
+ * only"): a non-first-party URL is refused before anything is sent.
  * @planks("Then the envelope `data` should report the resolved organization slug")
+ * @planks("Then each should reach the network only through a seam that applies the first-party host predicate before sending")
  */
 async function cloudFetch(
   url: string,
   token: string,
   options: RequestInit = {},
 ): Promise<Response> {
+  assertFirstPartyUrl(url);
   const init = {
     ...options,
     headers: {
@@ -439,6 +443,7 @@ function taskStatusUrl(taskId: string): string {
  * decode it as a JWT, returning 401 "Error decoding signature".
  * @planks("Then Jolly should poll GET \/platform\/api\/service\/task-status\/\{task_id} until status is {string}")
  * @planks("Then the environment creation should return a task_id for async job polling")
+ * @planks("Then each should reach the network only through a seam that applies the first-party host predicate before sending")
  */
 export async function pollTaskStatus(
   taskId: string,
@@ -446,6 +451,7 @@ export async function pollTaskStatus(
 ): Promise<TaskStatus> {
   const deadline = Date.now() + timeoutMs;
   const url = taskStatusUrl(taskId);
+  assertFirstPartyUrl(url);
   for (;;) {
     const response = await fetch(url, {
       headers: { "Content-Type": "application/json" },
@@ -1352,8 +1358,13 @@ export type CheckoutProbeOutcome =
   | { kind: "no-checkout" };
 
 /** A single timed GraphQL request that fails fast (AbortController) rather than
- * hanging against an unroutable endpoint. Returns the parsed body or throws.
+ * hanging against an unroutable endpoint. Applies the first-party pre-flight
+ * (feature 020 Rule "First-party hosts only") before sending, so every live
+ * store probe refuses a non-first-party endpoint unsent. Returns the parsed
+ * body or throws.
  * @planks("Then a checkout-readiness check should be reported in the stripe group")
+ * @planks("Then each should reach the network only through a seam that applies the first-party host predicate before sending")
+ * @planks("Then no request should be sent to evil.example.com")
  */
 async function timedGraphql(
   graphqlUrl: string,
@@ -1361,6 +1372,7 @@ async function timedGraphql(
   query: string,
   variables?: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
+  assertFirstPartyUrl(graphqlUrl);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), CHECKOUT_PROBE_TIMEOUT_MS);
   try {
@@ -1460,7 +1472,27 @@ export async function probeCheckoutPaymentGateway(
 export type ChannelPurchasabilityOutcome =
   | { kind: "purchasable"; count: number }
   | { kind: "none-purchasable" }
-  | { kind: "unreachable" };
+  | { kind: "unreachable" }
+  | { kind: "refused"; host: string };
+
+/**
+ * The hostname of `url` when it is outside the first-party allowlist, or the
+ * raw `url` when it cannot be parsed; undefined when the host is first-party.
+ * Doctor's live store probes consult this pre-flight (feature 020 Rule
+ * "First-party hosts only") so a non-first-party endpoint is refused unsent
+ * and the refusal names the host.
+ * @planks("Then no request should be sent to evil.example.com")
+ * @planks("Then the refusal should name the non-first-party host evil.example.com")
+ */
+function refusedNonFirstPartyHost(url: string): string | undefined {
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return url;
+  }
+  return isFirstPartyHost(host) ? undefined : host;
+}
 
 /**
  * Probe whether a channel offers products available for purchase (feature 014 —
@@ -1470,14 +1502,20 @@ export type ChannelPurchasabilityOutcome =
  * checkout failure this surfaces so the agent can add the listings with the
  * configurator. Returns `unreachable` (never a fabricated pass) on any
  * network/GraphQL failure or when the query did not return a products list.
+ * Returns `refused` with the host, sending nothing, when the endpoint is not
+ * first-party (feature 020 Rule "First-party hosts only").
  * @planks("When `jolly doctor` checks the saleor group")
  * @planks("Then it should report a `us`-channel purchasability check with a concrete status from a real store query")
+ * @planks(`Then the `us-channel-purchasable` and `checkout-payment-gateway` checks should each report a non-pass status`)
+ * @planks("Then no request should be sent to evil.example.com")
  */
 export async function probeChannelPurchasability(
   graphqlUrl: string,
   token: string | undefined,
   channelSlug: string,
 ): Promise<ChannelPurchasabilityOutcome> {
+  const refusedHost = refusedNonFirstPartyHost(graphqlUrl);
+  if (refusedHost !== undefined) return { kind: "refused", host: refusedHost };
   try {
     const result = await timedGraphql(
       graphqlUrl,
@@ -1512,22 +1550,28 @@ export async function probeChannelPurchasability(
 
 export type EndpointProbeOutcome =
   | { kind: "reachable" }
-  | { kind: "unreachable" };
+  | { kind: "unreachable" }
+  | { kind: "refused"; host: string };
 
 /**
  * Probe whether `graphqlUrl` is reachable and responds as a GraphQL endpoint,
  * using a tiny read-only introspection query (`query { __typename }`). Returns
- * `reachable` when the endpoint answers as GraphQL, `unreachable` for any other
- * outcome (non-first-party host, unparseable URL, network error, timeout, or a
- * non-GraphQL response). Never throws and never mutates.
+ * `reachable` when the endpoint answers as GraphQL; `refused` with the host,
+ * sending nothing, when the endpoint is not first-party or the URL is
+ * unparseable (feature 020 Rule "First-party hosts only"); `unreachable` for
+ * any other outcome (network error, timeout, or a non-GraphQL response).
+ * Never throws and never mutates.
  * @planks("When `jolly doctor` checks Saleor")
  * @planks("Then it should validate GraphQL connectivity")
+ * @planks("Then no request should be sent to evil.example.com")
+ * @planks("Then the refusal should name the non-first-party host evil.example.com")
  */
 export async function probeEndpointConnectivity(
   graphqlUrl: string,
 ): Promise<EndpointProbeOutcome> {
+  const refusedHost = refusedNonFirstPartyHost(graphqlUrl);
+  if (refusedHost !== undefined) return { kind: "refused", host: refusedHost };
   try {
-    assertFirstPartyUrl(graphqlUrl);
     const body = await timedGraphql(graphqlUrl, undefined, `query { __typename }`);
     const data = body.data as Record<string, unknown> | undefined;
     if (data && typeof data.__typename === "string") {

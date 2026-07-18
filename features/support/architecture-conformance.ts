@@ -32,9 +32,15 @@ const VERIFICATION_SECTION = "BDD Verification";
 const TECHNOLOGIES_MARKER = "**Technologies:**";
 
 function filesWithSuffix(directory: string, suffix: string): string[] {
-  return readdirSync(join(REPO_ROOT, directory)).filter((name) =>
-    name.endsWith(suffix),
-  );
+  // An absent directory holds zero files: the check reports the count drift
+  // honestly instead of crashing on a legitimately retired surface.
+  let entries: string[];
+  try {
+    entries = readdirSync(join(REPO_ROOT, directory));
+  } catch {
+    return [];
+  }
+  return entries.filter((name) => name.endsWith(suffix));
 }
 
 /** The body of the first section whose heading contains `title`. */
@@ -95,10 +101,15 @@ function checkCounts(documentText: string, violations: ArchitectureViolation[]):
   const unitSection = section(documentText, "Unit Tests");
   const stated = unitSection ? statedCounts(unitSection, /(\d+)\s+files/g) : [];
   if (stated.length === 0) {
-    violations.push({
-      kind: "count",
-      message: `the document states no count for unit-test files; the tree has ${unitTests}`,
-    });
+    // A document claiming nothing about a surface the tree does not have is
+    // agreement, not drift; the missing-claim violation fires only while the
+    // tree actually holds unit-test files.
+    if (unitTests > 0) {
+      violations.push({
+        kind: "count",
+        message: `the document states no count for unit-test files; the tree has ${unitTests}`,
+      });
+    }
   } else if (stated[0] !== unitTests) {
     violations.push({
       kind: "count",

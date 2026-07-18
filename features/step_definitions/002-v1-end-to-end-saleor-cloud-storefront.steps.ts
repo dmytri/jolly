@@ -25,8 +25,12 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { loadEnvValues } from "../../src/lib/env-file.ts";
+import { loadEnvValues, writeEnvValues } from "../../src/lib/env-file.ts";
 import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
+// src/index.ts runs the CLI on import; the composition step imports its runtime
+// seams dynamically under JOLLY_NO_MAIN. The type is erased, so a type-only
+// import is import-safe.
+import type { StageRunner } from "../../src/index.ts";
 import { startColdStoreCloudApi, type ColdStoreHarness } from "../support/cold-store-cloud-api.ts";
 import { ensureRecipeOnSharedStore } from "../support/recipe-on-shared.ts";
 import { probeEndpointConnectivity } from "../../src/lib/cloud-api.ts";
@@ -2462,3 +2466,133 @@ Then(
   },
 );
 
+
+// ─── Scenario: Jolly start launches the storefront preparation concurrently
+//     with the store stage (@logic @composition) ─────────────────────────────
+//
+// The @composition lane asserts LAUNCH ORDER and AWAIT JOINS, never a service
+// effect (feature 026 Rule): the store/storefront/recipe/deploy behaviours are
+// proven for real at their own seams and by the licensed @pipeline chain.
+// @exceptional-double: internal composition/wiring — the stage seams are
+// replaced with recording spies so the orchestrator's launch order and joins
+// are observable in-process (composition ground); no independent external
+// verifier exists for the wiring itself.
+
+interface CompositionEvent {
+  stage: string;
+  launchedAt: number;
+  finishedAt: number;
+}
+
+const COMPOSED_STAGES = ["store", "storefront", "recipe", "stock", "deploy", "stripe"];
+
+When(
+  "the composition of the store, recipe, and storefront stages is observed",
+  { timeout: 120_000 },
+  async function (this: JollyWorld) {
+    const events = new Map<string, CompositionEvent>();
+    // Observed-signal wait: the store spy holds its completion until the
+    // storefront launch is OBSERVED (or a bounded budget elapses), so a
+    // concurrent launch lands inside the store stage's window and a serial
+    // orchestrator fails fast at the budget instead of deadlocking.
+    let storefrontLaunched!: () => void;
+    const storefrontLaunchSignal = new Promise<void>((resolve) => {
+      storefrontLaunched = resolve;
+    });
+    const sleep = (ms: number): Promise<void> =>
+      new Promise((resolve) => setTimeout(resolve, ms));
+
+    const spies: Record<string, StageRunner> = {};
+    for (const stage of COMPOSED_STAGES) {
+      spies[stage] = async () => {
+        const event: CompositionEvent = {
+          stage,
+          launchedAt: Date.now(),
+          finishedAt: 0,
+        };
+        events.set(stage, event);
+        if (stage === "store") {
+          await Promise.race([storefrontLaunchSignal, sleep(1_500)]);
+        } else if (stage === "storefront") {
+          storefrontLaunched();
+          await sleep(60);
+        } else if (stage === "recipe") {
+          await sleep(30);
+        }
+        event.finishedAt = Date.now();
+        return { status: "completed" as const };
+      };
+    }
+
+    // A fresh project dir with a Cloud token (so the auth stage completes and
+    // the run reaches the side-effecting stages) and no store endpoint (so the
+    // store stage is not skipped as already-satisfied) — the Given's framing.
+    // JOLLY_PROJECT_DIR points Jolly at it without a process-wide chdir;
+    // JOLLY_NO_MAIN keeps the dynamic import from executing the CLI against
+    // cucumber's argv. Both restored in finally.
+    const dir = this.newTempDir("composition");
+    writeEnvValues(dir, { JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN });
+    const previousDir = process.env["JOLLY_PROJECT_DIR"];
+    const previousNoMain = process.env["JOLLY_NO_MAIN"];
+    process.env["JOLLY_PROJECT_DIR"] = dir;
+    process.env["JOLLY_NO_MAIN"] = "1";
+    try {
+      const { runStartCore, parseArgs } = await import("../../src/index.ts");
+      const args = parseArgs(["start", "--yes", "--json"]);
+      await runStartCore(args, undefined, undefined, spies);
+    } finally {
+      if (previousDir === undefined) delete process.env["JOLLY_PROJECT_DIR"];
+      else process.env["JOLLY_PROJECT_DIR"] = previousDir;
+      if (previousNoMain === undefined) delete process.env["JOLLY_NO_MAIN"];
+      else process.env["JOLLY_NO_MAIN"] = previousNoMain;
+    }
+    this.notes.compositionEvents = events;
+  },
+);
+
+function compositionEvent(world: JollyWorld, stage: string): CompositionEvent {
+  const events = world.notes.compositionEvents as Map<string, CompositionEvent>;
+  assert.ok(events, "the composition must have been observed");
+  const event = events.get(stage);
+  assert.ok(
+    event,
+    `the orchestration must launch the "${stage}" stage seam; launched: ${JSON.stringify([...events.keys()])}`,
+  );
+  assert.ok(
+    event!.finishedAt > 0,
+    `the "${stage}" stage seam must have completed; got ${JSON.stringify(event)}`,
+  );
+  return event!;
+}
+
+Then(
+  "the storefront preparation should be launched before the store stage completes",
+  function (this: JollyWorld) {
+    const store = compositionEvent(this, "store");
+    const storefront = compositionEvent(this, "storefront");
+    assert.ok(
+      storefront.launchedAt <= store.finishedAt,
+      `the storefront preparation must be launched before the store stage completes (concurrent): ` +
+        `storefront.launchedAt=${storefront.launchedAt} must be <= store.finishedAt=${store.finishedAt}`,
+    );
+  },
+);
+
+Then(
+  "the deploy stage should be launched only after both the storefront preparation and the recipe stage complete",
+  function (this: JollyWorld) {
+    const storefront = compositionEvent(this, "storefront");
+    const recipe = compositionEvent(this, "recipe");
+    const deploy = compositionEvent(this, "deploy");
+    assert.ok(
+      deploy.launchedAt >= storefront.finishedAt,
+      `the deploy stage must be launched only after the storefront preparation completes: ` +
+        `deploy.launchedAt=${deploy.launchedAt} must be >= storefront.finishedAt=${storefront.finishedAt}`,
+    );
+    assert.ok(
+      deploy.launchedAt >= recipe.finishedAt,
+      `the deploy stage must be launched only after the recipe stage completes: ` +
+        `deploy.launchedAt=${deploy.launchedAt} must be >= recipe.finishedAt=${recipe.finishedAt}`,
+    );
+  },
+);

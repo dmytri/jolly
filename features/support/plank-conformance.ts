@@ -40,6 +40,7 @@ export interface InjectedSource {
 }
 
 const PLANK_TOKEN = "@planks";
+const PROVISIONAL_TOKEN = "@planks-provisional";
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist"]);
 const SOURCE_EXTENSIONS = new Set([".ts", ".js", ".mts", ".cts", ".mjs", ".cjs"]);
 const STEP_KEYWORDS = ["Given", "When", "Then"];
@@ -133,6 +134,18 @@ function stepTextOf(line: string): string | undefined {
 }
 
 /**
+ * The `@planks-provisional(...)` scenario reference on a line, quotes
+ * stripped. The provisional plank is a distinct annotation, never a second
+ * form of `@planks` (Planking agreement): it names a `@captain` skeleton's
+ * scenario in the repo-root-relative `<spec>.feature:<Scenario Name>` form,
+ * because the skeleton has no step definition yet, so no pattern exists.
+ */
+function provisionalRefOf(line: string): string | undefined {
+  const match = /@planks-provisional\(\s*(["'`])([\s\S]*?)\1\s*\)/.exec(line);
+  return match ? match[2] : undefined;
+}
+
+/**
  * Plank-form violations across the implementation directories: every `@planks`
  * token must sit in a docblock attached to a seam declaration and name a
  * Given/When/Then step. A token in a line comment, a token inside a function
@@ -166,6 +179,19 @@ export function findPlankFormViolations(
               `${file}:${line} plank sits on a ${parent ? declarationLabel(parent) : "detached docblock"}, ` +
               `not on a seam declaration — hoist it to the declaration whose behaviour the step requires`,
           });
+        }
+        if (docLine.includes(PROVISIONAL_TOKEN)) {
+          // A provisional plank names a scenario reference, not a step: the
+          // docblock-on-a-seam placement rules above still apply, and the
+          // reference must be quoted, but no step keyword is owed.
+          if (provisionalRefOf(docLine) === undefined) {
+            violations.push({
+              file,
+              line,
+              message: `${file}:${line} provisional plank carries no quoted scenario reference in \`@planks-provisional("...")\` form`,
+            });
+          }
+          return;
         }
         if (stepTextOf(docLine) === undefined) {
           violations.push({
@@ -278,4 +304,116 @@ export function findUnpatternedPlanks(planks: Plank[], patterns: Iterable<string
   return planks.filter(
     (plank) => !patternSet.has(plank.step) && !patternSet.has(withoutKeyword(plank.step)),
   );
+}
+
+export interface ProvisionalPlank {
+  file: string;
+  line: number;
+  /** The `<spec>.feature:<Scenario Name>` reference inside the annotation. */
+  reference: string;
+}
+
+/** Every `@planks-provisional(...)` annotation in the implementation dirs. */
+export function collectProvisionalPlanks(
+  dirs: string[],
+  injected: InjectedSource[] = [],
+): ProvisionalPlank[] {
+  const provisionals: ProvisionalPlank[] = [];
+  for (const [file, { text }] of implementationProject(dirs, injected)) {
+    text.split("\n").forEach((lineText, index) => {
+      const reference = provisionalRefOf(lineText);
+      if (reference !== undefined) {
+        provisionals.push({ file, line: index + 1, reference });
+      }
+    });
+  }
+  return provisionals;
+}
+
+/**
+ * The current scenario index: every `<spec>.feature:<Scenario Name>` reference
+ * in the specs directory, mapped to that scenario's effective tags (its own
+ * tag lines plus the feature's). Injected virtual feature sources serve the
+ * planted-red proof and never touch disk.
+ */
+export function parseScenarioIndex(
+  specsDir: string,
+  injectedFeatures: InjectedSource[] = [],
+): Map<string, Set<string>> {
+  const sources: InjectedSource[] = walkFiles(
+    join(REPO_ROOT, specsDir),
+    (name) => name.endsWith(".feature"),
+  ).map((file) => ({
+    file: file.slice(REPO_ROOT.length + 1),
+    text: readFileSync(file, "utf8"),
+  }));
+  sources.push(...injectedFeatures);
+
+  const index = new Map<string, Set<string>>();
+  for (const source of sources) {
+    let featureTags: string[] = [];
+    let pending: string[] = [];
+    for (const raw of source.text.split("\n")) {
+      const line = raw.trim();
+      if (line === "") continue;
+      if (line.startsWith("@")) {
+        pending.push(...line.split(/\s+/).filter((tag) => tag.startsWith("@")));
+        continue;
+      }
+      if (/^Feature:/.test(line)) {
+        featureTags = pending;
+        pending = [];
+        continue;
+      }
+      const scenario = /^Scenario(?: Outline)?:\s*(.+)$/.exec(line);
+      if (scenario) {
+        const name = scenario[1]!.trim();
+        index.set(
+          `${source.file}:${name}`,
+          new Set([...featureTags, ...pending]),
+        );
+        pending = [];
+        continue;
+      }
+      // Tags bind only to the keyword immediately after them.
+      pending = [];
+    }
+  }
+  return index;
+}
+
+/**
+ * Provisional planks that no longer conform. A provisional plank liquidates
+ * itself at promotion (Planking agreement): one naming a current `@captain`
+ * scenario conforms and waits; one naming a promoted scenario is red and owes
+ * its `@planks(...)` pattern; one naming no current scenario is stale.
+ */
+export function findProvisionalPlankViolations(
+  provisionals: ProvisionalPlank[],
+  scenarioIndex: Map<string, Set<string>>,
+): PlankViolation[] {
+  const violations: PlankViolation[] = [];
+  for (const provisional of provisionals) {
+    const tags = scenarioIndex.get(provisional.reference);
+    if (tags === undefined) {
+      violations.push({
+        file: provisional.file,
+        line: provisional.line,
+        message:
+          `${provisional.file}:${provisional.line} provisional plank names ` +
+          `"${provisional.reference}", which is no current scenario — the annotation is stale`,
+      });
+      continue;
+    }
+    if (!tags.has("@captain")) {
+      violations.push({
+        file: provisional.file,
+        line: provisional.line,
+        message:
+          `${provisional.file}:${provisional.line} provisional plank names the promoted scenario ` +
+          `"${provisional.reference}" — replace it with \`@planks("...")\` carrying the step-definition pattern`,
+      });
+    }
+  }
+  return violations;
 }

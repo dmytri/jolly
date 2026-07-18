@@ -147,6 +147,29 @@ Feature: Jolly CLI output contract
     And the `errors` remediation should tell the agent to re-run with `--json` and report the error code
     And stdout should carry the JSON envelope rather than a raw stack trace
 
+  @logic
+  Scenario: Doctor's live store probes refuse a non-first-party endpoint pre-flight
+    Given .env contains NEXT_PUBLIC_SALEOR_API_URL=https://evil.example.com/graphql/
+    And .env contains SALEOR_TOKEN=some-token
+    When the agent runs `jolly doctor --json`
+    Then no request should be sent to evil.example.com
+    And the `us-channel-purchasable` and `checkout-payment-gateway` checks should each report a non-pass status
+    And the refusal should name the non-first-party host evil.example.com
+
+  @logic @property
+  Scenario: Every network request site in Jolly's own code applies the first-party pre-flight guard
+    Given Jolly's own network-request-sending code
+    When the request call sites in "src/" are enumerated
+    Then each should reach the network only through a seam that applies the first-party host predicate before sending
+    And a request site that can send without consulting the predicate should redden the check
+
+  @sandbox @toolchain-element
+  Scenario: The deployed-storefront serving confirmation contacts only the URL captured from the Vercel CLI
+    Given a completed Vercel deploy whose CLI output named a deployed `*.vercel.app` URL
+    When `jolly deploy` confirms the deployment serves before reporting completed
+    Then the serving probe should send its GET to exactly the captured `*.vercel.app` URL
+    And no other host outside the first-party allowlist should be contacted
+
   Rule: Output envelope principles
     - Every command should emit one consistent top-level JSON envelope. The single exception
       is `completion` (feature 027), whose output is a shell-completion script consumed via

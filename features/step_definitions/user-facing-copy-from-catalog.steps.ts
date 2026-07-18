@@ -62,7 +62,12 @@ Then(
       endpoint: string | null;
       clarification?: string;
     };
-    const expected = this.notes.clarificationEntry as string;
+    // The catalog entry is the comparison's one source of truth: read it here
+    // when no earlier Given loaded it (the feature 012 rejected-URL outline has
+    // no catalog Given), and reuse the loaded copy when one did.
+    const expected =
+      (this.notes.clarificationEntry as string | undefined) ??
+      catalogMessage(CLARIFICATION_KEY);
     assert.equal(
       normalized.endpoint,
       null,

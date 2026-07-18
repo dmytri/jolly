@@ -81,6 +81,18 @@ Feature: Verification economy
       shared: the shared store and the one shared pipeline's artifacts. Shared
       provisioning is itself a recorded spend, licensed once per resource class
       per run.
+    - A scenario tagged @toolchain-element is licensed for the toolchain elements
+      that are its own specified assertion, driven against its own namespaced
+      resources: the storefront preparation whose clone and install are the
+      behaviour under test, the deploy whose Vercel run is the behaviour under
+      test. The element licence mirrors the @creates-env single-element clause
+      and never extends to the chain or to environment creation.
+    - A spend aimed at a declared unroutable stand-in by an @exceptional-double
+      scenario is the double's own failure path, not a real toolchain spend: the
+      shim records it, and the check classifies it to the double rather than the
+      licence set.
+    - The check judges every profile leg of the tier's last sweep, so the order
+      the legs ran in can never leave one leg's spends unjudged.
     - The spend is recorded at run time by the interception shims already on the
       PATH — the feature 025 idiom: log argv, then exec the real binary — and
       each ledger entry is attributed to the running scenario. The ledger lives
@@ -88,11 +100,13 @@ Feature: Verification economy
 
   @logic @invariant
   Scenario: Every recorded toolchain spend belongs to the shared provisioning or a licensed scenario
-    Given the spend ledger the sandbox tier's last run recorded into the wake
+    Given the spend ledger the sandbox tier's last sweep recorded into the wake, every profile leg of it
     When each ledger entry is joined to the tags of the scenario it is attributed to
     Then every spend of the full toolchain chain should belong to the run's shared provisioning or to the scenario tagged @pipeline
     And every environment-creation spend should belong to the run's shared provisioning or to a scenario tagged @creates-env
     And a single toolchain element driven by a scenario tagged @creates-env against its own environment should be licensed, never the chain
+    And a toolchain element driven by a scenario tagged @toolchain-element against its own namespaced resources, where that element is the scenario's own assertion, should be licensed, never the chain
+    And a spend aimed at a declared unroutable stand-in by a scenario carrying @exceptional-double should be classified to that scenario's double, never as a real toolchain spend
     And a spend attributed to an unlicensed scenario should redden the check, naming the scenario and the spend it made
 
   @logic @invariant

@@ -98,7 +98,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And `jolly doctor storefront --full-validation` should run Paper's generate, typecheck, and build steps and report each as a check
     And it should leave Paper's source and theme files unmodified after the clone and install
 
-  @sandbox
+  @sandbox @toolchain-element
   Scenario: Jolly start lets Paper's native dependencies run their build scripts so the Vercel build succeeds
     Given Jolly has cloned and installed the Paper storefront
     When `jolly start` prepares the storefront for the Vercel deploy
@@ -119,14 +119,12 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And the envelope `data` should report the deployed storefront URL captured from the Vercel CLI's deploy output, not a fabricated or guessed value
     And `nextSteps` should list the remaining human gates
 
-  @sandbox
-  Scenario: Jolly start prepares the storefront concurrently with the Saleor Cloud stages
+  @logic @composition
+  Scenario: Jolly start launches the storefront preparation concurrently with the store stage
     Given the agent runs `jolly start --yes` on a fresh project that needs a new store
-    When the run executes the store, recipe, and storefront stages
-    Then the run's reported stage timing should show the storefront preparation starting before the store stage finishes
-    And the run's reported stage timing should show the deploy stage starting only after the storefront preparation finishes
-    And each stage should report its own honest status, never a fabricated completion
-    And the store, recipe, and deploy stages should each emit their feature 021 `riskContext`
+    When the composition of the store, recipe, and storefront stages is observed
+    Then the storefront preparation should be launched before the store stage completes
+    And the deploy stage should be launched only after both the storefront preparation and the recipe stage complete
 
   @sandbox
   Scenario: jolly deploy spawns the Vercel sign-in itself when there is no Vercel session

@@ -152,3 +152,10 @@ Feature: Npx-first Jolly CLI command surface
     - The published package's `engines` field must declare the Node.js requirement.
     - On a Node.js older than the minimum, the launcher should fail with a clear
       message naming the minimum Node version, not a raw syntax or module error.
+
+  @logic @contract
+  Scenario: The published manifest ships the launcher and declares the Node.js floor
+    Given the package manifest "package.json"
+    When its published fields are read
+    Then the `bin` entry should ship the `jolly` launcher
+    And `engines.node` should declare the documented Node.js floor ">=20.12.0"

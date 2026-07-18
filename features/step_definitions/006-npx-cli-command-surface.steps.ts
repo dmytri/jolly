@@ -1111,3 +1111,51 @@ Then(
     );
   },
 );
+
+// --- Scenario: the published manifest ships the launcher and the Node floor --
+// @logic @contract: attests the shipped manifest's mechanical shape — the `bin`
+// entry that makes `npx @dk/jolly` resolve the `jolly` launcher, and the
+// `engines.node` floor the documentation promises.
+
+Given("the package manifest {string}", function (this: JollyWorld, manifestFile: string) {
+  const path = join(REPO_ROOT, manifestFile);
+  assert.ok(existsSync(path), `${manifestFile} must exist at the project root`);
+  this.notes.manifestText = readFileSync(path, "utf8");
+});
+
+When("its published fields are read", function (this: JollyWorld) {
+  this.notes.manifest = JSON.parse(String(this.notes.manifestText));
+});
+
+Then("the `bin` entry should ship the `jolly` launcher", function (this: JollyWorld) {
+  const manifest = this.notes.manifest as {
+    bin?: Record<string, string>;
+    files?: string[];
+  };
+  const launcher = manifest.bin?.["jolly"];
+  assert.ok(
+    launcher,
+    `the manifest must map the \`jolly\` bin name to the launcher; got bin=${JSON.stringify(manifest.bin)}`,
+  );
+  assert.ok(
+    existsSync(join(REPO_ROOT, launcher!)),
+    `the \`jolly\` bin entry points at "${launcher}", which does not exist`,
+  );
+  const files = manifest.files ?? [];
+  assert.ok(
+    files.some((entry) => launcher!.startsWith(entry.replace(/\/$/, "") + "/") || entry === launcher),
+    `the published files allowlist must ship the launcher "${launcher}"; got files=${JSON.stringify(files)}`,
+  );
+});
+
+Then(
+  "`engines.node` should declare the documented Node.js floor {string}",
+  function (this: JollyWorld, floor: string) {
+    const manifest = this.notes.manifest as { engines?: Record<string, string> };
+    assert.equal(
+      manifest.engines?.["node"],
+      floor,
+      `engines.node must declare the documented floor ${floor}`,
+    );
+  },
+);

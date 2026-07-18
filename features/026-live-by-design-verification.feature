@@ -61,10 +61,26 @@ Feature: Live-by-design verification conformance
     Then it should perform no reclaim call and no console output as a result of merely being imported
     And a cucumber invocation's reclamation should happen exactly once, from the `BeforeAll` hook alone
 
+  @logic @invariant
+  Scenario: Every composition-ground spy serves only scenarios tagged @composition
+    Given Jolly's step definitions and test support code
+    When the test doubles justified on the composition ground are enumerated
+    Then each should serve only scenarios tagged "@composition"
+    And a composition-ground spy serving a scenario without the tag should redden the check, naming the spy and the scenario
+
+  @logic @property
+  Scenario: Production reads only product-namespaced configuration, and harness knobs stay in the harness
+    Given Jolly's production source
+    When the environment variables production code reads are enumerated
+    Then each should be a `JOLLY_*` product setting, a target project's own expected variable, or a harness affordance readable only when the harness guard is set
+    And a harness-only knob should carry the `HARNESS_` prefix, never `JOLLY_`
+    And a mis-namespaced knob or an unguarded harness read should redden the check, naming the variable and the site
+
   Rule: Live-by-design conformance
     - Binding test methodology lives in AGENTS.md ("Real services always — never mock or fake"); this feature makes its one testable invariant executable, so a suite that is green while still carrying a forbidden double fails here instead of passing silently.
     - A forbidden double is any stand-in for the normal path: a fake CLI replacing a real one, a dummy or forced-safe credential, or an unroutable endpoint replacing a real service.
     - The only admissible double is one tagged @exceptional-double: an exceptional condition the real test env cannot produce on demand — an organization already at its environment limit (`ENVIRONMENT_LIMIT_REACHED`), a deliberately unreachable service for a "stored, not verified" path, a device authorization grant approved by the human (the click at the verification URL cannot be produced on demand), faked by a local auth host the test points Jolly at through the `JOLLY_SALEOR_AUTH_URL` override, a store endpoint inside its cold-start window (the fresh-provision wait is proven for real at the shared provisioning seam's first build and self-heal; re-provisioning per run to reproduce the window is the re-spend the licensed-spend rule forbids), or a resource age beyond the full-regression budget per feature 030's staleness gate (elapsed wall clock cannot be produced on demand; the staged leftover is real and its reclamation deletes it for real, only its age observation is injected) — justified inline at its site. A failure reachable from real bad input (empty or garbage token, malformed or non-first-party URL, a genuinely absent store) is produced for real, never doubled.
+    - The @composition lane makes the composition-ground double legible: a scenario tagged @composition asserts launch order, await joins, or seam wiring — never a service effect — and every spy justified on the composition ground serves only @composition scenarios. The seams a composition scenario wires are proven for real at their own seams and by the licensed @pipeline chain, so the lane re-proves none of them.
     - A golden capture is the one further admissible stand-in, on the layered ground: a canned response recorded mechanically from a real run of the same command by a licensed @pipeline sandbox scenario, standing in for a service effect the subject under test only calls into, where that effect is covered for real in the @sandbox tier and the capture is re-verified against the live services at harbour (the eval's captured services, feature 025). A hand-authored canned response remains the forbidden fake; only a recorded capture stands, and each capture site names its source run inline.
     - This is a testable conformance invariant about Jolly's verification layer, not a product behavior. It is an admissible scenario because it is falsifiable (it is currently false), not aspiration: the discriminator for a scenario is testability, not whether its subject is the product or the harness.
     - A test-created environment is recognised by its Cloud NAME or its DOMAIN LABEL, and reclamation matches on either. A run that falls through to Jolly's product-default store name still carries the run's namespace in its domain label, so an environment matched on name alone is invisible to reclamation and squats an org slot until a human removes it.

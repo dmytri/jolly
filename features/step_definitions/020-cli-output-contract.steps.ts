@@ -11,8 +11,19 @@
 // path can reach a real account.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  enumerateRequestSites,
+  findUnguardedRequestSites,
+  type RequestSite,
+} from "../support/net-request-conformance.ts";
+import {
+  ensureSharedDeployment,
+  linkStorefrontToSharedProject,
+} from "../support/deployed-storefront.ts";
+import { materializePreparedStorefront } from "../support/storefront-fixture.ts";
+import { writeEnvValues } from "../../src/lib/env-file.ts";
 import {
   CHECK_STATUSES,
   ENVELOPE_STATUSES,
@@ -1219,3 +1230,258 @@ Then("nothing should be written to .env", function (this: JollyWorld) {
     ".env must carry no Jolly-managed credential after a refused request",
   );
 });
+
+// --- Scenario: Doctor's live store probes refuse a non-first-party endpoint --
+// A configured NEXT_PUBLIC_SALEOR_API_URL whose host is outside the first-party
+// allowlist must be refused PRE-FLIGHT by doctor's live store probes: the
+// probes report a refusal naming the host, and no request is attempted. The
+// non-first-party host is real bad input, produced for real in the project
+// `.env`; the run touches no account because nothing is sent.
+
+Given(
+  ".env contains NEXT_PUBLIC_SALEOR_API_URL=https:\\/\\/evil.example.com\\/graphql\\/",
+  function (this: JollyWorld) {
+    writeFileSync(
+      join(this.projectDir, ".env"),
+      "NEXT_PUBLIC_SALEOR_API_URL=https://evil.example.com/graphql/\n",
+      { flag: "a" },
+    );
+  },
+);
+
+Given(".env contains SALEOR_TOKEN=some-token", function (this: JollyWorld) {
+  writeFileSync(join(this.projectDir, ".env"), "SALEOR_TOKEN=some-token\n", {
+    flag: "a",
+  });
+});
+
+Then("no request should be sent to evil.example.com", function (this: JollyWorld) {
+  // A refusal that happens PRE-FLIGHT leaves no connection-attempt artifact: a
+  // request actually sent to the unresolvable host would surface a DNS or
+  // connection error (getaddrinfo/ENOTFOUND/ECONNREFUSED/ETIMEDOUT/fetch
+  // failed) in the failing checks. Assert none appears anywhere in the run.
+  const blob =
+    this.lastRun!.stdout +
+    "\n" +
+    this.lastRun!.stderr +
+    "\n" +
+    JSON.stringify(this.envelope);
+  assert.ok(
+    !/getaddrinfo|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|fetch failed/i.test(blob),
+    `a pre-flight refusal must leave no connection-attempt artifact; the run carries one:\n${blob.slice(0, 4000)}`,
+  );
+});
+
+Then(
+  "the `us-channel-purchasable` and `checkout-payment-gateway` checks should each report a non-pass status",
+  function (this: JollyWorld) {
+    for (const id of ["us-channel-purchasable", "checkout-payment-gateway"]) {
+      const check = this.findCheck(id);
+      assert.ok(check, `doctor must report a ${id} check; got ${JSON.stringify(this.envelope.checks.map((c) => c.id))}`);
+      assert.notEqual(
+        check!.status,
+        "pass",
+        `${id} must not report "pass" against a refused non-first-party endpoint: ${JSON.stringify(check)}`,
+      );
+    }
+  },
+);
+
+Then(
+  "the refusal should name the non-first-party host evil.example.com",
+  function (this: JollyWorld) {
+    const text = JSON.stringify(this.envelope.checks) + JSON.stringify(this.envelope.errors);
+    assert.ok(
+      text.includes("evil.example.com"),
+      `the refusal must name the non-first-party host evil.example.com; got:\n${text}`,
+    );
+  },
+);
+
+// --- Scenario: every request site applies the first-party pre-flight guard --
+// @logic @property. The structural companion of the behavioural refusals
+// above: every site in src/ that can reach the network sits in a seam that
+// consults the first-party host predicate before sending. The checker
+// (support/net-request-conformance.ts) enumerates `fetch` calls and imports of
+// lower-level network clients; the redden step proves the check by injecting a
+// virtual violating source, never touching disk.
+
+When(
+  "the request call sites in {string} are enumerated",
+  function (this: JollyWorld, dir: string) {
+    this.notes.requestSitesDir = dir;
+    this.notes.requestSites = enumerateRequestSites(dir);
+    assert.ok(
+      (this.notes.requestSites as RequestSite[]).length > 0,
+      `no network request site found under ${dir} — the enumeration is not reading Jolly's request code`,
+    );
+  },
+);
+
+Then(
+  "each should reach the network only through a seam that applies the first-party host predicate before sending",
+  function (this: JollyWorld) {
+    const violations = findUnguardedRequestSites(String(this.notes.requestSitesDir));
+    assert.equal(
+      violations.length,
+      0,
+      `request sites that can send without the first-party pre-flight:\n${violations
+        .map((violation) => `  - ${violation.message}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "a request site that can send without consulting the predicate should redden the check",
+  function (this: JollyWorld) {
+    const planted: InjectedSource = {
+      file: "src/.planted-unguarded-request.ts",
+      text: [
+        "export async function plantedUnguardedSend(): Promise<number> {",
+        '  const response = await fetch("https://evil.example.com/graphql/");',
+        "  return response.status;",
+        "}",
+      ].join("\n"),
+    };
+    const violations = findUnguardedRequestSites(
+      String(this.notes.requestSitesDir),
+      [planted],
+    );
+    assert.ok(
+      violations.some((violation) => violation.file === planted.file),
+      "a planted fetch site with no predicate consultation was not reported",
+    );
+  },
+);
+
+// --- @sandbox: the serving confirmation contacts only the captured URL ------
+// The deploy stage's serving probe is Jolly's OWN request code, so feature
+// 020's first-party Rule governs it: the probe GETs exactly the `*.vercel.app`
+// URL captured from the Vercel CLI's output, and nothing outside the allowlist.
+// Driven for real against the run's ONE shared live deployment (Reuse clause):
+// the project links the shared Vercel project, so `jolly deploy` takes its
+// real reuse path — capture the READY production URL from `vercel list`,
+// probe it, report `deployed-storefront-serving` — with no fresh deploy spent.
+
+Given(
+  "a completed Vercel deploy whose CLI output named a deployed `*.vercel.app` URL",
+  { timeout: 900_000 },
+  async function (this: JollyWorld) {
+    const endpoint = process.env["NEXT_PUBLIC_SALEOR_API_URL"];
+    const token = process.env["SALEOR_TOKEN"];
+    assert.ok(
+      endpoint && token,
+      "the @sandbox Before hook must have provisioned the shared store (NEXT_PUBLIC_SALEOR_API_URL + SALEOR_TOKEN)",
+    );
+    writeEnvValues(this.projectDir, {
+      NEXT_PUBLIC_SALEOR_API_URL: endpoint!,
+      SALEOR_URL: endpoint!,
+      SALEOR_TOKEN: token!,
+      NEXT_PUBLIC_DEFAULT_CHANNEL: "us",
+    });
+    await materializePreparedStorefront(join(this.projectDir, "storefront"));
+    const deployment = await ensureSharedDeployment();
+    linkStorefrontToSharedProject(join(this.projectDir, "storefront"), deployment.project);
+    this.notes.servingDeployment = deployment;
+  },
+);
+
+When(
+  "`jolly deploy` confirms the deployment serves before reporting completed",
+  { timeout: 600_000 },
+  function (this: JollyWorld) {
+    this.runCli(["deploy", "--yes", "--json"], { timeoutMs: 540_000 });
+  },
+);
+
+Then(
+  "the serving probe should send its GET to exactly the captured `*.vercel.app` URL",
+  { timeout: 120_000 },
+  async function (this: JollyWorld) {
+    const check = this.findCheck("deployed-storefront-serving");
+    assert.ok(
+      check,
+      `the deploy must report its serving confirmation (deployed-storefront-serving); got checks ${JSON.stringify(
+        this.envelope.checks.map((c) => c.id),
+      )}`,
+    );
+    assert.equal(
+      check!.status,
+      "pass",
+      `the serving confirmation must have verified the live deployment: ${JSON.stringify(check)}`,
+    );
+    // The probe's destination is the URL the completed stage captured from the
+    // Vercel CLI and reports in its own reply. The stage outcome carries it in
+    // the reply's stage data; read it from wherever the envelope shape put it.
+    const captured =
+      String((this.envelope.data as Record<string, unknown>)["deploymentUrl"] ?? "") ||
+      (JSON.stringify(this.envelope).match(
+        /https:\/\/[a-z0-9.-]+\.vercel\.app[^"\\\s]*/i,
+      )?.[0] ??
+        "");
+    assert.match(
+      captured,
+      /^https:\/\/[a-z0-9.-]+\.vercel\.app/i,
+      `the reply must carry the captured *.vercel.app deployment URL; got "${captured}" in ${JSON.stringify(this.envelope)}`,
+    );
+    assert.ok(
+      String(check!.description ?? "").includes(captured),
+      `the serving confirmation must name exactly the captured URL it probed; check=${JSON.stringify(
+        check,
+      )} captured=${captured}`,
+    );
+    // The claim is real: the named URL is a live deployment answering a GET
+    // from this test process too.
+    const response = await fetch(captured, { method: "GET", redirect: "follow" });
+    assert.ok(
+      response.status < 400,
+      `the captured URL the probe verified must really serve; GET ${captured} answered ${response.status}`,
+    );
+  },
+);
+
+Then(
+  "no other host outside the first-party allowlist should be contacted",
+  function (this: JollyWorld) {
+    // Structural discharge over the tree that just ran: every network request
+    // site in Jolly's own code consults the first-party predicate (or the
+    // captured-URL gate at the serving-probe seams) before sending, so no send
+    // to a host outside the allowlist can exist in the run.
+    const violations = findUnguardedRequestSites("src/");
+    assert.equal(
+      violations.length,
+      0,
+      `request sites that could contact a host outside the allowlist:\n${violations
+        .map((violation) => `  - ${violation.message}`)
+        .join("\n")}`,
+    );
+    // And the behavioural reply names no non-first-party destination beyond
+    // the captured *.vercel.app deployment surface.
+    const captured =
+      String((this.envelope.data as Record<string, unknown>)["deploymentUrl"] ?? "") ||
+      (JSON.stringify(this.envelope).match(
+        /https:\/\/[a-z0-9.-]+\.vercel\.app[^"\\\s]*/i,
+      )?.[0] ??
+        "");
+    const capturedHost = captured ? new URL(captured).hostname : "";
+    for (const match of JSON.stringify(this.envelope).matchAll(
+      /https?:\/\/([a-z0-9.-]+)/gi,
+    )) {
+      const host = match[1]!;
+      const allowed =
+        host === capturedHost ||
+        host.endsWith(".vercel.app") ||
+        host === "vercel.com" ||
+        host === "saleor.cloud" ||
+        host.endsWith(".saleor.cloud") ||
+        host === "cloud.saleor.io" ||
+        host === "auth.saleor.io" ||
+        host === "github.com";
+      assert.ok(
+        allowed,
+        `the deploy reply names the host "${host}", outside the first-party allowlist and the captured deployment surface`,
+      );
+    }
+  },
+);

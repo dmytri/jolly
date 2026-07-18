@@ -36,6 +36,15 @@ const SERVER = join(
   "fake-auth-host-server.cjs",
 );
 
+export interface FakeAuthHostOptions {
+  /**
+   * Answer the first token poll with this OAuth error (e.g. "slow_down") and
+   * approve the next, so Jolly's real backoff path runs. The server records
+   * poll arrival times, served at GET /polls on the host origin.
+   */
+  firstPollError?: string;
+}
+
 /**
  * Start the fake Saleor auth host as a separate process and set
  * JOLLY_SALEOR_AUTH_URL to its realm base, so the spawned CLI (which inherits
@@ -43,13 +52,19 @@ const SERVER = join(
  * teardown to stop the process and restore the previous env value. Returns the
  * realm-base URL.
  */
-export async function startFakeAuthHost(world: JollyWorld): Promise<string> {
+export async function startFakeAuthHost(
+  world: JollyWorld,
+  options: FakeAuthHostOptions = {},
+): Promise<string> {
   const child = spawn(process.execPath, [SERVER], {
     env: {
       ...process.env,
       FAKE_AUTH_MARKER,
       FAKE_AUTH_USER_CODE,
       FAKE_AUTH_VERIFICATION_URI,
+      ...(options.firstPollError
+        ? { FAKE_AUTH_FIRST_POLL: options.firstPollError }
+        : {}),
     },
     stdio: ["ignore", "pipe", "inherit"],
   });

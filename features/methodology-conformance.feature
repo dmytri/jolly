@@ -48,6 +48,7 @@ Feature: Methodology conformance
     When each is cross-referenced by exact string match against the step-definition patterns reported by "step-usage"
     Then every plank's step should match one current step-definition pattern
     And a plank matching no current step-definition pattern should redden the check
+    And a `@planks-provisional(...)` annotation naming a current `@captain` scenario should conform, one naming a promoted or absent scenario should redden the check
 
   @logic @invariant
   Scenario Outline: The command custody hook denies an internal-role search that reaches the Captain-only notes
@@ -84,3 +85,26 @@ Feature: Methodology conformance
     And every module it lists under "src/lib/" should exist, and every module in "src/lib/" should be listed
     And every verification technology it names should be referenced in the tree
     And a drifted count, a missing or unlisted module, or a named technology with no reference should redden the check
+
+  @logic @invariant
+  Scenario: The dependency record and the package manifest agree
+    Given the dependency entries recorded in "RIGGING.md" and the dependency lists in "package.json"
+    When the dependency-record check joins them
+    Then every dependency recorded in "RIGGING.md" should be installed in "package.json"
+    And every "package.json" dependency should be referenced by the tree
+    And a recorded-but-uninstalled or installed-but-unreferenced dependency should redden the check
+
+  @logic @invariant
+  Scenario: Every verification surface in the tree is run by a configured tier command
+    Given the tier commands configured in "RIGGING.md" and the test surfaces in the tree
+    When the verification surfaces are enumerated
+    Then every test surface should be run by a configured tier command
+    And a test surface no configured tier command reaches should redden the check
+
+  Rule: A surface outside the tiers is retired, never accumulated
+
+    - A helper broken in any way that matters breaks the scenarios that consume it,
+      so a separate unit surface adds latency without adding detection. A surface no
+      configured tier command reaches is retired, its load-bearing assertions
+      absorbed into scenarios or scantlings. Wiring a new tier command for such a
+      surface is a fitting-out decision, never the default.

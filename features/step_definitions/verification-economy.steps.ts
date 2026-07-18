@@ -19,6 +19,7 @@ import {
   readTierWallClock,
   readWakeRecord,
   runTierCommand,
+  sandboxSweepLegWindows,
   tierNameFromRecordPath,
   withoutRecordWrite,
   type BudgetJudgment,
@@ -37,11 +38,13 @@ import {
   type TierPressure,
 } from "../support/pressure.ts";
 import {
+  doubleClassifiedSpends,
   duplicateSharedClasses,
   lastRunEntries,
   ledgerEntriesWithin,
   readSpendLedger,
   scenarioTagsFromSpecs,
+  sweepLegEntries,
   unlicensedSpends,
   SHARED_PROVISIONING,
   SPEND_LEDGER_PATH,
@@ -565,6 +568,45 @@ Then(
 // ─── Expensive spend is licensed, recorded, and joined ─────────────────────
 
 Given(
+  "the spend ledger the sandbox tier's last sweep recorded into the wake, every profile leg of it",
+  function (this: JollyWorld) {
+    // Every profile leg of the last sweep: each sandbox-family record path's
+    // latest completed run, selected run-scoped by its run-end, so the order
+    // the legs ran in can never leave one leg's spends unjudged.
+    const legs = sandboxSweepLegWindows(readTierCommands("RIGGING.md"));
+    assert.ok(
+      legs.length > 0,
+      "the wake carries no completed sandbox tier record — no profile leg of " +
+        "the sandbox tier has run through its configured command; run the " +
+        "sandbox tier (broad-sandbox and broad-sandbox-serial in RIGGING.md)",
+    );
+    const selection = sweepLegEntries(readSpendLedger(), legs);
+    const unresolved = selection.legs.filter((leg) => leg.run === undefined);
+    assert.equal(
+      unresolved.length,
+      0,
+      `profile legs of the sandbox tier's last sweep with no completed run in ` +
+        `the spend ledger at ${SPEND_LEDGER_PATH}: ` +
+        `${unresolved.map((leg) => leg.tier).join(", ")} — the leg ran but its ` +
+        `recorder left no run-end, so it is broken or disarmed; rerun the ` +
+        `leg's tier command`,
+    );
+    assert.ok(
+      selection.entries.length > 0,
+      `the wake carries no spend ledger entry for the sandbox tier's last ` +
+        `sweep at ${SPEND_LEDGER_PATH}`,
+    );
+    this.notes.ledgerEntries = selection.entries;
+    this.attach(
+      `sweep legs judged: ${selection.legs
+        .map((leg) => `${leg.tier}=${leg.run}`)
+        .join(", ")}; entries: ${selection.entries.length}`,
+      "text/plain",
+    );
+  },
+);
+
+Given(
   "the spend ledger the sandbox tier's last run recorded into the wake",
   function (this: JollyWorld) {
     const entries = lastRunEntries(readSpendLedger());
@@ -674,6 +716,157 @@ Then(
       chainViolations.length > 0 &&
         chainViolations.every((violation) => /CHAIN/.test(violation.message)),
       "a @creates-env scenario spending the toolchain CHAIN must redden, naming the chain breach",
+    );
+  },
+);
+
+Then(
+  "a toolchain element driven by a scenario tagged @toolchain-element against its own namespaced resources, where that element is the scenario's own assertion, should be licensed, never the chain",
+  function (this: JollyWorld) {
+    // Real-ledger side: every toolchain spend attributed to a
+    // @toolchain-element scenario in this sweep's ledger was judged by the
+    // same checker the chain Then consumed; the scenario's own element is
+    // licensed, so such an entry stands in the violation list only as a chain
+    // breach.
+    const entries = this.notes.ledgerEntries as SpendEntry[];
+    const tags = this.notes.scenarioTags as Map<string, Set<string>>;
+    const violations = this.notes.spendViolations as SpendViolation[];
+    const elementViolations = violations.filter(
+      (violation) => tags.get(violation.scenario)?.has("@toolchain-element") === true,
+    );
+    for (const violation of elementViolations) {
+      assert.match(
+        violation.message,
+        /CHAIN/,
+        `a @toolchain-element scenario's toolchain violation must be a chain ` +
+          `breach, never a licensed single element: ${violation.message}`,
+      );
+    }
+    this.attach(
+      `@toolchain-element toolchain entries in this sweep's ledger: ${entries.filter(
+        (entry) =>
+          tags.get(entry.scenario)?.has("@toolchain-element") === true &&
+          (TOOLCHAIN_SPENDS as readonly string[]).includes(entry.spend),
+      ).length}; chain breaches: ${elementViolations.length}`,
+      "text/plain",
+    );
+
+    // Planted red: the same checker must license one element — the storefront
+    // preparation, whose clone AND install are one element — and redden the
+    // chain, so the licence never widens to the chain silently.
+    const elementTags = new Map<string, Set<string>>([
+      ["An element scenario", new Set(["@sandbox", "@toolchain-element"])],
+    ]);
+    const preparation: SpendEntry[] = [
+      {
+        run: "planted",
+        tier: "sandbox",
+        at: Date.now(),
+        scenario: "An element scenario",
+        spend: "git-clone",
+      },
+      {
+        run: "planted",
+        tier: "sandbox",
+        at: Date.now(),
+        scenario: "An element scenario",
+        spend: "pnpm-install",
+      },
+    ];
+    assert.equal(
+      unlicensedSpends(preparation, elementTags).length,
+      0,
+      "the storefront preparation driven by a @toolchain-element scenario must " +
+        "be licensed as the scenario's one element",
+    );
+    const chain: SpendEntry[] = [
+      ...preparation,
+      {
+        run: "planted",
+        tier: "sandbox",
+        at: Date.now(),
+        scenario: "An element scenario",
+        spend: "vercel-deploy",
+      },
+    ];
+    const chainViolations = unlicensedSpends(chain, elementTags);
+    assert.ok(
+      chainViolations.length > 0 &&
+        chainViolations.every((violation) => /CHAIN/.test(violation.message)),
+      "a @toolchain-element scenario spending the toolchain CHAIN must redden, naming the chain breach",
+    );
+  },
+);
+
+Then(
+  "a spend aimed at a declared unroutable stand-in by a scenario carrying @exceptional-double should be classified to that scenario's double, never as a real toolchain spend",
+  function (this: JollyWorld) {
+    // Real-ledger side: every such spend in this sweep's ledger is classified
+    // to its scenario's double by the same checker the licence Thens consumed,
+    // so none of them stands as a real toolchain violation.
+    const entries = this.notes.ledgerEntries as SpendEntry[];
+    const tags = this.notes.scenarioTags as Map<string, Set<string>>;
+    const violations = this.notes.spendViolations as SpendViolation[];
+    const classified = doubleClassifiedSpends(entries, tags);
+    for (const double of classified) {
+      assert.ok(
+        !violations.some(
+          (violation) =>
+            violation.scenario === double.scenario &&
+            violation.spend === double.spend,
+        ),
+        `a spend classified to "${double.scenario}"'s double still stands as ` +
+          `a real toolchain violation: ${double.spend} aimed at ${double.target}`,
+      );
+    }
+    this.attach(
+      `sweep spends classified to doubles: ${classified.length}`,
+      "text/plain",
+    );
+
+    // Planted red: the same spend is the double's own failure path under the
+    // @exceptional-double tag, and a real unlicensed toolchain spend without
+    // it — so the classification can never silently swallow a real spend.
+    const planted: SpendEntry[] = [
+      {
+        run: "planted",
+        tier: "sandbox",
+        at: Date.now(),
+        scenario: "A double scenario",
+        spend: "configurator-deploy",
+        argv: [
+          "--yes",
+          "@saleor/configurator@latest",
+          "deploy",
+          "--url",
+          "https://127.0.0.1:1/graphql/",
+        ],
+      },
+    ];
+    const doubleTags = new Map<string, Set<string>>([
+      ["A double scenario", new Set(["@sandbox", "@exceptional-double"])],
+    ]);
+    assert.equal(
+      unlicensedSpends(planted, doubleTags).length,
+      0,
+      "a spend aimed at the declared unroutable stand-in by an " +
+        "@exceptional-double scenario must be classified to the double",
+    );
+    const plantedClassified = doubleClassifiedSpends(planted, doubleTags);
+    assert.ok(
+      plantedClassified.length === 1 &&
+        plantedClassified[0]!.target.includes("127.0.0.1:1"),
+      "the classification must name the double's declared unroutable stand-in",
+    );
+    const untagged = unlicensedSpends(
+      planted,
+      new Map<string, Set<string>>([["A double scenario", new Set(["@sandbox"])]]),
+    );
+    assert.equal(
+      untagged.length,
+      1,
+      "the same spend without the @exceptional-double tag must stay a real " +
+        "toolchain spend and redden",
     );
   },
 );

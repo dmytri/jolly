@@ -20,7 +20,7 @@ Feature: Command idempotency and resumability
       | command                 |
       | jolly create store      |
 
-  @sandbox
+  @sandbox @toolchain-element
   Scenario: Jolly start resumes bootstrap and reflects stage progress
     Given a previous `jolly start` run completed some bootstrap work but not all
     When the agent runs `jolly start` again
@@ -35,7 +35,7 @@ Feature: Command idempotency and resumability
     Then Jolly should detect that state from its observable artifacts (the storefront directory, the store configuration, the deployment) and treat it as satisfied
     And it should not ask the agent to redo it
 
-  @sandbox
+  @sandbox @toolchain-element
   Scenario: Composed subcommands and start agree on state
     Given the agent has already run individual `jolly create` subcommands
     When the agent later runs `jolly start`

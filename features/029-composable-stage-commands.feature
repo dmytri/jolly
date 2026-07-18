@@ -6,16 +6,16 @@ Feature: Composable stage commands
   Background:
     Given each side-effecting stage `jolly start` performs is also a first-class `jolly` command that runs that one stage against already-prepared preconditions, never the whole pipeline
 
-  @sandbox
+  @sandbox @toolchain-element
   Scenario: jolly deploy deploys the prepared storefront and makes the Vercel project turnkey
-    Given a prepared storefront directory and a configured Saleor store
+    Given a prepared storefront directory served from the shared storefront template, and a configured Saleor store
     When the agent runs `jolly deploy --yes --json`
     Then the `deploy` stage should report "completed" with the deployed `*.vercel.app` URL captured from the Vercel CLI's output
     And it should persist `NEXT_PUBLIC_SALEOR_API_URL` and `NEXT_PUBLIC_DEFAULT_CHANNEL` on the Vercel project through the Vercel CLI, so a plain `npx vercel deploy` re-deploy also builds them
     And it should write `NEXT_PUBLIC_DEFAULT_CHANNEL` to `.env`, so the local storefront and a re-deploy read the store channel with no key juggling
     And it should not provision a store, clone the storefront, or run any other stage
 
-  @sandbox
+  @sandbox @toolchain-element
   Scenario: jolly storefront prepares the Paper storefront alone
     Given a fresh project directory with no storefront prepared
     When the agent runs `jolly storefront --yes --json`
@@ -41,7 +41,7 @@ Feature: Composable stage commands
     Then the `stripe` stage should report "completed" or "blocked" honestly, having attempted the Saleor app install for the Stripe payment app
     And it should not deploy or run any other stage
 
-  @logic @exceptional-double
+  @logic @composition @exceptional-double
   Scenario: jolly start composes the stage seams in order
     Given the stage seams are replaced with recording spies
     When `jolly start --yes` runs its orchestration

@@ -210,6 +210,21 @@ Feature: Human-facing interactive CLI experience
     When the agent runs `jolly complete -- lo`
     Then stdout should list the candidate completions `login` and `logout`
 
+  @logic
+  Scenario: Bare `jolly completion` prints usage naming the supported shells
+    When the agent runs `jolly completion`
+    Then stdout should contain a usage line naming the shells bash, zsh, fish, and powershell
+    And the exit code should be 0
+
+  @logic @exceptional-double
+  Scenario: Interactive start signs the human in to Saleor inline when no auth is configured
+    Given an interactive terminal with no JOLLY_SALEOR_CLOUD_TOKEN and no JOLLY_SALEOR_ACCESS_TOKEN set
+    And the Saleor auth host approves the device grant on the first poll
+    When `jolly start` runs in an interactive terminal
+    Then the interactive output should show the device user code and the verification URL before any setup stage runs
+    And it should store the device-grant access token in .env as JOLLY_SALEOR_ACCESS_TOKEN
+    And the run should continue past the auth stage in the same session
+
   Rule: Typed arguments and shell completion
     - Argument parsing for every `jolly` invocation — agent and human alike — runs through a
       single Bombshell (`@bomb.sh/args`) typed parser; Jolly keeps no second, hand-rolled

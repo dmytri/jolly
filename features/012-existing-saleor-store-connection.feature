@@ -16,6 +16,18 @@ Feature: Existing Saleor store connection
       | https://my-shop.saleor.cloud/graphql/                       |
 
   @logic
+  Scenario Outline: A pasted URL outside the recognized Saleor forms asks for clarification
+    Given a pasted Saleor URL <pasted>
+    When the agent runs `jolly create store --url <pasted> --json`
+    Then the envelope status should be "error" with the stable code `INVALID_SALEOR_URL`
+    And the clarifying question Jolly returns should match the catalog's entry
+
+    Examples:
+      | pasted                                |
+      | ftp://my-shop.saleor.cloud/graphql/   |
+      | https://my-shop.saleor.cloud/checkout |
+
+  @logic
   Scenario: Jolly create store writes the Saleor URL to .env
     Given the agent has a Saleor GraphQL endpoint URL "https://test-shop.saleor.cloud/graphql/"
     When the agent runs `jolly create store --url https://test-shop.saleor.cloud/graphql/`

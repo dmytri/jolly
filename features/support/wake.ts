@@ -18,7 +18,14 @@
 // project carrying the tier profile names and two cheap scenarios — so the real
 // command is exercised without re-running a real tier from inside one.
 import { spawnSync } from "node:child_process";
-import { mkdirSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  existsSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { REPO_ROOT } from "./repo-root.ts";
@@ -332,6 +339,56 @@ export function readTierWallClock(recordPath: string): TierClock | undefined {
     recordPath,
     seconds: (finishedNs - startedNs) / 1_000_000_000,
   };
+}
+
+/**
+ * The run window a completed tier record occupies: its wall clock, ending at
+ * the record file's last write. Undefined while the record is absent or
+ * carries no completed run.
+ */
+export function recordRunWindow(
+  recordPath: string,
+): { startMs: number; endMs: number } | undefined {
+  const clock = readTierWallClock(recordPath);
+  if (!clock) return undefined;
+  const endMs = statSync(recordPath).mtimeMs;
+  return { startMs: endMs - clock.seconds * 1000, endMs };
+}
+
+/** One profile leg of the sandbox tier's last sweep: the leg's latest
+ * completed record, as the run window a run-scoped ledger reader joins on. */
+export interface SweepLegWindow {
+  /** The kebab-case leg name, such as `sandbox` or `sandbox-serial`. */
+  tier: string;
+  recordPath: string;
+  startMs: number;
+  endMs: number;
+}
+
+/**
+ * Every profile leg of the sandbox tier's last sweep: the sandbox-family
+ * record paths the configured tier commands own, grouped by leg name, each
+ * leg's latest completed record standing as that leg's run window. A leg whose
+ * record carries no completed run is not part of the last sweep and
+ * contributes no window.
+ */
+export function sandboxSweepLegWindows(commands: TierCommand[]): SweepLegWindow[] {
+  const paths = new Set<string>();
+  for (const command of commands) {
+    if (!/^(broad|coverage)-sandbox/.test(command.key)) continue;
+    if (command.recordPath) paths.add(command.recordPath);
+  }
+  const legs = new Map<string, SweepLegWindow>();
+  for (const recordPath of paths) {
+    const window = recordRunWindow(join(REPO_ROOT, recordPath));
+    if (!window) continue;
+    const tier = tierNameFromRecordPath(recordPath);
+    const current = legs.get(tier);
+    if (!current || window.endMs > current.endMs) {
+      legs.set(tier, { tier, recordPath, ...window });
+    }
+  }
+  return [...legs.values()];
 }
 
 export interface BudgetViolation {

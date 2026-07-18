@@ -48,6 +48,20 @@ export const TOOLCHAIN_SPENDS = [
   "vercel-deploy",
 ] as const;
 
+/**
+ * The toolchain element each spend kind belongs to. The storefront
+ * preparation is ONE element of two spend kinds — its clone and install are
+ * one behaviour — so the element licences (@creates-env single element,
+ * @toolchain-element) count elements, never raw kinds, and the chain is
+ * spends spanning more than one element.
+ */
+const TOOLCHAIN_ELEMENT_OF: Record<string, string> = {
+  "git-clone": "storefront-preparation",
+  "pnpm-install": "storefront-preparation",
+  "configurator-deploy": "configurator-deploy",
+  "vercel-deploy": "vercel-deploy",
+};
+
 export type SpendKind =
   | (typeof TOOLCHAIN_SPENDS)[number]
   | "environment-creation"
@@ -403,49 +417,112 @@ export interface SpendViolation {
 }
 
 /**
+ * Argv aimed at a declared unroutable stand-in: the loopback port-1 endpoint
+ * this repo's doubles declare (features/support/cold-store-cloud-api.ts). A
+ * future double declaring a different stand-in grows this pattern with it.
+ */
+const UNROUTABLE_STANDIN = /(127\.0\.0\.1|\[::1\]|localhost):1(?!\d)/;
+
+/** The unroutable stand-in an entry's argv aims at, if any. */
+function unroutableTarget(entry: SpendEntry): string | undefined {
+  return entry.argv?.find((arg) => UNROUTABLE_STANDIN.test(arg));
+}
+
+/** True when the entry is a toolchain spend aimed at a declared unroutable
+ * stand-in by a scenario carrying @exceptional-double: the double's own
+ * failure path, never a real toolchain spend. */
+function isDoubleClassified(
+  entry: SpendEntry,
+  tags: Map<string, Set<string>>,
+): boolean {
+  return (
+    (TOOLCHAIN_SPENDS as readonly string[]).includes(entry.spend) &&
+    unroutableTarget(entry) !== undefined &&
+    tags.get(entry.scenario)?.has("@exceptional-double") === true
+  );
+}
+
+export interface DoubleClassifiedSpend {
+  scenario: string;
+  spend: string;
+  /** The declared unroutable stand-in the spend was aimed at. */
+  target: string;
+}
+
+/**
+ * Every toolchain spend aimed at a declared unroutable stand-in by a scenario
+ * carrying @exceptional-double: the shim records it, and the check classifies
+ * it to that scenario's double rather than the licence set (feature
+ * verification-economy's licence Rule).
+ */
+export function doubleClassifiedSpends(
+  entries: SpendEntry[],
+  tags: Map<string, Set<string>>,
+): DoubleClassifiedSpend[] {
+  return entries
+    .filter((entry) => isDoubleClassified(entry, tags))
+    .map((entry) => ({
+      scenario: entry.scenario,
+      spend: entry.spend,
+      target: unroutableTarget(entry)!,
+    }));
+}
+
+/**
  * Every recorded spend whose attributed scenario holds no licence for it: a
  * toolchain-chain spend outside the run's shared provisioning and outside the
  * @pipeline scenario, or an environment creation outside the run's shared
  * provisioning and outside a @creates-env scenario. A scenario tagged
  * @creates-env MAY additionally drive a SINGLE toolchain element against the
- * environment it created (feature verification-economy's licence Rule); the
- * element licence never extends to the chain, so a @creates-env scenario whose
- * toolchain spends span more than one element kind reddens.
+ * environment it created, and a scenario tagged @toolchain-element is licensed
+ * for the toolchain element that is its own assertion (feature
+ * verification-economy's licence Rule); neither element licence extends to the
+ * chain, so a licensed scenario whose toolchain spends span more than one
+ * element reddens. A spend aimed at a declared unroutable stand-in by a
+ * scenario carrying @exceptional-double is classified to the double
+ * ({@link doubleClassifiedSpends}) and never judged as a real toolchain spend.
  */
 export function unlicensedSpends(
   entries: SpendEntry[],
   tags: Map<string, Set<string>>,
 ): SpendViolation[] {
   const violations: SpendViolation[] = [];
-  // The element licence is judged per scenario: how many DISTINCT toolchain
-  // element kinds each attributed scenario spent in the judged set.
-  const elementKinds = new Map<string, Set<string>>();
+  // The element licences are judged per scenario: how many DISTINCT toolchain
+  // ELEMENTS each attributed scenario spent in the judged set. Spends
+  // classified to a double are the double's own failure path and count toward
+  // no element.
+  const elements = new Map<string, Set<string>>();
   for (const entry of entries) {
     if (!(TOOLCHAIN_SPENDS as readonly string[]).includes(entry.spend)) continue;
-    const kinds = elementKinds.get(entry.scenario) ?? new Set<string>();
-    kinds.add(entry.spend);
-    elementKinds.set(entry.scenario, kinds);
+    if (isDoubleClassified(entry, tags)) continue;
+    const spent = elements.get(entry.scenario) ?? new Set<string>();
+    spent.add(TOOLCHAIN_ELEMENT_OF[entry.spend]!);
+    elements.set(entry.scenario, spent);
   }
   for (const entry of entries) {
     if ((TOOLCHAIN_SPENDS as readonly string[]).includes(entry.spend)) {
+      if (isDoubleClassified(entry, tags)) continue;
       const scenarioTags = tags.get(entry.scenario);
-      const licensedElement =
-        scenarioTags?.has("@creates-env") === true &&
-        (elementKinds.get(entry.scenario)?.size ?? 0) === 1;
+      const elementLicence = scenarioTags?.has("@creates-env")
+        ? "@creates-env"
+        : scenarioTags?.has("@toolchain-element")
+          ? "@toolchain-element"
+          : undefined;
+      const spentElements = elements.get(entry.scenario)?.size ?? 0;
+      const licensedElement = elementLicence !== undefined && spentElements === 1;
       if (
         entry.scenario !== SHARED_PROVISIONING &&
         !scenarioTags?.has("@pipeline") &&
         !licensedElement
       ) {
-        const chainByCreatesEnv =
-          scenarioTags?.has("@creates-env") === true &&
-          (elementKinds.get(entry.scenario)?.size ?? 0) > 1;
+        const chainByElementLicence =
+          elementLicence !== undefined && spentElements > 1;
         violations.push({
           scenario: entry.scenario,
           spend: entry.spend,
-          message: chainByCreatesEnv
-            ? `"${entry.scenario}" holds a @creates-env element licence but spent the ` +
-              `toolchain CHAIN (${[...(elementKinds.get(entry.scenario) ?? [])].join(", ")}); ` +
+          message: chainByElementLicence
+            ? `"${entry.scenario}" holds a ${elementLicence} element licence but spent the ` +
+              `toolchain CHAIN (${[...(elements.get(entry.scenario) ?? [])].join(", ")}); ` +
               `the element licence never extends to the chain`
             : `"${entry.scenario}" made the toolchain-chain spend ${entry.spend}` +
               `${entry.argv ? ` (${entry.argv.join(" ")})` : ""} without a @pipeline ` +
@@ -470,6 +547,63 @@ export function unlicensedSpends(
     }
   }
   return violations;
+}
+
+// ─── Sweep-leg selection: every profile leg of the last sweep ───────────────
+
+/** Grace after a leg window's recorded end inside which its coordinating
+ * process's run-end entry lands: the run-end is appended by an exit handler
+ * milliseconds after the message record's last write. */
+const RUN_END_GRACE_MS = 60_000;
+
+export interface SweepLegRun {
+  tier: string;
+  /** The leg's selected completed run id; undefined when no run-end matches
+   * the leg's window, a broken or disarmed recorder. */
+  run?: string;
+  window: RunWindow;
+}
+
+export interface SweepSelection {
+  legs: SweepLegRun[];
+  /** The union of the selected runs' entries. */
+  entries: SpendEntry[];
+}
+
+/**
+ * The entries of every profile leg of the sandbox tier's last sweep: for each
+ * leg window, the completed run whose run-end lies nearest the window's end,
+ * within the window plus a short grace; the union of the selected runs'
+ * entries. Run-scoped per feature verification-economy's Rule "The wake is
+ * read run-scoped": only a run carrying a run-end is selectable, so a live
+ * sibling's partial record is never consumed. Judging every leg means the
+ * order the legs ran in can never leave one leg's spends unjudged.
+ */
+export function sweepLegEntries(
+  entries: SpendEntry[],
+  legs: Array<{ tier: string; startMs: number; endMs: number }>,
+): SweepSelection {
+  const selected: SweepLegRun[] = [];
+  const runs = new Set<string>();
+  for (const leg of legs) {
+    let best: { run: string; distance: number } | undefined;
+    for (const entry of entries) {
+      if (entry.spend !== "run-end") continue;
+      if (entry.at < leg.startMs || entry.at > leg.endMs + RUN_END_GRACE_MS) continue;
+      const distance = Math.abs(entry.at - leg.endMs);
+      if (!best || distance < best.distance) best = { run: entry.run, distance };
+    }
+    selected.push({
+      tier: leg.tier,
+      ...(best ? { run: best.run } : {}),
+      window: { startMs: leg.startMs, endMs: leg.endMs },
+    });
+    if (best) runs.add(best.run);
+  }
+  return {
+    legs: selected,
+    entries: entries.filter((entry) => runs.has(entry.run)),
+  };
 }
 
 /** Resource classes the run's shared provisioning recorded more than once. */

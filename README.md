@@ -44,7 +44,6 @@ Requires Node.js >= 23 + npm.
 
 ```bash
 npm install
-npm test
 npm run test:logic
 npm run test:bdd
 npm run typecheck

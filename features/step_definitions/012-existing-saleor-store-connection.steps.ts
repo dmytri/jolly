@@ -946,3 +946,59 @@ Then(
     );
   },
 );
+
+// ─── Scenario Outline: a pasted URL outside the recognized forms ────────────
+// The recognized pasted forms are the Dashboard, root, and GraphQL URLs of a
+// `*.saleor.cloud` store; anything else (a non-HTTP scheme, an arbitrary store
+// path) asks for clarification: the run errors with the stable code
+// `INVALID_SALEOR_URL` instead of guessing an endpoint. Each rejected form
+// runs the REAL `create store --url` path with credentials genuinely unset, so
+// the pre-flight rejection is the observed behaviour and no account is touched.
+
+Given(
+  "a pasted Saleor URL ftp:\\/\\/my-shop.saleor.cloud\\/graphql\\/",
+  function (this: JollyWorld) {
+    this.notes.pastedUrl = "ftp://my-shop.saleor.cloud/graphql/";
+    // The clarifying-question Then reads the real normalize seam's result.
+    this.notes.normalized = normalizeSaleorUrl("ftp://my-shop.saleor.cloud/graphql/");
+  },
+);
+
+Given(
+  "a pasted Saleor URL https:\\/\\/my-shop.saleor.cloud\\/checkout",
+  function (this: JollyWorld) {
+    this.notes.pastedUrl = "https://my-shop.saleor.cloud/checkout";
+    this.notes.normalized = normalizeSaleorUrl("https://my-shop.saleor.cloud/checkout");
+  },
+);
+
+When(
+  "the agent runs `jolly create store --url ftp:\\/\\/my-shop.saleor.cloud\\/graphql\\/ --json`",
+  function (this: JollyWorld) {
+    this.runCli(
+      ["create", "store", "--url", "ftp://my-shop.saleor.cloud/graphql/", "--json"],
+      { env: absentCredentialsEnv() },
+    );
+  },
+);
+
+When(
+  "the agent runs `jolly create store --url https:\\/\\/my-shop.saleor.cloud\\/checkout --json`",
+  function (this: JollyWorld) {
+    this.runCli(
+      ["create", "store", "--url", "https://my-shop.saleor.cloud/checkout", "--json"],
+      { env: absentCredentialsEnv() },
+    );
+  },
+);
+
+Then(
+  "the envelope status should be {string} with the stable code `INVALID_SALEOR_URL`",
+  function (this: JollyWorld, status: string) {
+    assert.equal(this.envelope.status, status);
+    assert.ok(
+      this.envelope.errors.some((e) => e.code === "INVALID_SALEOR_URL"),
+      `expected a stable INVALID_SALEOR_URL error; got ${JSON.stringify(this.envelope.errors)}`,
+    );
+  },
+);

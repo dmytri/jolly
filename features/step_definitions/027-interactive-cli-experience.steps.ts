@@ -1618,3 +1618,145 @@ Then(
     );
   },
 );
+
+// ─── Bare `jolly completion` prints usage (feature 027) ────────────────────
+// `completion` with no shell argument is a human asking how to use it: the
+// command prints its usage line naming the supported shells and exits 0,
+// rather than erroring or emitting an envelope.
+
+When("the agent runs `jolly completion`", function (this: JollyWorld) {
+  this.runCli(["completion"], { env: absentCredentialsEnv() });
+});
+
+Then(
+  "stdout should contain a usage line naming the shells bash, zsh, fish, and powershell",
+  function (this: JollyWorld) {
+    const stdout = this.lastRun!.stdout;
+    const usage = stdout
+      .split("\n")
+      .find(
+        (line) =>
+          /usage/i.test(line) &&
+          ["bash", "zsh", "fish", "powershell"].every((shell) =>
+            line.includes(shell),
+          ),
+      );
+    assert.ok(
+      usage,
+      `stdout must carry one usage line naming bash, zsh, fish, and powershell; got:\n${stdout}`,
+    );
+  },
+);
+
+Then("the exit code should be {int}", function (this: JollyWorld, code: number) {
+  assert.equal(
+    this.lastRun!.exitCode,
+    code,
+    `expected exit code ${code}; stderr:\n${this.lastRun!.stderr}`,
+  );
+});
+
+// ─── Inline device-grant sign-in that CONTINUES in-session (feature 027) ───
+// No auth configured at all (neither the staff token nor a device-grant access
+// token): interactive `jolly start` signs the human in through the Saleor
+// device authorization grant inline, stores the granted token, and the SAME
+// session continues past the auth stage into the setup flow. The shared
+// @exceptional-double Given points the grant at the local fake auth host,
+// which approves on the first poll, so the real request, display, poll,
+// store, and continue path runs without the human click that cannot be
+// produced on demand.
+
+/** Drive the inline sign-in `jolly start` once; later Thens read the result. */
+function runInlineSignInStart(world: JollyWorld): void {
+  if (world.notes.inlineStartRan) return;
+  assert.ok(ptyAvailable(), "the PTY driver must be available");
+  const sequence = startPromptSequence({ argv: ["start"], cwd: world.projectDir });
+  const inputs = acceptEveryPrompt(sequence);
+  const run = runUnderPty({
+    runtime: process.env.HARNESS_CLI_RUNTIME ?? "node",
+    argv: [CLI_ENTRY, "start"],
+    cwd: world.projectDir,
+    // Both Cloud credentials genuinely unset (the Given's framing): the
+    // device-grant tokens too, so the inline grant is the only path.
+    env: interactiveChildEnv({
+      JOLLY_SALEOR_ACCESS_TOKEN: undefined,
+      JOLLY_SALEOR_REFRESH_TOKEN: undefined,
+    }),
+    inputs,
+    waitFor: sequence,
+    readUntil: "exit",
+    timeoutMs: 120_000,
+  });
+  world.previousRun = world.lastRun;
+  world.lastRun = {
+    args: ["start"],
+    cwd: world.projectDir,
+    exitCode: run.exitCode,
+    stdout: run.output,
+    stderr: "",
+    envelope: findEnvelope(run.output),
+  };
+  world.notes.inlineStartRan = true;
+  world.notes.inlineStartSequence = sequence;
+}
+
+Given(
+  "an interactive terminal with no JOLLY_SALEOR_CLOUD_TOKEN and no JOLLY_SALEOR_ACCESS_TOKEN set",
+  function (this: JollyWorld) {
+    // Framing for the run: interactiveChildEnv unsets the staff token, and the
+    // inline-sign-in driver additionally unsets the device-grant tokens.
+    this.notes.inlineSignInStart = true;
+  },
+);
+
+Then(
+  "the interactive output should show the device user code and the verification URL before any setup stage runs",
+  { timeout: 130_000 },
+  function (this: JollyWorld) {
+    runInlineSignInStart(this);
+    const out = stripAnsi(this.lastRun!.stdout);
+    const code = out.match(DEVICE_USER_CODE_RE);
+    assert.ok(code, `interactive start must show the device user code; got:\n${out}`);
+    const urlIndex = out.indexOf(DEVICE_VERIFICATION_URL);
+    assert.ok(
+      urlIndex >= 0,
+      `interactive start must show the verification URL ${DEVICE_VERIFICATION_URL}; got:\n${out}`,
+    );
+    // Setup stages run only after the proceed gate (the prompt sequence's last
+    // marker), so code + URL shown before that gate are shown before any setup
+    // stage runs.
+    const sequence = (this.notes.inlineStartSequence as string[]) ?? [];
+    const proceedMarker = sequence[sequence.length - 1] ?? "";
+    const gateIndex = proceedMarker ? out.indexOf(proceedMarker) : -1;
+    const boundary = gateIndex === -1 ? out.length : gateIndex;
+    assert.ok(
+      out.indexOf(code![0]) < boundary && urlIndex < boundary,
+      `the device user code and verification URL must appear before any setup stage runs ` +
+        `(before the "${proceedMarker}" gate); got:\n${out}`,
+    );
+  },
+);
+
+Then(
+  "the run should continue past the auth stage in the same session",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    const code = out.match(DEVICE_USER_CODE_RE);
+    assert.ok(code, "the run must have shown the device user code");
+    const afterAuth = out.slice(out.indexOf(code![0]));
+    const sequence = (this.notes.inlineStartSequence as string[]) ?? [];
+    assert.ok(
+      sequence.length > 0,
+      "the inline sign-in run must have recorded its prompt sequence",
+    );
+    // Continuation in the SAME session: after the grant display, this one run
+    // reached every setup prompt of its flow (through the proceed gate), so the
+    // auth stage was passed in-session rather than by a re-run.
+    for (const marker of sequence) {
+      assert.ok(
+        afterAuth.includes(marker),
+        `after the inline sign-in, the same session must continue to the "${marker}" prompt; got:\n${out}`,
+      );
+    }
+  },
+);

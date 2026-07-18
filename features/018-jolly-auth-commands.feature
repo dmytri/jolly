@@ -61,6 +61,14 @@ Feature: Jolly auth commands
       And it should store the device-grant access token in .env as JOLLY_SALEOR_ACCESS_TOKEN
       And it should not print any token value
 
+    @logic @exceptional-double
+    Scenario: The device-grant poll backs off when the auth host answers slow_down
+      Given an interactive terminal with no JOLLY_SALEOR_CLOUD_TOKEN set
+      And the Saleor auth host answers the first token poll with "slow_down" and approves the next
+      When the user runs `jolly login`
+      Then the second token poll should start at least five seconds after the first
+      And it should store the device-grant access token in .env as JOLLY_SALEOR_ACCESS_TOKEN
+
   Rule: The Cloud platform API scheme is chosen by which stored token is used
 
     Jolly keeps the two Cloud credentials in separate variables so a device sign-in never clobbers a

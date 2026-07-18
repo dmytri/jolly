@@ -77,6 +77,13 @@ Feature: Jolly create subcommands
     And nextSteps should include a step whose command is `jolly start`
     And that step should state that `jolly start` continues the end-to-end setup and recognizes the stored store rather than redoing it (feature 022)
 
+  @logic
+  Scenario: An unknown create subcommand errors naming the supported set
+    When the agent runs `jolly create frobnicate --json`
+    Then the envelope status should be "error" with the stable code `UNKNOWN_CREATE_SUBCOMMAND`
+    And the error message should name the supported subcommand `store`
+    And nextSteps should include a step whose command is `jolly create --help`
+
   Rule: No fabricated create results
     - This Rule applies feature 020's "No fabricated success" contract to every `jolly create` subcommand.
     - A create subcommand reports success and `pass` checks only for resources it actually created, or work it actually performed and confirmed, during the run.

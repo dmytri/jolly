@@ -179,6 +179,41 @@ Given("the Saleor auth host issues device codes", async function (this: JollyWor
   await startFakeAuthHost(this);
 });
 
+// Same @exceptional-double host in first-poll-error mode: the first token poll
+// is answered with the named OAuth error (e.g. "slow_down") and the next poll
+// approves, so Jolly's real backoff-and-store path runs. The host records poll
+// arrival times, read back below through its /polls observation endpoint.
+Given(
+  "the Saleor auth host answers the first token poll with {string} and approves the next",
+  async function (this: JollyWorld, error: string) {
+    this.notes.fakeAuthBase = await startFakeAuthHost(this, {
+      firstPollError: error,
+    });
+  },
+);
+
+Then(
+  "the second token poll should start at least five seconds after the first",
+  async function (this: JollyWorld) {
+    const base = String(this.notes.fakeAuthBase ?? "");
+    assert.ok(base, "the fake auth host base URL must be recorded by its Given");
+    // The observed signal: the host recorded when each token poll ARRIVED, so
+    // the backoff is asserted from real arrivals, never inferred from output.
+    const response = await fetch(`${new URL(base).origin}/polls`);
+    const body = (await response.json()) as { polls?: number[] };
+    const polls = body.polls ?? [];
+    assert.ok(
+      polls.length >= 2,
+      `the CLI must poll the token endpoint at least twice (the slow_down answer, then the approval); observed ${polls.length} poll(s)`,
+    );
+    const gap = polls[1]! - polls[0]!;
+    assert.ok(
+      gap >= 5_000,
+      `the second token poll must start at least five seconds after the first (slow_down backoff); observed ${gap}ms`,
+    );
+  },
+);
+
 // The verification URL the human opens is carried in the result envelope (a
 // nextStep) — structured `url` and/or prose — so the agent renders it clickable,
 // never buried on stdout/stderr.

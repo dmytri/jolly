@@ -541,3 +541,46 @@ Then(
     );
   },
 );
+
+// --- Scenario: An unknown create subcommand errors naming the supported set --
+
+When("the agent runs `jolly create frobnicate --json`", function (this: JollyWorld) {
+  this.runCli(["create", "frobnicate", "--json"], { env: absentCredentialsEnv() });
+});
+
+Then(
+  "the envelope status should be {string} with the stable code `UNKNOWN_CREATE_SUBCOMMAND`",
+  function (this: JollyWorld, status: string) {
+    assert.equal(this.envelope.status, status);
+    assert.ok(
+      this.envelope.errors.some((e) => e.code === "UNKNOWN_CREATE_SUBCOMMAND"),
+      `expected a stable UNKNOWN_CREATE_SUBCOMMAND error; got ${JSON.stringify(this.envelope.errors)}`,
+    );
+  },
+);
+
+Then(
+  "the error message should name the supported subcommand `store`",
+  function (this: JollyWorld) {
+    const error = this.envelope.errors.find(
+      (e) => e.code === "UNKNOWN_CREATE_SUBCOMMAND",
+    );
+    assert.ok(error, "expected the UNKNOWN_CREATE_SUBCOMMAND error");
+    const text = `${String(error!.message ?? "")} ${String(error!.remediation ?? "")}`;
+    assert.ok(
+      /\bstore\b/.test(text),
+      `the unknown-subcommand error must name the supported subcommand "store"; got: ${text}`,
+    );
+  },
+);
+
+Then(
+  "nextSteps should include a step whose command is `jolly create --help`",
+  function (this: JollyWorld) {
+    const commands = this.envelope.nextSteps.map((step) => String(step.command ?? ""));
+    assert.ok(
+      commands.includes("jolly create --help"),
+      `nextSteps must include a step whose command is \`jolly create --help\`; got ${JSON.stringify(commands)}`,
+    );
+  },
+);

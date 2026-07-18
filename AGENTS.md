@@ -40,12 +40,12 @@ On any role takeover (QM→Captain, Crew→QM, Boatswain→Captain, and so on), 
 | Placeholder | Project value |
 |---|---|
 | `<spec directory>` | `features/` |
-| `<test directory>` | `tests/` plus `features/step_definitions/` and `features/support/` |
+| `<test directory>` | `features/step_definitions/` and `features/support/` |
 | `<implementation directory>` | `src/` |
 | `<asset directory>` | `assets/` |
 | `<verification discovery command>` | `npx cucumber-js --dry-run` |
 | `<test command>` | `npm run test:bdd` |
-| `<focused test command>` | `npx cucumber-js <feature>:<line>` or `node --test <test-file>` |
+| `<focused test command>` | `npx cucumber-js <feature>:<line>` |
 | `<typecheck command>` | `npm run typecheck` |
 | `<lint command>` | `npx gplint "features/*.feature"` (gherkin/feature-file lint; config in `.gplintrc`) |
 
@@ -66,7 +66,6 @@ npm install
 npm start
 npm run dev
 npm run build
-npm test
 npm run test:bdd
 npm run test:logic
 npm run test:sandbox
@@ -80,7 +79,6 @@ Single target examples:
 npx cucumber-js features/020-cli-output-contract.feature
 npx cucumber-js features/020-cli-output-contract.feature:10
 npx cucumber-js --dry-run
-node --test tests/sandbox.test.ts
 ```
 
 ## Verification Layout
@@ -88,8 +86,6 @@ node --test tests/sandbox.test.ts
 - Feature files live in `features/`.
 - Each feature maps to `features/step_definitions/<feature-slug>.steps.ts`.
 - Shared hooks, world, sandbox setup/teardown, and credential gating live in `features/support/`.
-- Logic-tier unit tests live in `tests/` and run via `node --test`.
-- DOM-level checks use happy-dom.
 - Content under `assets/**` is not covered by the BDD suite.
 
 **Real services always — never mock or fake.** Every tier (including `@logic`) exercises real behavior against the real, integrated test env — the runtime `JOLLY_*` Saleor Cloud and Vercel credentials, which describe a production-shaped test environment. **No fake CLIs, no dummy credentials, no `.invalid` endpoints, no simulated responses, no in-process service fixtures standing in for the normal path.** Creating real resources is expected and correct — that is the point. Safety is **harmless-by-design** (namespace + teardown + never-touch-what-we-didn't-create, below), never credential-faking. The only admissible exception is a specific failure/edge the real test env genuinely cannot be made to produce on demand (e.g. an org already at its environment limit, or a deliberately unreachable service for the "stored, not verified" path) — a justified-exception double, named and justified inline at the site, never covering the normal path. Ordinary failures producible from real bad input — empty/garbage tokens, malformed or non-first-party URLs — must be produced for real, never doubled. Credentials for every tier are present by fitting-out; the underlying CLIs and API clients read them from the environment. Verification assumes they are present — it never checks, gates, or branches on credential presence. A scenario whose credential or precondition is absent fails as a fitting-out blocker, so the gap is visible and gets fixed. This holds on every feature. This rule is made **executable** by feature 026's `@property` conformance invariant ("no forbidden double"): a suite that is green while still carrying a fake fails there, so the rule self-enforces rather than relying on review. The single admissible double is a scenario tagged **`@exceptional-double`** — an exceptional condition the real test env cannot produce on demand (an org at its environment limit; a deliberately unreachable service for a "stored, not verified" path), justified inline; every other failure is produced from real bad input.
@@ -155,7 +151,6 @@ All `.feature` scenarios and steps must follow the **scenario-writing guide — 
 - Turns scenario steps into executable verification as written; adds no product behavior or alternate interpretation.
 - Step definitions live in `features/step_definitions/<feature-slug>.steps.ts`.
 - Shared hooks/world/sandbox setup live in `features/support/`.
-- Logic-tier unit tests live in `tests/`.
 - Sandbox tests use runtime `JOLLY_*` credentials only; there is no `JOLLY_TEST_*` namespace.
 
 ### Crew Mate

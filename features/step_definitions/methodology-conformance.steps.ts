@@ -35,13 +35,29 @@ import {
 } from "../support/methodology-conformance.ts";
 import {
   collectPlanks,
+  collectProvisionalPlanks,
   collectStepUsagePatterns,
   findPlankFormViolations,
+  findProvisionalPlankViolations,
   findUnpatternedPlanks,
+  parseScenarioIndex,
   type InjectedSource,
   type Plank,
   type PlankViolation,
 } from "../support/plank-conformance.ts";
+import {
+  findDependencyRecordViolations,
+  referenceCorpus,
+  type DependencyViolation,
+} from "../support/dependency-record-conformance.ts";
+import {
+  enumerateTestSurfaces,
+  findUnreachedSurfaces,
+  readConfiguredCommands,
+  type ConfiguredCommand,
+  type SurfaceViolation,
+  type TestSurface,
+} from "../support/verification-surface-conformance.ts";
 import {
   findArchitectureDrift,
   type ArchitectureViolation,
@@ -579,6 +595,261 @@ Then(
           violation.kind === "technology" && violation.message.includes(plantedTech),
       ),
       `the planted technology "${plantedTech}" was not reported as unreferenced`,
+    );
+  },
+);
+
+// ─── Provisional planks: `@planks-provisional(...)` freshness ───────────────
+// A seam a `@captain` skeleton describes carries `@planks-provisional("<spec>.
+// feature:<Scenario Name>")` so the seam stays findable through promotion
+// (Planking agreement). One naming a current `@captain` scenario conforms and
+// waits; promotion removes the tag, so one naming a promoted scenario is red
+// and owes its `@planks("...")` pattern; one naming no current scenario is
+// stale. Each leg is proven by a virtual plant that never touches disk.
+
+Then(
+  "a `@planks-provisional\\(...)` annotation naming a current `@captain` scenario should conform, one naming a promoted or absent scenario should redden the check",
+  function (this: JollyWorld) {
+    const dirs = this.notes.implDirs as string[];
+    const index = parseScenarioIndex("features/");
+
+    // The tree as it stands: every real provisional plank must conform.
+    const real = findProvisionalPlankViolations(
+      collectProvisionalPlanks(dirs),
+      index,
+    );
+    assert.equal(
+      real.length,
+      0,
+      `provisional planks that no longer conform:\n${real
+        .map((violation) => `  - ${violation.message}`)
+        .join("\n")}`,
+    );
+
+    // Conform leg: a provisional naming a current @captain scenario waits.
+    const captainFeature: InjectedSource = {
+      file: "features/.planted-captain-skeleton.feature",
+      text: [
+        "Feature: Planted skeleton home",
+        "",
+        "  @captain",
+        "  Scenario: A planted captain skeleton",
+        "    Given the planted seam exists",
+      ].join("\n"),
+    };
+    const conforming: InjectedSource = {
+      file: "src/.planted-conforming-provisional.ts",
+      text: [
+        '/** @planks-provisional("features/.planted-captain-skeleton.feature:A planted captain skeleton") */',
+        "export function plantedDescribedSeam(): boolean {",
+        "  return true;",
+        "}",
+      ].join("\n"),
+    };
+    const conformIndex = parseScenarioIndex("features/", [captainFeature]);
+    const conformViolations = findProvisionalPlankViolations(
+      collectProvisionalPlanks(dirs, [conforming]),
+      conformIndex,
+    ).filter((violation) => violation.file === conforming.file);
+    assert.equal(
+      conformViolations.length,
+      0,
+      `a provisional plank naming a current @captain scenario must conform; got:\n${conformViolations
+        .map((violation) => `  - ${violation.message}`)
+        .join("\n")}`,
+    );
+
+    // Redden leg 1: naming a promoted (current, non-@captain) scenario.
+    const promoted: InjectedSource = {
+      file: "src/.planted-promoted-provisional.ts",
+      text: [
+        '/** @planks-provisional("features/methodology-conformance.feature:Every plank names a current step-definition pattern") */',
+        "export function plantedPromotedSeam(): boolean {",
+        "  return true;",
+        "}",
+      ].join("\n"),
+    };
+    const promotedViolations = findProvisionalPlankViolations(
+      collectProvisionalPlanks(dirs, [promoted]),
+      index,
+    );
+    assert.ok(
+      promotedViolations.some((violation) => violation.file === promoted.file),
+      "a provisional plank naming a promoted scenario was not reported",
+    );
+
+    // Redden leg 2: naming no current scenario at all.
+    const absent: InjectedSource = {
+      file: "src/.planted-stale-provisional.ts",
+      text: [
+        '/** @planks-provisional("features/.no-such.feature:Never Written") */',
+        "export function plantedStaleSeam(): boolean {",
+        "  return true;",
+        "}",
+      ].join("\n"),
+    };
+    const absentViolations = findProvisionalPlankViolations(
+      collectProvisionalPlanks(dirs, [absent]),
+      index,
+    );
+    assert.ok(
+      absentViolations.some((violation) => violation.file === absent.file),
+      "a provisional plank naming no current scenario was not reported",
+    );
+  },
+);
+
+// ─── The dependency record and the package manifest agree ──────────────────
+
+Given(
+  "the dependency entries recorded in {string} and the dependency lists in {string}",
+  function (this: JollyWorld, riggingFile: string, manifestFile: string) {
+    this.notes.riggingText = readFileSync(join(REPO_ROOT, riggingFile), "utf8");
+    this.notes.manifestText = readFileSync(join(REPO_ROOT, manifestFile), "utf8");
+  },
+);
+
+When("the dependency-record check joins them", function (this: JollyWorld) {
+  this.notes.dependencyViolations = findDependencyRecordViolations({
+    riggingText: String(this.notes.riggingText),
+    manifestText: String(this.notes.manifestText),
+  });
+});
+
+Then(
+  "every dependency recorded in {string} should be installed in {string}",
+  function (this: JollyWorld, _riggingFile: string, _manifestFile: string) {
+    const violations = (
+      this.notes.dependencyViolations as DependencyViolation[]
+    ).filter((violation) => violation.kind === "recorded-uninstalled");
+    assert.equal(
+      violations.length,
+      0,
+      `recorded-but-uninstalled dependencies:\n${violations
+        .map((violation) => `  - ${violation.message}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "every {string} dependency should be referenced by the tree",
+  function (this: JollyWorld, _manifestFile: string) {
+    const violations = (
+      this.notes.dependencyViolations as DependencyViolation[]
+    ).filter((violation) => violation.kind === "installed-unreferenced");
+    assert.equal(
+      violations.length,
+      0,
+      `installed-but-unreferenced dependencies:\n${violations
+        .map((violation) => `  - ${violation.message}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "a recorded-but-uninstalled or installed-but-unreferenced dependency should redden the check",
+  function (this: JollyWorld) {
+    const riggingText = String(this.notes.riggingText);
+    const manifestText = String(this.notes.manifestText);
+
+    // Recorded but not installed: plant a ghost entry into the record. The
+    // ghost names are assembled at run time so this file's own source never
+    // carries them as literals — a literal here would be a tree reference that
+    // defeats the installed-but-unreferenced half of the proof.
+    const recordedGhost = ["planted", "ghost", "package"].join("-");
+    const unreferencedGhost = ["planted", "unreferenced", "package"].join("-");
+    const plantedRigging = riggingText.replace(
+      "## Dependencies",
+      `## Dependencies\n\n- ${recordedGhost}: planted for the redden proof`,
+    );
+    assert.notEqual(plantedRigging, riggingText, "the record no longer carries a ## Dependencies heading to plant under");
+    const recordedRed = findDependencyRecordViolations({
+      riggingText: plantedRigging,
+      manifestText,
+    });
+    assert.ok(
+      recordedRed.some(
+        (violation) =>
+          violation.kind === "recorded-uninstalled" &&
+          violation.message.includes(recordedGhost),
+      ),
+      "a recorded-but-uninstalled dependency was not reported",
+    );
+
+    // Installed but referenced nowhere: plant a ghost into the manifest.
+    const manifest = JSON.parse(manifestText) as {
+      devDependencies?: Record<string, string>;
+    };
+    manifest.devDependencies = {
+      ...manifest.devDependencies,
+      [unreferencedGhost]: "1.0.0",
+    };
+    const plantedManifestText = JSON.stringify(manifest);
+    const installedRed = findDependencyRecordViolations({
+      riggingText,
+      manifestText: plantedManifestText,
+      corpus: referenceCorpus(plantedManifestText),
+    });
+    assert.ok(
+      installedRed.some(
+        (violation) =>
+          violation.kind === "installed-unreferenced" &&
+          violation.message.includes(unreferencedGhost),
+      ),
+      "an installed-but-unreferenced dependency was not reported",
+    );
+  },
+);
+
+// ─── Every verification surface is run by a configured tier command ────────
+
+Given(
+  "the tier commands configured in {string} and the test surfaces in the tree",
+  function (this: JollyWorld, riggingFile: string) {
+    const riggingText = readFileSync(join(REPO_ROOT, riggingFile), "utf8");
+    const manifestText = readFileSync(join(REPO_ROOT, "package.json"), "utf8");
+    this.notes.configuredCommands = readConfiguredCommands(riggingText, manifestText);
+    assert.ok(
+      (this.notes.configuredCommands as ConfiguredCommand[]).length > 0,
+      `${riggingFile} configures no commands under ## Commands`,
+    );
+  },
+);
+
+When("the verification surfaces are enumerated", function (this: JollyWorld) {
+  this.notes.testSurfaces = enumerateTestSurfaces("features/");
+});
+
+Then(
+  "every test surface should be run by a configured tier command",
+  function (this: JollyWorld) {
+    const violations = findUnreachedSurfaces(
+      this.notes.testSurfaces as TestSurface[],
+      this.notes.configuredCommands as ConfiguredCommand[],
+    );
+    assert.equal(
+      violations.length,
+      0,
+      `test surfaces no configured tier command reaches:\n${violations
+        .map((violation) => `  - ${violation.message}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "a test surface no configured tier command reaches should redden the check",
+  function (this: JollyWorld) {
+    const planted: TestSurface = { dir: "planted-tests/", kind: "unit" };
+    const violations: SurfaceViolation[] = findUnreachedSurfaces(
+      [...(this.notes.testSurfaces as TestSurface[]), planted],
+      this.notes.configuredCommands as ConfiguredCommand[],
+    );
+    assert.ok(
+      violations.some((violation) => violation.surface.dir === planted.dir),
+      "a planted test surface no command reaches was not reported",
     );
   },
 );
