@@ -4,20 +4,37 @@
 
 Binding behaviour lives in `.feature` specs and referenced `assets/**`. History lives in git. These notes carry only what the next cycle needs.
 
-## STATE (2026-07-18, late): ELEMENT LICENCE RULED + AUTHORED; final QM pass dispatched
+## STATE (2026-07-18, close): BATCH SHIPPED — origin/main at 083fe7c. Deck at rest.
 
-QM's diagnosis: checker MATCHES the law; the LAW contradicted six binding @sandbox scenarios
-whose element spends ARE their assertions. RESOLVED (Captain, within dk's delegated
-direction, mirroring the @creates-env clause): new `@toolchain-element` licence tag —
-elements that are the scenario's own assertion, against its own namespaced resources, never
-the chain; stand-in spends by @exceptional-double scenarios classify to the double; the
-check judges EVERY profile leg of the last sweep (leg order can never hide a breach again).
-Tagged: 029 storefront-alone + deploy-turnkey, 002 native-deps, 020 serving-confirmation,
-022 resume-bootstrap + composed-agree. verification-economy Rule + invariant Then extended.
-002:89 "creates a deployable storefront" NOT tagged (absent from the evidence's spender
-list); if the final sweep names it, extend then. Watchbill: ledger scenario + @logic/@eval/
-@sandbox full re-proof at the FINAL tree. Fresh QM dispatched (bulkhead). Then EDIT-FREE
-custody commits on inherited greens -> PUSH (approved). Earlier state detail in git history.
+Pushed 5bdd855..083fe7c (4 commits: overlap groundwork e4225d0, harbour notes, batch voyage
+083fe7c). Watchbill struck, tree clean, all tiers green fresh at aa8d680: logic 216/216
+(219.5s/250), eval 4/4 (160.6/240), sandbox 6/6 (789.5/900) + 49/49 (683.2/900). Conformance
+64/64. npm publish still PARKED (2FA; ship steps in git history).
+
+**QUEUED FOR dk (next batch, in order):**
+1. Three spec-gap candidates from retired tests/ (QM triage): failure/pending-stage close
+   honesty (027 pins success close + decline only); literal bans (retired hosts
+   id.saleor.online / api.saleor.cloud, api.vercel.com, non-configurator @saleor scopes —
+   the 020 @property pins the predicate, not literals); cross-command no-fabricated-success
+   @property sweep (SCENARIO_WRITING.md:56 names it). Promote or discard, dk rules.
+2. Budget VALUES: current budgets all FIT fresh records; dk's 1200s aspiration open. Needs a
+   dedicated quiet-deck OVERLAPPED measurement (lanes: [serial->parallel sandbox] || logic
+   || eval), then dk rules values + the sum->window budget-fit spec edit lands with them.
+3. Destructive-diff scenario strengthening (stale-green alarm: crash path also produced
+   blocked+exit-6; assert the block NAMES the observed diff).
+
+**Boatswain harbour flags (report-only, re-derivable):** 002's five orphaned step defs
+(2357-2467) + re-plank of the orchestrator seam (src/index.ts:5309-5313) to the
+@composition steps; 16 baseline zero-usage defs; RIGGING prose drift (dependency-audit note
+outdated — the derived check now EXISTS; step-usage counts stale); README "Node >= 23" vs
+engines >=20.12.0 (no covering check — check candidate or refit).
+
+**Voyage delivered (083fe7c):** 10 promotions (5 fetch seams guarded first-party, doctor
+pre-flight refusal, knob-classification + HARNESS rename, dependency-join check,
+every-surface check, manifest @contract, 012 URL outline, 027 completion usage + inline
+sign-in); tests/ retired w/ triage; sign-in seams consolidated; @composition lane +
+@toolchain-element licence + stand-in classification + both-legs ledger judging; run-scoped
+wake reads. Hard lessons recorded in Upstream + Standing rules.
 
 Recovery pass 1 DONE (tests/ retired w/ triage, def repaired, all tiers green fresh, budgets
 fit: logic 227, eval 107, sandbox 838/823). ARCHITECTURE refit (counts + section + row) +
