@@ -4,10 +4,11 @@
 
 Binding behaviour lives in `.feature` specs and referenced `assets/**`. History lives in git. These notes carry only what the next cycle needs.
 
-## STATE (2026-07-17 ~21:05): SPEED VOYAGE SHIPPED except npm publish (held on auth)
+## STATE (2026-07-18): OVERLAP VOYAGE ACTIVE; npm publish PARKED by dk
 
-Speed voyage CLOSED and PUSHED. `origin/main` at `79d7ff2` (voyage = commits `b727087` +
-`79d7ff2`). Working tree clean, package.json 0.12.4.
+Speed voyage CLOSED and PUSHED. `origin/main` at `5bdd855`. Working tree clean, package.json
+0.12.4. Overlap voyage (below) is the active work; dk deprioritized the npm publish this batch
+("not important to publish new jolly now"), so it rides a later outbound.
 
 **Delivered:** golden-capture eval (live agent, captured services — eval 9m36->~1m47, 5.4x),
 licensed spends + spend-ledger invariants, budgets in RIGGING (ratchet), resume-aware
@@ -19,14 +20,16 @@ warm. Full @logic conformance 55/55 green; @sandbox 49/49+6/6; @eval 4/4.
 voyage's own +4 @invariant scenarios grew the tier), sandbox 900, sandbox-serial 900, eval 240.
 dk's 1200 (20-min) is ASPIRATION, delivered by the overlap voyage, never a bare value edit.
 
-### ⚠️ OPEN — dk action needed: npm publish BLOCKED on auth
-`npm publish` of 0.12.5 failed E404 on PUT (`you do not have permission to access @dk/jolly`) —
-not authenticated with publish rights to the `@dk` scope. Build + dry-run were CLEAN (dist
-257.8kb, 18 files), so this is auth only. HELD per dk's standing rule (auth failure -> hold
-publish, push still lands). To ship: `npm login` (or set the @dk publish token), then
-`npm version patch` (-> 0.12.5), `npm publish`, `git push origin main --follow-tags`, verify
-`npm view @dk/jolly version` = 0.12.5 and `npx @dk/jolly@0.12.5 --help`. Homepage target already
-verified serving (200 on / and /setup; assets unchanged, no redeploy).
+### npm publish — PARKED by dk (not blocking; ship on a later outbound)
+Login now works (dk authenticated 2026-07-18): the old E404 "no permission" is GONE. Remaining
+wall is 2FA-at-publish — `npm publish` returned E403: "Two-factor authentication or granular
+access token with bypass 2fa enabled is required to publish packages." Build + dry-run CLEAN each
+attempt (dist 257.8kb, 18 files), so this is purely the 2FA challenge. dk parked it this batch.
+To ship later (0.12.4 on npm predates the speed-voyage code): `npm version patch` (-> 0.12.5),
+then EITHER `npm publish --otp=<current TOTP>` (codes expire ~30s, run immediately) OR set a
+granular @dk token with 2FA-bypass and plain `npm publish`; then `git push origin main
+--follow-tags`, verify `npm view @dk/jolly version` = 0.12.5 and `npx @dk/jolly@0.12.5 --help`.
+Homepage target already verified serving; assets unchanged, no redeploy needed.
 
 ## NEXT VOYAGE: TIER OVERLAP (dk-ruled, run autonomously; author from a FRESH context)
 
