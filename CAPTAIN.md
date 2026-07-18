@@ -4,7 +4,19 @@
 
 Binding behaviour lives in `.feature` specs and referenced `assets/**`. History lives in git. These notes carry only what the next cycle needs.
 
-## STATE (2026-07-18): OVERLAP VOYAGE IN EXECUTION; npm publish PARKED by dk
+## STATE (2026-07-18, later): OVERLAP VOYAGE CLOSED at e4225d0; HARBOUR ENTERED; publish PARKED
+
+Voyage landed: commit e4225d0 (15 files, +1604/-140), tree clean, main AHEAD OF ORIGIN BY 2
+(26e0edf notes + e4225d0 voyage) — push NOT yet approved by dk; offer with harbour exit.
+Custody re-proved voided tiers fresh: logic 202/202 (198.7s), sandbox 49/49 (863.4s),
+sandboxSerial 6/6 (807.3s). Boatswain's one read-judgment: NO broad-eval at custody (diff
+eval-neutral); harbour full regression closes it with a real run. dk asked for harbour +
+"full inspection and latency stats" — Shipwright dispatched at base e4225d0. Budget proposal
+(below, in the superseded-state section) still awaits dk's ruling; present it beside
+harbour's own regression numbers. dk also probed custody-sweep breadth — if it still reads
+as waste, put the economy question to Shipwright's audit.
+
+## SUPERSEDED STATE (kept for the ruling + harbour review)
 
 Base commit 26e0edf, everything in flight on the tree. QM pass 1 (isolation + pressure +
 @logic sweep) and pass 2 (architecture count fix + 026 stale respecification, real reclaim
