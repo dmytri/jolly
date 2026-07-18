@@ -14,6 +14,42 @@ process.env.HARNESS_RUN_ID ??= `run-${Date.now().toString(36)}-${Math.random()
   .toString(36)
   .slice(2, 6)}`;
 
+// Yesterday's weather (feature verification-economy, pressure Rule): each
+// parallel tier's worker count derives from the pressure line its own wake
+// record carries. A record carrying a pressure signal — an out-of-memory kill,
+// or peak RSS at the machine's ceiling — backs the next run off below its
+// green worker count instead of rediscovering the crash at full price; a
+// record carrying none leaves the green count standing; no record leaves the
+// configured starting prior. The record paths are the same cwd-relative
+// message streams the tier commands in RIGGING.md write.
+import { armPressureRecording, deriveWorkerCount } from "./features/support/pressure.ts";
+import { armRunEndRecording } from "./features/support/spend-ledger.ts";
+const logicWorkers = deriveWorkerCount("coverage/weather/logic.ndjson", 2);
+const sandboxWorkers = deriveWorkerCount("coverage/weather/sandbox.ndjson", 2);
+
+// Record this run's own pressure into the message stream its argv names (only
+// a tier-record run names one; focused runs, discovery, and worker children
+// record nothing). Armed here at config load so the machinery rides the run
+// config the tier command itself loads — a command that stopped loading it
+// stops recording, which is exactly what the pressure-record conformance
+// scenario reddens on.
+armPressureRecording({
+  default: 1,
+  logic: logicWorkers,
+  sandbox: sandboxWorkers,
+  sandboxSerial: 1,
+  eval: 1,
+  all: 1,
+});
+
+// Run-scoped wake reading (feature verification-economy, "The wake is read
+// run-scoped"): a sandbox tier-record run marks its completion in the spend
+// ledger at exit, so ledger readers select a completed run's record and never
+// a live overlapped sibling's partial one. Same config-load ride as the
+// pressure recorder: a command that stopped loading this config stops marking,
+// which the run-scope conformance check reddens on.
+armRunEndRecording();
+
 const common = {
   import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],
 };
@@ -45,8 +81,9 @@ export default { ...common, tags: "not @eval" };
 // toolchain fits the VM, and the lever for pipeline parallelism is a bigger
 // test-runner VM. Everything else is a light query/check that runs in parallel
 // across the isolated worker envs.
-export const logic = { ...common, tags: "@logic", parallel: 2 };
-export const sandbox = { ...common, tags: "@sandbox and not @pipeline and not @creates-env", parallel: 2 };
+export const logic = { ...common, tags: "@logic", parallel: logicWorkers };
+export const sandbox = { ...common, tags: "@sandbox and not @pipeline and not @creates-env", parallel: sandboxWorkers };
+// Serial by licence (one toolchain fits the VM), never derived from weather.
 export const sandboxSerial = { ...common, tags: "@sandbox and (@pipeline or @creates-env)", parallel: 1 };
 
 // The eval profile runs ONLY the opt-in @eval tier (feature 025). `eval` is a

@@ -32,7 +32,9 @@ import {
   leftoverTestEnvironments,
   listAllEnvironments,
   listOrganizations,
+  observeEnvironmentCreatedAt,
 } from "../support/cloud.ts";
+import { fullRegressionBudgetMs } from "../support/wake.ts";
 import {
   type AffordanceSite,
   enumerateHarnessAffordances,
@@ -679,6 +681,10 @@ Given(
   function (this: JollyWorld) {
     // The leak shape as it really stood in the org: the NAME gives nothing away,
     // the DOMAIN LABEL is the only thing that marks the environment as ours.
+    // Neither fixture carries a `created` timestamp: an environment whose age
+    // cannot be read is treated as stale by the selection seam, so this
+    // scenario pins RECOGNITION (name vs domain label); freshness protection
+    // is feature 030's, staged there with explicit `created` fixtures.
     this.notes.leakedEnvironment = {
       org: "acme",
       key: "leaked",
@@ -692,16 +698,32 @@ Given(
       name: "acme-production",
       domainLabel: "acme-production",
     } satisfies CloudEnvironment;
+    stageEnvironmentFixture(
+      this,
+      this.notes.leakedEnvironment as CloudEnvironment,
+      this.notes.bystanderEnvironment as CloudEnvironment,
+    );
   },
 );
 
+/** Stage fixture environments for the shared selection When below. Every Given
+ * that composes an in-memory environment (this feature's recognition pair,
+ * feature 030's age-gate pair) pushes here, so one When drives the one real
+ * selection seam over whatever the scenario staged. */
+export function stageEnvironmentFixture(
+  world: JollyWorld,
+  ...environments: CloudEnvironment[]
+): void {
+  const staged = (world.notes.fixtureEnvironments ??= []) as CloudEnvironment[];
+  staged.push(...environments);
+}
+
 When("the environments a run may reclaim are selected", function (this: JollyWorld) {
   // The real selection seam every reclamation path routes through.
+  const staged = (this.notes.fixtureEnvironments ?? []) as CloudEnvironment[];
+  assert.ok(staged.length > 0, "no fixture environments staged for selection");
   this.notes.selectedForReclamation = leftoverTestEnvironments(
-    [
-      this.notes.leakedEnvironment as CloudEnvironment,
-      this.notes.bystanderEnvironment as CloudEnvironment,
-    ],
+    staged,
     makeNamespace(this.runId),
     cachedStoreSpareNames(),
   );
@@ -791,6 +813,37 @@ Given(
       PRODUCT_DEFAULT_STORE_NAME,
       "the leak's Cloud name must be Jolly's product default, which is what hides it from a name-only match",
     );
+  },
+);
+
+Given(
+  "the leftover is stale, older than the full-regression wall-clock budget in {string}",
+  function (this: JollyWorld, riggingFile: string) {
+    // The staged leftover: the leaked environment (domain-label scenario) or
+    // the prior-run leftover (provisioner scenario), whichever this scenario's
+    // first Given staged.
+    const identity = (this.notes.leakedDomainLabel ?? this.notes.leftoverName) as
+      | string
+      | undefined;
+    assert.ok(
+      identity,
+      "a leftover must be staged before its age can be observed as stale",
+    );
+    // @exceptional-double: a resource age beyond the full-regression budget —
+    // elapsed wall clock cannot be produced on demand (feature 030's staleness
+    // gate). The staged leftover is real and its reclamation deletes it for
+    // real; only the age observation is injected: for this one identity the
+    // platform-served `created` is observed as one minute older than the
+    // budget the named rigging file configures, and the real age-gate
+    // arithmetic still decides staleness.
+    const budgetMs = fullRegressionBudgetMs(riggingFile);
+    const createdIso = new Date(Date.now() - budgetMs - 60_000).toISOString();
+    // Teardown registered before the injection lands; removal is idempotent.
+    let revert: (() => void) | undefined;
+    this.cleanup.register(`stale-age observation for ${identity}`, () => {
+      revert?.();
+    });
+    revert = observeEnvironmentCreatedAt(identity, createdIso);
   },
 );
 

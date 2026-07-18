@@ -4,85 +4,71 @@
 
 Binding behaviour lives in `.feature` specs and referenced `assets/**`. History lives in git. These notes carry only what the next cycle needs.
 
-## STATE (2026-07-18): OVERLAP VOYAGE ACTIVE; npm publish PARKED by dk
+## STATE (2026-07-18): OVERLAP VOYAGE IN EXECUTION; npm publish PARKED by dk
 
-Speed voyage CLOSED and PUSHED. `origin/main` at `5bdd855`. Working tree clean, package.json
-0.12.4. Overlap voyage (below) is the active work; dk deprioritized the npm publish this batch
-("not important to publish new jolly now"), so it rides a later outbound.
+Base commit 26e0edf, everything in flight on the tree. QM pass 1 (isolation + pressure +
+@logic sweep) and pass 2 (architecture count fix + 026 stale respecification, real reclaim
+proofs) both SPENT, green. **Overlapped MEASUREMENT DONE (safe partial: [sandbox ->
+sandboxSerial] || logic || eval): wall clock 1584s vs ~2035 serial warm.** Legs: eval 145.3
+(4/4), logic 237.6 contended (200/201), sandbox 874.8 (49/49), sandboxSerial 680.3 (6/6,
+ran on quiet box). Pressure recorded all lanes, concurrent peaks sum ~6.4GB vs 8.32 ceiling,
+ZERO OOM. Sandbox lane (1555s) IS the critical path; logic+eval fully shadowed. Road to
+dk's 1200 runs through the sandbox legs (org cap 2 envs binds leg-on-leg overlap — dk rules).
 
-**Delivered:** golden-capture eval (live agent, captured services — eval 9m36->~1m47, 5.4x),
-licensed spends + spend-ledger invariants, budgets in RIGGING (ratchet), resume-aware
-`jolly start` (`storeHoldsRecipeCatalog` skips satisfied recipe/deploy stages — interactive
-completion 5m26->50s), cold-start readiness gate as `@exceptional-double`. Suite ~54m -> ~34m
-warm. Full @logic conformance 55/55 green; @sandbox 49/49+6/6; @eval 4/4.
+The one measurement red: spend-ledger invariant under overlap — the check read a LIVE
+sibling's/own partial ledger ("last run" not run-scoped). Same class OBSERVED on the
+budget-fit check: it ran minute ~4 reading sandbox's partial weather record — its green was
+unsound. Spec'd the general law (verification-economy Rule "The wake is read run-scoped" +
+scenario). QM pass 3 dispatched: watch1 = [run-scoped-read scenario, ledger invariant,
+budget-fit invariant].
 
-**Budgets (RIGGING ## Tiers), set from measurement:** total 2250, logic 250 (clean 210.5s;
-voyage's own +4 @invariant scenarios grew the tier), sandbox 900, sandbox-serial 900, eval 240.
-dk's 1200 (20-min) is ASPIRATION, delivered by the overlap voyage, never a bare value edit.
+Voyage sequence: QM pass 3 -> Boatswain custody over the WHOLE voyage -> budget proposal ->
+dk RULES values. Custody advanced targets: pass 1's five + 026 domain-label recognition;
+pass 2's three; pass 3's three.
 
-### npm publish — PARKED by dk (not blocking; ship on a later outbound)
-Login now works (dk authenticated 2026-07-18): the old E404 "no permission" is GONE. Remaining
-wall is 2FA-at-publish — `npm publish` returned E403: "Two-factor authentication or granular
-access token with bypass 2fa enabled is required to publish packages." Build + dry-run CLEAN each
-attempt (dist 257.8kb, 18 files), so this is purely the 2FA challenge. dk parked it this batch.
-To ship later (0.12.4 on npm predates the speed-voyage code): `npm version patch` (-> 0.12.5),
-then EITHER `npm publish --otp=<current TOTP>` (codes expire ~30s, run immediately) OR set a
-granular @dk token with 2FA-bypass and plain `npm publish`; then `git push origin main
---follow-tags`, verify `npm view @dk/jolly version` = 0.12.5 and `npx @dk/jolly@0.12.5 --help`.
-Homepage target already verified serving; assets unchanged, no redeploy needed.
+**Budget proposal for dk (measured overlapped, ~10% headroom ratchet):** plain budget 1750
+as the OVERLAPPED regression wall-clock ceiling (measured 1584); logic 265 (237.6 contended);
+sandbox 960 (874.8); sandbox-serial 750 (680.3, ratchet DOWN from 900); eval 160 (145.3,
+ratchet DOWN from 240). REQUIRES the pending spec edit: budget-fit's plain-budget assertion
+moves from tier-SUM to the overlapped window (sum 2135 exceeds 1750 by design once legs
+overlap). Both edits land together on dk's word.
 
-## NEXT VOYAGE: TIER OVERLAP (dk-ruled, run autonomously; author from a FRESH context)
+**PENDING SPEC EDIT, rides dk's budget ruling:** verification-economy "Each tier's recorded
+wall clock fits its budget" asserts tier records SUMMED fit the plain budget — correct
+serial, wrong under overlap (sum > overlapped wall clock). When dk rules post-measurement
+values, re-spec the plain-budget assertion to the overlapped regression's wall clock (wake
+records give per-leg spans; union window is derivable), then watchbill that scenario.
 
-Goal: full regression <= 1200s by running tier legs CONCURRENTLY. Serial floor is ~34m; the
-cut comes only from overlap. dk-ruled design:
-
-1. **Isolation FIRST (the enabling blocker).** Invocation-global reclaim races a live sibling:
-   a sweep's BeforeAll reclaim deletes another run's run-namespaced scratch/env. Make reclaim
-   RUN-SCOPED (touch only this run's leftovers + age-stale ones, never a live sibling's). Until
-   this holds, concurrent invocations corrupt each other. This is harness/verification-support
-   work (QM scope), spec'd as a scenario: "two concurrent cucumber invocations do not reclaim
-   each other's live resources."
-2. **Resource-aware via THE WAKE (dk: "we can/should use the wake for this").** OOM -> rerun ->
-   latency. Tier runs record memory pressure (peak RSS, OOM/OOM-kill events) into the weather
-   stream ALONGSIDE wall clock (same `<tier>.ndjson`, no new artifact — upstream weather law
-   already names pressure signals). The concurrency prior READS the record and backs off on live
-   pressure rather than crashing. An OOM is a RED harness-defect finding, never a silent rerun.
-   Scenario shape mirrors the existing "tier run writes its wall-clock record" @invariant.
-3. **Scope: SAFE PARTIAL FIRST, then tighten (dk-ruled).** Overlap the cheap tiers (logic ||
-   eval ~210+157) alongside sandbox first; land ~1400-1500s; then let wake data guide tightening
-   toward 1200. NOT max-concurrency-from-the-start (OOM-churn risk on 7.9 GB).
-4. **Budgets re-derived UNDER concurrency.** HARD LESSON this session: logic measured 210.5s idle
-   vs 306.7s under contention. Serial-derived budgets DO NOT transfer to concurrent operation.
-   Every per-tier budget must be re-measured under the overlap it will actually run in; dk
-   re-rules the values from that measurement.
-
-Order: author isolation + wake-pressure scenarios -> watchbill -> QM builds run-scoped reclaim +
-pressure recording -> prove isolation (concurrent invocations, no cross-reclaim) -> measure
-overlapped -> re-derive budgets -> dk rules final values.
+### npm publish — PARKED by dk (ship on a later outbound)
+0.12.4 on npm predates speed-voyage code. Login works; wall is 2FA-at-publish (E403).
+To ship: `npm version patch` then `npm publish --otp=<current TOTP>` (run immediately,
+~30s expiry) OR granular @dk token with 2FA-bypass; then `git push origin main
+--follow-tags`, verify `npm view @dk/jolly version` and `npx @dk/jolly@<v> --help`.
+Homepage verified serving; assets unchanged, no redeploy.
 
 ## THE ONE FACT NO MECHANISM CARRIES ANY MORE
 
 **`deepseek/deepseek-v4-flash` is Jolly's FIXED `@eval` baseline model. An eval red is an
 affordance fault, never a model fault.** Never propose a different eval model; never touch
-`HARNESS_EVAL_MODEL`. On any `@eval` red, fix Jolly's affordance (the `assets/skills/jolly` copy
-or the `/setup` page). If it must bind QM, it becomes a `.feature` scenario, never a note.
+`HARNESS_EVAL_MODEL`. On any `@eval` red, fix Jolly's affordance (the `assets/skills/jolly`
+copy or the `/setup` page). If it must bind QM, it becomes a `.feature` scenario, never a note.
 
-## Resume-loop mechanics (proven this session — carry until upstream mechanizes it)
+## Resume-loop mechanics (proven; carry until upstream mechanizes it)
 
 Captain hand-carries QM/Crew resume across detached runs: QM launches a tier detached, ends its
 turn; Captain waits on the run, SendMessages QM on exit. WAIT CORRECTLY:
-- `tail --pid=<EXACT NUMBER>` only. NEVER pgrep in the waiter: node's comm is "MainThread" here
-  (so `pgrep -x node` finds nothing), and `pgrep -f cucumber` self-matches the waiter's own
-  command line. Both trapped a full HOUR this session.
-- Capture the exact wrapper pid in the FOREGROUND first (read it yourself), then background a
-  pure `tail --pid=<n>`. A nested Crew mate cannot be signalled through QM — tell QM the run
+- `tail --pid=<EXACT NUMBER>` only. NEVER pgrep in the waiter: node's comm is "MainThread"
+  (`pgrep -x node` finds nothing) and `pgrep -f cucumber` self-matches the waiter. Both
+  trapped a full HOUR once.
+- Capture the exact wrapper pid in the FOREGROUND first, then background a pure
+  `tail --pid=<n>`. A nested Crew mate cannot be signalled through QM — tell QM the run
   exited and to collect/re-run itself rather than wait on a nested child.
 
 ## Upstream (~/shipshape, dk: edit directly, no ceremony)
 
-- 0.13.29 installed; budget + licensed-spend law proven live this voyage.
-- Resume-on-signal machinery is the top work item — hand-carried ~20 times this session, cost an
-  hour to waiter bugs. Mechanize: resume a role on its detached run's exit signal.
+- 0.13.29 installed; budget + licensed-spend law proven live.
+- Resume-on-signal machinery is the top work item — mechanize: resume a role on its
+  detached run's exit signal.
 - Retire stale AGENTS.md local blockers-first addition at next harbour (AGENTS is Shipwright's).
 
 ## Fresh-VM fitting-out (git-invisible, manual)
@@ -91,7 +77,7 @@ turn; Captain waits on the run, SendMessages QM on exit. WAIT CORRECTLY:
 1. `npm ci`; confirm `node_modules/.bin/cucumber-js` resolves to `@cucumber/cucumber`.
 2. `.env`: `JOLLY_SALEOR_CLOUD_TOKEN` + `HARNESS_OPENROUTER_API_KEY`.
 3. `vercel login` (operator, browser) — @sandbox only; eval needs no Vercel session.
-4. `gh auth setup-git`. **npm publish also needs `npm login` / @dk publish token (see blocker).**
+4. `gh auth setup-git`. npm publish also needs `npm login` / @dk publish token (see parked).
 
 ## Held product rules
 
@@ -115,8 +101,8 @@ turn; Captain waits on the run, SendMessages QM on exit. WAIT CORRECTLY:
 - `report.html`/`report.json` tracked but are wake.
 - `vercel login` device-flow children orphan to init and poll ~5-10 min before teardown reaps
   them — reap once the device URL is captured. Resource pressure; overlap-voyage relevant.
-- Wake-wipe incident (unverified): out-of-band coverage/ rewrite ~13:03-13:05 this day destroyed
-  a ledger+shims; watch for recurrence.
+- Wake-wipe incident (unverified): out-of-band coverage/ rewrite ~13:03-13:05 on 2026-07-18
+  destroyed a ledger+shims; watch for recurrence.
 
 ## Standing rules, learned the hard way
 
@@ -128,8 +114,8 @@ turn; Captain waits on the run, SendMessages QM on exit. WAIT CORRECTLY:
 - Interactive-path changes verify through `features/support/pty.ts` `runUnderPty`.
 - `--max-old-space-size=4096` on this 7.9 GB box.
 - dk wants live play-by-play; resume a dispatched agent on the observed signal, never poll.
-- A tier's wall clock inflates hard under contention; measure budgets on an IDLE deck (or, for
-  overlap, under the concurrency it will actually run in).
+- A tier's wall clock inflates hard under contention; measure budgets under the concurrency
+  they will actually run in.
 - Do not let a remedy outrun its measurement; never let an approved plan survive a refuted premise.
 - One writer at a time; dispatch thin (role + base commit); hold Captain writes while a role holds the deck.
 - Conformance family (@logic @property/@invariant) must be green before custody — it catches

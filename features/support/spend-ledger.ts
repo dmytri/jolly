@@ -17,11 +17,15 @@
 //     and records one class entry per resource class it actually builds.
 // The ledger lives in the wake (git-ignored coverage/weather/), one JSON
 // object per line, appended across invocations; readers select one run by its
-// run id. Recording is armed only for the sandbox tier, so logic runs write
+// run id. A sandbox tier-record run's coordinating process appends a run-end
+// entry at exit (armRunEndRecording, wired in cucumber.js), so completion is
+// legible in the ledger itself and readers stay run-scoped under overlapped
+// siblings. Recording is armed only for the sandbox tier, so logic runs write
 // nothing.
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { VERCEL_OBS_PATH } from "./eval-captures.ts";
+import { messageRecordPathFromArgv } from "./pressure.ts";
 import { REPO_ROOT } from "./repo-root.ts";
 import { runId } from "./sandbox.ts";
 
@@ -48,7 +52,8 @@ export type SpendKind =
   | (typeof TOOLCHAIN_SPENDS)[number]
   | "environment-creation"
   | "shared-provisioning"
-  | "run-start";
+  | "run-start"
+  | "run-end";
 
 export interface SpendEntry {
   /** The run id (HARNESS_RUN_ID) the spend belongs to. */
@@ -265,6 +270,54 @@ export function armSandboxSpendRecording(): void {
   }
 }
 
+// ─── Run-end: completion, legible in the ledger itself ──────────────────────
+
+/** True when this process's argv selects a sandbox profile: the runs whose
+ * ledger writes need a completion marker. */
+function sandboxProfileSelected(argv: readonly string[]): boolean {
+  let profile: string | undefined;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!;
+    if (arg === "-p" || arg === "--profile") profile = argv[i + 1];
+    else if (arg.startsWith("--profile=")) profile = arg.slice("--profile=".length);
+  }
+  return profile === "sandbox" || profile === "sandboxSerial";
+}
+
+/**
+ * Arm run-end recording for this run: a sandbox tier-record run appends one
+ * `run-end` entry at its coordinating process's exit, so a run-scoped reader
+ * can tell a completed run from a live sibling's partial one (feature
+ * verification-economy, Rule "The wake is read run-scoped"). Called from
+ * cucumber.js at config load, mirroring the pressure recorder's gates: a
+ * worker child, a run naming no `message:<path>` record target (focused runs,
+ * discovery, step-usage), and every non-sandbox profile arm nothing, so only
+ * the sandbox tier's own record runs mark completion. A crashed run appends no
+ * run-end and correctly never reads as completed.
+ */
+export function armRunEndRecording(): void {
+  if (process.env.CUCUMBER_WORKER_ID !== undefined) return; // worker child
+  if (messageRecordPathFromArgv(process.argv) === undefined) return; // not a tier-record run
+  if (!sandboxProfileSelected(process.argv)) return; // the ledger is sandbox-only
+  process.on("exit", () => {
+    const record: SpendEntry = {
+      run: runId(),
+      tier: "sandbox",
+      at: Date.now(),
+      scenario: "(run)",
+      spend: "run-end",
+    };
+    try {
+      mkdirSync(join(REPO_ROOT, "coverage", "weather"), { recursive: true });
+      appendFileSync(SPEND_LEDGER_PATH, JSON.stringify(record) + "\n");
+    } catch (error) {
+      // Loud, not fatal: a run missing its run-end never reads as completed,
+      // which is exactly what the run-scope conformance check guards.
+      process.stderr.write(`run-end record write failed: ${String(error)}\n`);
+    }
+  });
+}
+
 // ─── Reading and judging the ledger ─────────────────────────────────────────
 
 /** Every parseable entry of the ledger, in append order. */
@@ -285,11 +338,28 @@ export function readSpendLedger(path: string = SPEND_LEDGER_PATH): SpendEntry[] 
   return entries;
 }
 
-/** The entries of the ledger's most recent run: the last entry's run id. */
+/**
+ * The entries of the ledger's most recent COMPLETED run: the latest run id
+ * carrying a `run-end` entry, appended by a sandbox tier run's coordinating
+ * process at exit (armRunEndRecording). Run-scoped per feature
+ * verification-economy's Rule "The wake is read run-scoped": a live sibling
+ * invocation appends entries but no `run-end` until it exits, so its partial
+ * run is never selected, even when it appended last. Where the whole ledger
+ * carries no `run-end` — a wake recorded before the run-end recorder existed —
+ * the last entry's run id stands: no writer of that era runs as an overlapped
+ * sibling.
+ */
 export function lastRunEntries(entries: SpendEntry[]): SpendEntry[] {
-  const last = entries[entries.length - 1];
-  if (!last) return [];
-  return entries.filter((entry) => entry.run === last.run);
+  let completed: string | undefined;
+  for (const entry of entries) {
+    if (entry.spend === "run-end") completed = entry.run;
+  }
+  if (completed === undefined) {
+    const last = entries[entries.length - 1];
+    if (!last) return [];
+    completed = last.run;
+  }
+  return entries.filter((entry) => entry.run === completed);
 }
 
 /**

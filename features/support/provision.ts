@@ -35,7 +35,7 @@
 // stand up its store surfaces the fault loudly. The Cloud token is present by
 // fitting-out; the provisioner reads it from the environment.
 import { spawnSync } from "node:child_process";
-import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -50,6 +50,7 @@ import { createEnvironment, type CliRunner } from "./env-factory.ts";
 import { recordEnvironmentCreationCapture } from "./eval-captures.ts";
 import { CleanupRegistry, makeNamespace, runId, workerNamespace, type CleanupFailure } from "./sandbox.ts";
 import { withSharedProvisioningSpend } from "./spend-ledger.ts";
+import { fullRegressionBudgetMs } from "./wake.ts";
 import { REPO_ROOT } from "./repo-root.ts";
 import { STOREFRONT_TEMPLATE_DIRNAME } from "./storefront-fixture.ts";
 import { SHARED_DEPLOY_MARKER_FILENAME } from "./deployed-storefront.ts";
@@ -146,9 +147,12 @@ export async function teardownSharedEnvironment(): Promise<CleanupFailure[]> {
 }
 
 /**
- * Delete every OTHER run's jolly-cannon-fodder-namespaced Cloud environment and
- * local scratch dir, sparing this run's own namespace and — by EXACT name,
- * not by prefix — the one shared store the current marker file names. This
+ * Delete every OTHER run's STALE jolly-cannon-fodder-namespaced Cloud environment
+ * and local scratch dir — stale meaning older than the full-regression
+ * wall-clock budget in RIGGING.md (feature 030), so a live sibling
+ * invocation's younger resources are always left alone — sparing this run's
+ * own namespace and — by EXACT name, not by prefix — the one shared store the
+ * current marker file names. This
  * is the harness's own janitor: called once per cucumber invocation from an
  * unconditional BeforeAll (hooks.ts), so leftovers from a crashed/
  * interrupted/killed run are reclaimed proactively — regardless of which
@@ -182,17 +186,16 @@ export function cachedStoreSpareNames(): Set<string> {
 export async function reclaimStaleResources(
   token: string = process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? "",
 ): Promise<CloudEnvironment[]> {
-  if (token.trim() === "") return [];
   const runNamespace = makeNamespace(runId());
-  const spareNames = cachedStoreSpareNames();
-  const leftovers = leftoverTestEnvironments(
-    await listAllEnvironments(token),
-    runNamespace,
-    spareNames,
-  );
-  for (const env of leftovers) {
-    await deleteEnvironment(token, env.org, env.key);
-  }
+  const staleAfterMs = fullRegressionBudgetMs();
+  const nowMs = Date.now();
+  // Local scratch sweep, run-scoped by AGE (feature 030): a namespaced entry is
+  // stale once it is older than the full-regression wall-clock budget, since no
+  // live invocation can be older than the whole regression's ceiling. A younger
+  // entry belongs to a live sibling invocation and is left alone, so concurrent
+  // cucumber invocations never reclaim each other's live scratch state. The
+  // local sweep needs no Cloud token: local leftovers are reclaimable whether
+  // or not this invocation can reach the Cloud.
   for (const entry of readdirSync(tmpdir())) {
     if (
       entry.startsWith("jolly-cannon-fodder-") &&
@@ -202,8 +205,27 @@ export async function reclaimStaleResources(
       entry !== SHARED_STORE_MARKER_FILENAME &&
       entry !== SHARED_DEPLOY_MARKER_FILENAME
     ) {
-      rmSync(join(tmpdir(), entry), { recursive: true, force: true });
+      const entryPath = join(tmpdir(), entry);
+      let mtimeMs: number;
+      try {
+        mtimeMs = statSync(entryPath).mtimeMs;
+      } catch {
+        continue; // vanished mid-sweep: a sibling invocation already handled it
+      }
+      if (nowMs - mtimeMs <= staleAfterMs) continue; // young: a live sibling's
+      rmSync(entryPath, { recursive: true, force: true });
     }
+  }
+  if (token.trim() === "") return [];
+  const spareNames = cachedStoreSpareNames();
+  const leftovers = leftoverTestEnvironments(
+    await listAllEnvironments(token),
+    runNamespace,
+    spareNames,
+    staleAfterMs,
+  );
+  for (const env of leftovers) {
+    await deleteEnvironment(token, env.org, env.key);
   }
   return leftovers;
 }

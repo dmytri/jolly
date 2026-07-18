@@ -1,6 +1,7 @@
 // Saleor Cloud API helpers shared by the sandbox harness (provisioning,
 // teardown) and the feature 012 environment-creation steps. All access uses
 // the same runtime JOLLY_SALEOR_CLOUD_TOKEN Jolly itself reads (feature 023).
+import { fullRegressionBudgetMs } from "./wake.ts";
 
 export const CLOUD_API = "https://cloud.saleor.io/platform/api";
 
@@ -19,6 +20,11 @@ export interface CloudEnvironment {
   key: string;
   name: string;
   domainLabel?: string;
+  /** The platform's creation timestamp (ISO 8601), as the environments listing
+   * serves it. Absent when the source carries none; an environment whose age
+   * cannot be read is treated as stale, so an unattributable leftover never
+   * squats an org slot forever. */
+  created?: string;
 }
 
 /** Transient Cloud-platform statuses: the request is worth repeating as-is. */
@@ -106,6 +112,7 @@ export async function listAllEnvironments(
       key: string;
       name: string;
       domain_label?: string;
+      created?: string;
     }>;
     for (const env of envs) {
       all.push({
@@ -114,6 +121,7 @@ export async function listAllEnvironments(
         name: String(env.name),
         domainLabel:
           env.domain_label !== undefined ? String(env.domain_label) : undefined,
+        created: env.created !== undefined ? String(env.created) : undefined,
       });
     }
   }
@@ -149,9 +157,17 @@ export async function deleteEnvironment(
 
 /**
  * Environments left behind by PREVIOUS runs: jolly-cannon-fodder-namespaced names that
- * do not belong to the given run namespace. Feature 012: a leftover blocks
- * creation — non-interactive runs skip, naming it; it is never auto-deleted
- * here because this run cannot positively attribute it to itself.
+ * do not belong to the given run namespace and are STALE by age. Feature 012: a
+ * leftover blocks creation — non-interactive runs skip, naming it; it is never
+ * auto-deleted here because this run cannot positively attribute it to itself.
+ *
+ * Reclamation is run-scoped (feature 030): a namespaced environment is stale
+ * once it is older than the full-regression wall-clock budget in RIGGING.md,
+ * since no live invocation can be older than the whole regression's ceiling. A
+ * younger namespaced environment belongs to a live sibling invocation and is
+ * left alone, so concurrent cucumber invocations never reclaim each other's
+ * live resources. An environment whose age cannot be read (no `created`) is
+ * treated as stale, so an unattributable leftover never squats a slot forever.
  *
  * `spareNames` exempts specific names by exact match — used to protect the
  * ONE currently-cached shared store (features/support/provision.ts's marker
@@ -165,15 +181,59 @@ export function leftoverTestEnvironments(
   environments: CloudEnvironment[],
   currentRunNamespace: string,
   spareNames: ReadonlySet<string> = new Set(),
+  staleAfterMs: number = fullRegressionBudgetMs(),
 ): CloudEnvironment[] {
+  const nowMs = Date.now();
   return environments.filter((env) => {
     const identities = environmentIdentities(env);
     return (
       identities.some((id) => id.startsWith("jolly-cannon-fodder-")) &&
       !identities.some((id) => id.startsWith(currentRunNamespace)) &&
-      !identities.some((id) => spareNames.has(id))
+      !identities.some((id) => spareNames.has(id)) &&
+      environmentIsStale(env, nowMs, staleAfterMs)
     );
   });
+}
+
+/**
+ * Injected `created` observations, keyed by environment identity (Cloud name or
+ * domain label). @exceptional-double: a resource age beyond the full-regression
+ * budget — elapsed wall clock cannot be produced on demand (feature 026's
+ * staged-leftover pair, via feature 030's staleness gate). The staged leftover
+ * is REAL and its reclamation deletes it for real; only the age OBSERVATION is
+ * injected, for the named identity alone, so every other environment keeps the
+ * `created` the platform serves and the real age-gate arithmetic below still
+ * decides staleness.
+ */
+const injectedCreatedObservations = new Map<string, string>();
+
+/** Observe the named environment as created at `createdIso` (ISO 8601).
+ * Returns the removal, for scenario teardown. */
+export function observeEnvironmentCreatedAt(
+  identity: string,
+  createdIso: string,
+): () => void {
+  injectedCreatedObservations.set(identity, createdIso);
+  return () => {
+    injectedCreatedObservations.delete(identity);
+  };
+}
+
+/** True when the environment is older than the staleness threshold, or its age
+ * cannot be read at all (absent or unparseable `created`). */
+function environmentIsStale(
+  env: CloudEnvironment,
+  nowMs: number,
+  staleAfterMs: number,
+): boolean {
+  const injected = environmentIdentities(env)
+    .map((id) => injectedCreatedObservations.get(id))
+    .find((created) => created !== undefined);
+  const created = injected ?? env.created;
+  if (created === undefined) return true;
+  const createdMs = Date.parse(created);
+  if (!Number.isFinite(createdMs)) return true;
+  return nowMs - createdMs > staleAfterMs;
 }
 
 /**

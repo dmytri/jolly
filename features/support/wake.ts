@@ -20,6 +20,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { REPO_ROOT } from "./repo-root.ts";
 
 export interface ScenarioCost {
@@ -174,36 +175,56 @@ Given("the fixture step runs", async function () {
  * A scratch project a configured tier command runs against: it carries the tier
  * profile names the commands select with `-p`, and a two-scenario fixture in
  * place of a real tier. It sits inside the wake (git-ignored) so a run resolves
- * the project's own cucumber install by walking up to the repo root, and it
- * carries its own config, so the project's hooks and support are not loaded into
- * the inner run.
+ * the project's own cucumber install by walking up to the repo root. Its
+ * profiles override `paths` and `import`, so the project's hooks and support
+ * are not loaded into the inner run — but by default they EXTEND the real
+ * project run config, so the config-load machinery a tier command really loads
+ * (the pressure recorder, the weather-derived worker counts) runs in the
+ * fixture run exactly as in a real one: a real command whose config stopped
+ * recording reddens here rather than passing against a fixture that records on
+ * its own. `wireRunConfig: false` is the planted-red form — the same command
+ * over a config with no recording machinery.
  */
-export function fixtureTier(label: string): FixtureTier {
+export function fixtureTier(
+  label: string,
+  options: { wireRunConfig?: boolean } = {},
+): FixtureTier {
+  const wire = options.wireRunConfig ?? true;
   const dir = join(REPO_ROOT, "coverage", "weather", `fixture-${process.pid}-${label}`);
   const remove = () => rmSync(dir, { recursive: true, force: true });
   // The commands write their record under a cwd-relative coverage/weather path.
   mkdirSync(join(dir, "coverage", "weather"), { recursive: true });
   writeFileSync(join(dir, "fixture.feature"), FIXTURE_FEATURE, "utf8");
   writeFileSync(join(dir, "fixture-steps.mjs"), FIXTURE_STEPS, "utf8");
-  const profile = {
+  const overrides = {
     paths: ["fixture.feature"],
     import: ["fixture-steps.mjs"],
   };
-  writeFileSync(
-    join(dir, "cucumber.mjs"),
-    [
-      `const profile = ${JSON.stringify(profile)};`,
-      "export default profile;",
-      "export const logic = profile;",
-      "export const sandbox = profile;",
-      "export const sandboxSerial = profile;",
-      "const evalProfile = profile;",
-      "export { evalProfile as eval };",
-      "export const all = profile;",
-      "",
-    ].join("\n"),
-    "utf8",
-  );
+  const config = wire
+    ? [
+        `import * as base from ${JSON.stringify(pathToFileURL(join(REPO_ROOT, "cucumber.js")).href)};`,
+        `const overrides = ${JSON.stringify(overrides)};`,
+        "export default { ...base.default, ...overrides };",
+        "export const logic = { ...base.logic, ...overrides };",
+        "export const sandbox = { ...base.sandbox, ...overrides };",
+        "export const sandboxSerial = { ...base.sandboxSerial, ...overrides };",
+        "const evalProfile = { ...base.eval, ...overrides };",
+        "export { evalProfile as eval };",
+        "export const all = { ...base.all, ...overrides };",
+        "",
+      ].join("\n")
+    : [
+        `const profile = ${JSON.stringify(overrides)};`,
+        "export default profile;",
+        "export const logic = profile;",
+        "export const sandbox = profile;",
+        "export const sandboxSerial = profile;",
+        "const evalProfile = profile;",
+        "export { evalProfile as eval };",
+        "export const all = profile;",
+        "",
+      ].join("\n");
+  writeFileSync(join(dir, "cucumber.mjs"), config, "utf8");
   return {
     dir,
     scenarioNames: [
@@ -244,6 +265,25 @@ export function readTierBudgets(riggingFile: string): TierBudgets {
     else budgets.perTierSeconds[suffix.slice(1)] = Number(seconds);
   }
   return budgets;
+}
+
+/**
+ * The plain full-regression wall-clock budget from `RIGGING.md`, in
+ * milliseconds. This is the staleness threshold reclamation's age gate uses
+ * (feature 030): no live invocation can be older than the whole regression's
+ * ceiling, so a namespaced leftover older than this belongs to no live run.
+ * Loud when absent: an age gate with no threshold would either reclaim a live
+ * sibling's resources or protect every leftover forever.
+ */
+export function fullRegressionBudgetMs(riggingFile = "RIGGING.md"): number {
+  const budgets = readTierBudgets(riggingFile);
+  if (budgets.plainSeconds === undefined) {
+    throw new Error(
+      `${riggingFile} configures no plain full-regression budget under "## Tiers" ` +
+        `(a "- budget: <seconds>" line); the reclamation age gate needs it`,
+    );
+  }
+  return budgets.plainSeconds * 1000;
 }
 
 /** The kebab-case tier name a record path carries: `sandboxSerial` → `sandbox-serial`. */
@@ -353,16 +393,22 @@ export interface TierRun {
 
 /** Run a tier command exactly as configured, against the fixture tier. */
 export function runTierCommand(tier: FixtureTier, command: TierCommand): TierRun {
+  // The command is verbatim; only the environment names where its `npx`
+  // resolves the project's own cucumber, so the run installs nothing. The
+  // spawned command is a FRESH coordinating invocation, never a worker of the
+  // run that spawned it, so the inherited cucumber worker id is dropped: kept,
+  // it would disarm the inner run's config-load machinery (the pressure
+  // recorder guards against recording from worker children).
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    PATH: `${join(REPO_ROOT, "node_modules", ".bin")}:${process.env.PATH ?? ""}`,
+  };
+  delete env.CUCUMBER_WORKER_ID;
   const run = spawnSync("sh", ["-c", command.command], {
     cwd: tier.dir,
     encoding: "utf8",
     timeout: 120_000,
-    // The command is verbatim; only the environment names where its `npx`
-    // resolves the project's own cucumber, so the run installs nothing.
-    env: {
-      ...process.env,
-      PATH: `${join(REPO_ROOT, "node_modules", ".bin")}:${process.env.PATH ?? ""}`,
-    },
+    env,
   });
   const output = `${run.stdout ?? ""}\n${run.stderr ?? ""}`;
   if (run.status !== 0) {

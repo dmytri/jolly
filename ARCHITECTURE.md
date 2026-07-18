@@ -37,7 +37,7 @@ jolly/
 │       └── start-close.ts   # Interactive close/summary display
 ├── features/                # BDD specs (Gherkin .feature files)
 │   ├── step_definitions/    # Cucumber step definitions (one per feature)
-│   │   ├── *.steps.ts       # 32 step-definition files
+│   │   ├── *.steps.ts       # 33 step-definition files
 │   │   └── shared.steps.ts  # Shared step definitions
 │   └── support/             # Test harness + shared support
 │       ├── hooks.ts         # Cucumber hooks (BeforeAll/AfterAll/Before/After)
@@ -172,7 +172,7 @@ that tool under its own auth. The deprecated `saleor/cli` is never invoked.
 
 **Name:** Cucumber-based multi-tier verification suite
 
-**Description:** 30 Gherkin feature files covering the full command surface. Three test tiers:
+**Description:** 31 Gherkin feature files covering the full command surface. Three test tiers:
 - **`@logic`** — parallel, fast, local behavior checks (output envelope shape, redaction, host enumeration, pure helpers)
 - **`@sandbox`** — real-account, side-effecting tests against Saleor Cloud + Vercel; resources are `jolly-cannon-fodder`-namespaced and torn down
 - **`@eval`** — opt-in live agent evaluation (requires `HARNESS_OPENROUTER_API_KEY`); required green/red gate

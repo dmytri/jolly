@@ -1,16 +1,13 @@
-// Feature verification-economy — three derived checks that make the cost of the
-// suite observable (@logic @invariant):
-//   - a tier run through its configured command writes that tier's wall-clock
-//     record,
-//   - an interactive scenario waits for the prompt it is answering rather than
-//     for a guessed delay, and
-//   - an interactive scenario reads the output it asserts on rather than
-//     whatever a timer caught.
+// Feature verification-economy — derived checks that make the cost of the
+// suite observable (@logic @invariant): the wall-clock and pressure records a
+// tier command writes into the wake, prompt-observed interactive waits and
+// reads, once-per-run ambient provisioning, the licensed-spend ledger join,
+// run-scoped wake reading, and the tier budgets.
 // All are verification support; each is proven honest by a planted red inside
 // its own scenario.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
-import { statSync } from "node:fs";
+import { mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { REPO_ROOT } from "../support/repo-root.ts";
 import type { JollyWorld } from "../support/world.ts";
@@ -22,6 +19,7 @@ import {
   readTierWallClock,
   readWakeRecord,
   runTierCommand,
+  tierNameFromRecordPath,
   withoutRecordWrite,
   type BudgetJudgment,
   type ScenarioCost,
@@ -30,6 +28,14 @@ import {
   type TierCommand,
   type TierRun,
 } from "../support/wake.ts";
+import {
+  deriveWorkerCount,
+  oomKillFindings,
+  readPressureRecord,
+  type OomFinding,
+  type PressureRecord,
+  type TierPressure,
+} from "../support/pressure.ts";
 import {
   duplicateSharedClasses,
   lastRunEntries,
@@ -57,6 +63,14 @@ import {
   findUnguardedAmbientProvisioning,
   type ProvisionViolation,
 } from "../support/ambient-provisioning.ts";
+import {
+  enumerateWakeReaderSelections,
+  runScopeViolations,
+  writeWakeReaderFixture,
+  WAKE_READERS,
+  type ReaderSelection,
+  type WakeReaderFixture,
+} from "../support/wake-run-scope.ts";
 
 Given(
   "the tier commands configured in {string}",
@@ -143,6 +157,247 @@ Then(
       record,
       undefined,
       `a tier command carrying no record-writing flag still left a wake record:\n${stripped.command}`,
+    );
+  },
+);
+
+// ─── The wake records the pressure a run ran under ──────────────────────────
+
+Then(
+  "that tier's wake record should carry the run's worker count, its peak resident set size, and any out-of-memory kill events alongside its wall-clock record",
+  function (this: JollyWorld) {
+    const command = this.notes.tierCommand as TierCommand;
+    const run = this.notes.tierRun as TierRun;
+    assert.ok(
+      run.recordPath,
+      `the tier command "${command.key}" writes no wake record:\n${command.command}`,
+    );
+    // Alongside: the same stream still carries the wall-clock record.
+    const wallClock = readWakeRecord(run.recordPath);
+    assert.ok(
+      wallClock && wallClock.scenarios.length > 0,
+      `the tier command "${command.key}" wrote no wall-clock record at ${run.recordPath}`,
+    );
+    const pressure = readPressureRecord(run.recordPath);
+    assert.ok(
+      pressure,
+      `the tier command "${command.key}" recorded no memory pressure at ` +
+        `${run.recordPath}; the run config the command loads must append the ` +
+        `pressure line the overlap voyage reads its concurrency prior from`,
+    );
+    assert.ok(
+      Number.isInteger(pressure.workers) && pressure.workers >= 1,
+      `the pressure record must carry the run's worker count; got ${String(pressure.workers)}`,
+    );
+    assert.ok(
+      pressure.peakRssBytes > 0,
+      `the pressure record must carry a sampled peak resident set size; got ${String(pressure.peakRssBytes)}`,
+    );
+    assert.ok(
+      pressure.memoryCeilingBytes > 0,
+      `the pressure record must carry the run's memory ceiling; got ${String(pressure.memoryCeilingBytes)}`,
+    );
+    assert.ok(
+      Array.isArray(pressure.oomKills),
+      "the pressure record must carry its out-of-memory kill events, empty when none occurred",
+    );
+  },
+);
+
+Then(
+  "a configured tier command that records no memory pressure should redden the check",
+  { timeout: 130_000 },
+  function (this: JollyWorld) {
+    const configured = this.notes.tierCommand as TierCommand;
+    // The recording rides the run config the command loads, so the plant is the
+    // SAME configured command over a config with the recording machinery
+    // unwired — the run still writes its wall-clock record, records no
+    // pressure, and must read as pressure-less, which is what reddens the check.
+    const tier = fixtureTier("no-pressure-wiring", { wireRunConfig: false });
+    this.cleanup.register("wake fixture tier (no pressure wiring)", () => tier.remove());
+    const run = runTierCommand(tier, configured);
+    assert.ok(
+      run.recordPath,
+      "the planted run must still write its wake record; only the pressure wiring is unwired",
+    );
+    const wallClock = readWakeRecord(run.recordPath);
+    assert.ok(
+      wallClock && wallClock.scenarios.length > 0,
+      "the planted run must still write its wall-clock record",
+    );
+    assert.equal(
+      readPressureRecord(run.recordPath),
+      undefined,
+      "a run whose config records no memory pressure must read as pressure-less, so the presence check reddens",
+    );
+  },
+);
+
+Given(
+  "a tier's weather record carrying a pressure signal such as an out-of-memory kill or a peak resident set size at the run's configured memory ceiling",
+  function (this: JollyWorld) {
+    // Fixture records in the wake (git-ignored): one per named signal kind, and
+    // one clean record for the no-signal prior. All carry the same green worker
+    // count, so the backoff is legible against it.
+    const dir = join(REPO_ROOT, "coverage", "weather", `fixture-pressure-${process.pid}`);
+    this.cleanup.register(`pressure fixture records ${dir}`, () => {
+      rmSync(dir, { recursive: true, force: true });
+    });
+    mkdirSync(dir, { recursive: true });
+    const greenWorkers = 2;
+    const ceiling = 8_000_000_000;
+    const write = (name: string, pressure: PressureRecord): string => {
+      const recordPath = join(dir, name);
+      writeFileSync(recordPath, `${JSON.stringify({ pressure })}\n`, "utf8");
+      return recordPath;
+    };
+    this.notes.greenWorkers = greenWorkers;
+    this.notes.oomRecordPath = write("oom.ndjson", {
+      workers: greenWorkers,
+      peakRssBytes: ceiling / 2,
+      memoryCeilingBytes: ceiling,
+      oomKills: [
+        { pid: 4242, comm: "node", raw: "Out of memory: Killed process 4242 (node)" },
+      ],
+    });
+    this.notes.ceilingRecordPath = write("at-ceiling.ndjson", {
+      workers: greenWorkers,
+      peakRssBytes: ceiling,
+      memoryCeilingBytes: ceiling,
+      oomKills: [],
+    });
+    this.notes.cleanRecordPath = write("clean.ndjson", {
+      workers: greenWorkers,
+      peakRssBytes: ceiling / 2,
+      memoryCeilingBytes: ceiling,
+      oomKills: [],
+    });
+  },
+);
+
+When(
+  "the tier's next run derives its worker count from the record",
+  function (this: JollyWorld) {
+    // A fallback distinct from every fixture's recorded count: a derivation
+    // that ignored the record would surface as this value, not as a backoff.
+    const fallback = 7;
+    this.notes.derivedFromOom = deriveWorkerCount(
+      this.notes.oomRecordPath as string,
+      fallback,
+    );
+    this.notes.derivedFromCeiling = deriveWorkerCount(
+      this.notes.ceilingRecordPath as string,
+      fallback,
+    );
+    this.notes.derivedFromClean = deriveWorkerCount(
+      this.notes.cleanRecordPath as string,
+      fallback,
+    );
+  },
+);
+
+Then(
+  "the derived worker count should be lower than the record's green worker count",
+  function (this: JollyWorld) {
+    const green = this.notes.greenWorkers as number;
+    const derivations: Array<[string, number]> = [
+      ["an out-of-memory kill", this.notes.derivedFromOom as number],
+      ["a peak resident set size at the ceiling", this.notes.derivedFromCeiling as number],
+    ];
+    for (const [signal, derived] of derivations) {
+      assert.ok(
+        derived < green,
+        `a record carrying ${signal} must back the next run off below its green ` +
+          `worker count ${green} instead of rediscovering the crash; derived ${derived}`,
+      );
+      assert.ok(
+        derived >= 1,
+        `the backed-off worker count must stay a runnable count; derived ${derived}`,
+      );
+    }
+  },
+);
+
+Then(
+  "a record carrying no pressure signal should leave the recorded green worker count standing as the prior",
+  function (this: JollyWorld) {
+    assert.equal(
+      this.notes.derivedFromClean,
+      this.notes.greenWorkers,
+      "a clean record's green worker count is yesterday's weather and must stand as the prior",
+    );
+  },
+);
+
+Given(
+  "the pressure record each tier's last run wrote into the wake",
+  function (this: JollyWorld) {
+    // Completed records only: a tier executing right now (this run's own tier,
+    // mid-write) has no completed last run on record. Record PRESENCE is the
+    // pressure-record scenario's job, with its own planted red; this scenario
+    // judges the pressure events the wake carries, so a record predating the
+    // recorder contributes nothing rather than blocking every tier it is not.
+    const commands = readTierCommands("RIGGING.md");
+    const paths = new Set<string>();
+    for (const command of commands) {
+      if (command.recordPath) paths.add(command.recordPath);
+    }
+    const records: TierPressure[] = [];
+    for (const recordPath of paths) {
+      const absolute = join(REPO_ROOT, recordPath);
+      if (!readTierWallClock(absolute)) continue;
+      const pressure = readPressureRecord(absolute);
+      if (!pressure) continue;
+      records.push({ tier: tierNameFromRecordPath(recordPath), pressure });
+    }
+    this.notes.tierPressureRecords = records;
+    this.attach(
+      `completed tier records carrying pressure: ${records.length}`,
+      "text/plain",
+    );
+  },
+);
+
+When("the recorded pressure events are examined", function (this: JollyWorld) {
+  this.notes.oomFindings = oomKillFindings(
+    this.notes.tierPressureRecords as TierPressure[],
+  );
+});
+
+Then("no tier's record should carry an out-of-memory kill", function (this: JollyWorld) {
+  const findings = this.notes.oomFindings as OomFinding[];
+  assert.equal(
+    findings.length,
+    0,
+    `out-of-memory kills stand recorded in the wake — a harness defect, red and ` +
+      `named, never absorbed by a silent rerun:\n${findings
+        .map((finding) => `  - ${finding.message}`)
+        .join("\n")}`,
+  );
+});
+
+Then(
+  "a record carrying one should redden the check, naming the tier and the event",
+  function (this: JollyWorld) {
+    const planted: TierPressure[] = [
+      {
+        tier: "planted",
+        pressure: {
+          workers: 2,
+          peakRssBytes: 1,
+          memoryCeilingBytes: 2,
+          oomKills: [
+            { pid: 4242, comm: "node", raw: "Out of memory: Killed process 4242 (node)" },
+          ],
+        },
+      },
+    ];
+    const findings = oomKillFindings(planted);
+    assert.ok(
+      findings.length === 1 &&
+        findings[0]!.message.includes("planted") &&
+        findings[0]!.message.includes("4242"),
+      `the planted out-of-memory kill must redden, naming the tier and the event: ${JSON.stringify(findings)}`,
     );
   },
 );
@@ -584,6 +839,84 @@ Then(
       ledgerEntriesWithin(window, planted).length,
       0,
       "a run window holding no ledger entry must select nothing, so the presence check reddens",
+    );
+  },
+);
+
+// ─── The wake is read run-scoped ────────────────────────────────────────────
+
+Given(
+  "a wake carrying a completed sandbox run's record and a live sibling invocation's partial record",
+  function (this: JollyWorld) {
+    // Fixture wake inside the wake itself (git-ignored). Teardown registered
+    // before creation, loud on failure via the registry.
+    const dir = join(
+      REPO_ROOT,
+      "coverage",
+      "weather",
+      `fixture-run-scope-${process.pid}`,
+    );
+    this.cleanup.register(`wake run-scope fixture ${dir}`, () => {
+      rmSync(dir, { recursive: true, force: true });
+    });
+    this.notes.wakeFixture = writeWakeReaderFixture(dir);
+  },
+);
+
+When(
+  "the records the wake's readers select are enumerated",
+  function (this: JollyWorld) {
+    this.notes.readerSelections = enumerateWakeReaderSelections(
+      this.notes.wakeFixture as WakeReaderFixture,
+    );
+  },
+);
+
+Then(
+  "each reader should select the completed run's record and leave the live sibling's partial record unread",
+  function (this: JollyWorld) {
+    const selections = this.notes.readerSelections as ReaderSelection[];
+    // The law covers every wake reader; an enumeration that lost one would
+    // pass silently over the reader it no longer judges.
+    assert.deepEqual(
+      selections.map((selection) => selection.reader).sort(),
+      [...WAKE_READERS].sort(),
+      "the enumeration must cover every wake reader the run-scope law names",
+    );
+    const violations = runScopeViolations(selections);
+    assert.equal(
+      violations.length,
+      0,
+      `wake readers that consumed other than the completed run's record:\n${violations
+        .map((violation) => `  - ${violation.message}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "a reader that consumes a live sibling's partial record should redden the check",
+  function (this: JollyWorld) {
+    // The planted red: the retired append-order selection — "the last entry's
+    // run" — over the same fixture wake. The live sibling appended last, so
+    // this reader hands back its partial run, and the same judgment must
+    // redden, naming the reader and what it consumed.
+    const lastEntryScoped = (entries: SpendEntry[]): SpendEntry[] => {
+      const last = entries[entries.length - 1];
+      return last ? entries.filter((entry) => entry.run === last.run) : [];
+    };
+    const selections = enumerateWakeReaderSelections(
+      this.notes.wakeFixture as WakeReaderFixture,
+      { ledgerSelection: lastEntryScoped },
+    );
+    const violations = runScopeViolations(selections);
+    assert.ok(
+      violations.some(
+        (violation) =>
+          violation.reader === "spend-ledger join" &&
+          violation.message.includes("partial"),
+      ),
+      `a reader consuming the live sibling's partial record must redden, naming it: ${JSON.stringify(violations)}`,
     );
   },
 );
