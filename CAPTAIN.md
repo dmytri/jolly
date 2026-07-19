@@ -24,9 +24,19 @@ replaces the wake records — never launder them with a rerun. (2) 502-resilienc
 two @logic @exceptional-double scenarios in 004 (transient-retry success + exhaustion
 honesty). (3) Push APPROVED and DONE (2692ae9).
 
-LIVE NOW: watchbill watch1 = two 004 502 scenarios + budget-fit re-prove (greens vs 300).
-QM sails from base 2692ae9. Captain writes (004, RIGGING, watchbill, these notes) are work
-in flight, ride to custody. npm publish still PARKED (2FA).
+FOLLOW-UP LANDED: both 502 scenarios were RED ON PRODUCTION (no poll retry existed); Crew
+built the bounded retry + stable TASK_STATUS_UNCONFIRMED + honest summary (src/lib/cloud-api.ts
+pollTaskStatus, src/index.ts cloudErrorEnvelope). Budget-fit green vs 300. Custody e22cca2,
+watchbill struck, tree clean, main AHEAD OF ORIGIN BY 1 — push offered to dk at close.
+npm publish still PARKED (2FA).
+
+QUEUED NEXT BATCH: (1) @bomb.sh/tab 0.0.19 -> 0.0.20 (latest-stable drift, Boatswain-flagged
+at custody; mechanical bump + completion-scenario proof); (2) the chartered laned close:
+FINAL budget values + sum->overlapped-window budget-fit spec edit from that run (self-settled
+throttled prior), which also replaces the OOM/028 wake records and covers the support-hunk
+blast radius custody named unverified (shared When + step-def files, @logic and @sandbox
+sweeps). Note: features/support/tls/ now carries a deliberate loopback-only test cert
+(CN jolly-loopback-test; secures nothing real) — durable fixture, not a leak.
 
 Relay duty for a rehydrated Captain: QM/mate detached-run signals route to MAIN, not up the
 chain — arm `tail --pid=<exact ps PID>` background waiters, SendMessage the role on exit
