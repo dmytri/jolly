@@ -4,30 +4,37 @@
 
 Binding behaviour lives in `.feature` specs and referenced `assets/**`. History lives in git. These notes carry only what the next cycle needs.
 
-## STATE (2026-07-19): BATCH DISPATCHED — QM sailing from base a0e901a.
+## STATE (2026-07-19, close): BATCH SHIPPED — origin/main at 2692ae9. Follow-up watchbill LIVE.
 
-dk ruled all four via structured questions: PROMOTED failed-close honesty (027), spawn-surface
-@property (006), junk-input no-fab sweep (020). Destructive-diff strengthening rides (004:16
-now asserts the block NAMES the observed diff + the explicit-approval requirement).
-Measurement FOLDED into batch close: watch3/4/5 tier sweeps run as THREE CONCURRENT LANES
-per the new RIGGING `lanes` value ([sandbox serial->parallel] || logic || eval) at the final
-tree = custody greens + THE overlap measurement, in one run.
+Voyage landed all four rulings: 027 failed-close (was a CRASH to UNEXPECTED_ERROR — Crew fixed
+runStartCore), 020 junk-input sweep (caught auth-status fabricating success on junk token —
+Crew fixed commandAuthStatus), 006 spawn-surface checker (green; teeth proven by plants),
+004 diff-naming (Crew added --plan preview parse; block names deletions + approval). Sweeps
+also caught + fixed an error-envelope regression; QM fixed a harness 502-retry gap at
+env-factory. Custody 2692ae9 (13 files), pushed. Conformance 66/69.
 
-AFTER custody, in order:
-1. Bring dk the overlap measurement -> dk rules budget VALUES; the RIGGING budget edits + the
-   sum->overlapped-window budget-fit spec edit land with that ruling + one re-prove.
-2. OFFER outbound. Push NOT yet approved this batch. npm publish parked (2FA; ship steps in
-   git history).
+THE MEASUREMENT (three-lane window, clean box): logic 295.5 (OOM-contaminated), eval 174.8,
+sandbox serial 778.7 + parallel 734.9, laned wall ~25.3 min. REAL OOM kill mid-window
+(~20GB demand, 7.9GB box) -> workers throttled to 1; quiet logic 269.9 at 222 scenarios.
 
-Expected reds, mine to read calmly:
-- budget-fit if logic's overlapped wall > 250 — that red IS the measurement (dk's standing
-  ruling: bring the number, never a bare value edit).
-- ARCHITECTURE counts drift from the 4 spec adds — conformance red routes to me; custody
-  hygiene refits the counts.
-- A watch1/2 target staying GREEN through the sweeps = unexercised-seam alarm, mine to read.
+dk RULED (2026-07-19): (1) INTERIM budget-logic 300 from quiet 269.9 (RIGGING edited); FINAL
+values + sum->overlapped-window budget-fit spec edit land from the NEXT batch-close laned
+run (self-settled throttled prior). OOM + 028 serialization reds RIDE until that run
+replaces the wake records — never launder them with a rerun. (2) 502-resilience PROMOTED:
+two @logic @exceptional-double scenarios in 004 (transient-retry success + exhaustion
+honesty). (3) Push APPROVED and DONE (2692ae9).
 
-Shipshape updated 0.13.28 -> 0.13.32 this boundary (plugin cache + project skills; tree
-stayed clean — .claude/ is ignored).
+LIVE NOW: watchbill watch1 = two 004 502 scenarios + budget-fit re-prove (greens vs 300).
+QM sails from base 2692ae9. Captain writes (004, RIGGING, watchbill, these notes) are work
+in flight, ride to custody. npm publish still PARKED (2FA).
+
+Relay duty for a rehydrated Captain: QM/mate detached-run signals route to MAIN, not up the
+chain — arm `tail --pid=<exact ps PID>` background waiters, SendMessage the role on exit
+(see Resume-loop mechanics). Boatswain finding for harbour: 21 zero-usage defs (baseline 16);
+stage-timing/riskContext/sign-in-gate orphaned patterns named by planks on src start seams =
+behaviour-stale plank risk, coverage triage's.
+
+Shipshape updated 0.13.28 -> 0.13.32 this boundary (plugin cache + project skills; tree clean).
 
 Harbour flags standing (next harbour): 002's 5 orphaned defs + orchestrator seam re-plank to
 @composition steps; 16 baseline zero-usage defs; RIGGING prose drift (step-usage counts

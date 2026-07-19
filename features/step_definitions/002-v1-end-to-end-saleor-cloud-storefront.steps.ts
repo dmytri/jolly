@@ -32,6 +32,7 @@ import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 // import is import-safe.
 import type { StageRunner } from "../../src/index.ts";
 import { startColdStoreCloudApi, type ColdStoreHarness } from "../support/cold-store-cloud-api.ts";
+import { type TaskPollHarness } from "../support/task-poll-cloud-api.ts";
 import { ensureRecipeOnSharedStore } from "../support/recipe-on-shared.ts";
 import { probeEndpointConnectivity } from "../../src/lib/cloud-api.ts";
 import { deleteEnvironment, leftoverTestEnvironments, listAllEnvironments } from "../support/cloud.ts";
@@ -148,7 +149,7 @@ Given(
 );
 
 When("the agent runs `jolly create store --create-environment --json`", { timeout: 900_000 }, async function (this: JollyWorld) {
-  // Three scenarios share this exact step text:
+  // These scenarios share this exact step text:
   //   - 002 "register a new store" (@sandbox): a Jolly-observable PREVIEW of the
   //     registration plumbing — run as --dry-run so the preview never provisions
   //     (the real path is exercised by features 012/024), against the scenario's
@@ -164,6 +165,11 @@ When("the agent runs `jolly create store --create-environment --json`", { timeou
   //     (@sandbox @heavy @exceptional-double): the REAL create path against the
   //     cold-store loopback, which SUCCEEDS the create POST but hands back a
   //     never-serving endpoint so provisionStore's readiness gate times out.
+  //   - 004 task-status-poll 502 scenarios (@logic @exceptional-double): the
+  //     REAL create path against the task-poll loopback, which accepts the
+  //     creation with a task_id and answers the task-status poll 502 — once
+  //     (then SUCCEEDED, with the harness's TLS GraphQL responder serving the
+  //     readiness probe) or on every poll.
   const coldEnv = this.notes.coldEnvHarness as ColdStoreHarness | undefined;
   if (coldEnv) {
     // env-factory-exception: drives the cold-store loopback Cloud API (a
@@ -203,6 +209,34 @@ When("the agent runs `jolly create store --create-environment --json`", { timeou
           JOLLY_SALEOR_CLOUD_API_URL: limitHarness.baseUrl,
           JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN,
         }),
+      },
+    );
+    return;
+  }
+  const taskPoll = this.notes.taskPollHarness as TaskPollHarness | undefined;
+  if (taskPoll) {
+    // env-factory-exception: drives the task-poll loopback Cloud API (a
+    // 127.0.0.1 fake), which creates no real resource, so it is a justified
+    // exception recorded at its site, not a second creation seam. The double is
+    // justified at features/support/task-poll-cloud-api.ts (@exceptional-double).
+    await this.runCliAsync(
+      ["create", "store", "--create-environment", "--json"],
+      {
+        env: absentCredentialsEnv({
+          JOLLY_SALEOR_CLOUD_API_URL: taskPoll.baseUrl,
+          JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN,
+          // The child trusts the harness's HTTPS GraphQL responder, so the
+          // readiness probe of the succeeded task's domain really serves.
+          NODE_EXTRA_CA_CERTS: taskPoll.caCertPath,
+          // Squeeze the bounded waits to loopback scale (the readiness-gate
+          // idiom above): absent or unadopted values fall back to the
+          // production defaults, so this never changes real behaviour.
+          JOLLY_TASK_STATUS_RETRY_BUDGET_MS: "2000",
+          JOLLY_TASK_STATUS_RETRY_POLL_MS: "50",
+          JOLLY_READINESS_BUDGET_MS: "8000",
+          JOLLY_READINESS_POLL_MS: "100",
+        }),
+        timeoutMs: 120_000,
       },
     );
     return;

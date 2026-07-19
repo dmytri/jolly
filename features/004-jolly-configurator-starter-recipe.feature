@@ -22,6 +22,22 @@ Feature: Jolly Configurator starter recipe
     And the blocked report should name the destructive diff the configurator observed, including a deletion it would make
     And the blocked report should state that deploying over it requires explicit approval
 
+  @logic @exceptional-double
+  Scenario: A transient Cloud API 502 on the task-status poll is retried, not reported as terminal
+    Given the Cloud API answers one task-status poll with a 502 before reporting the task done
+    When the agent runs `jolly create store --create-environment --json`
+    Then the envelope status should be "success"
+    And no `errors` entry should carry the code `TASK_STATUS_FAILED`
+    And the retry should stop at the first successful poll rather than a fixed count
+
+  @logic @exceptional-double
+  Scenario: A persistent Cloud API failure on the task-status poll reports honestly what was created
+    Given the Cloud API answers every task-status poll with a 502
+    When the agent runs `jolly create store --create-environment --json`
+    Then the envelope status should be "error" after the bounded retry budget is exhausted
+    And the error should state that the creation task was accepted but its completion could not be confirmed
+    And the error should not claim that nothing was created
+
   @logic
   Scenario: Jolly start previews seeding stock for the recipe catalog
     Given a project with the recipe stage not yet applied

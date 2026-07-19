@@ -20,6 +20,10 @@ import {
 import { saleorGraphql } from "../support/saleor-graphql.ts";
 import { makeNamespace } from "../support/sandbox.ts";
 import { createEnvironment } from "../support/env-factory.ts";
+import {
+  startTaskPollCloudApi,
+  type TaskPollHarness,
+} from "../support/task-poll-cloud-api.ts";
 import { deleteEnvironment, listAllEnvironments } from "../support/cloud.ts";
 import { cachedStoreSpareNames } from "../support/provision.ts";
 import { ensureRecipeOnSharedStore } from "../support/recipe-on-shared.ts";
@@ -1580,6 +1584,123 @@ Then(
         `(the "${FEATURED_COLLECTION_SLUG}" collection) absent; recipe-deployed must derive ` +
         `its status from the store read-back, not the configurator's summary counts. Offending sibling:\n` +
         `${JSON.stringify(offending)}`,
+    );
+  },
+);
+
+// ─── Scenarios: task-status poll 502 — transient retried, persistent honest
+//     (@logic @exceptional-double) ────────────────────────────────────────────
+//
+// The Cloud API's task-status poll answers a momentary 502 during an
+// otherwise-successful environment provisioning (feature 004 Rule "Backend
+// Saleor requests retry a transient failure"; observed for real once — see
+// features/support/env-factory.ts). Neither a one-off 502 nor a persistent
+// Cloud outage can be produced on demand against the real Cloud API, so both
+// scenarios drive the REAL `create store --create-environment` path against the
+// task-poll loopback Cloud API (features/support/task-poll-cloud-api.ts, where
+// the @exceptional-double is justified). The shared When (002 step file) runs
+// the real command against the harness when notes.taskPollHarness is set.
+
+Given(
+  "the Cloud API answers one task-status poll with a 502 before reporting the task done",
+  async function (this: JollyWorld) {
+    // @exceptional-double: one transient 502 on the task-status poll cannot be
+    // produced on demand against the real Cloud API; the loopback injects it
+    // (justified at features/support/task-poll-cloud-api.ts). The real
+    // create-and-poll path keeps normal-path coverage in @sandbox (004/012).
+    this.notes.taskPollHarness = await startTaskPollCloudApi(this, "one-502-then-done");
+  },
+);
+
+Given(
+  "the Cloud API answers every task-status poll with a 502",
+  async function (this: JollyWorld) {
+    // @exceptional-double: a persistent Cloud API outage on the task-status
+    // poll cannot be produced on demand against the real Cloud API; the
+    // loopback injects it (justified at features/support/task-poll-cloud-api.ts).
+    this.notes.taskPollHarness = await startTaskPollCloudApi(this, "always-502");
+  },
+);
+
+Then(
+  "no `errors` entry should carry the code `TASK_STATUS_FAILED`",
+  function (this: JollyWorld) {
+    const offenders = this.envelope.errors.filter(
+      (error) => (error as { code?: string }).code === "TASK_STATUS_FAILED",
+    );
+    assert.equal(
+      offenders.length,
+      0,
+      `a transient 502 on the task-status poll must be retried, never reported ` +
+        `as terminal: ${JSON.stringify(this.envelope.errors)}`,
+    );
+  },
+);
+
+Then(
+  "the retry should stop at the first successful poll rather than a fixed count",
+  function (this: JollyWorld) {
+    const harness = this.notes.taskPollHarness as TaskPollHarness;
+    // The harness records every poll it served, in order. Exactly one 502 then
+    // one success proves both halves: the 502 was retried, and no further poll
+    // followed the success (a fixed-count retry would keep polling).
+    assert.deepEqual(
+      harness.polls,
+      ["502", "succeeded"],
+      `the poll record must be exactly one 502 then one success, with nothing ` +
+        `after the success: ${JSON.stringify(harness.polls)}`,
+    );
+  },
+);
+
+Then(
+  "the envelope status should be {string} after the bounded retry budget is exhausted",
+  function (this: JollyWorld, status: string) {
+    assert.equal(this.envelope.status, status);
+    const harness = this.notes.taskPollHarness as TaskPollHarness;
+    // Exhausting a bounded retry budget is observable at the harness: the poll
+    // was retried (more than one attempt) against a persistently failing
+    // answer, and the run still ended — in this envelope — rather than
+    // retrying forever.
+    assert.ok(
+      harness.polls.length > 1,
+      `the bounded retry budget must retry the persistent 502 before giving ` +
+        `up; observed ${harness.polls.length} poll(s): ${JSON.stringify(harness.polls)}`,
+    );
+    assert.ok(
+      harness.polls.every((poll) => poll === "502"),
+      `every poll should have been answered 502: ${JSON.stringify(harness.polls)}`,
+    );
+  },
+);
+
+Then(
+  "the error should state that the creation task was accepted but its completion could not be confirmed",
+  function (this: JollyWorld) {
+    const text = JSON.stringify(this.envelope.errors);
+    assert.match(
+      text,
+      /accepted/i,
+      `the error must state the creation task was accepted: ${text}`,
+    );
+    assert.match(
+      text,
+      /confirm/i,
+      `the error must state the task's completion could not be confirmed: ${text}`,
+    );
+  },
+);
+
+Then(
+  "the error should not claim that nothing was created",
+  function (this: JollyWorld) {
+    // The creation POST was accepted, so a "nothing was created" claim would be
+    // false: the environment may well exist with its task unconfirmed.
+    const text = `${this.envelope.summary} ${JSON.stringify(this.envelope.errors)}`;
+    assert.doesNotMatch(
+      text,
+      /(nothing|no (environment|store|resource))\s+(was|has been|is|got)?\s*(created|provisioned)|created nothing/i,
+      `the error must not claim that nothing was created: ${text}`,
     );
   },
 );

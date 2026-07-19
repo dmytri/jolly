@@ -1829,10 +1829,17 @@ async function provisionStore(
 }
 
 /**
+ * The catalog's "Nothing was created." summary is honest for a request the
+ * Cloud API rejected outright, but false for TASK_STATUS_UNCONFIRMED: there the
+ * creation POST was accepted and only the task-status confirmation kept
+ * failing, so the environment may well exist. That branch carries the thrown
+ * error's own text (interpolated DATA per the copy-catalog rule) as the
+ * summary instead of claiming nothing was created.
  * @planks("Given the Saleor Cloud environments endpoint returns ENVIRONMENT_LIMIT_REACHED")
  * @planks("When the agent runs `jolly create store --create-environment --json`")
  * @planks("Given the Cloud API rejects an environment creation with a code other than `ENVIRONMENT_LIMIT_REACHED`")
  * @planks("Then the envelope should carry at least one `nextSteps` entry naming what to do next")
+ * @planks("Then the error should not claim that nothing was created")
  */
 function cloudErrorEnvelope(command: string, err: unknown, riskContext: RiskContext): Envelope {
   const code = err instanceof CloudApiError ? err.code : "CLOUD_API_ERROR";
@@ -1845,7 +1852,7 @@ function cloudErrorEnvelope(command: string, err: unknown, riskContext: RiskCont
         : cliMessage("cloudError.remediation.default");
   return errorEnvelope(
     command,
-    cliMessage("cloudError.summary.error"),
+    code === "TASK_STATUS_UNCONFIRMED" ? message : cliMessage("cloudError.summary.error"),
     [
       {
         code,

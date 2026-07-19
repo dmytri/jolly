@@ -72,6 +72,20 @@ export function cloudApiBase(): string {
 
 const POLL_INTERVAL_MS = 5_000;
 const POLL_TIMEOUT_MS = 480_000; // stay under the harness's CLI timeout
+// A transient task-status poll answer (429/5xx) is retried within this bounded
+// budget before the poll gives up and reports the creation unconfirmed
+// (feature 004 Rule "Backend Saleor requests retry a transient failure").
+const TASK_STATUS_RETRY_BUDGET_MS = 60_000;
+
+// Positive-integer millisecond env override with a production fallback: unset,
+// empty, non-numeric, or non-positive values fall back, so an absent override
+// is a no-op (the same contract as the readiness gate's reader in src/index.ts).
+function readPositiveIntMs(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined) return fallback;
+  const parsed = Number.parseInt(raw.trim(), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 /** Error from the Cloud API with a stable, branchable code.
  * @planks("Then the envelope status should be {string} with the stable code `ENVIRONMENT_LIMIT_REACHED`")
@@ -437,6 +451,17 @@ function taskStatusUrl(taskId: string): string {
  * "SUCCEEDED". Throws on FAILED or on timeout. Returns the final task body
  * so the caller can extract the resulting domain from the task result.
  *
+ * A transient poll answer — HTTP 429 or 5xx from a momentarily-busy Cloud API
+ * (feature 004 Rule "Backend Saleor requests retry a transient failure") — is
+ * retried on a short interval, stopping at the first successful poll rather
+ * than a fixed count. The retry is BOUNDED: when the transient failure
+ * persists past the budget, the poll gives up with the stable code
+ * TASK_STATUS_UNCONFIRMED and a message reporting honestly what is known —
+ * the creation task was accepted, but its completion could not be confirmed.
+ * A non-transient rejection still fails immediately as TASK_STATUS_FAILED.
+ * Budget and interval read JOLLY_TASK_STATUS_RETRY_BUDGET_MS and
+ * JOLLY_TASK_STATUS_RETRY_POLL_MS, falling back to the production defaults.
+ *
  * Verified against the live Cloud API: the task id is the full job name
  * from the creation response, and the endpoint is anonymous — sending the
  * Cloud `Authorization: Token` header makes the service try (and fail) to
@@ -444,6 +469,10 @@ function taskStatusUrl(taskId: string): string {
  * @planks("Then Jolly should poll GET \/platform\/api\/service\/task-status\/\{task_id} until status is {string}")
  * @planks("Then the environment creation should return a task_id for async job polling")
  * @planks("Then each should reach the network only through a seam that applies the first-party host predicate before sending")
+ * @planks("Then no `errors` entry should carry the code `TASK_STATUS_FAILED`")
+ * @planks("Then the retry should stop at the first successful poll rather than a fixed count")
+ * @planks("Then the envelope status should be {string} after the bounded retry budget is exhausted")
+ * @planks("Then the error should state that the creation task was accepted but its completion could not be confirmed")
  */
 export async function pollTaskStatus(
   taskId: string,
@@ -452,17 +481,46 @@ export async function pollTaskStatus(
   const deadline = Date.now() + timeoutMs;
   const url = taskStatusUrl(taskId);
   assertFirstPartyUrl(url);
+  const retryBudgetMs = readPositiveIntMs(
+    "JOLLY_TASK_STATUS_RETRY_BUDGET_MS",
+    TASK_STATUS_RETRY_BUDGET_MS,
+  );
+  const retryPollMs = readPositiveIntMs(
+    "JOLLY_TASK_STATUS_RETRY_POLL_MS",
+    POLL_INTERVAL_MS,
+  );
+  let transientSince: number | undefined;
   for (;;) {
     const response = await fetch(url, {
       headers: { "Content-Type": "application/json" },
     });
     if (!response.ok) {
-      throw new CloudApiError(
-        `Task status check failed: HTTP ${response.status} ${await response.text()}`,
-        "TASK_STATUS_FAILED",
-        response.status,
-      );
+      const transient =
+        response.status === 429 ||
+        (response.status >= 500 && response.status <= 504);
+      if (!transient) {
+        throw new CloudApiError(
+          `Task status check failed: HTTP ${response.status} ${await response.text()}`,
+          "TASK_STATUS_FAILED",
+          response.status,
+        );
+      }
+      transientSince ??= Date.now();
+      if (Date.now() - transientSince >= retryBudgetMs) {
+        throw new CloudApiError(
+          `The environment creation task ${taskId} was accepted by the Cloud API, ` +
+            `but its completion could not be confirmed: the task-status poll kept ` +
+            `answering HTTP ${response.status} past the bounded retry budget ` +
+            `(${Math.round(retryBudgetMs / 1000)}s). The environment may already ` +
+            `exist; check the Saleor Cloud dashboard before re-running.`,
+          "TASK_STATUS_UNCONFIRMED",
+          response.status,
+        );
+      }
+      await sleep(retryPollMs);
+      continue;
     }
+    transientSince = undefined;
     const task = (await response.json()) as TaskStatus;
     const status = String(task.status ?? "").toUpperCase();
     if (status === "SUCCEEDED") return task;
