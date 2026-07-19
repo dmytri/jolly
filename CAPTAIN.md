@@ -50,6 +50,29 @@ NEXT, in order: QM closes the spend red -> Boatswain custody (carry the fact abo
 -> harbour. Offer push after custody. @bomb.sh/tab 0.0.19->0.0.20 rides custody as hygiene.
 npm publish PARKED (2FA).
 
+CUSTODY FOULED ONCE, REPAIRED. Boatswain refused the first custody: my 026 spec rewrites
+orphaned 8 step definitions (6 by deleted scenarios, 2 QM added for a scenario shape I then
+changed). QM removed all 8 plus the helper and imports they stranded; step-usage 1147 -> 1139,
+zero orphans in 026, typecheck/discover/lint clean. TWO PROCESS ERRORS OF MINE, both fair:
+I ordered a dependency bump in a custody dispatch (write-scope violation; Captain selects,
+Crew installs), and I carried an exhaustive staging list beyond the Boatswain row. Boatswain
+judged the tree by command anyway, which is the only reason the foul surfaced. Keep dispatches
+thin: job, base commit, target references.
+
+@bomb.sh/tab 0.0.19 -> 0.0.20 is REAL (npm outdated confirms) but has no failing target
+ordering it. Manufacturing one is gold-plating. It goes to harbour.
+
+BUDGET-CHECK COLLISION — ruled tonight, structural fix DEFERRED TO HARBOUR. A verification-
+support edit mandates a solo tier sweep; that sweep overwrites one lane's record; the
+budget-fit check assembles its window from per-lane records and so spans the old lanes' launch
+to the solo exit. It reported 2843.2s for a window that never happened (real laned window
+~1260s). The check cannot distinguish "the window overran" from "the lanes were not
+co-launched", and coverage/ is git-ignored so the prior record is unrecoverable. TONIGHT'S
+RULING: refresh by running a real laned window, do NOT touch the check under time pressure —
+loosening it masks a real overrun later. HARBOUR FIX: judge the window budget only when a
+co-launched window exists, report a distinguishable red when one does not, and let the
+per-tier budgets (logic 375, sandbox 900) keep guarding solo sweeps so nothing hides.
+
 HARBOUR AGENDA (dk-raised tonight, both real):
 1. RULE PROSE IS 38% OF THE FEATURE CORPUS — 1461 of 3817 lines. Worst by prose-per-scenario:
    025 (31.3), 003 (24.0), 005 (16.5), 004 (11.6), verification-economy (7.7). dk: "not clear
