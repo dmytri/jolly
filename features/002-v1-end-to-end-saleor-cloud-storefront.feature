@@ -40,15 +40,24 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
   @sandbox @exceptional-double
   Scenario: jolly start waits for a not-yet-serving store to serve before completing the store stage
     Given `jolly start`'s store stage resolves a store whose Saleor GraphQL endpoint is briefly not yet serving
+    And the endpoint begins serving 5 seconds after the stage first probes it
     When the store stage runs
     Then the `store` stage should report "completed" only once the endpoint answers a live GraphQL probe
     And the envelope `data` should include the store's `*.saleor.cloud` GraphQL API URL and its Saleor Dashboard URL ending in `.saleor.cloud/dashboard/`
     And `jolly start` should write that `NEXT_PUBLIC_SALEOR_API_URL` (mirrored to `SALEOR_URL`) and the resolved `SALEOR_TOKEN` to `.env`
     And the `recipe` and `stock` stages should not report "blocked" for a missing Saleor endpoint
 
+  @logic
+  Scenario: The default readiness budget is 600 seconds unless overridden
+    Given no `JOLLY_READINESS_BUDGET_MS` override is set
+    When the store stage's readiness budget is resolved
+    Then the resolved readiness budget should be 600 seconds
+    And a set `JOLLY_READINESS_BUDGET_MS` value should override it
+
   @sandbox @exceptional-double
   Scenario: jolly start blocks the store stage when a freshly-provisioned store never becomes reachable
-    Given `jolly start` auto-provisions a new Saleor Cloud store
+    Given the readiness budget is configured to 8 seconds via `JOLLY_READINESS_BUDGET_MS`
+    And `jolly start` auto-provisions a new Saleor Cloud store
     And the new store's Saleor GraphQL endpoint stays unreachable past the readiness budget
     When the store stage runs
     Then the `store` stage status should be "blocked", not "completed"

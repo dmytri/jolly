@@ -39,7 +39,11 @@ import {
   leftoverTestEnvironments,
   listAllEnvironments,
 } from "../support/cloud.ts";
-import { cachedStoreSpareNames } from "../support/provision.ts";
+import {
+  cachedStoreSpareNames,
+  ensureSharedEnvironment,
+  readSharedStoreMarker,
+} from "../support/provision.ts";
 import { assertEnvelopeSuccess } from "../support/envelope.ts";
 import {
   findEnvironmentCreationBodySites,
@@ -454,41 +458,43 @@ Then("no environment should be created", function (this: JollyWorld) {
 // saleorCloud-gated. Namespace + teardown registered BEFORE creation.
 
 Given(
-  "this run has already created an environment with a jolly-cannon-fodder-namespaced domain label that has not yet begun serving requests",
-  // Real environment provisioning against the live Cloud API: well beyond the
-  // default 5s cucumber step timeout (the CLI polls async job status). A
-  // freshly-created Cloud environment does not begin serving GraphQL requests
-  // for minutes after creation, so right after this create it is registered but
-  // not yet serving — exactly the reuse-keying condition under test.
-  { timeout: 540_000 },
+  "the run's shared Saleor Cloud environment, carrying a jolly-cannon-fodder-namespaced domain label",
+  // The run's ONE shared environment, provisioned once and shared. This
+  // scenario asserts REUSE of an existing same-label environment, and the
+  // shared store already IS an existing environment carrying a
+  // jolly-cannon-fodder-namespaced domain label, so the precondition is
+  // ambient state rather than a creation: creating a second environment here
+  // would re-run the creation the single licensed creator already proves.
+  // Readiness is not required — reuse keys on the environment REGISTRY, not on
+  // whether the environment serves.
+  { timeout: 600_000 },
   async function (this: JollyWorld) {
     const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
     assert.ok(token, "requires JOLLY_SALEOR_CLOUD_TOKEN");
-    const label = `${this.namespace}-collide`;
+    await ensureSharedEnvironment();
+    const marker = readSharedStoreMarker();
+    assert.ok(
+      marker,
+      "the run's shared environment must be recorded in its marker before reuse can be asserted",
+    );
+    const label = marker.name;
+    assert.ok(
+      label.startsWith("jolly-cannon-fodder"),
+      `the shared environment's domain label must carry the jolly-cannon-fodder namespace, found "${label}"`,
+    );
     this.notes.collisionLabel = label;
-    // Register teardown for both the first and any retry-created environment
-    // BEFORE creating anything (a crash mid-create must still be cleaned up).
-    this.cleanup.register(`collision environments for ${label}`, async () => {
+    this.notes.sharedEnvKey = marker.key;
+    // The shared environment is never torn down, so none is registered for it.
+    // A DUPLICATE that a regressed product creates from this scenario's When is
+    // this scenario's OWN leftover: its reclaim is registered BEFORE the
+    // request that could create it, and spares the shared store by key.
+    this.cleanup.register(`same-label duplicates of ${label}`, async () => {
       for (const env of await listAllEnvironments(token!)) {
-        if (env.name.startsWith(this.namespace)) {
+        if (env.name === label && env.key !== marker.key) {
           await deleteEnvironment(token!, env.org, env.key);
         }
       }
     });
-    // Create the first environment carrying the namespaced domain label, via
-    // the single env-creation seam.
-    const first = await createEnvironment(
-      (args, options) => this.runCliAsync(args, options),
-      {
-        name: label,
-        domainLabel: label,
-        // Real environment creation polls async job status and can exceed the
-        // 120s runCliAsync default; allow the full step budget so a slow Cloud
-        // provision yields its envelope rather than being SIGKILLed mid-create.
-        runOptions: { timeoutMs: 540_000 },
-      },
-    );
-    assertEnvelopeSuccess(first.envelope, "the first environment must be created");
   },
 );
 
@@ -532,19 +538,24 @@ Then(
 );
 
 Then(
-  "exactly one environment should carry that domain label, with the run's jolly-cannon-fodder namespace and registered teardown",
+  "exactly one environment should carry that domain label",
   { timeout: 60_000 },
   async function (this: JollyWorld) {
     const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"]!;
     const label = String(this.notes.collisionLabel);
     const matching = (await listAllEnvironments(token)).filter((e) => e.name === label);
-    assert.equal(matching.length, 1, "exactly one environment must carry the label");
-    assert.ok(
-      matching[0]!.name.startsWith(this.namespace),
-      "the environment must carry the run's jolly-cannon-fodder namespace",
+    assert.equal(
+      matching.length,
+      1,
+      `exactly one environment must carry the label "${label}"; found ${matching.length}`,
     );
-    // Teardown for all namespace-prefixed environments was registered in the
-    // Given before any creation.
+    // The survivor is the environment that already existed, so the re-request
+    // reused it rather than replacing it with a fresh one under the same label.
+    assert.equal(
+      matching[0]!.key,
+      this.notes.sharedEnvKey,
+      "the surviving environment must be the one that already existed, reused rather than recreated",
+    );
   },
 );
 

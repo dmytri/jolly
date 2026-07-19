@@ -66,16 +66,24 @@ Feature: Verification economy
       itself, and a scenario tagged @creates-env is entitled to create its own
       environment. The licensed set is declared in the specs, enumerable from
       tags alone, never inferred from prose.
-    - One creation test per creation seam. A second scenario re-runs a creation
-      only when it tests creation differently, such as with different
-      parameters, never merely inside a different sequence: a wrapper around
-      already-proven stages is tested against their satisfied state, not by
-      running them again.
+    - One creation test per creation seam, and one means one: at most a single
+      scenario in the whole corpus holds the licence for a given expensive spend
+      class. A second scenario never re-runs a creation, not with different
+      parameters and not inside a different sequence. A behaviour that needs a
+      created resource asserts against the shared provisioning's resource, and a
+      wrapper around already-proven stages is tested against their satisfied
+      state rather than by running them again.
+    - A scenario whose assertion cannot exist without its own creation declares
+      that with @spend-is-the-assertion beside the licence tag, and is exempt
+      from the one-holder count. The exemption is for a precondition the shared
+      resource cannot hold, never for convenience: the recipe deploy's
+      destructive-diff guard needs a store holding data the recipe would delete,
+      which the shared store never holds and cannot be seeded with. Declaring it
+      keeps the exception enumerable from tags alone, so the true licensed set
+      stays readable without reading prose.
     - A scenario tagged @creates-env may additionally drive a single toolchain
       element against the environment it created, where that element exercised
-      differently is the scenario's assertion — such as the recipe deploy's
-      destructive-diff guard blocking over a store holding divergent data,
-      producible only against an owned environment. The element licence never
+      differently is the scenario's assertion. The element licence never
       extends to the chain.
     - Every other scenario asserts against ambient state provisioned once and
       shared: the shared store and the one shared pipeline's artifacts. Shared
@@ -108,6 +116,14 @@ Feature: Verification economy
     And a toolchain element driven by a scenario tagged @toolchain-element against its own namespaced resources, where that element is the scenario's own assertion, should be licensed, never the chain
     And a spend aimed at a declared unroutable stand-in by a scenario carrying @exceptional-double should be classified to that scenario's double, never as a real toolchain spend
     And a spend attributed to an unlicensed scenario should redden the check, naming the scenario and the spend it made
+
+  @logic @invariant
+  Scenario: At most one scenario in the corpus holds the licence for an expensive spend class
+    Given Jolly's feature files
+    When the scenarios carrying a spend licence tag are grouped by the spend class that tag licenses
+    Then no spend class should carry more than one licensed scenario that does not declare @spend-is-the-assertion
+    And a spend class carrying a second undeclared licensed scenario should redden the check, naming the class and every scenario holding its licence
+    And a scenario carrying @spend-is-the-assertion without a spend licence tag should redden the check, since the declaration exempts a licence it does not hold
 
   @logic @invariant
   Scenario: Shared provisioning happens at most once per resource class in a run
@@ -149,7 +165,8 @@ Feature: Verification economy
     Given a tier's weather record carrying a pressure signal such as an out-of-memory kill or a peak resident set size at the run's configured memory ceiling
     When the tier's next run derives its worker count from the record
     Then the derived worker count should be lower than the record's green worker count
-    And a record carrying no pressure signal should leave the recorded green worker count standing as the prior
+    And a record carrying no pressure signal should restore the derived worker count toward the profile's configured parallelism
+    And a derived worker count held below the configured parallelism by a record carrying no pressure signal should redden the check
 
   @logic @invariant
   Scenario: A recorded out-of-memory kill reds the check rather than hiding in a rerun
@@ -191,5 +208,13 @@ Feature: Verification economy
     And the wall-clock record each tier's last run wrote into the wake
     When each tier's recorded wall clock is compared to that tier's budget
     Then no tier's recorded wall clock should exceed its budget
-    And the tier records summed should fit the plain regression budget
+    And the laned window's wall clock, from the lanes' shared launch to the last lane's exit, should fit the plain regression budget
     And a tier over its budget should redden the check, naming the tier, its budget, and the recorded time
+
+  @logic @invariant
+  Scenario: A step that runs pinned at its declared read ceiling reds the check
+    Given the per-step durations the latest tier runs wrote into the wake
+    And the read ceilings declared in the verification support
+    When each step's measured duration is joined against its declared ceiling
+    Then no step's measured duration should reach its declared ceiling
+    And planting a read whose signal never matches should redden the check before the plant is removed

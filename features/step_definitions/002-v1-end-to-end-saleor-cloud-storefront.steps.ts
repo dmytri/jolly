@@ -2158,6 +2158,23 @@ Given(
 );
 
 Given(
+  "the endpoint begins serving {float} seconds after the stage first probes it",
+  function (this: JollyWorld, seconds: number) {
+    // The cold-start window, declared in time: the shim refuses the store
+    // host's readiness probes until this long after the first one, then lets
+    // every byte through to the live store.
+    this.notes.coldServeAfterMs = seconds * 1000;
+  },
+);
+
+Given(
+  "the readiness budget is configured to {float} seconds via `JOLLY_READINESS_BUDGET_MS`",
+  function (this: JollyWorld, seconds: number) {
+    this.notes.readinessBudgetMs = seconds * 1000;
+  },
+);
+
+Given(
   "the new store's Saleor GraphQL endpoint stays unreachable past the readiness budget",
   async function (this: JollyWorld) {
     // @exceptional-double: a real store cold-starts then serves; it cannot be
@@ -2193,12 +2210,12 @@ When("the store stage runs", { timeout: 900_000 }, async function (this: JollyWo
         JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN,
         JOLLY_STORE_NAME: this.namespace,
         JOLLY_VERCEL_PROJECT: workerNamespace(),
-        // The never-serving endpoint is loopback-refused instantly, so the
-        // outcome under test (readiness gate times out → store stage "blocked")
-        // is independent of the budget's duration. Squeeze the budget/poll to
-        // sub-second so this scenario times out in well under a second instead
-        // of burning the full production 600s clock.
-        JOLLY_READINESS_BUDGET_MS: "200",
+        // The budget the scenario declares. The never-serving endpoint is
+        // loopback-refused instantly, so the outcome under test (readiness gate
+        // times out, store stage "blocked") is independent of the budget's
+        // duration; the scenario picks a budget short enough to prove the
+        // blocked path without burning the production 600s clock.
+        JOLLY_READINESS_BUDGET_MS: String(this.notes.readinessBudgetMs ?? 200),
         JOLLY_READINESS_POLL_MS: "50",
         ...vercelXdg,
       }),
@@ -2224,7 +2241,10 @@ When("the store stage runs", { timeout: 900_000 }, async function (this: JollyWo
         NODE_OPTIONS: nodeOptions,
         HARNESS_COLD_HOST: new URL(cold.endpoint!).hostname,
         HARNESS_COLD_LEDGER: cold.ledgerPath!,
-        HARNESS_COLD_PROBE_REFUSALS: "3",
+        // The window the scenario declares, in time. The poll is fast so the
+        // stage probes repeatedly across the window rather than sleeping
+        // through it.
+        HARNESS_COLD_SERVE_AFTER_MS: String(this.notes.coldServeAfterMs ?? 300),
         JOLLY_READINESS_POLL_MS: "100",
         JOLLY_VERCEL_PROJECT: workerNamespace(),
         ...vercelXdg,
@@ -2630,3 +2650,56 @@ Then(
     );
   },
 );
+
+// ─── The default readiness budget (@logic) ──────────────────────────────────
+//
+// The store stage waits for a freshly-provisioned store to serve before it
+// reports "completed". How long it is willing to wait is the readiness budget,
+// and its default is the contract: 600 seconds, overridable by
+// JOLLY_READINESS_BUDGET_MS. The @sandbox never-serves scenario drives that
+// override down to 8 seconds so a real run can prove the blocked path in
+// seconds, which only works because the override is honoured.
+
+Given("no `JOLLY_READINESS_BUDGET_MS` override is set", function (this: JollyWorld) {
+  const previous = process.env["JOLLY_READINESS_BUDGET_MS"];
+  this.cleanup.register("restore JOLLY_READINESS_BUDGET_MS", () => {
+    if (previous === undefined) delete process.env["JOLLY_READINESS_BUDGET_MS"];
+    else process.env["JOLLY_READINESS_BUDGET_MS"] = previous;
+  });
+  delete process.env["JOLLY_READINESS_BUDGET_MS"];
+});
+
+When("the store stage's readiness budget is resolved", async function (this: JollyWorld) {
+  // JOLLY_NO_MAIN keeps the dynamic import from executing the CLI against
+  // cucumber's argv.
+  const previousNoMain = process.env["JOLLY_NO_MAIN"];
+  process.env["JOLLY_NO_MAIN"] = "1";
+  try {
+    const { resolveReadinessBudgetMs } = await import("../../src/index.ts");
+    this.notes.defaultReadinessBudgetMs = resolveReadinessBudgetMs();
+    process.env["JOLLY_READINESS_BUDGET_MS"] = "8000";
+    this.notes.overriddenReadinessBudgetMs = resolveReadinessBudgetMs();
+    delete process.env["JOLLY_READINESS_BUDGET_MS"];
+  } finally {
+    if (previousNoMain === undefined) delete process.env["JOLLY_NO_MAIN"];
+    else process.env["JOLLY_NO_MAIN"] = previousNoMain;
+  }
+});
+
+Then("the resolved readiness budget should be {float} seconds", function (this: JollyWorld, seconds: number) {
+  assert.equal(
+    this.notes.defaultReadinessBudgetMs,
+    seconds * 1000,
+    `the default readiness budget must be ${seconds} seconds; resolved ` +
+      `${String(this.notes.defaultReadinessBudgetMs)}ms`,
+  );
+});
+
+Then("a set `JOLLY_READINESS_BUDGET_MS` value should override it", function (this: JollyWorld) {
+  assert.equal(
+    this.notes.overriddenReadinessBudgetMs,
+    8000,
+    `a set JOLLY_READINESS_BUDGET_MS must override the default; resolved ` +
+      `${String(this.notes.overriddenReadinessBudgetMs)}ms`,
+  );
+});

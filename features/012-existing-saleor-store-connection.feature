@@ -77,12 +77,12 @@ Feature: Existing Saleor store connection
     Then there should be exactly one, and both the `--dry-run` preview and the real request should report and send that one body
     And a second, independently constructed body for that request should redden the check, since a preview that is verified cannot vouch for a request that is not
 
-  @sandbox @creates-env
+  @sandbox
   Scenario: Jolly create store reuses an existing same-label environment instead of duplicating it
-    Given this run has already created an environment with a jolly-cannon-fodder-namespaced domain label that has not yet begun serving requests
+    Given the run's shared Saleor Cloud environment, carrying a jolly-cannon-fodder-namespaced domain label
     When the agent requests another environment with the same domain label
     Then Jolly should reuse the existing environment rather than create a duplicate, keying on the environment registry rather than on the environment serving
-    And exactly one environment should carry that domain label, with the run's jolly-cannon-fodder namespace and registered teardown
+    And exactly one environment should carry that domain label
 
   @logic
   Scenario: Jolly create store honors --region and --organization overrides

@@ -22,17 +22,13 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
-import { assertEnvelopeSuccess } from "../support/envelope.ts";
-import { createEnvironment } from "../support/env-factory.ts";
 import { SEEDED_CREDENTIAL_VARS } from "../support/eval.ts";
 import {
   type CloudEnvironment,
-  deleteEnvironment,
   environmentIdentities,
   leftoverTestEnvironments,
   listAllEnvironments,
   listOrganizations,
-  observeEnvironmentCreatedAt,
 } from "../support/cloud.ts";
 import { fullRegressionBudgetMs } from "../support/wake.ts";
 import {
@@ -59,7 +55,7 @@ import {
   cachedStoreSpareNames,
   provisionSharedEnvironment,
   reclaimStaleResources,
-  type ProvisionOutcome,
+  unreclaimedLeftovers,
 } from "../support/provision.ts";
 
 const TEST_LAYER_DIRS = [
@@ -339,68 +335,43 @@ Then(
   },
 );
 
-// Feature 026 — third scenario (@sandbox): the eval's pre-run capacity
-// reclamation, gated behaviorally. Feature 025 requires the eval harness to
-// reclaim capacity BEFORE the agent provisions — deleting leftover
+// Feature 026 — the pre-run capacity reclamation (@sandbox), gated behaviorally.
+// The harness reclaims capacity BEFORE provisioning — deleting leftover
 // jolly-cannon-fodder-namespaced environments from previous runs so a finite org
-// environment limit never starves the run's store stage. @eval never gates CI, so
-// an eval carrying only teardown and no pre-run reclamation would silently let
-// leftovers fill the org and the live store stage would fail unobserved. A pure
-// selection check would pass against never-called reclamation code, so the
-// conformance is the OBSERVABLE EFFECT: seed a real jolly-cannon-fodder leftover, run the
-// eval's reclamation seam (the same one the @eval run invokes before the agent
-// provisions), and assert the leftover is gone afterward while every
-// non-jolly-cannon-fodder environment survives. Live by design — the leftover is a REAL
-// environment created via Jolly's own create-environment path, never a fake.
-
-/**
- * Create a real jolly-cannon-fodder-namespaced environment via Jolly's own
- * create-environment path. An org environment limit is reclaimed, never a skip
- * (AGENTS.md): if the org rejects creation at its limit, delete prior-run
- * jolly-cannon-fodder leftovers to free a slot and retry once.
- */
-async function seedNamespacedEnvironment(world: JollyWorld, name: string) {
-  const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"]!;
-  // Route through the single env-creation seam rather than re-implementing the
-  // create-and-wait-out-the-limit flow. Wait out a transient org environment
-  // limit the same way the provisioner does (under a parallel run a sibling
-  // worker frees a slot when its scenario tears down), and reclaim a slot by
-  // deleting any prior-run leftover that frees capacity without touching this
-  // run's live environments or either cached store (shared and recipe).
-  const spareNames = cachedStoreSpareNames();
-  const result = await createEnvironment(
-    (args, options) => world.runCliAsync(args, options),
-    {
-      name,
-      domainLabel: name,
-      runOptions: { timeoutMs: 540_000 },
-      limitBudgetMs: 540_000,
-      reclaim: { token, runNamespace: makeNamespace(world.runId), spareNames },
-    },
-  );
-  assertEnvelopeSuccess(
-    result.envelope,
-    "the seeded leftover environment must be created (live by design)",
-  );
-  return result;
-}
+// environment limit never starves the run's store stage. A pure selection check
+// would pass against never-called reclamation code, so the conformance is the
+// OBSERVABLE EFFECT, judged as an ACCOUNTING law: whatever stands stale in the
+// org must be accounted for by the reclamation report, whether it carries the
+// namespace in its NAME or only in its DOMAIN LABEL, and nothing the report
+// accounted for may still stand afterward. Live by design — the leftovers are
+// real environments observed as they stand, never seeded and never faked.
 
 Given(
-  "a leftover `jolly-cannon-fodder`-namespaced Saleor environment standing in the org from a previous run that never finished starting and does not serve requests",
-  { timeout: 600_000 },
-  async function (this: JollyWorld) {
+  "the `jolly-cannon-fodder`-namespaced Saleor environments standing in the org from previous runs, stale beyond the full-regression wall-clock budget in {string}",
+  { timeout: 120_000 },
+  async function (this: JollyWorld, riggingFile: string) {
     const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
     assert.ok(token, "requires JOLLY_SALEOR_CLOUD_TOKEN");
     this.notes.reclaimToken = token;
-    // The seeded leftover is freshly created and never finished starting: a brand
-    // new Cloud environment does not serve GraphQL for minutes, so reclamation must
-    // key on the org's environment registry (the jolly-cannon-fodder- prefix), not on
-    // whether the leftover answers a live probe.
-
-    // Snapshot every NON-jolly-cannon-fodder environment now (read-only) so the survival
-    // assertion can confirm reclamation never deletes one.
+    // The stale leftovers are OBSERVED, never seeded: seeding one is a real
+    // environment creation, and the single licensed creator already proves that
+    // seam. What stands in the org from previous runs is the genuine article,
+    // and this scenario's law is an accounting one — whatever stands stale must
+    // be accounted for, whether it hides behind Jolly's product-default NAME or
+    // behind its domain LABEL.
     const before = await listAllEnvironments(token);
-    this.notes.nonTestEnvKeysBefore = before
+    // The same selection reclamation itself uses, so the accounting is judged
+    // against the leftovers reclamation is obliged to take, not a looser set.
+    this.notes.staleLeftovers = leftoverTestEnvironments(
+      before,
+      makeNamespace(this.runId),
+      cachedStoreSpareNames(),
+      fullRegressionBudgetMs(riggingFile),
+    );
+    // Snapshot every environment carrying the namespace in NEITHER identity
+    // (read-only), so the survival assertion can confirm reclamation never
+    // deletes one.
+    this.notes.foreignEnvKeysBefore = before
       .filter(
         (e) =>
           !environmentIdentities(e).some((id) =>
@@ -408,44 +379,85 @@ Given(
           ),
       )
       .map((e) => `${e.org}/${e.key}`);
+  },
+);
 
-    // Seed a REAL leftover under a PRIOR-run namespace, exactly as a genuine
-    // previous-run leftover would stand: the jolly-cannon-fodder- prefix marks it a
-    // reclamation target, and carrying a run id that is NOT this run's is what
-    // lets the run-scoped provisioner reclamation delete it while protecting
-    // this run's own live environment and any sibling parallel worker's. The
-    // prior namespace still embeds this run's id so teardown attributes it.
-    // Teardown registered BEFORE creation (a crash mid-create stays cleanable);
-    // the reclamation under test removes it first, leaving teardown a 404 no-op.
-    const priorNamespace = this.namespace.replace("jolly-cannon-fodder-", "jolly-cannon-fodder-prior-");
-    const name = `${priorNamespace}-leftover`;
-    this.notes.leftoverName = name;
-    this.cleanup.register(`seeded leftover environment ${name}`, async () => {
-      for (const env of await listAllEnvironments(token)) {
-        if (env.name.startsWith(priorNamespace)) {
-          await deleteEnvironment(token, env.org, env.key);
-        }
-      }
-    });
-    await seedNamespacedEnvironment(this, name);
-
-    // Confirm the seed really stands before reclamation runs.
-    const seeded = await listAllEnvironments(token);
-    assert.ok(
-      seeded.some((e) => e.name === name),
-      `the seeded leftover ${name} must stand in the org before reclamation`,
+Then(
+  "its reclamation report should account for every one of those stale leftovers, whether namespaced in the name or in the domain label",
+  { timeout: 120_000 },
+  function (this: JollyWorld) {
+    const stale = this.notes.staleLeftovers as CloudEnvironment[];
+    const reclaimed = this.notes.reclaimed as CloudEnvironment[];
+    const accounted = new Set(reclaimed.map((env) => `${env.org}/${env.key}`));
+    const unaccounted = stale.filter(
+      (env) => !accounted.has(`${env.org}/${env.key}`),
+    );
+    assert.deepEqual(
+      unaccounted.map((env) => `${env.name} (domain label ${env.domainLabel})`),
+      [],
+      "the reclamation report must account for every stale leftover standing in " +
+        "the org; a leftover selected on its domain label alone is exactly the " +
+        "one a name-only report leaves squatting a slot forever",
     );
   },
 );
 
-// Feature 026 — fourth scenario (@sandbox): the @sandbox PROVISIONER reclaims a
-// leftover jolly-cannon-fodder environment instead of skipping. AGENTS.md ("Leftover
-// handling"): before creating the run's shared environment, the harness deletes
-// leftover jolly-cannon-fodder-namespaced environments to reclaim capacity — the
-// jolly-cannon-fodder- prefix IS the protection boundary — rather than skipping the run.
-// The masked defect was a skip-on-leftover branch; this scenario makes the
-// reclaim-not-skip contract executable and falsifiable. Live by design: a REAL
-// leftover (seeded by the shared Given through Jolly's own create path) and the
+Then(
+  "an accounted leftover left standing in the org afterward should redden the check, naming it",
+  { timeout: 120_000 },
+  async function (this: JollyWorld) {
+    const token = this.notes.reclaimToken as string;
+    const reclaimed = this.notes.reclaimed as CloudEnvironment[];
+    // The real arm: nothing the report accounted for may still stand.
+    const standingAfter = await listAllEnvironments(token);
+    const violations = unreclaimedLeftovers(reclaimed, standingAfter);
+    assert.deepEqual(
+      violations.map((violation) => violation.message),
+      [],
+      "an accounted leftover still standing in the org squats a slot the report claims it freed",
+    );
+    // The planted red: the same judgment, given a leftover that the report
+    // accounted for and that still stands, must redden and name it.
+    const planted: CloudEnvironment[] = [
+      {
+        ...(reclaimed[0] ??
+          standingAfter[0] ?? {
+            org: "planted-org",
+            key: "planted-key",
+            name: "jolly-cannon-fodder-planted-leftover",
+            domainLabel: "jolly-cannon-fodder-planted-leftover",
+          }),
+        org: "planted-org",
+        key: "planted-key",
+        name: "jolly-cannon-fodder-planted-leftover",
+        domainLabel: "jolly-cannon-fodder-planted-label",
+      },
+    ];
+    const plantedViolations = unreclaimedLeftovers(planted, planted);
+    assert.equal(
+      plantedViolations.length,
+      1,
+      "an accounted leftover still standing must redden the check",
+    );
+    assert.ok(
+      plantedViolations[0]!.message.includes(
+        "jolly-cannon-fodder-planted-leftover",
+      ) &&
+        plantedViolations[0]!.message.includes(
+          "jolly-cannon-fodder-planted-label",
+        ),
+      `the finding must name the leftover it caught: ${plantedViolations[0]!.message}`,
+    );
+  },
+);
+
+// The @sandbox PROVISIONER reclaims leftover jolly-cannon-fodder environments
+// instead of skipping. AGENTS.md ("Leftover handling"): before creating the run's
+// shared environment, the harness deletes leftover jolly-cannon-fodder-namespaced
+// environments to reclaim capacity — the namespace IS the protection boundary —
+// rather than skipping the run. The masked defect was a skip-on-leftover branch;
+// this makes the reclaim-not-skip contract executable and falsifiable. Live by
+// design: the REAL leftovers standing in the org and the
 // REAL provisioner creating a REAL shared environment. provisionSharedEnvironment
 // is driven directly — not the once-per-run memoized ensureSharedEnvironment — so
 // the provision path runs fresh regardless of where this scenario falls in the
@@ -462,65 +474,6 @@ When(
     // What provisioning reclaimed: present before, absent after.
     this.notes.reclaimed = before.filter(
       (e) => !afterKeys.has(`${e.org}/${e.key}`),
-    );
-  },
-);
-
-Then(
-  "it should reclaim the leftover `jolly-cannon-fodder`-namespaced environment and provision the run's environment, not skip the run",
-  { timeout: 120_000 },
-  async function (this: JollyWorld) {
-    const token = this.notes.reclaimToken as string;
-    const name = this.notes.leftoverName as string;
-    const outcome = this.notes.provisionOutcome as ProvisionOutcome;
-    assert.equal(
-      outcome.status,
-      "ready",
-      "provisioning must reclaim the leftover and provision the run's environment",
-    );
-    const after = await listAllEnvironments(token);
-    assert.ok(
-      !after.some((e) => e.name === name),
-      `the leftover ${name} must be reclaimed during provisioning; it still stands in the org`,
-    );
-    const reclaimed = this.notes.reclaimed as CloudEnvironment[];
-    assert.ok(
-      reclaimed.some((e) => e.name === name),
-      `provisioning must reclaim the leftover ${name} to free capacity`,
-    );
-  },
-);
-
-Then(
-  "every environment lacking the `jolly-cannon-fodder` prefix should still be present afterward",
-  { timeout: 60_000 },
-  async function (this: JollyWorld) {
-    const token = this.notes.reclaimToken as string;
-    const after = await listAllEnvironments(token);
-    const afterKeys = new Set(after.map((e) => `${e.org}/${e.key}`));
-    const before = this.notes.nonTestEnvKeysBefore as string[];
-    const missing = before.filter((k) => !afterKeys.has(k));
-    assert.deepEqual(
-      missing,
-      [],
-      `reclamation must never delete a non-jolly-cannon-fodder environment; missing: ${missing.join(", ")}`,
-    );
-    // And everything it deleted carried the jolly-cannon-fodder- namespace in at
-    // least one identity: a run that fell through to the product-default store
-    // name is still ours, recognized by its domain label.
-    const reclaimed = this.notes.reclaimed as CloudEnvironment[];
-    const wrongful = reclaimed
-      .filter(
-        (e) =>
-          !environmentIdentities(e).some((id) =>
-            id.startsWith("jolly-cannon-fodder-"),
-          ),
-      )
-      .map((e) => e.name);
-    assert.deepEqual(
-      wrongful,
-      [],
-      "reclamation must delete only jolly-cannon-fodder-namespaced environments",
     );
   },
 );
@@ -673,13 +626,14 @@ Then(
   },
 );
 
-// Feature 026 — the leaked-environment pair. A run that falls through to Jolly's
+// Feature 026 — the leaked environment. A run that falls through to Jolly's
 // product-default store name still carries the run's namespace in its DOMAIN
 // LABEL. Reclamation that matches on name alone cannot see such an environment,
 // so it squats an org slot forever and starves every scenario that creates one.
-// The @logic scenario pins the SELECTION rule on the real selection seam; the
-// @sandbox scenario pins the OBSERVABLE EFFECT against the real Cloud org, with
-// a real leaked environment created through Jolly's own create path.
+// This @logic scenario pins the SELECTION rule on the real selection seam; the
+// OBSERVABLE EFFECT against the real Cloud org is pinned by the @sandbox
+// accounting scenario above, which requires every stale leftover to be
+// accounted for whether it is namespaced in its name or its domain label.
 
 /** The product-default store name a fall-through run leaves behind. */
 const PRODUCT_DEFAULT_STORE_NAME = "jolly-store";
@@ -762,129 +716,6 @@ Then(
       !selected.some((e) => e.key === bystander.key),
       `${bystander.name} carries the namespace in neither identity and must never be ` +
         `selected for reclamation`,
-    );
-  },
-);
-
-Given(
-  "a leftover Saleor environment standing in the org whose name is Jolly's product default \"jolly-store\" and whose domain label carries the `jolly-cannon-fodder` namespace",
-  { timeout: 600_000 },
-  async function (this: JollyWorld) {
-    const token = process.env["JOLLY_SALEOR_CLOUD_TOKEN"];
-    assert.ok(token, "requires JOLLY_SALEOR_CLOUD_TOKEN");
-    this.notes.reclaimToken = token;
-
-    // Snapshot every environment that is not ours in EITHER identity, so the
-    // survival assertion can confirm reclamation left each one alone.
-    const before = await listAllEnvironments(token);
-    this.notes.foreignEnvKeysBefore = before
-      .filter(
-        (e) =>
-          !environmentIdentities(e).some((id) => id.startsWith("jolly-cannon-fodder-")),
-      )
-      .map((e) => `${e.org}/${e.key}`);
-
-    // The leaked environment, created for real through Jolly's own create path:
-    // the product-default NAME, and a PRIOR-run namespace in the domain label so
-    // reclamation is entitled to delete it while this run's own environments and
-    // the cached shared store stay protected. Teardown registered BEFORE
-    // creation; the reclamation under test removes it first, leaving a 404 no-op.
-    const domainLabel = `${priorRunNamespace(this)}-leaked`;
-    this.notes.leakedDomainLabel = domainLabel;
-    this.cleanup.register(`leaked environment ${domainLabel}`, async () => {
-      for (const env of await listAllEnvironments(token)) {
-        if (env.domainLabel === domainLabel) {
-          await deleteEnvironment(token, env.org, env.key);
-        }
-      }
-    });
-    const result = await createEnvironment(
-      (args, options) => this.runCliAsync(args, options),
-      {
-        name: PRODUCT_DEFAULT_STORE_NAME,
-        domainLabel,
-        runOptions: { timeoutMs: 540_000 },
-        limitBudgetMs: 540_000,
-        reclaim: {
-          token,
-          runNamespace: makeNamespace(this.runId),
-          spareNames: cachedStoreSpareNames(),
-        },
-      },
-    );
-    assertEnvelopeSuccess(
-      result.envelope,
-      "the leaked environment must be created (live by design)",
-    );
-
-    // Confirm the leak really stands, in the shape the scenario names.
-    const seeded = await listAllEnvironments(token);
-    const leaked = seeded.find((e) => e.domainLabel === domainLabel);
-    assert.ok(leaked, `the leaked environment ${domainLabel} must stand in the org`);
-    assert.equal(
-      leaked!.name,
-      PRODUCT_DEFAULT_STORE_NAME,
-      "the leak's Cloud name must be Jolly's product default, which is what hides it from a name-only match",
-    );
-  },
-);
-
-Given(
-  "the leftover is stale, older than the full-regression wall-clock budget in {string}",
-  function (this: JollyWorld, riggingFile: string) {
-    // The staged leftover: the leaked environment (domain-label scenario) or
-    // the prior-run leftover (provisioner scenario), whichever this scenario's
-    // first Given staged.
-    const identity = (this.notes.leakedDomainLabel ?? this.notes.leftoverName) as
-      | string
-      | undefined;
-    assert.ok(
-      identity,
-      "a leftover must be staged before its age can be observed as stale",
-    );
-    // @exceptional-double: a resource age beyond the full-regression budget —
-    // elapsed wall clock cannot be produced on demand (feature 030's staleness
-    // gate). The staged leftover is real and its reclamation deletes it for
-    // real; only the age observation is injected: for this one identity the
-    // platform-served `created` is observed as one minute older than the
-    // budget the named rigging file configures, and the real age-gate
-    // arithmetic still decides staleness.
-    const budgetMs = fullRegressionBudgetMs(riggingFile);
-    const createdIso = new Date(Date.now() - budgetMs - 60_000).toISOString();
-    // Teardown registered before the injection lands; removal is idempotent.
-    let revert: (() => void) | undefined;
-    this.cleanup.register(`stale-age observation for ${identity}`, () => {
-      revert?.();
-    });
-    revert = observeEnvironmentCreatedAt(identity, createdIso);
-  },
-);
-
-When(
-  "the @sandbox harness performs its pre-run capacity reclamation",
-  { timeout: 300_000 },
-  async function (this: JollyWorld) {
-    // The real pre-run reclamation the @sandbox tier runs from BeforeAll.
-    const token = this.notes.reclaimToken as string;
-    this.notes.reclaimed = await reclaimStaleResources(token);
-  },
-);
-
-Then(
-  "the leaked environment should no longer exist in the org",
-  { timeout: 60_000 },
-  async function (this: JollyWorld) {
-    const token = this.notes.reclaimToken as string;
-    const domainLabel = this.notes.leakedDomainLabel as string;
-    const after = await listAllEnvironments(token);
-    assert.ok(
-      !after.some((e) => e.domainLabel === domainLabel),
-      `the leaked environment ${domainLabel} must be reclaimed; it still stands in the org and squats a slot`,
-    );
-    const reclaimed = this.notes.reclaimed as CloudEnvironment[];
-    assert.ok(
-      reclaimed.some((e) => e.domainLabel === domainLabel),
-      `reclamation must report the leaked environment ${domainLabel} among those it deleted`,
     );
   },
 );

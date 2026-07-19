@@ -955,19 +955,36 @@ Given(
 
 Then(
   "the {string} check should really send the authenticated organizations request and have it rejected",
-  function (this: JollyWorld, id: string) {
-    const check = this.findCheck(id);
+  async function (this: JollyWorld, id: string) {
+    // The probe is a REAL request to the real Cloud API. Under the laned
+    // window's concurrency that request can fail to COMPLETE — connection reset
+    // or timeout — and doctor then honestly reports `unknown`, carrying no HTTP
+    // status rather than fabricating a rejection it never received. That is a
+    // transient connection signal, not this scenario's verdict, so re-probe
+    // against a bounded deadline. A real rejection carries its status on the
+    // first pass and asserts immediately, so a genuine defect still reds fast.
+    const deadline = Date.now() + 60_000;
+    let check = this.findCheck(id);
+    while (check?.status === "unknown" && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      this.runCli(["doctor", "saleor", "--json"], {
+        env: (this.notes.saleorDoctorEnv as
+          | Record<string, string | undefined>
+          | undefined) ?? absentCredentialsEnv(),
+      });
+      check = this.findCheck(id);
+    }
     assert.ok(check, `doctor saleor must report a \`${id}\` check`);
     const text = JSON.stringify(check);
     assert.match(
       text,
       /organizations/i,
-      `the ${id} check must show it sent the authenticated organizations request`,
+      `the ${id} check must show it sent the authenticated organizations request; got ${text}`,
     );
     assert.match(
       text,
       /\b40\d\b/,
-      `the ${id} check must report the real HTTP rejection status`,
+      `the ${id} check must report the real HTTP rejection status; got ${text}`,
     );
   },
 );

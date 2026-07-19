@@ -65,6 +65,7 @@ const TOOLCHAIN_ELEMENT_OF: Record<string, string> = {
 export type SpendKind =
   | (typeof TOOLCHAIN_SPENDS)[number]
   | "environment-creation"
+  | "environment-reuse"
   | "shared-provisioning"
   | "run-start"
   | "run-end";
@@ -410,6 +411,96 @@ export function scenarioTagsFromSpecs(
   return tags;
 }
 
+/**
+ * The expensive spend classes and the tag that licenses each. The Rule names
+ * exactly two expensive spends: the full toolchain chain and a Saleor Cloud
+ * environment creation. One creation test per creation seam, and one means one,
+ * so at most a single scenario in the corpus may hold either licence.
+ *
+ * The element licences (@creates-env's single-element clause, and
+ * @toolchain-element) are NOT listed here: they license the toolchain elements
+ * that are a scenario's own specified assertion against its own namespaced
+ * resources, never an expensive spend class, so several scenarios may hold one.
+ */
+export const EXPENSIVE_SPEND_LICENCES: ReadonlyArray<{
+  tag: string;
+  spendClass: string;
+}> = [
+  { tag: "@pipeline", spendClass: "the full toolchain chain" },
+  { tag: "@creates-env", spendClass: "Saleor Cloud environment creation" },
+];
+
+/**
+ * The tag a scenario declares when its assertion cannot exist without its own
+ * creation. The Rule exempts such a scenario from the one-holder count, so the
+ * true licensed set stays enumerable from tags alone.
+ */
+export const SPEND_IS_THE_ASSERTION = "@spend-is-the-assertion";
+
+/**
+ * Every expensive spend class mapped to the scenarios holding its licence and
+ * counted against the one-holder rule. A holder declaring
+ * `@spend-is-the-assertion` is exempt, so it is not grouped.
+ */
+export function licensedScenariosBySpendClass(
+  tags: Map<string, Set<string>>,
+): Map<string, string[]> {
+  const grouped = new Map<string, string[]>();
+  for (const { tag, spendClass } of EXPENSIVE_SPEND_LICENCES) {
+    const holders: string[] = [];
+    for (const [scenario, scenarioTags] of tags) {
+      if (!scenarioTags.has(tag)) continue;
+      if (scenarioTags.has(SPEND_IS_THE_ASSERTION)) continue;
+      holders.push(scenario);
+    }
+    grouped.set(spendClass, holders.sort());
+  }
+  return grouped;
+}
+
+/**
+ * Every scenario declaring `@spend-is-the-assertion` while holding no expensive
+ * spend licence. The declaration exempts a licence it does not hold, so it
+ * claims an exception it cannot use.
+ */
+export function strayExemptionScenarios(
+  tags: Map<string, Set<string>>,
+): string[] {
+  const stray: string[] = [];
+  for (const [scenario, scenarioTags] of tags) {
+    if (!scenarioTags.has(SPEND_IS_THE_ASSERTION)) continue;
+    const holdsLicence = EXPENSIVE_SPEND_LICENCES.some(({ tag }) =>
+      scenarioTags.has(tag),
+    );
+    if (!holdsLicence) stray.push(scenario);
+  }
+  return stray.sort();
+}
+
+export interface LicenceExclusivityViolation {
+  spendClass: string;
+  holders: string[];
+  message: string;
+}
+
+/** Every spend class held by more than one scenario, named with its holders. */
+export function licenceExclusivityViolations(
+  grouped: Map<string, string[]>,
+): LicenceExclusivityViolation[] {
+  const violations: LicenceExclusivityViolation[] = [];
+  for (const [spendClass, holders] of grouped) {
+    if (holders.length <= 1) continue;
+    violations.push({
+      spendClass,
+      holders,
+      message:
+        `${spendClass} carries ${holders.length} licensed scenarios, and one ` +
+        `means one: ${holders.map((holder) => `"${holder}"`).join(", ")}`,
+    });
+  }
+  return violations;
+}
+
 export interface SpendViolation {
   scenario: string;
   spend: string;
@@ -482,6 +573,12 @@ export function doubleClassifiedSpends(
  * scenario carrying @exceptional-double is classified to the double
  * ({@link doubleClassifiedSpends}) and never judged as a real toolchain spend.
  */
+/** The identity a creation entry and its annulling reuse entry share: the
+ * scenario that drove the seam and the exact argv it drove it with. */
+function creationKey(entry: SpendEntry): string {
+  return `${entry.scenario} ${(entry.argv ?? []).join(" ")}`;
+}
+
 export function unlicensedSpends(
   entries: SpendEntry[],
   tags: Map<string, Set<string>>,
@@ -491,6 +588,16 @@ export function unlicensedSpends(
   // ELEMENTS each attributed scenario spent in the judged set. Spends
   // classified to a double are the double's own failure path and count toward
   // no element.
+  // An environment-creation entry is recorded BEFORE the create runs, so a
+  // crash mid-create is still accounted. The seam reports the OUTCOME
+  // afterwards, and a reuse creates nothing: the CLI answered with an existing
+  // environment. Such an entry is annulled by its matching reuse entry, so the
+  // licence join judges what was actually spent rather than what was attempted.
+  const annulled = new Set(
+    entries
+      .filter((entry) => entry.spend === "environment-reuse")
+      .map((entry) => creationKey(entry)),
+  );
   const elements = new Map<string, Set<string>>();
   for (const entry of entries) {
     if (!(TOOLCHAIN_SPENDS as readonly string[]).includes(entry.spend)) continue;
@@ -534,7 +641,8 @@ export function unlicensedSpends(
     if (entry.spend === "environment-creation") {
       if (
         entry.scenario !== SHARED_PROVISIONING &&
-        !tags.get(entry.scenario)?.has("@creates-env")
+        !tags.get(entry.scenario)?.has("@creates-env") &&
+        !annulled.has(creationKey(entry))
       ) {
         violations.push({
           scenario: entry.scenario,

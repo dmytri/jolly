@@ -346,9 +346,14 @@ export function readTierWallClock(recordPath: string): TierClock | undefined {
  * the record file's last write. Undefined while the record is absent or
  * carries no completed run.
  */
+export interface RecordRunWindow {
+  startMs: number;
+  endMs: number;
+}
+
 export function recordRunWindow(
   recordPath: string,
-): { startMs: number; endMs: number } | undefined {
+): RecordRunWindow | undefined {
   const clock = readTierWallClock(recordPath);
   if (!clock) return undefined;
   const endMs = statSync(recordPath).mtimeMs;
@@ -401,10 +406,13 @@ export interface BudgetViolation {
 export interface BudgetJudgment {
   /** Tiers whose recorded wall clock exceeds their budget. */
   perTier: BudgetViolation[];
-  /** The tier records summed, in seconds. */
-  sumSeconds: number;
-  /** The summed-records breach of the plain budget, when one exists. */
-  sum?: BudgetViolation;
+  /**
+   * The laned window, in seconds: the lanes' shared launch to the last lane's
+   * exit. Undefined when no record carries a completed run window.
+   */
+  windowSeconds?: number;
+  /** The laned window's breach of the plain budget, when one exists. */
+  window?: BudgetViolation;
 }
 
 /** Compare each tier's recorded wall clock, and their sum, to the budgets. */
@@ -426,16 +434,52 @@ export function checkTierBudgets(
       });
     }
   }
-  const sumSeconds = clocks.reduce((sum, clock) => sum + clock.seconds, 0);
-  const judgment: BudgetJudgment = { perTier, sumSeconds };
-  if (budgets.plainSeconds !== undefined && sumSeconds > budgets.plainSeconds) {
-    judgment.sum = {
-      tier: "(all tiers summed)",
+  // The lanes run concurrently, so the regression's real cost is the window
+  // they share, not their clocks added up. Summing charges an overlapped run
+  // for time no human waited.
+  //
+  // Only the lanes of ONE window count. Lanes are launched together, so every
+  // lane of a window overlaps every other in time. A record left by an EARLIER
+  // run does not overlap the current lanes, and joining it stretches the window
+  // from that run's launch to this run's exit: a measurement of no run that ever
+  // happened. Anchor on the latest-ending record and keep only the records whose
+  // run overlaps it. A record still mid-write carries no end and is already
+  // excluded upstream, so a lane in flight never shortens the window either.
+  const windows: RecordRunWindow[] = [];
+  for (const clock of clocks) {
+    const window = recordRunWindow(clock.recordPath);
+    if (window) windows.push(window);
+  }
+  const anchor = windows.reduce<RecordRunWindow | undefined>(
+    (latest, window) => (!latest || window.endMs > latest.endMs ? window : latest),
+    undefined,
+  );
+  let earliestStartMs: number | undefined;
+  let latestEndMs: number | undefined;
+  if (anchor) {
+    for (const window of windows) {
+      if (window.startMs >= anchor.endMs || window.endMs <= anchor.startMs) continue;
+      if (earliestStartMs === undefined || window.startMs < earliestStartMs) {
+        earliestStartMs = window.startMs;
+      }
+      if (latestEndMs === undefined || window.endMs > latestEndMs) {
+        latestEndMs = window.endMs;
+      }
+    }
+  }
+  const judgment: BudgetJudgment = { perTier };
+  if (earliestStartMs === undefined || latestEndMs === undefined) return judgment;
+  const windowSeconds = (latestEndMs - earliestStartMs) / 1000;
+  judgment.windowSeconds = windowSeconds;
+  if (budgets.plainSeconds !== undefined && windowSeconds > budgets.plainSeconds) {
+    judgment.window = {
+      tier: "(laned window)",
       budgetSeconds: budgets.plainSeconds,
-      recordedSeconds: sumSeconds,
+      recordedSeconds: windowSeconds,
       message:
-        `the tier records summed reach ${sumSeconds.toFixed(1)}s against the ` +
-        `plain ${budgets.plainSeconds}s regression budget`,
+        `the laned window, from the lanes' shared launch to the last lane's exit, ` +
+        `reaches ${windowSeconds.toFixed(1)}s against the plain ` +
+        `${budgets.plainSeconds}s regression budget`,
     };
   }
   return judgment;

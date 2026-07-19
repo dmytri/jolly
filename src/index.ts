@@ -1688,6 +1688,16 @@ function readPositiveIntEnvMs(name: string, fallback: number): number {
 }
 
 /**
+ * Resolve the store stage's readiness budget in milliseconds: 600 seconds by
+ * default, overridable via `JOLLY_READINESS_BUDGET_MS`.
+ *
+ * @planks("When the store stage's readiness budget is resolved")
+ */
+export function resolveReadinessBudgetMs(): number {
+  return readPositiveIntEnvMs("JOLLY_READINESS_BUDGET_MS", 600_000);
+}
+
+/**
  * Create-or-reuse a Saleor Cloud project + environment via the Cloud API, poll
  * until ready, and write the resulting NEXT_PUBLIC_SALEOR_API_URL + the
  * agent-facing SALEOR_URL/SALEOR_TOKEN to `.env` (and into this process so
@@ -1804,7 +1814,7 @@ async function provisionStore(
     // Budget/poll interval default to the production values above and are only
     // overridable via env for tests that must exercise the timeout path without
     // burning the full real budget (a missing/invalid value falls back).
-    const readinessBudgetMs = readPositiveIntEnvMs("JOLLY_READINESS_BUDGET_MS", 600_000);
+    const readinessBudgetMs = resolveReadinessBudgetMs();
     const readinessPollMs = readPositiveIntEnvMs("JOLLY_READINESS_POLL_MS", 5_000);
     const readinessDeadline = Date.now() + readinessBudgetMs;
     while ((await probeEndpointConnectivity(domainUrl)).kind !== "reachable") {
@@ -5551,7 +5561,7 @@ export async function runStartCore(
       // never run against a cold endpoint. An endpoint that never answers within
       // the budget leaves the stage `blocked` honestly, never a fabricated
       // completion.
-      const readinessBudgetMs = readPositiveIntEnvMs("JOLLY_READINESS_BUDGET_MS", 600_000);
+      const readinessBudgetMs = resolveReadinessBudgetMs();
       const readinessPollMs = readPositiveIntEnvMs("JOLLY_READINESS_POLL_MS", 5_000);
       const readinessDeadline = Date.now() + readinessBudgetMs;
       let endpointAnswered = true;

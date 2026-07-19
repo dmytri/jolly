@@ -19,6 +19,7 @@ import {
   leftoverTestEnvironments,
   listAllEnvironments,
 } from "./cloud.ts";
+import { findEnvelope } from "./envelope.ts";
 import { recordSpend } from "./spend-ledger.ts";
 import type { CliResult, RunCliOptions } from "./world.ts";
 
@@ -146,6 +147,17 @@ export async function createEnvironment(
     if (opts.reclaim) await reclaimOneSlot(opts.reclaim);
     await new Promise((resolve) => setTimeout(resolve, 15_000));
     result = await runCreate();
+  }
+  // The outcome the CLI reports. `environmentCreated: false` means it answered
+  // with an environment that already existed, so nothing was created and no
+  // expensive spend was made; annul the pre-recorded creation entry so the
+  // licence join judges the real spend. A result that reports no outcome at all
+  // leaves the creation entry standing, which is the safe direction.
+  const data = findEnvelope(result.stdout)?.data as
+    | { environmentCreated?: unknown }
+    | undefined;
+  if (data?.environmentCreated === false) {
+    recordSpend({ spend: "environment-reuse", argv: args });
   }
   return result;
 }

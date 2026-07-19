@@ -30,8 +30,17 @@ const host = process.env.HARNESS_COLD_HOST;
 const ledger = process.env.HARNESS_COLD_LEDGER;
 if (host && ledger) {
   const refusals = Number(process.env.HARNESS_COLD_PROBE_REFUSALS ?? "3");
+  // The window can be declared in TIME instead of probe count: the endpoint
+  // begins serving this many milliseconds after the stage's FIRST probe, which
+  // is how the scenario states it. Time is the honest shape here — a cold store
+  // starts serving when it has finished starting, not after a fixed number of
+  // callers have asked.
+  const serveAfterMs = process.env.HARNESS_COLD_SERVE_AFTER_MS
+    ? Number(process.env.HARNESS_COLD_SERVE_AFTER_MS)
+    : undefined;
   const realFetch = globalThis.fetch;
   let probes = 0;
+  let firstProbeAt;
   globalThis.fetch = async function coldWindowFetch(input, init) {
     const raw =
       typeof input === "string"
@@ -48,20 +57,29 @@ if (host && ledger) {
     if (url.hostname !== host) return realFetch(input, init);
     const body = typeof init?.body === "string" ? init.body : "";
     const probeShaped = body.includes("__typename");
-    const refused = probeShaped && ++probes <= refusals;
+    const now = Date.now();
+    if (probeShaped) {
+      probes++;
+      firstProbeAt ??= now;
+    }
+    const withinWindow =
+      serveAfterMs === undefined ? probes <= refusals : now - firstProbeAt < serveAfterMs;
+    const refused = probeShaped && withinWindow;
     appendFileSync(
       ledger,
       JSON.stringify({
-        t: Date.now(),
+        t: now,
         path: url.pathname,
         probeShaped,
         refused,
       }) + "\n",
     );
     if (refused) {
-      throw new TypeError(
-        `fetch failed: ${host} is not yet serving (cold-start window, probe refusal ${probes}/${refusals})`,
-      );
+      const window =
+        serveAfterMs === undefined
+          ? `probe refusal ${probes}/${refusals}`
+          : `${now - firstProbeAt}ms into a ${serveAfterMs}ms cold-start window`;
+      throw new TypeError(`fetch failed: ${host} is not yet serving (${window})`);
     }
     return realFetch(input, init);
   };

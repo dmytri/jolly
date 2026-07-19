@@ -98,15 +98,58 @@ export function pressureSignal(record: PressureRecord): boolean {
 /**
  * The worker count a tier's next run starts from: yesterday's weather. A record
  * carrying a pressure signal backs off below its green worker count (never
- * under 1); a record carrying none leaves the recorded green count standing as
- * the prior; no pressure record at all leaves the configured fallback.
+ * under 1); a record carrying none restores the count toward the profile's
+ * configured parallelism, one worker per clean run; no pressure record at all
+ * leaves the configured parallelism standing.
+ *
+ * Backoff without restore is a ratchet: a single pressure signal pins the tier
+ * at its backed-off count for every later run, because each of those runs then
+ * records the backed-off count as its own green. The sandbox tier sat at 1
+ * worker that way and paid a 1334s wall against a 900s budget. Restoring toward
+ * the configured parallelism on a clean record closes that gap, and the backoff
+ * arm still catches the pressure the step up rediscovers.
  */
-export function deriveWorkerCount(recordPath: string, fallbackWorkers: number): number {
+export function deriveWorkerCount(recordPath: string, configuredWorkers: number): number {
   const record = readPressureRecord(recordPath);
   if (!record || !Number.isInteger(record.workers) || record.workers < 1) {
-    return fallbackWorkers;
+    return configuredWorkers;
   }
-  return pressureSignal(record) ? Math.max(1, record.workers - 1) : record.workers;
+  if (pressureSignal(record)) return Math.max(1, record.workers - 1);
+  return Math.min(configuredWorkers, record.workers + 1);
+}
+
+/** A derived worker count held below the configured parallelism by a record
+ * that carries no pressure signal: the recovery gap, named. */
+export interface WorkerRestoreFinding {
+  recordedWorkers: number;
+  derivedWorkers: number;
+  configuredWorkers: number;
+  message: string;
+}
+
+/**
+ * Judge a derivation against the restore rule. A clean record must move the
+ * count toward the configured parallelism; a derivation that leaves it at or
+ * below the recorded count while the configured parallelism is higher is the
+ * recovery gap, and is returned as a finding.
+ */
+export function workerRestoreFinding(
+  record: PressureRecord,
+  derivedWorkers: number,
+  configuredWorkers: number,
+): WorkerRestoreFinding | undefined {
+  if (pressureSignal(record)) return undefined;
+  if (record.workers >= configuredWorkers) return undefined;
+  if (derivedWorkers > record.workers) return undefined;
+  return {
+    recordedWorkers: record.workers,
+    derivedWorkers,
+    configuredWorkers,
+    message:
+      `a record carrying no pressure signal recorded ${record.workers} worker(s) and ` +
+      `derived ${derivedWorkers}, holding below the configured parallelism of ` +
+      `${configuredWorkers} instead of restoring toward it`,
+  };
 }
 
 /** Judge tier pressure records: every recorded out-of-memory kill is a finding,

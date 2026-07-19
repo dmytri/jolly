@@ -230,6 +230,32 @@ export async function reclaimStaleResources(
   return leftovers;
 }
 
+export interface UnreclaimedLeftover {
+  identity: string;
+  message: string;
+}
+
+/**
+ * Every leftover the reclamation report accounted for that is nonetheless still
+ * standing in the org afterward, named. Accounting for a leftover and leaving it
+ * standing squats an org slot forever, so the report's claim is judged against
+ * the org, never taken at its word.
+ */
+export function unreclaimedLeftovers(
+  accounted: CloudEnvironment[],
+  standingAfter: CloudEnvironment[],
+): UnreclaimedLeftover[] {
+  const standing = new Set(standingAfter.map((env) => `${env.org}/${env.key}`));
+  return accounted
+    .filter((env) => standing.has(`${env.org}/${env.key}`))
+    .map((env) => ({
+      identity: `${env.name} (domain label ${env.domainLabel})`,
+      message:
+        `the reclamation report accounted for ${env.name} (domain label ` +
+        `${env.domainLabel}), yet it still stands in the org and squats a slot`,
+    }));
+}
+
 /**
  * The FIXED basename of the persistent cross-invocation shared-store marker.
  * Not run-namespaced (it must outlive every run so a LATER invocation can find

@@ -254,7 +254,12 @@ export function enumerateWakeReaderSelections(
   });
 
   // The worker-count prior: yesterday's weather. A sentinel fallback distinct
-  // from every fixture count makes "consumed nothing" legible.
+  // from every fixture count makes "consumed nothing" legible: deriveWorkerCount
+  // returns the fallback UNREAD, and a count derived from a record it did read.
+  // The question this reader answers is WHICH record it consumed, never which
+  // value it derived — the restore rule moves a clean record's count toward the
+  // configured parallelism, so a derivation equal to the recorded count is the
+  // recovery gap the worker-restore scenario judges, not a run-scope breach.
   const sentinel = 99;
   const priorFromPartial = deriveWorkerCount(fixture.partialRecordPath, sentinel);
   const priorFromCompleted = deriveWorkerCount(fixture.completedRecordPath, sentinel);
@@ -263,7 +268,7 @@ export function enumerateWakeReaderSelections(
     selected:
       priorFromPartial !== sentinel
         ? "partial"
-        : priorFromCompleted === fixture.completedWorkers
+        : priorFromCompleted !== sentinel
           ? "completed"
           : "none",
     detail:

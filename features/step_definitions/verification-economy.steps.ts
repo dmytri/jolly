@@ -33,19 +33,32 @@ import {
   deriveWorkerCount,
   oomKillFindings,
   readPressureRecord,
+  workerRestoreFinding,
   type OomFinding,
   type PressureRecord,
   type TierPressure,
 } from "../support/pressure.ts";
 import {
+  declaredReadCeilings,
+  pinnedReadFindings,
+  readStepMeasurements,
+  type DeclaredCeiling,
+  type PinnedReadFinding,
+  type StepMeasurement,
+} from "../support/read-ceilings.ts";
+import {
   doubleClassifiedSpends,
   duplicateSharedClasses,
   lastRunEntries,
   ledgerEntriesWithin,
+  licenceExclusivityViolations,
+  licensedScenariosBySpendClass,
   readSpendLedger,
   scenarioTagsFromSpecs,
+  strayExemptionScenarios,
   sweepLegEntries,
   unlicensedSpends,
+  EXPENSIVE_SPEND_LICENCES,
   SHARED_PROVISIONING,
   SPEND_LEDGER_PATH,
   TOOLCHAIN_SPENDS,
@@ -281,20 +294,22 @@ Given(
 When(
   "the tier's next run derives its worker count from the record",
   function (this: JollyWorld) {
-    // A fallback distinct from every fixture's recorded count: a derivation
-    // that ignored the record would surface as this value, not as a backoff.
-    const fallback = 7;
+    // The profile's configured parallelism, held distinct from every fixture's
+    // recorded count: a derivation that ignored the record would surface as
+    // this value, not as a backoff, and a clean record restores toward it.
+    const configured = 7;
+    this.notes.configuredWorkers = configured;
     this.notes.derivedFromOom = deriveWorkerCount(
       this.notes.oomRecordPath as string,
-      fallback,
+      configured,
     );
     this.notes.derivedFromCeiling = deriveWorkerCount(
       this.notes.ceilingRecordPath as string,
-      fallback,
+      configured,
     );
     this.notes.derivedFromClean = deriveWorkerCount(
       this.notes.cleanRecordPath as string,
-      fallback,
+      configured,
     );
   },
 );
@@ -322,12 +337,44 @@ Then(
 );
 
 Then(
-  "a record carrying no pressure signal should leave the recorded green worker count standing as the prior",
+  "a record carrying no pressure signal should restore the derived worker count toward the profile's configured parallelism",
   function (this: JollyWorld) {
+    const recorded = this.notes.greenWorkers as number;
+    const configured = this.notes.configuredWorkers as number;
+    const derived = this.notes.derivedFromClean as number;
+    assert.ok(
+      derived > recorded,
+      `a clean record must move the count toward the configured parallelism ` +
+        `${configured}; recorded ${recorded}, derived ${derived}`,
+    );
+    assert.ok(
+      derived <= configured,
+      `the restored count must not exceed the profile's configured parallelism ` +
+        `${configured}; derived ${derived}`,
+    );
+  },
+);
+
+Then(
+  "a derived worker count held below the configured parallelism by a record carrying no pressure signal should redden the check",
+  function (this: JollyWorld) {
+    const configured = this.notes.configuredWorkers as number;
+    const clean = readPressureRecord(this.notes.cleanRecordPath as string);
+    assert.ok(clean, "the clean fixture record must be readable");
+    // Planted: the pre-restore derivation, which left the recorded count
+    // standing. The check must name it rather than pass it.
+    const held = workerRestoreFinding(clean, clean.workers, configured);
+    assert.ok(
+      held,
+      "a derivation holding the recorded count below the configured parallelism " +
+        "must redden the check",
+    );
+    assert.match(held.message, /restoring toward it/);
+    // Plant removed: the live derivation restores, so the check is green on it.
     assert.equal(
-      this.notes.derivedFromClean,
-      this.notes.greenWorkers,
-      "a clean record's green worker count is yesterday's weather and must stand as the prior",
+      workerRestoreFinding(clean, this.notes.derivedFromClean as number, configured),
+      undefined,
+      "the restoring derivation must leave the check green",
     );
   },
 );
@@ -1036,6 +1083,104 @@ Then(
   },
 );
 
+// ─── One licence holder per expensive spend class ───────────────────────────
+
+Given("Jolly's feature files", function (this: JollyWorld) {
+  this.notes.scenarioTags = scenarioTagsFromSpecs();
+});
+
+When(
+  "the scenarios carrying a spend licence tag are grouped by the spend class that tag licenses",
+  function (this: JollyWorld) {
+    this.notes.licensedByClass = licensedScenariosBySpendClass(
+      this.notes.scenarioTags as Map<string, Set<string>>,
+    );
+  },
+);
+
+Then(
+  "no spend class should carry more than one licensed scenario that does not declare @spend-is-the-assertion",
+  function (this: JollyWorld) {
+    const grouped = this.notes.licensedByClass as Map<string, string[]>;
+    // An empty grouping would pass this assertion while judging nothing, so the
+    // census must first prove it found the classes it exists to police.
+    assert.equal(
+      grouped.size,
+      EXPENSIVE_SPEND_LICENCES.length,
+      `the census must group every expensive spend class, found ${grouped.size}`,
+    );
+    const violations = licenceExclusivityViolations(grouped);
+    assert.equal(
+      violations.length,
+      0,
+      `expensive spend classes held by more than one licensed scenario:\n${violations
+        .map((violation) => `  - ${violation.message}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "a spend class carrying a second undeclared licensed scenario should redden the check, naming the class and every scenario holding its licence",
+  function (this: JollyWorld) {
+    // The planted red: a second scenario carrying the chain licence. The same
+    // judgment the real assertion above uses must redden and name both holders.
+    const planted = new Map<string, Set<string>>([
+      ["The full pipeline proof", new Set(["@sandbox", "@pipeline"])],
+      ["A second pipeline proof", new Set(["@sandbox", "@pipeline"])],
+      ["The one creator", new Set(["@sandbox", "@creates-env"])],
+      // A declared second holder of the creation class: "undeclared" is the
+      // word under test, so the plant must carry a holder it excuses.
+      [
+        "A declared second creator",
+        new Set(["@sandbox", "@creates-env", "@spend-is-the-assertion"]),
+      ],
+    ]);
+    const violations = licenceExclusivityViolations(
+      licensedScenariosBySpendClass(planted),
+    );
+    assert.equal(
+      violations.length,
+      1,
+      "a second holder of one spend class must redden the check exactly once",
+    );
+    const [violation] = violations;
+    assert.equal(violation.spendClass, "the full toolchain chain");
+    assert.deepEqual(
+      [...violation.holders].sort(),
+      ["A second pipeline proof", "The full pipeline proof"],
+      "the finding must name every scenario holding the class's licence",
+    );
+    assert.ok(
+      violation.message.includes("the full toolchain chain") &&
+        violation.message.includes("A second pipeline proof") &&
+        violation.message.includes("The full pipeline proof"),
+      `the finding must name the class and every holder: ${violation.message}`,
+    );
+  },
+);
+
+Then(
+  "a scenario carrying @spend-is-the-assertion without a spend licence tag should redden the check, since the declaration exempts a licence it does not hold",
+  function (this: JollyWorld) {
+    // The planted red: a declaration beside no licence tag. The exemption has
+    // nothing to exempt, so the same judgment the corpus uses must name it.
+    const planted = new Map<string, Set<string>>([
+      ["The one creator", new Set(["@sandbox", "@creates-env"])],
+      [
+        "A declared creator",
+        new Set(["@sandbox", "@creates-env", "@spend-is-the-assertion"]),
+      ],
+      ["A bare declaration", new Set(["@logic", "@spend-is-the-assertion"])],
+    ]);
+    assert.deepEqual(
+      strayExemptionScenarios(planted),
+      ["A bare declaration"],
+      "a declaration holding no expensive spend licence must redden the check, and a declaration beside one must not",
+    );
+  },
+);
+
 // ─── The wake is read run-scoped ────────────────────────────────────────────
 
 Given(
@@ -1179,13 +1324,18 @@ Then("no tier's recorded wall clock should exceed its budget", function (this: J
 });
 
 Then(
-  "the tier records summed should fit the plain regression budget",
+  "the laned window's wall clock, from the lanes' shared launch to the last lane's exit, should fit the plain regression budget",
   function (this: JollyWorld) {
     const judgment = this.notes.budgetJudgment as BudgetJudgment;
+    assert.ok(
+      judgment.windowSeconds !== undefined,
+      "no tier record carries a completed run window — run the tier commands " +
+        "as lanes so the window the budget judges exists",
+    );
     assert.equal(
-      judgment.sum,
+      judgment.window,
       undefined,
-      judgment.sum?.message ?? "the summed tier records fit the regression budget",
+      judgment.window?.message ?? "the laned window fits the regression budget",
     );
   },
 );
@@ -1207,9 +1357,93 @@ Then(
         violation.message.includes("7"),
       `the violation must name the tier, its budget, and the recorded time: ${violation.message}`,
     );
+  },
+);
+
+// ─── A step pinned at its declared read ceiling ─────────────────────────────
+
+Given(
+  "the per-step durations the latest tier runs wrote into the wake",
+  function (this: JollyWorld) {
+    const commands = readTierCommands("RIGGING.md");
+    const paths = new Set<string>();
+    for (const command of commands) {
+      if (command.recordPath) paths.add(command.recordPath);
+    }
+    const measurements: StepMeasurement[] = [];
+    for (const recordPath of paths) {
+      measurements.push(...readStepMeasurements(join(REPO_ROOT, recordPath)));
+    }
     assert.ok(
-      judgment.sum,
-      "summed records over the plain regression budget were not reported",
+      measurements.length > 0,
+      "the wake carries no per-step durations — run a tier through its " +
+        "configured command so its record exists to judge",
+    );
+    this.notes.stepMeasurements = measurements;
+  },
+);
+
+Given("the read ceilings declared in the verification support", function (this: JollyWorld) {
+  const ceilings = declaredReadCeilings();
+  assert.ok(
+    ceilings.length > 0,
+    "the verification support declares no read ceiling — the scan found no " +
+      "`timeoutMs` inside a step definition, so the join has nothing to judge",
+  );
+  this.notes.declaredCeilings = ceilings;
+});
+
+When(
+  "each step's measured duration is joined against its declared ceiling",
+  function (this: JollyWorld) {
+    this.notes.pinnedReads = pinnedReadFindings(
+      this.notes.declaredCeilings as DeclaredCeiling[],
+      this.notes.stepMeasurements as StepMeasurement[],
+    );
+  },
+);
+
+Then("no step's measured duration should reach its declared ceiling", function (this: JollyWorld) {
+  const findings = this.notes.pinnedReads as PinnedReadFinding[];
+  assert.equal(
+    findings.length,
+    0,
+    `steps ran pinned at their declared read ceiling:\n${findings
+      .map((finding) => `  - ${finding.message}`)
+      .join("\n")}`,
+  );
+});
+
+Then(
+  "planting a read whose signal never matches should redden the check before the plant is removed",
+  function (this: JollyWorld) {
+    const ceilings = this.notes.declaredCeilings as DeclaredCeiling[];
+    const planted = ceilings[0]!;
+    // A read whose signal never matches runs to its ceiling and returns
+    // whatever the terminal held. That is what this measurement is.
+    const plant: StepMeasurement = {
+      file: planted.file,
+      line: planted.line,
+      pattern: "a read whose declared signal never matches",
+      durationMs: planted.ceilingMs,
+      recordPath: "planted.ndjson",
+    };
+    const withPlant = pinnedReadFindings(ceilings, [plant]);
+    assert.equal(
+      withPlant.length,
+      1,
+      "a read pinned at its declared ceiling must redden the check",
+    );
+    assert.ok(
+      withPlant[0]!.message.includes("read ceiling"),
+      `the finding must name the ceiling the read ran against: ${withPlant[0]!.message}`,
+    );
+    // Plant removed: the same read ending on its signal well inside the
+    // ceiling leaves the check green.
+    assert.equal(
+      pinnedReadFindings(ceilings, [{ ...plant, durationMs: planted.ceilingMs * 0.1 }]).length,
+      0,
+      "a read ending on its signal well inside the ceiling must leave the check green",
     );
   },
 );

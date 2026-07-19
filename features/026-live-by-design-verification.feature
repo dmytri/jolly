@@ -38,21 +38,13 @@ Feature: Live-by-design verification conformance
     Then the leaked environment should be selected for reclamation
     And an environment carrying the `jolly-cannon-fodder` namespace in neither its name nor its domain label should be left alone
 
-  @sandbox @creates-env
-  Scenario: The provisioner reclaims a leaked environment that carries the namespace only in its domain label
-    Given a leftover Saleor environment standing in the org whose name is Jolly's product default "jolly-store" and whose domain label carries the `jolly-cannon-fodder` namespace
-    And the leftover is stale, older than the full-regression wall-clock budget in "RIGGING.md"
-    When the @sandbox harness performs its pre-run capacity reclamation
-    Then the leaked environment should no longer exist in the org
-    And every environment lacking the `jolly-cannon-fodder` namespace in both its name and its domain label should still be present afterward
-
-  @sandbox @creates-env
-  Scenario: The @sandbox provisioner reclaims a leftover jolly-cannon-fodder environment instead of skipping the run
-    Given a leftover `jolly-cannon-fodder`-namespaced Saleor environment standing in the org from a previous run that never finished starting and does not serve requests
-    And the leftover is stale, older than the full-regression wall-clock budget in "RIGGING.md"
+  @sandbox
+  Scenario: Pre-run reclamation accounts for every stale leftover standing in the org
+    Given the `jolly-cannon-fodder`-namespaced Saleor environments standing in the org from previous runs, stale beyond the full-regression wall-clock budget in "RIGGING.md"
     When the @sandbox harness provisions its shared environment for a run
-    Then it should reclaim the leftover `jolly-cannon-fodder`-namespaced environment and provision the run's environment, not skip the run
-    And every environment lacking the `jolly-cannon-fodder` prefix should still be present afterward
+    Then its reclamation report should account for every one of those stale leftovers, whether namespaced in the name or in the domain label
+    And an accounted leftover left standing in the org afterward should redden the check, naming it
+    And every environment lacking the `jolly-cannon-fodder` namespace in both its name and its domain label should still be present afterward
 
   @logic @property
   Scenario: The standalone reclaim entrypoint runs only when invoked directly, never as an import side effect
