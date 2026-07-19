@@ -19,6 +19,8 @@ Feature: Jolly Configurator starter recipe
     Then the recipe stage should pass `--failOnDelete` to `npx @saleor/configurator@latest deploy`
     And the configurator should exit 6 for deletions
     And Jolly should report the recipe stage as "blocked", not "completed"
+    And the blocked report should name the destructive diff the configurator observed, including a deletion it would make
+    And the blocked report should state that deploying over it requires explicit approval
 
   @logic
   Scenario: Jolly start previews seeding stock for the recipe catalog

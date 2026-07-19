@@ -96,6 +96,15 @@ Feature: Npx-first Jolly CLI command surface
     Then Jolly should default NPM_CONFIG_LOGLEVEL to error so spawned npx tools suppress warn-level notices such as EBADENGINE
     And a NPM_CONFIG_LOGLEVEL value the caller already set should be preserved unchanged
 
+  @logic @property
+  Scenario: Jolly's code spawns only the delegated official tools
+    Given Jolly's own child-process-spawning code
+    When the commands its spawn sites can launch are enumerated
+    Then the binaries spawned should be exactly `git`, `pnpm`, and `npx`
+    And the packages launched through `npx` should be exactly `@saleor/configurator`, `vercel`, `pnpm`, and `skills`
+    And no spawn site should launch the deprecated `saleor` CLI or any `@saleor/*` package other than `@saleor/configurator`
+    And a spawn site launching a binary or package outside this set should redden the check
+
   Rule: Thin command surface
     - Jolly is a thin CLI: it provides deterministic plumbing, installs the Jolly skill, and uses `jolly start` to orchestrate official CLIs without reimplementing them against raw provider APIs.
     - The full command surface is `login`, `logout`, `auth status`, `init`, `start`, `doctor`, `upgrade`, `skills`, `create`, and `completion`, with `create` subcommand `store` only.

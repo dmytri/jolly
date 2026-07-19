@@ -206,6 +206,10 @@ Given(
     // the freshly-provisioned store's warmup.
     const slug = `${makeNamespace()}-foreign`;
     const name = `Jolly Test Foreign ${slug}`;
+    // The blocked-report Then asserts the surfaced diff names this product — the
+    // concrete deletion the deploy would make — so record what was seeded.
+    this.notes.foreignProductSlug = slug;
+    this.notes.foreignProductName = name;
     const typeResult = await saleorGraphql(
       endpoint,
       storeToken,
@@ -336,6 +340,54 @@ Then("the configurator should exit {int} for deletions", function (this: JollyWo
     "the recipe-deployed check must report the configurator detected deletions over a pre-existing store (exit 6)",
   );
 });
+
+// The blocked report the two diff-surfacing Thens read: the recipe-deployed
+// check (description + remediation) and the envelope errors — the surfaces the
+// feature 020 contract gives the agent to act on.
+function blockedRecipeReport(world: JollyWorld): string {
+  const check = world.findCheck("recipe-deployed");
+  assert.ok(check, "the recipe stage must emit a recipe-deployed check");
+  return [
+    String(check!.description ?? ""),
+    String(check!.remediation ?? ""),
+    JSON.stringify(world.envelope.errors ?? []),
+  ].join("\n");
+}
+
+Then(
+  "the blocked report should name the destructive diff the configurator observed, including a deletion it would make",
+  function (this: JollyWorld) {
+    const report = blockedRecipeReport(this);
+    assert.match(
+      report,
+      /delet/i,
+      `the blocked report must present the destructive diff (the deletions the deploy would make); got:\n${report}`,
+    );
+    // The one foreign entity in the disposable store is the product the Given
+    // seeded, so a surfaced diff that names its deletions names that product.
+    const name = String(this.notes.foreignProductName ?? "");
+    const slug = String(this.notes.foreignProductSlug ?? "");
+    assert.ok(name && slug, "the Given must have recorded the seeded foreign product");
+    assert.ok(
+      report.includes(name) || report.includes(slug),
+      `the blocked report must name a deletion the deploy would make — the seeded ` +
+        `foreign product ("${name}" / ${slug}) — not only that deletions exist; got:\n${report}`,
+    );
+  },
+);
+
+Then(
+  "the blocked report should state that deploying over it requires explicit approval",
+  function (this: JollyWorld) {
+    const report = blockedRecipeReport(this);
+    assert.match(
+      report,
+      /explicit approval/i,
+      `the blocked report must state that deploying over the destructive diff requires ` +
+        `explicit approval; got:\n${report}`,
+    );
+  },
+);
 
 Then(
   "Jolly should report the recipe stage as {string}, not {string}",

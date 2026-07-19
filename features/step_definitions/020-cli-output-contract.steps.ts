@@ -111,17 +111,27 @@ When("the command completes", function () {
 // a distinct step. The runCli call (previously in a generic Given) now lives in
 // the named When, preserving the same envelope-shape assertions below.
 
+// A scenario Given may overlay a specific credential value over the genuine
+// absence — e.g. the junk JOLLY_SALEOR_CLOUD_TOKEN of the "junk input never
+// produces success language" outline, real bad input verified for real against
+// the real endpoint. With no overlay, credentials stay genuinely unset.
+function scenarioCredentialEnv(world: JollyWorld): Record<string, string | undefined> {
+  return absentCredentialsEnv(
+    world.notes.credentialOverrides as Record<string, string | undefined> | undefined,
+  );
+}
+
 When(
   "the agent runs `jolly doctor --json`",
   function (this: JollyWorld) {
-    this.runCli(["doctor", "--json"], { env: absentCredentialsEnv() });
+    this.runCli(["doctor", "--json"], { env: scenarioCredentialEnv(this) });
   },
 );
 
 When(
   "the agent runs `jolly auth status --json`",
   function (this: JollyWorld) {
-    this.runCli(["auth", "status", "--json"], { env: absentCredentialsEnv() });
+    this.runCli(["auth", "status", "--json"], { env: scenarioCredentialEnv(this) });
   },
 );
 
@@ -586,6 +596,89 @@ Then(
       assert.ok(
         hasGuidance,
         `actionable check ${check.id} should offer a next command or manual step`,
+      );
+    }
+  },
+);
+
+// --- Scenario Outline: Junk input never produces success language ----------
+// The Given overlays a junk staff token over the genuine credential absence;
+// each example row's When (the shared --json runners here and in feature 006's
+// global-flag runner) then verifies it for REAL against the real endpoint —
+// real bad input, really rejected, no account reached. The Thens pin the "No
+// fabricated success" Rule: no success/verified/authenticated claim anywhere
+// in the envelope or human text, and stable machine codes on every error.
+
+Given(
+  "JOLLY_SALEOR_CLOUD_TOKEN is set to the junk value {string}",
+  function (this: JollyWorld, junk: string) {
+    this.notes.credentialOverrides = { JOLLY_SALEOR_CLOUD_TOKEN: junk };
+  },
+);
+
+Then(
+  "the envelope status should not be {string}",
+  function (this: JollyWorld, status: string) {
+    assert.notEqual(
+      this.envelope.status,
+      status,
+      `junk input must not yield a "${status}" envelope; got: ${JSON.stringify(this.envelope)}`,
+    );
+  },
+);
+
+// Affirmative claim words the "No fabricated success" Rule forbids on junk
+// input. "verification"/"authentication" are deliberately absent: they name
+// the ACT (usually in failure prose such as "authentication failed"), while
+// "verified"/"authenticated"/"success*" claim the RESULT.
+const SUCCESS_CLAIM = /\b(success|successful|successfully|succeeded|verified|authenticated)\b/gi;
+// A claim word inside a negation window is honest failure prose, not a claim.
+const NEGATION_NEARBY =
+  /\b(not|no|never|none|cannot|can't|could not|couldn't|won't|without|fail|fails|failed|failure|unable|invalid|rejected|expired|missing)\b/i;
+
+Then(
+  "no envelope field or human text should affirmatively claim success, a verified store, or an authenticated session",
+  function (this: JollyWorld) {
+    const run = this.lastRun!;
+    const surfaces = run.envelope
+      ? [JSON.stringify(run.envelope), run.stderr]
+      : [run.stdout, run.stderr];
+    const claims: string[] = [];
+    for (const text of surfaces) {
+      for (const match of text.matchAll(SUCCESS_CLAIM)) {
+        const at = match.index ?? 0;
+        const window = text.slice(Math.max(0, at - 60), at);
+        if (NEGATION_NEARBY.test(window)) continue;
+        claims.push(
+          `"…${text.slice(Math.max(0, at - 40), at + match[0].length + 20)}…"`,
+        );
+      }
+    }
+    assert.deepEqual(
+      claims,
+      [],
+      `junk input must produce no affirmative success/verified/authenticated claim; found: ${claims.join("; ")}`,
+    );
+  },
+);
+
+Then(
+  "each `errors` entry should carry a stable `code`",
+  function (this: JollyWorld) {
+    // An "error" envelope with no errors[] entry would make this vacuous
+    // exactly where it must bite (feature 020 Rule: errors[] each carry a
+    // stable code), so an error status requires at least one entry.
+    if (this.envelope.status === "error") {
+      assert.ok(
+        this.envelope.errors.length > 0,
+        `an "error" envelope must carry at least one errors[] entry; got: ${JSON.stringify(this.envelope)}`,
+      );
+    }
+    for (const error of this.envelope.errors) {
+      assert.match(
+        String(error.code ?? ""),
+        /^[A-Z][A-Z0-9_]*$/,
+        `errors[] entry must carry a stable machine code; got: ${JSON.stringify(error)}`,
       );
     }
   },

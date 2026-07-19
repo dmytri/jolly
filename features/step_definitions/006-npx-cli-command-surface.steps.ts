@@ -31,6 +31,13 @@ import {
   findGlobalOutputFlagViolations,
   type Violation,
 } from "../support/module-conformance.ts";
+import {
+  ALLOWED_BINARIES,
+  ALLOWED_NPX_PACKAGES,
+  enumerateSpawnSites,
+  findSpawnViolations,
+  type SpawnSite,
+} from "../support/spawn-conformance.ts";
 import { Node, Project, SyntaxKind, type ObjectLiteralExpression } from "ts-morph";
 
 /**
@@ -495,7 +502,15 @@ Then(
 When(
   /^the agent runs `jolly (?!(?:start|doctor|upgrade) --json`)(login|init|start|doctor|upgrade|skills|create store) (--json|--quiet|--yes)`$/,
   function (this: JollyWorld, command: string, flag: string) {
-    this.runCli([...command.split(" "), flag], { env: absentCredentialsEnv() });
+    // A scenario Given may overlay a specific credential value — e.g. feature
+    // 020's junk JOLLY_SALEOR_CLOUD_TOKEN, real bad input verified for real
+    // against the real endpoint. With no overlay, credentials stay genuinely
+    // unset as before.
+    this.runCli([...command.split(" "), flag], {
+      env: absentCredentialsEnv(
+        this.notes.credentialOverrides as Record<string, string | undefined> | undefined,
+      ),
+    });
   },
 );
 
@@ -1156,6 +1171,132 @@ Then(
       manifest.engines?.["node"],
       floor,
       `engines.node must declare the documented floor ${floor}`,
+    );
+  },
+);
+
+// --- @property: Jolly's code spawns only the delegated official tools --------
+// Structural conformance in the family of module-boundary-conformance and the
+// first-party request guard: one owned ts-morph checker
+// (features/support/spawn-conformance.ts) enumerates every child-process spawn
+// site in the implementation directories and resolves the binary — and, for
+// `npx`, the package — each can launch. The delegated set is exactly the
+// feature 006 Rule's official tools; anything else, the deprecated `saleor`
+// CLI included, reddens. The last step is the planted-red proof, kept
+// permanent: an injected violating spawn site must redden the check.
+
+function spawnSitesOf(world: JollyWorld): SpawnSite[] {
+  return world.notes.spawnSites as SpawnSite[];
+}
+
+Given("Jolly's own child-process-spawning code", function () {
+  // Framing: the checker's scope is fixed to the implementation directories
+  // (src/, bin/) from RIGGING.md; the When enumerates them.
+});
+
+When(
+  "the commands its spawn sites can launch are enumerated",
+  { timeout: 120_000 },
+  function (this: JollyWorld) {
+    const sites = enumerateSpawnSites();
+    assert.ok(
+      sites.length > 0,
+      "the implementation must contain at least one spawn site (Jolly delegates to official CLIs)",
+    );
+    this.notes.spawnSites = sites;
+  },
+);
+
+Then(
+  "the binaries spawned should be exactly `git`, `pnpm`, and `npx`",
+  function (this: JollyWorld) {
+    const sites = spawnSitesOf(this);
+    const binaries = [...new Set(sites.map((site) => site.binary))].sort();
+    assert.deepEqual(
+      binaries,
+      [...ALLOWED_BINARIES].sort(),
+      `the spawned binaries must be exactly ${ALLOWED_BINARIES.join(", ")}; ` +
+        `sites: ${JSON.stringify(sites)}`,
+    );
+  },
+);
+
+Then(
+  "the packages launched through `npx` should be exactly `@saleor\\/configurator`, `vercel`, `pnpm`, and `skills`",
+  function (this: JollyWorld) {
+    const sites = spawnSitesOf(this);
+    const packages = [
+      ...new Set(
+        sites
+          .filter((site) => site.binary === "npx")
+          .map((site) => site.npxPackage ?? "<unresolved>"),
+      ),
+    ].sort();
+    assert.deepEqual(
+      packages,
+      [...ALLOWED_NPX_PACKAGES].sort(),
+      `the npx-launched packages must be exactly ${ALLOWED_NPX_PACKAGES.join(", ")}; ` +
+        `sites: ${JSON.stringify(sites)}`,
+    );
+  },
+);
+
+Then(
+  "no spawn site should launch the deprecated `saleor` CLI or any `@saleor\\/*` package other than `@saleor\\/configurator`",
+  function (this: JollyWorld) {
+    for (const site of spawnSitesOf(this)) {
+      assert.notEqual(
+        site.binary,
+        "saleor",
+        `${site.file}:${site.line} spawns the deprecated \`saleor\` CLI`,
+      );
+      const pkg = site.npxPackage ?? "";
+      assert.ok(
+        !pkg.startsWith("@saleor/") || pkg === "@saleor/configurator",
+        `${site.file}:${site.line} launches \`${pkg}\`; the only permitted @saleor/* ` +
+          `package is @saleor/configurator`,
+      );
+    }
+  },
+);
+
+Then(
+  "a spawn site launching a binary or package outside this set should redden the check",
+  { timeout: 120_000 },
+  function (this: JollyWorld) {
+    // Planted red, kept permanent: inject a virtual source (never on disk)
+    // carrying a forbidden binary spawn and a forbidden npx launch of a
+    // non-configurator @saleor/* package; the check must redden on both.
+    const planted: { file: string; text: string } = {
+      file: "src/__planted-spawn-violation__.ts",
+      text: [
+        'import { spawnSync } from "node:child_process";',
+        "export function plantedSpawnViolation(): void {",
+        '  spawnSync("curl", ["https://example.com"]);',
+        '  spawnSync("npx", ["--yes", "@saleor/cli", "storefront", "deploy"]);',
+        "}",
+        "",
+      ].join("\n"),
+    };
+    const reddened = findSpawnViolations([planted]);
+    const plantedViolations = reddened.filter((violation) =>
+      violation.file.includes("__planted-spawn-violation__"),
+    );
+    assert.ok(
+      plantedViolations.some((violation) => violation.message.includes("`curl`")),
+      `the planted \`curl\` spawn must redden the check; got: ${JSON.stringify(reddened)}`,
+    );
+    assert.ok(
+      plantedViolations.some((violation) => violation.message.includes("`@saleor/cli`")),
+      `the planted \`@saleor/cli\` npx launch must redden the check; got: ${JSON.stringify(reddened)}`,
+    );
+    // Plant removed (virtual injection is dropped by the checker): the real
+    // tree must be green.
+    const real = findSpawnViolations();
+    assert.deepEqual(
+      real,
+      [],
+      `with the plant removed, the real tree must hold no spawn violations; got: ${JSON.stringify(real)}`,
     );
   },
 );

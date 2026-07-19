@@ -163,6 +163,21 @@ Feature: Jolly CLI output contract
     Then each should reach the network only through a seam that applies the first-party host predicate before sending
     And a request site that can send without consulting the predicate should redden the check
 
+  @logic @property
+  Scenario Outline: Junk input never produces success language, from any command
+    Given JOLLY_SALEOR_CLOUD_TOKEN is set to the junk value "not-a-real-token"
+    When the agent runs `<command>`
+    Then the envelope status should not be "success"
+    And no envelope field or human text should affirmatively claim success, a verified store, or an authenticated session
+    And each `errors` entry should carry a stable `code`
+
+    Examples:
+      | command                   |
+      | jolly login --json        |
+      | jolly auth status --json  |
+      | jolly create store --json |
+      | jolly doctor --json       |
+
   @sandbox @toolchain-element
   Scenario: The deployed-storefront serving confirmation contacts only the URL captured from the Vercel CLI
     Given a completed Vercel deploy whose CLI output named a deployed `*.vercel.app` URL

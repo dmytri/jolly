@@ -1095,11 +1095,20 @@ function commandLogout(_args: ParsedArgs): Envelope {
 /**
  * @planks("When it invokes `jolly auth status`")
  * @planks("Then Jolly should report whether Saleor Cloud authentication is configured")
+ * @planks("When the agent runs `jolly auth status --json`")
+ * @planks("Then the envelope status should not be {string}")
+ * @planks("Then no envelope field or human text should affirmatively claim success, a verified store, or an authenticated session")
  */
 function commandAuthStatus(_args: ParsedArgs): Envelope {
   const command = "auth status";
   const values = loadEnvValues(projectDir());
-  const hasCloudToken = Boolean(values["JOLLY_SALEOR_CLOUD_TOKEN"]);
+  // The cloud token's supply channels, in cloudPlatformToken's staff-leg
+  // order: .env first, then the process environment — the documented
+  // non-interactive supply (feature 018). Reading only .env would report
+  // "not configured" while every other command used the environment token.
+  const fileCloudToken = (values["JOLLY_SALEOR_CLOUD_TOKEN"] ?? "").trim();
+  const envCloudToken = (process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? "").trim();
+  const hasCloudToken = fileCloudToken !== "" || envCloudToken !== "";
   const hasSaleorToken = Boolean(values["SALEOR_TOKEN"]);
   const org = values["JOLLY_SALEOR_ORGANIZATION"];
   const accountContext = org && org.length > 0 ? org : cliMessage("auth.value.unknownOrganization");
@@ -1107,10 +1116,17 @@ function commandAuthStatus(_args: ParsedArgs): Envelope {
   const checks: Check[] = [
     {
       id: "cloud-token-configured",
+      // Presence is the only fact this command establishes — it performs no
+      // verifying operation — so a present token reports configured-ness,
+      // never validity. The description names the supply channel it actually
+      // observed: the ".env" copy only when .env really holds the token.
       status: hasCloudToken ? "pass" : "warning",
-      description: hasCloudToken
-        ? cliMessage("checks.check.cloudTokenConfigured.pass")
-        : cliMessage("checks.check.cloudTokenConfigured.warning"),
+      description:
+        fileCloudToken !== ""
+          ? cliMessage("checks.check.cloudTokenConfigured.pass")
+          : hasCloudToken
+            ? cliMessage("auth.status.summary.configured", { accountContext })
+            : cliMessage("checks.check.cloudTokenConfigured.warning"),
     },
     {
       id: "saleor-token-configured",
@@ -1121,26 +1137,41 @@ function commandAuthStatus(_args: ParsedArgs): Envelope {
     },
   ];
 
+  // A present token is stored, not verified in this run, and junk input
+  // must never yield success language (feature 020 Rule "No fabricated
+  // success"), so token-present reports "warning", never "success". Each
+  // branch passes its status as a literal so the error-envelope enumeration
+  // (feature 020) can see that neither builds an error envelope.
+  if (hasCloudToken) {
+    return envelope({
+      command,
+      status: "warning",
+      summary: cliMessage("auth.status.summary.configured", { accountContext }),
+      data: {
+        hasCloudToken,
+        hasSaleorToken,
+        accountContext,
+      },
+      checks,
+      nextSteps: [],
+    });
+  }
   return envelope({
     command,
     status: "success",
-    summary: hasCloudToken
-      ? cliMessage("auth.status.summary.configured", { accountContext })
-      : cliMessage("auth.status.summary.notConfigured"),
+    summary: cliMessage("auth.status.summary.notConfigured"),
     data: {
       hasCloudToken,
       hasSaleorToken,
       accountContext,
     },
     checks,
-    nextSteps: hasCloudToken
-      ? []
-      : [
-          {
-            description: cliMessage("auth.status.next"),
-            command: "jolly login",
-          },
-        ],
+    nextSteps: [
+      {
+        description: cliMessage("auth.status.next"),
+        command: "jolly login",
+      },
+    ],
   });
 }
 
@@ -3448,7 +3479,9 @@ function bundledRecipePath(): string {
  * .env — so the deploy omits `--failOnDelete` and the expected deletion of the
  * undeclared stock defaults proceeds. On a store that already holds customer
  * catalog it passes `--failOnDelete` so a destructive apply is blocked (exit 6)
- * for the customer's explicit approval, not silently destructive. (The
+ * for the customer's explicit approval, not silently destructive — the blocked
+ * check names the per-entity deletions read from a `--plan` preview of the same
+ * deploy, surfacing the destructive diff. (The
  * configurator binary exposes only `--failOnDelete`; it has no breaking-changes
  * guard.) Reads the configurator's EXIT CODE and its deployment report, and
  * reports honestly: `completed` only when the configurator exited 0 OR its
@@ -3462,6 +3495,7 @@ function bundledRecipePath(): string {
  * @planks("When the agent runs `jolly recipe --yes --json` to apply the starter recipe to Saleor Cloud")
  * @planks("When the run reaches the configurator-deploy stage without `--dry-run`")
  * @planks("When `jolly start` runs to completion in an interactive terminal")
+ * @planks("Then the blocked report should name the destructive diff the configurator observed, including a deletion it would make")
  */
 async function runRecipeStage(
   checks: Check[],
@@ -3669,11 +3703,57 @@ async function runRecipeStage(
 
   const stderr = (result.stderr ?? "").toString().slice(0, 2000);
   if (result.status === 6) {
+    // Surface the destructive diff the guard blocked (feature 004 Rule
+    // "Configurator deploy"): the deploy's exit-6 envelope carries only a
+    // deletion COUNT, so re-run the same deploy as a `--plan` preview ("preview
+    // without changes") and read the per-entity operations from its JSON
+    // envelope (auto-activated in a non-TTY spawn). The configurator checks the
+    // deletion policy BEFORE plan mode, so the preview omits `--failOnDelete`;
+    // it applies nothing either way. The deletions ride the catalog value's
+    // `{stderr}` run-value tail ahead of the configurator's own output, so the
+    // blocked check names each entity the apply would delete.
+    const planResult = spawnSync(
+      "npx",
+      [
+        "--yes",
+        "@saleor/configurator@latest",
+        "deploy",
+        "--config",
+        recipePath,
+        "--url",
+        endpoint,
+        "--token",
+        token,
+        "--quiet",
+        "--plan",
+      ],
+      {
+        cwd: projectDir(),
+        encoding: "utf8",
+        timeout: 600_000,
+        env: { ...process.env, SALEOR_URL: endpoint, SALEOR_TOKEN: token },
+      },
+    );
+    // The preview's stdout carries the configurator's banner and raw log lines
+    // ahead of the envelope, and log objects contain braces of their own, so
+    // anchor on the envelope's opening brace: the envelope is the final output
+    // and its `{` is the last one at column 0.
+    const planStdout = (planResult.stdout ?? "").toString();
+    const envelopeStart = planStdout.lastIndexOf("\n{");
+    const planEnvelope = JSON.parse(
+      envelopeStart >= 0 ? planStdout.slice(envelopeStart + 1) : planStdout,
+    ) as {
+      result?: { operations?: Array<{ entity?: string; name?: string; action?: string }> };
+    };
+    const deletions = (planEnvelope.result?.operations ?? [])
+      .filter((op) => op.action === "delete")
+      .map((op) => `${op.action} ${op.entity} "${op.name}"`)
+      .join(", ");
     checks.push({
       id: "recipe-deployed",
       status: "fail",
       description: cliMessage("start.recipe.check.recipeDeployed.destructiveDiff", {
-        stderr: stderr ? ` ${stderr}` : "",
+        stderr: `${deletions ? ` ${deletions}.` : ""}${stderr ? ` ${stderr}` : ""}`,
       }),
       remediation: cliMessage("start.recipe.check.recipeDeployed.destructiveDiff.remediation"),
     });
@@ -5312,6 +5392,7 @@ const DEFAULT_STAGE_RUNNERS: Record<string, StageRunner> = {
  * @planks("Then the run's reported stage timing should show the deploy stage starting only after the storefront preparation finishes")
  * @planks("Then each stage should report its own honest status, never a fabricated completion")
  * @planks("Then the store, recipe, and deploy stages should each emit their feature 021 `riskContext`")
+ * @planks("Then the closing summary on stdout should name the storefront stage as failed")
  */
 export async function runStartCore(
   args: ParsedArgs,
@@ -5562,7 +5643,24 @@ export async function runStartCore(
       // stage; join that in-flight preparation here and report its real start
       // and finish time so the overlap is observable in the run envelope
       // (feature 002 Rule "Concurrent stage preparation").
-      status = (await (storefrontPromise ?? stageRunners["storefront"](checks, args))).status;
+      //
+      // An unexpected storefront-stage throw (e.g. a malformed
+      // storefront/package.json) is a genuine stage failure: the run records it
+      // honestly as an `error` stage, with the thrown message as its failing
+      // check, and carries on to the honest close naming the stage — never a
+      // crash past the close (feature 027 "A failed setup stage closes
+      // honestly"). The narrow `jolly storefront` command path keeps the raw
+      // throw — feature 020 pins its top-level UNEXPECTED_ERROR envelope.
+      try {
+        status = (await (storefrontPromise ?? stageRunners["storefront"](checks, args))).status;
+      } catch (err) {
+        status = "error";
+        checks.push({
+          id: "storefront-prepared",
+          status: "fail",
+          description: err instanceof Error ? err.message : String(err),
+        });
+      }
       if (storefrontStartedAt !== undefined) {
         stageStartedAt = storefrontStartedAt;
       }

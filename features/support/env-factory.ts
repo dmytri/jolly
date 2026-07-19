@@ -80,6 +80,27 @@ export function atEnvironmentLimit(result: CliResult): boolean {
   );
 }
 
+/**
+ * A transient upstream fault: an HTTP 502/503/504 from the Cloud API or its
+ * task-status poll, or a connection-level failure. The Verification agreement
+ * gives transient statuses a bounded retry budget; a momentary Cloud blip
+ * during provisioning must not surface as a terminal creation failure
+ * (observed: one HTTP 502 on the task-status check reported
+ * TASK_STATUS_FAILED and failed a whole serial-leg scenario's Given).
+ */
+const TRANSIENT_FAULT =
+  /HTTP 50[234]|Bad Gateway|Service Unavailable|Gateway Time-?out|network error|unable to connect|fetch failed|ECONNRESET|ETIMEDOUT|socket hang up|EAI_AGAIN/i;
+
+/** True when the result failed on a transient upstream fault. */
+export function transientCreateFault(result: CliResult): boolean {
+  const envelope = result.envelope;
+  return (
+    !!envelope &&
+    envelope.status === "error" &&
+    envelope.errors.some((error) => TRANSIENT_FAULT.test(JSON.stringify(error)))
+  );
+}
+
 async function reclaimOneSlot(ctx: ReclaimContext): Promise<void> {
   for (const env of leftoverTestEnvironments(
     await listAllEnvironments(ctx.token),
@@ -106,11 +127,25 @@ export async function createEnvironment(
   // the running scenario or to shared provisioning (feature verification-economy).
   recordSpend({ spend: "environment-creation", argv: args });
   const deadline = Date.now() + (opts.limitBudgetMs ?? 0);
-  let result = await run(args, opts.runOptions);
+  // Bounded, signal-matched retry of a transient upstream fault. Retrying the
+  // create is duplicate-safe: every caller namespaces and registers teardown
+  // before creating, and the CLI reuses a same-label environment rather than
+  // duplicating (feature 012), so a retry after a mid-flight 5xx converges on
+  // the same environment. Two retries with short backoff, then the last
+  // result surfaces loudly — never an unbounded loop, never a silent pass.
+  const runCreate = async (): Promise<CliResult> => {
+    let result = await run(args, opts.runOptions);
+    for (let attempt = 0; attempt < 2 && transientCreateFault(result); attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 10_000 * (attempt + 1)));
+      result = await run(args, opts.runOptions);
+    }
+    return result;
+  };
+  let result = await runCreate();
   while (atEnvironmentLimit(result) && Date.now() < deadline) {
     if (opts.reclaim) await reclaimOneSlot(opts.reclaim);
     await new Promise((resolve) => setTimeout(resolve, 15_000));
-    result = await run(args, opts.runOptions);
+    result = await runCreate();
   }
   return result;
 }

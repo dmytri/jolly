@@ -171,6 +171,16 @@ Feature: Human-facing interactive CLI experience
     And Jolly must not print a fabricated store URL or verification result
 
   @logic
+  Scenario: A failed setup stage closes honestly, naming the stage, with no keep-building orientation
+    Given a Saleor store is already configured in the project
+    And a prepared storefront directory whose `package.json` is malformed JSON
+    And `jolly start` runs in an interactive terminal
+    When the user presses Enter at every prompt
+    Then the closing summary on stdout should name the storefront stage as failed
+    And the closing summary should not claim the run completed or name a live storefront URL
+    And the closing summary should not carry the keep-building orientation naming `storefront/` and `recipe.yml`
+
+  @logic
   Scenario: Setup-stage progress shows each stage as its own live status, not one fixed spinner
     Given a fresh empty project directory
     When `jolly start` runs in an interactive terminal

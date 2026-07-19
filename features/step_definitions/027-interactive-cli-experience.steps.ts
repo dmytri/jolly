@@ -424,6 +424,17 @@ Given("a Saleor store is already configured in the project", function (this: Jol
     "NEXT_PUBLIC_SALEOR_API_URL=https://configured-store.saleor.cloud/graphql/\n",
   );
   this.notes.mockOrgs = "org-solo";
+  // A real (non-dry-run) start probes this configured endpoint's readiness
+  // before reporting the store stage. The endpoint does not exist, so the
+  // probe can never succeed and the blocked outcome is independent of the
+  // budget's duration — squeeze the production 600s budget to ~1s so the run
+  // reaches the later stages inside the PTY ceiling (mirrors feature 002's
+  // cold-store squeeze). Dry-run previews read no stage env, so the dry-run
+  // scenarios sharing this Given are unaffected.
+  this.notes.startEnvExtra = {
+    JOLLY_READINESS_BUDGET_MS: "1000",
+    JOLLY_READINESS_POLL_MS: "100",
+  };
 });
 
 Then(
@@ -506,8 +517,18 @@ When(
   "the user presses Enter at every prompt",
   { timeout: 160_000 },
   function (this: JollyWorld) {
+    // A scenario's Givens may provision the run's child env: notes.startEnv is
+    // the shared start-env channel (e.g. feature 002's malformed-storefront
+    // Given, which supplies the Cloud token that satisfies the interactive
+    // auth gate so the run reaches its setup stages), and notes.startEnvExtra
+    // carries scenario-state tuning such as the dead-endpoint readiness
+    // squeeze. Scenarios that set neither run exactly as before.
+    const overrides = {
+      ...((this.notes.startEnv as Record<string, string | undefined> | undefined) ?? {}),
+      ...((this.notes.startEnvExtra as Record<string, string | undefined> | undefined) ?? {}),
+    };
     assert.ok(
-      runInteractive(this, startArgvWithMock(this), acceptEveryPrompt),
+      runInteractive(this, startArgvWithMock(this), acceptEveryPrompt, overrides),
       "the interactive run must start",
     );
   },
@@ -1428,6 +1449,67 @@ Then(
       undefined,
       `the closing summary must not present the Saleor endpoint/SALEOR_TOKEN readiness (resolved by the store stage) as a failure; found:\n${offending}`,
     );
+  },
+);
+
+// ── The honest FAILED close (feature 027 "A failed setup stage closes honestly") ─
+// A genuine stage failure closes through the start.close.notFinished catalog
+// line, naming the stage(s) that did not finish — never the live-store close,
+// never a fabricated URL, and never the success-only keep-building orientation.
+
+Then(
+  "the closing summary on stdout should name the storefront stage as failed",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    const closeLine = out
+      .split(/\r?\n/)
+      .find((line) => /Setup did not finish/i.test(line));
+    assert.ok(
+      closeLine,
+      `the close must state setup did not finish (start.close.notFinished); got:\n${out}`,
+    );
+    assert.match(
+      closeLine!,
+      /\bstorefront\b/i,
+      `the close must name the storefront stage among the stages that did not complete; got:\n${closeLine}`,
+    );
+  },
+);
+
+Then(
+  "the closing summary should not claim the run completed or name a live storefront URL",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.doesNotMatch(
+      out,
+      /Your store is live/i,
+      `a failed run must not render the live close (start.close.live); got:\n${out}`,
+    );
+    assert.doesNotMatch(
+      out,
+      /https:\/\/[a-z0-9.-]+\.vercel\.app/i,
+      `a failed run must not name a live storefront URL; got:\n${out}`,
+    );
+  },
+);
+
+Then(
+  "the closing summary should not carry the keep-building orientation naming `storefront\\/` and `recipe.yml`",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    // The keep-building orientation is success-only (feature 027 Rule): its
+    // header and its two artifact lines must be absent from a failed close.
+    for (const [label, re] of [
+      ["start.close.keepBuilding header", /Keep building:/i],
+      ["start.close.keepStorefront line", /your storefront, live on Vercel/i],
+      ["start.close.keepRecipe line", /your catalog & store config as code/i],
+    ] as const) {
+      assert.doesNotMatch(
+        out,
+        re,
+        `a failed close must carry no keep-building orientation (${label}); got:\n${out}`,
+      );
+    }
   },
 );
 
