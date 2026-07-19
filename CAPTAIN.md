@@ -63,13 +63,24 @@ from the wake streams — coverage/weather/*.ndjson + runrecord.ndjson — and r
 above). The streams carry everything; nothing depends on lost context.
 
 THEN, in order:
-1. Captain writes the dk-RULED 026 merge: ONE scenario seeding BOTH leftover shapes
-   (name-namespaced env AND domain-label-namespaced), asserting both reclamation
-   selections; supersede DELETES the two originals ("...reclaims a leftover
-   jolly-cannon-fodder environment instead of skipping the run" and "...reclaims a leaked
-   environment that carries the namespace only in its domain label", both
-   features/026-live-by-design-verification.feature, @creates-env serial). Watchbill
-   entry rides the edit. Held until now so unbound steps never entered the measured sweep.
+1. Captain writes the dk-RULED spec batch (ALL held until the window closed so no edit
+   entered the measured sweep):
+   a. 026 MERGE: ONE scenario seeding BOTH leftover shapes (name-namespaced env AND
+      domain-label-namespaced), asserting both reclamation selections; supersede DELETES
+      the two originals ("...reclaims a leftover jolly-cannon-fodder environment instead
+      of skipping the run" and "...reclaims a leaked environment that carries the
+      namespace only in its domain label", both
+      features/026-live-by-design-verification.feature, @creates-env serial).
+   b. WAIT SHRINK (dk-ruled 2026-07-19): 002 "jolly start blocks the store stage when a
+      freshly-provisioned store never becomes reachable" and 002 "jolly start waits for a
+      not-yet-serving store to serve before completing the store stage" both run their
+      real seam with a SHORT harness-knob budget/delay (seconds; the HARNESS_* readiness
+      knob family is the real config input — no new double); PLUS a new zero-cost @logic
+      assertion pinning the production DEFAULT readiness budget (the constant stays
+      specced without wall-clock). Rationale: resolve-on-signal + honest exhaustion are
+      the contracts; real cold-start assurance lives with the licensed real-provisioning
+      runs (@pipeline rode a real cold start this window). Saves ~6 min/sandbox window.
+   Watchbill entries ride every edit.
 2. Bring dk the window numbers -> dk rules FINAL budget values + the
    sum->overlapped-window budget-fit spec edit; both ride the same watchbill.
 3. QM voyage (merge binding + proofs), custody, OFFER push (per-batch approval).
