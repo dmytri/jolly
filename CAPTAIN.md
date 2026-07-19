@@ -131,13 +131,32 @@ the Captain-side `tail --pid` fallback waiter saved every one. ALWAYS arm it:
 ## Upstream (~/shipshape, dk: edit directly, no ceremony)
 
 - Resume-on-signal machinery remains the TOP work item — the harness must resume a role on
-  its detached run's exit, not discipline.
-- WAITER MUST ARM ON THE CHAIN ROOT (dk 2026-07-19, proven twice this session). A role that
-  launches N targets from a generated shell script gives the relay a PROCESS TREE, not a
-  process. Arming `tail --pid` on the first cucumber PID found in `ps` fires at the FIRST
-  target's exit and relays a partial result as if the watch were done. Walk the ppid chain
-  to the script (`bash /…/watchN.sh`) and wait on THAT. Sharpen the existing note: the
-  current text says "exact PID from ps in the foreground" and is silent on which PID.
+  its detached run's exit, not discipline. THE GAP, stated whole, because the fix has to be
+  designed against it: a verification run can outlast the runtime's foreground command
+  budget (Jolly's laned sandbox window is ~37 minutes). Hand-off custody forbids a role
+  ending its turn holding live work, so the role launches the run DETACHED and ends its turn
+  honestly. Nothing then wakes that role when the run exits. The run finishes, its output
+  sits on disk, and the voyage stalls on a completed run nobody read. Hand-off custody also
+  forbids the obvious patch — a sleep loop re-checking the process is the busy-wait the
+  agreement names, spending the turn to learn what the exit reports for free.
+- THE WAITER is the stopgap Captain hand-carries in that gap, and it is scaffolding, not a
+  Shipshape concept. `tail --pid=<PID> -f /dev/null` blocks until PID exits and outputs
+  nothing: a pure block-until-dead. Captain runs it in the background, the runtime notifies
+  on its completion, Captain confirms the PID is gone and SendMessages the role "your run
+  exited, collect it". Every lost signal this session was recovered this way. Three edges,
+  all of which have bitten:
+  - EXACT PID read from `ps` in the FOREGROUND first. Never `pgrep` inside the waiter: it
+    self-matches and fires instantly (node's comm is "MainThread" here, so name matching is
+    worthless anyway).
+  - ARM ON THE CHAIN ROOT (dk 2026-07-19, bit twice this session). A role that launches N
+    targets from a generated shell script hands the relay a PROCESS TREE, not a process.
+    Arming on the first cucumber PID in `ps` fires at the FIRST target's exit and relays a
+    partial watch as if it were complete. Walk the ppid chain to the script
+    (`bash /…/watchN.sh`) and wait on THAT.
+  - CONFIRM THE PID IS GONE (`ps -p`) before relaying: a cap-fire looks exactly like an exit.
+  The upstream fix retires all three: resume the role on its own run's exit and no Captain
+  needs to know any of this. Until then it is discipline standing in for machinery, and
+  discipline has already been observed to fail here.
 - ONE SEAM IS NOT ONE TEST (dk 2026-07-19, the session's main finding; strong upstream
   candidate). A single-creation-seam invariant can be fully green while N scenarios each
   call that one seam for real. Jolly: creation lived at one seam, enforced by a ts-morph
