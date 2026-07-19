@@ -30,8 +30,54 @@ pollTaskStatus, src/index.ts cloudErrorEnvelope). Budget-fit green vs 300. Custo
 watchbill struck, tree clean, main AHEAD OF ORIGIN BY 1 — push offered to dk at close.
 npm publish still PARKED (2FA).
 
-QUEUED NEXT BATCH: (1) @bomb.sh/tab 0.0.19 -> 0.0.20 (latest-stable drift, Boatswain-flagged
-at custody; mechanical bump + completion-scenario proof); (2) the chartered laned close:
+## RESUME AFTER CLEAR (written 2026-07-19 ~17:45 UTC) — WINDOW IN FLIGHT. DO THIS FIRST.
+
+HARBOUR SESSION context: dk ordered a timing probe; Shipwright measured top-5 (the 026
+reclaim pair + 004 destructive-diff walls were STARVED-ORG retry budgets, not green costs —
+ONE young leaked env starved creations 29 min; org headroom above the shared store = 1
+slot). Contention = NORMAL operating condition per dk ruling. Run-liveness reclamation
+finding (age gate cannot tell dead-run leftovers from live siblings') routed to overlap
+charter.
+
+CHARTERED FULL LANED WINDOW launched 17:18 UTC by Shipwright (harbour), current tree
+= a0d1ffd + these notes:
+- @eval DONE: 4/4 green, wall 179.4s/240, eval.ndjson REPAIRED (parse-verified). /setup
+  scenario finally measured: 100.44s tier max; amortization holds; no eval in top-5 range.
+- @logic: lane EXITED (was PID 3289894); collection was queued to Shipwright at clear
+  time. Expect 224 scenarios with the 2 riding reds one final time BY CONSTRUCTION (they
+  read the PRE-window sandbox record).
+- @sandbox: IN FLIGHT at clear, outermost PID 3290051 (serial licensed leg ~15 min, then
+  parallel leg at 1 worker — OOM-throttled prior). CHECK `ps -p 3290051` FIRST: gone =
+  window complete, signal Shipwright to collect; alive = arm `tail --pid=3290051`
+  background waiter (signals route to MAIN; SendMessage the role on exit).
+OWED by Shipwright post-window: full collection (per-tier walls, licensed-set durations
+incl the @pipeline proof's first-ever green cost, whole-window wall vs 2250, pressure
+lines), THEN focused runs of the two rider checks to VERIFY retirement, never infer: OOM
+check should retire with the rewritten sandbox.ndjson; 028 MAY PERSIST via the
+worker-recovery gap (deriveWorkerCount in features/support/pressure.ts never climbs back
+from a throttled prior; 028 requires parallel>=2). A persisting 028 = worker-recovery
+design gap -> overlap-charter spec candidate, NOT a launderable flake.
+IF the prior Shipwright agent is unreachable from the fresh session: dispatch a fresh
+Shipwright (base a0d1ffd, root /home/exedev/jolly, scope: collect the COMPLETED window
+from the wake streams — coverage/weather/*.ndjson + runrecord.ndjson — and report as
+above). The streams carry everything; nothing depends on lost context.
+
+THEN, in order:
+1. Captain writes the dk-RULED 026 merge: ONE scenario seeding BOTH leftover shapes
+   (name-namespaced env AND domain-label-namespaced), asserting both reclamation
+   selections; supersede DELETES the two originals ("...reclaims a leftover
+   jolly-cannon-fodder environment instead of skipping the run" and "...reclaims a leaked
+   environment that carries the namespace only in its domain label", both
+   features/026-live-by-design-verification.feature, @creates-env serial). Watchbill
+   entry rides the edit. Held until now so unbound steps never entered the measured sweep.
+2. Bring dk the window numbers -> dk rules FINAL budget values + the
+   sum->overlapped-window budget-fit spec edit; both ride the same watchbill.
+3. QM voyage (merge binding + proofs), custody, OFFER push (per-batch approval).
+
+QUEUED NEXT BATCH: (1) 026 merge supersede (above) + its watchbill entry; (2) @bomb.sh/tab
+0.0.19 -> 0.0.20 (latest-stable drift, Boatswain-flagged; mechanical bump +
+completion-scenario proof); (3) post-window: dk rules FINAL budget values + sum->window
+spec edit from the window's numbers; ALSO the old chartered-close item:
 FINAL budget values + sum->overlapped-window budget-fit spec edit from that run (self-settled
 throttled prior), which also replaces the OOM/028 wake records and covers the support-hunk
 blast radius custody named unverified (shared When + step-def files, @logic and @sandbox
