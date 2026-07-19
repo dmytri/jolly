@@ -73,6 +73,23 @@ loosening it masks a real overrun later. HARBOUR FIX: judge the window budget on
 co-launched window exists, report a distinguishable red when one does not, and let the
 per-tier budgets (logic 375, sandbox 900) keep guarding solo sweeps so nothing hides.
 
+FULL REGRESSION GREEN (22:03, all lanes, no cache): @logic 227/227 282.5s/375, @eval 4/4
+168.9s/240, @sandbox serial 3 + parallel 51, both exit 0. 285 scenario-runs, zero reds.
+Sixteen over-a-minute scenarios at session start; seven now, and the biggest is the real
+product pipeline (catalog+cart 397.3s), which is cost worth paying. Env creations per run
+~6 -> 1-2.
+
+BUDGET-FIT IS A FALSE GREEN — RULED: defer the fix to harbour, do NOT trust the check.
+QM proved the scenario is @logic, so it executes INSIDE the logic lane and sees only lanes
+that finished before it. The sandbox lane is always longest and always outlasts it, so the
+2250s window ceiling is NOT ENFORCED during a laned window: the check computed 372.6s from
+logic+eval with sandbox silently excluded. QM's wake.ts fix removed the earlier FICTION (the
+phantom 2843.2s false red) but cannot supply the missing extent, because the scenario's own
+Rule forbids new instrumentation. Three misleading results tonight, zero real overruns caught.
+THE REAL GUARD IS THE PER-TIER BUDGETS (logic 375, eval 240, sandbox 900): enforceable from
+inside a lane, and all passed honestly. HARBOUR OPTIONS: move the window ceiling to whoever
+launches the window, or drop it and keep per-tier only. Do not let it keep reading as coverage.
+
 HARBOUR AGENDA (dk-raised tonight, both real):
 1. RULE PROSE IS 38% OF THE FEATURE CORPUS — 1461 of 3817 lines. Worst by prose-per-scenario:
    025 (31.3), 003 (24.0), 005 (16.5), 004 (11.6), verification-economy (7.7). dk: "not clear
