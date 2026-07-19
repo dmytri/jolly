@@ -4,7 +4,42 @@
 
 Binding behaviour lives in `.feature` specs and referenced `assets/**`. History lives in git. These notes carry only what the next cycle needs.
 
-## STATE (2026-07-19, evening close): TIMING HARBOUR DONE — rulings executed, watchbill LIVE, session cleared here.
+## STATE (2026-07-19, night): ONE-SEAM/ONE-TEST RULING EXECUTED — watchbill live, QM dispatched.
+
+dk's goal restated: reach ONE seam AND ONE test per expensive spend class, then get back
+to PRODUCT work. Verification economy is means, not end. 43 of 257 scenarios (17%) are the
+project auditing itself; dk is right to want that bounded.
+
+Measurement window closed 19:23 (2225s wall / 2250 budget). Lane walls: logic 322.2s/375,
+eval 178.9s, sandbox serial 1364.4s, sandbox parallel 862.9s (49/49 green). 284 scenario-runs.
+
+LEDGER FINDING (the one that mattered): creation lives at ONE seam (single-creation-seam.feature,
+ts-morph checker, green) but was tested at FOUR — ~6 real env creations per run across 4
+@creates-env scenarios costing ~945s, four of the top six outliers. 028 creates NOTHING
+(pure @logic name derivation); earlier claim it did was wrong.
+
+dk RULING: strict one licensed scenario per spend class. EXECUTED as spec edits:
+- verification-economy: licence Rule narrowed to "one means one"; NEW @logic @invariant
+  "At most one scenario in the corpus holds the licence for an expensive spend class".
+- 012 "Jolly creates a Saleor Cloud environment" = the SOLE @creates-env holder.
+- 012 reuse + 004 destructive-diff: @creates-env DROPPED, both now assert against the run's
+  shared environment. Watch the 012 reuse assertion: the old Given pinned "not yet begun
+  serving", which proved reuse keys on the REGISTRY not on serving. Against a serving shared
+  store that nuance is weaker. If QM cannot preserve it, it comes back to dk.
+- 026 reclamation: @creates-env DROPPED, no longer seeds its own leftovers; asserts the
+  reclamation report accounts for whatever stale leftovers stand. VACUITY RISK: a clean org
+  means nothing to account for. If it passes vacuously, strengthen or retire it — the cheap
+  @logic selection scenario at 026:35 already proves the name-vs-domain-label logic.
+
+REMAINING REDS carried into this watchbill: malformed plank at src/index.ts:1694 (plank
+string starts with no Given/When/Then — real drift from tonight's wait-shrink work); wake
+reader selects no completed record (worker restore not landing). Budget-fit red is DEFERRED
+BY DESIGN: sandbox recorded 1334.4s vs 900s, but that measurement is under broken worker
+restore AND before the creation drop. Do not ratchet the value until a window with both
+fixed — dk's own "re-ratchet from the next window, never a bare edit".
+
+AFTER this voyage: custody, then BACK TO PRODUCT. Offer push. @bomb.sh/tab 0.0.19->0.0.20
+bump rides custody as hygiene. npm publish PARKED (2FA).
 
 Shipped earlier today: 2692ae9 (four-promotion batch; every promotion caught a real defect)
 and e22cca2 (502-retry follow-up), both pushed. Then dk ordered slow-scenario work:
@@ -97,6 +132,46 @@ the Captain-side `tail --pid` fallback waiter saved every one. ALWAYS arm it:
 
 - Resume-on-signal machinery remains the TOP work item — the harness must resume a role on
   its detached run's exit, not discipline.
+- WAITER MUST ARM ON THE CHAIN ROOT (dk 2026-07-19, proven twice this session). A role that
+  launches N targets from a generated shell script gives the relay a PROCESS TREE, not a
+  process. Arming `tail --pid` on the first cucumber PID found in `ps` fires at the FIRST
+  target's exit and relays a partial result as if the watch were done. Walk the ppid chain
+  to the script (`bash /…/watchN.sh`) and wait on THAT. Sharpen the existing note: the
+  current text says "exact PID from ps in the foreground" and is silent on which PID.
+- ONE SEAM IS NOT ONE TEST (dk 2026-07-19, the session's main finding; strong upstream
+  candidate). A single-creation-seam invariant can be fully green while N scenarios each
+  call that one seam for real. Jolly: creation lived at one seam, enforced by a ts-morph
+  checker, and was tested at FOUR — ~6 real env creations per run, ~945s, four of the top
+  six cost outliers, all structurally conformant. The seam invariant answers "does creation
+  live in one place", never "is creation paid for once". Shipshape's Verification agreement
+  should name both, because the cheap structural check reads as if it discharged the
+  expensive one.
+- LICENCE TAGS SHOULD DEFAULT TO CARDINALITY ONE. The agreement requires the licensed set be
+  "declared and enumerable, never inferred from prose" — necessary and not sufficient: an
+  enumerable set of four is still four full spends per run. Proposed default: at most one
+  licensed scenario per spend class, a second reddens, and a genuine second declares itself.
+  Jolly now pins this as a @logic @invariant grouping licensed scenarios by class.
+- THE SPEND LEDGER OUTPERFORMED PER-SCENARIO DURATION as a harbour economy lens. Duration
+  says which scenario is slow; the ledger says WHY by attributing each expensive spend to the
+  running scenario, so the four scenarios to change fell out mechanically instead of by
+  reading specs. Candidate standing lens beside the cost outliers and the wait-composition
+  audit: join ledger to licence tags first, then read durations.
+- BUDGETS ARE POST-HOC BY CONSTRUCTION, and the agreement should SAY so (dk 2026-07-19:
+  "killing runs means more latency"). A budget reads the wall clock the weather record
+  already carries and reddens after the fact; it never aborts a run. Nothing in Jolly kills
+  on budget, but the agreement's "ceiling, not advice" phrasing invites a timeout-kill
+  implementation that would spend the whole run's work to learn what the record reports free.
+- METHODOLOGY-CORPUS RATIO AS A HARBOUR METRIC. Jolly: 43 of 257 scenarios (17%) audit the
+  project's own method rather than the product — verification-economy 13, methodology-
+  conformance 11, 026 live-by-design 9, single-creation-seam 5, 028 worker isolation 3,
+  module-boundary 1, command-surface 1. Individually each is legitimate; nothing surfaces the
+  aggregate, and every voyage spent on that 17% is a voyage not spent on the product. Cheap
+  to derive from tags, and it makes methodology overhead a number dk can rule on.
+- A NO-SEED SCENARIO NEEDS A NON-VACUITY GUARD. Dropping a licence usually means the scenario
+  stops seeding its own precondition and asserts against ambient state instead — which passes
+  silently when the ambient state is empty. Jolly's 026 reclamation is the live case. The
+  reuse-and-share rule should carry the obligation: a scenario that no longer creates its
+  precondition states what makes it non-vacuous, or it reddens when it observes nothing.
 - Tier-taxonomy findings (dk 2026-07-18, keep): tiers are execution profiles; lanes are
   tags (@composition adopted). "Primary tier" collapses into licence tags + primaries-first
   order. Eval-gating couples to COMMITTED captures at harbour cadence. Element-spend licence
