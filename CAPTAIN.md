@@ -4,42 +4,65 @@
 
 Binding behaviour lives in `.feature` specs and referenced `assets/**`. History lives in git. These notes carry only what the next cycle needs.
 
-## STATE (2026-07-19, night): ONE-SEAM/ONE-TEST RULING EXECUTED — watchbill live, QM dispatched.
+## STATE (2026-07-19, 21:10): ONE-SEAM/ONE-TEST LANDED — one red open, then custody, then CLEAR + HARBOUR.
 
-dk's goal restated: reach ONE seam AND ONE test per expensive spend class, then get back
-to PRODUCT work. Verification economy is means, not end. 43 of 257 scenarios (17%) are the
-project auditing itself; dk is right to want that bounded.
+dk's goal: ONE seam AND ONE test per expensive spend class, then BACK TO PRODUCT.
+Verification economy is means, not end. 43 of 257 scenarios (17%) audit the project itself.
 
-Measurement window closed 19:23 (2225s wall / 2250 budget). Lane walls: logic 322.2s/375,
-eval 178.9s, sandbox serial 1364.4s, sandbox parallel 862.9s (49/49 green). 284 scenario-runs.
+RESULT — the ruling worked. Laned window 2225s -> 2879s -> **1257.4s / 2250** (56% of budget).
+Lane walls now: logic 276.8, eval 188.3, sandboxSerial 537.6 (from 1364.4), sandbox parallel
+712.6 (from 1412.4). Both sandbox lanes GREEN, 54 scenarios, zero reds. Real env creations
+per run down from ~6 to 1-2. Workers restored to 2 once the wake carried a clean record.
 
-LEDGER FINDING (the one that mattered): creation lives at ONE seam (single-creation-seam.feature,
-ts-morph checker, green) but was tested at FOUR — ~6 real env creations per run across 4
-@creates-env scenarios costing ~945s, four of the top six outliers. 028 creates NOTHING
-(pure @logic name derivation); earlier claim it did was wrong.
+SPEC STATE (all landed, lint clean):
+- verification-economy: licence Rule = one holder per spend class, PLUS a declared exemption
+  @spend-is-the-assertion for a scenario whose assertion cannot exist without its own
+  creation. Invariant counts undeclared holders only, and reds a stray declaration.
+  Proved by planted red (QM stripped the tag; check named both holders).
+- 012 "Jolly creates a Saleor Cloud environment" = sole licence holder.
+- 004 destructive-diff = @creates-env @spend-is-the-assertion. dk ruling after the strict
+  form proved unsatisfiable: the guard reds only on a product the recipe does NOT declare,
+  the shared store holds exactly the declared catalog, and seeding a foreign product into it
+  is the documented cascade regression (features/support/recipe-on-shared.ts).
+- 012 reuse + 026 reclamation: @creates-env dropped, both GREEN on the real sandbox tier.
 
-dk RULING: strict one licensed scenario per spend class. EXECUTED as spec edits:
-- verification-economy: licence Rule narrowed to "one means one"; NEW @logic @invariant
-  "At most one scenario in the corpus holds the licence for an expensive spend class".
-- 012 "Jolly creates a Saleor Cloud environment" = the SOLE @creates-env holder.
-- 012 reuse + 004 destructive-diff: @creates-env DROPPED, both now assert against the run's
-  shared environment. Watch the 012 reuse assertion: the old Given pinned "not yet begun
-  serving", which proved reuse keys on the REGISTRY not on serving. Against a serving shared
-  store that nuance is weaker. If QM cannot preserve it, it comes back to dk.
-- 026 reclamation: @creates-env DROPPED, no longer seeds its own leftovers; asserts the
-  reclamation report accounts for whatever stale leftovers stand. VACUITY RISK: a clean org
-  means nothing to account for. If it passes vacuously, strengthen or retire it — the cheap
-  @logic selection scenario at 026:35 already proves the name-vs-domain-label logic.
+THE ONE OPEN RED (dispatch QM on it): "Every recorded toolchain spend belongs to the shared
+provisioning or a licensed scenario". The ledger shows 012 reuse STILL making a real
+environment-creation, now unlicensed. QM's reuse-annulment (spend-ledger.ts, annul on
+environmentCreated:false) either did not land or the reuse path genuinely creates against the
+shared store. Demotion removed the licence without removing the spend.
 
-REMAINING REDS carried into this watchbill: malformed plank at src/index.ts:1694 (plank
-string starts with no Given/When/Then — real drift from tonight's wait-shrink work); wake
-reader selects no completed record (worker restore not landing). Budget-fit red is DEFERRED
-BY DESIGN: sandbox recorded 1334.4s vs 900s, but that measurement is under broken worker
-restore AND before the creation drop. Do not ratchet the value until a window with both
-fixed — dk's own "re-ratchet from the next window, never a bare edit".
+THE BUDGET RED IS AN ARTIFACT, not breakage: it cited sandbox 1412.4s, the PREVIOUS window's
+record, because the logic lane reads wake records while a sibling lane is still writing them.
+Against the real 712.6s it passes. STRUCTURAL FINDING FOR HARBOUR: the laned window breaks
+every wake-reading conformance check the same way — they must read the COMPLETED window, not
+whatever is on disk mid-flight. Same bug class as the wake-reader defect QM fixed, one level up.
 
-AFTER this voyage: custody, then BACK TO PRODUCT. Offer push. @bomb.sh/tab 0.0.19->0.0.20
-bump rides custody as hygiene. npm publish PARKED (2FA).
+CUSTODY — THE FACT NO OTHER ROLE HOLDS. Fresh QM reported these as "operator edits no voyage
+role owns": features/support/pressure.ts, wake.ts, cold-window-shim.mjs,
+features/step_definitions/002-*.steps.ts, untracked features/support/read-ceilings.ts. They
+are NOT operator edits. They are role-advanced work from THIS SESSION'S FIRST QM voyage
+(worker restore + ceiling rule). A Boatswain staging "role-advanced hunks only" on QM's
+reading will DROP them and break the tree: step definitions import read-ceilings.ts. Name
+them explicitly in the custody dispatch.
+
+NEXT, in order: QM closes the spend red -> Boatswain custody (carry the fact above) -> CLEAR
+-> harbour. Offer push after custody. @bomb.sh/tab 0.0.19->0.0.20 rides custody as hygiene.
+npm publish PARKED (2FA).
+
+HARBOUR AGENDA (dk-raised tonight, both real):
+1. RULE PROSE IS 38% OF THE FEATURE CORPUS — 1461 of 3817 lines. Worst by prose-per-scenario:
+   025 (31.3), 003 (24.0), 005 (16.5), 004 (11.6), verification-economy (7.7). dk: "not clear
+   what impact these rules have since they're not executable". Prose has exactly two
+   legitimate jobs: reader orientation, and durable context a perturbed seam is rebuilt from.
+   Everything else is restatement, an unenforced requirement, or rationale that belongs in git
+   or here. Shipwright audit: classify every Rule claim as enforced / unenforced-and-matters /
+   rationale. The middle bucket is the only one with teeth.
+2. Lane-staleness in wake-reading checks (above).
+3. QM findings: 30 zero-usage step definitions against 16 recorded at last harbour, a cluster
+   stranded in 026 by tonight's rewrites; and this project's plank dialect REQUIRES a
+   Given/When/Then prefix (461 planks carry it), diverging from the shared Planking
+   agreement's verbatim-pattern rule. Internally consistent; wants a harbour ruling.
 
 Shipped earlier today: 2692ae9 (four-promotion batch; every promotion caught a real defect)
 and e22cca2 (502-retry follow-up), both pushed. Then dk ordered slow-scenario work:
