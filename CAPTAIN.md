@@ -17,14 +17,33 @@ dk was asked to rotate the two tokens pasted in that session; assume they may ha
 An E403 naming "bypass 2fa" means the token lacks that capability, not that auth is
 misconfigured — regenerate with bypass ticked, `npm config set` the one value, done.
 
-## VOYAGE IN FLIGHT (2026-07-20): CTRL-C COVERAGE. Specs + watchbill written, QM not yet run.
+## VOYAGE CLOSED (2026-07-20): CTRL-C COVERAGE. Committed 52959f7, ahead 1, NOT pushed.
 
 dk chose PRODUCT over harbour, then narrowed to Ctrl-C only. dk also ruled mid-turn: KEEP
 TESTS FAST FOLLOWING POLICY — that ruling is why both new scenarios are @logic, not @sandbox.
 
-TWO NEW @logic SCENARIOS in 027, watch1, both expected red (undefined steps, confirmed by
-dry-run): "Interrupting the unattended stages leaves the terminal usable" and "...reports
-the interrupted stage honestly". gplint clean; both references select exactly one scenario.
+TWO NEW @logic SCENARIOS in 027, both green: "Interrupting the unattended stages leaves the
+terminal usable" and "...reports the interrupted stage honestly". 6 files, +528/-32.
+
+THE PTY HARNESS HAD NEVER DELIVERED A CTRL-C. Three pre-existing defects in pty-driver.py,
+all surfaced only because we finally asserted something needing a real signal:
+1. The driver spawned the child with NO CONTROLLING TERMINAL, so the slave fd was just an
+   open file and the line discipline had no process group to signal — 0x03 delivered nothing.
+   Fixed with os.setsid() + TIOCSCTTY on both spawn paths. NOTE: start_new_session=True alone
+   does NOT do it; Python calls setsid() without TIOCSCTTY. Carry this fact.
+2. finish() sampled poll() at PTY EOF, which arrives BEFORE the exiting child is reaped, so a
+   CLI that did exit reported as parked. Now waits on the exit EOF announced.
+3. QM's first pass had scenario 1 green on an UNINTERRUPTED run: the CLI ignored SIGINT,
+   marched to its last stage, and a normal close satisfies "cursor restored, line below rows".
+   The When now asserts the run never reached its final `stripe` stage, so a swallowed
+   interrupt cannot read as coverage. Crew disproved QM's own signal-delivery claim with a
+   three-case probe rather than accepting it — the reason all three defects surfaced.
+
+@sandbox WAS SWEPT and is GREEN against the driver change — this question is CLOSED, do not
+re-spend. Serial 3/3 598.65s/900, parallel 51/51 730.12s/900, both exit 0. The driver fix is
+behaviourally real for every PTY spawn (TIOCSCTTY alters signal semantics, finish() alters
+exit reporting), and 027/020/018 sandbox scenarios drive an interactive terminal, so a
+@logic-only green would NOT have covered it. Logic sweep 229/229 308s/375.
 
 THE NOTES' OLD PREMISE WAS REFUTED — do not restore it. The retired claim was "027 carries
 26 @logic scenarios that assert what a render function returns; only 3 reach a real
