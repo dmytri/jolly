@@ -6,10 +6,17 @@ Binding behaviour lives in `.feature` specs and referenced `assets/**`. History 
 
 ## NEXT SESSION — read this block first, then the STATE block below.
 
-SHIPPED: @dk/jolly@0.12.5 published and VERIFIED (registry reports 0.12.5; `npx
-@dk/jolly@0.12.5 --help` runs the published bundle from a clean dir). 7 commits on
-origin/main. Deck clean, watchbill struck. 0.12.5 is BEHAVIOURALLY IDENTICAL to 0.12.4:
-one extract-function refactor, 12 lines. No user-visible change.
+SHIPPED: @dk/jolly@0.13.0 published and VERIFIED (registry reports 0.13.0; `npx
+@dk/jolly@0.13.0 --help` runs the published bundle from a clean dir, exit 0). Pushed to
+origin/main as e0b007c, tagged v0.13.0. Deck clean, watchbill struck.
+
+0.13.0 is a REAL user-visible change, unlike 0.12.5: Ctrl-C during the unattended stages now
+exits honestly instead of killing mid-redraw. Minor bump earned on that basis.
+
+TAG HYGIENE: v0.12.5 was NEVER TAGGED — last session's release skipped it while every other
+release back to v0.9.x carries a tag. Left alone deliberately (dk's history to rewrite, not
+mine). Also note `git push --follow-tags` does NOT push a lightweight tag; tag with `-a` or
+push the tag explicitly, as this session had to.
 
 NPM IS NOW FITTED. `~/.npmrc` carries a granular token WITH 2FA bypass, so plain `npm
 publish` works with no env vars and no flags, exactly as RIGGING's `ship:` value declares.
