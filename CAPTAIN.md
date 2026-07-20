@@ -88,17 +88,12 @@ PUBLISHED-ARTIFACT SMOKE TEST: satisfied this session and worth repeating at eac
 `npx @dk/jolly@<version> --help` from an empty dir. It is the cheap check that catches a
 broken bundle, which a green local tree never will.
 
-## STATE (2026-07-19, 21:10): ONE-SEAM/ONE-TEST LANDED — voyage closed, shipped as 0.12.5.
+## STANDING METHOD STATE (from the 2026-07-19 one-seam/one-test voyage, still current)
 
-dk's goal: ONE seam AND ONE test per expensive spend class, then BACK TO PRODUCT.
-Verification economy is means, not end. 43 of 257 scenarios (17%) audit the project itself.
+dk's goal then, achieved: ONE seam AND ONE test per expensive spend class. Verification
+economy is means, not end. 43 of 257 scenarios (17%) audit the project itself.
 
-RESULT — the ruling worked. Laned window 2225s -> 2879s -> **1257.4s / 2250** (56% of budget).
-Lane walls now: logic 276.8, eval 188.3, sandboxSerial 537.6 (from 1364.4), sandbox parallel
-712.6 (from 1412.4). Both sandbox lanes GREEN, 54 scenarios, zero reds. Real env creations
-per run down from ~6 to 1-2. Workers restored to 2 once the wake carried a clean record.
-
-SPEC STATE (all landed, lint clean):
+LICENCE RULINGS (all landed, lint clean, still binding):
 - verification-economy: licence Rule = one holder per spend class, PLUS a declared exemption
   @spend-is-the-assertion for a scenario whose assertion cannot exist without its own
   creation. Invariant counts undeclared holders only, and reds a stray declaration.
@@ -110,38 +105,16 @@ SPEC STATE (all landed, lint clean):
   is the documented cascade regression (features/support/recipe-on-shared.ts).
 - 012 reuse + 026 reclamation: @creates-env dropped, both GREEN on the real sandbox tier.
 
-THE ONE OPEN RED (dispatch QM on it): "Every recorded toolchain spend belongs to the shared
-provisioning or a licensed scenario". The ledger shows 012 reuse STILL making a real
-environment-creation, now unlicensed. QM's reuse-annulment (spend-ledger.ts, annul on
-environmentCreated:false) either did not land or the reuse path genuinely creates against the
-shared store. Demotion removed the licence without removing the spend.
+THE SPEND RED IS CLOSED (verified 2026-07-20, do not re-open): "Every recorded toolchain
+spend belongs to the shared provisioning or a licensed scenario" is @logic @invariant, so it
+executes inside the logic lane, and that lane swept 229/229 green this voyage. The check
+answered; no dispatch owed.
 
 THE BUDGET RED IS AN ARTIFACT, not breakage: it cited sandbox 1412.4s, the PREVIOUS window's
 record, because the logic lane reads wake records while a sibling lane is still writing them.
 Against the real 712.6s it passes. STRUCTURAL FINDING FOR HARBOUR: the laned window breaks
 every wake-reading conformance check the same way — they must read the COMPLETED window, not
 whatever is on disk mid-flight. Same bug class as the wake-reader defect QM fixed, one level up.
-
-CUSTODY — THE FACT NO OTHER ROLE HOLDS. Fresh QM reported these as "operator edits no voyage
-role owns": features/support/pressure.ts, wake.ts, cold-window-shim.mjs,
-features/step_definitions/002-*.steps.ts, untracked features/support/read-ceilings.ts. They
-are NOT operator edits. They are role-advanced work from THIS SESSION'S FIRST QM voyage
-(worker restore + ceiling rule). A Boatswain staging "role-advanced hunks only" on QM's
-reading will DROP them and break the tree: step definitions import read-ceilings.ts. Name
-them explicitly in the custody dispatch.
-
-NEXT, in order: QM closes the spend red -> Boatswain custody (carry the fact above) -> CLEAR
--> harbour. Offer push after custody. @bomb.sh/tab 0.0.19->0.0.20 rides custody as hygiene.
-npm publish PARKED (2FA).
-
-CUSTODY FOULED ONCE, REPAIRED. Boatswain refused the first custody: my 026 spec rewrites
-orphaned 8 step definitions (6 by deleted scenarios, 2 QM added for a scenario shape I then
-changed). QM removed all 8 plus the helper and imports they stranded; step-usage 1147 -> 1139,
-zero orphans in 026, typecheck/discover/lint clean. TWO PROCESS ERRORS OF MINE, both fair:
-I ordered a dependency bump in a custody dispatch (write-scope violation; Captain selects,
-Crew installs), and I carried an exhaustive staging list beyond the Boatswain row. Boatswain
-judged the tree by command anyway, which is the only reason the foul surfaced. Keep dispatches
-thin: job, base commit, target references.
 
 @bomb.sh/tab 0.0.19 -> 0.0.20 is REAL (npm outdated confirms) but has no failing target
 ordering it. Manufacturing one is gold-plating. It goes to harbour.
@@ -157,11 +130,10 @@ loosening it masks a real overrun later. HARBOUR FIX: judge the window budget on
 co-launched window exists, report a distinguishable red when one does not, and let the
 per-tier budgets (logic 375, sandbox 900) keep guarding solo sweeps so nothing hides.
 
-FULL REGRESSION GREEN (22:03, all lanes, no cache): @logic 227/227 282.5s/375, @eval 4/4
-168.9s/240, @sandbox serial 3 + parallel 51, both exit 0. 285 scenario-runs, zero reds.
-Sixteen over-a-minute scenarios at session start; seven now, and the biggest is the real
-product pipeline (catalog+cart 397.3s), which is cost worth paying. Env creations per run
-~6 -> 1-2.
+LAST FULL-CORPUS EVIDENCE (2026-07-20 ctrl-c voyage, no cache): @logic 229/229 308s/375,
+@sandbox serial 3/3 598.65s/900 + parallel 51/51 730.12s/900, all exit 0. @eval NOT run this
+voyage (no eval hunk; eval steps do not import runUnderPty) — last known 4/4 168.9s/240.
+Harbour owes the co-launched laned window, which is also the budget re-ratchet basis.
 
 BUDGET-FIT IS A FALSE GREEN — RULED: defer the fix to harbour, do NOT trust the check.
 QM proved the scenario is @logic, so it executes INSIDE the logic lane and sees only lanes
@@ -182,61 +154,43 @@ HARBOUR AGENDA (dk-raised tonight, both real):
    Everything else is restatement, an unenforced requirement, or rationale that belongs in git
    or here. Shipwright audit: classify every Rule claim as enforced / unenforced-and-matters /
    rationale. The middle bucket is the only one with teeth.
-2. Lane-staleness in wake-reading checks (above).
-3. QM findings: 30 zero-usage step definitions against 16 recorded at last harbour, a cluster
-   stranded in 026 by tonight's rewrites; and this project's plank dialect REQUIRES a
-   Given/When/Then prefix (461 planks carry it), diverging from the shared Planking
-   agreement's verbatim-pattern rule. Internally consistent; wants a harbour ruling.
+2. Lane-staleness in wake-reading checks (above), and the budget-fit window ceiling (above).
+   Same bug class: a check reading the wake mid-flight instead of the COMPLETED window.
+3. ORPHANED STEP DEFINITIONS: 21, measured by Boatswain 2026-07-20 via step-usage, against 16
+   recorded in RIGGING at last harbour. Grown by 5 across intervening voyages. Enumerable from
+   `npx cucumber-js -p all --dry-run --format usage-json`. RIGGING's recorded count is stale.
+4. PLANK DIALECT: this project REQUIRES a Given/When/Then prefix (461 planks carry it),
+   diverging from the shared Planking agreement's verbatim-pattern rule. Internally
+   consistent; wants a harbour ruling, not a silent fix.
+5. NO DERIVED CHECK JOINS `## Dependencies` AGAINST package.json (standing, restated by
+   Boatswain 2026-07-20). That gap let c8 ship undeclared and happy-dom linger unused. A
+   conformance scenario joining the two is the fix.
+6. @bomb.sh/tab 0.0.19 -> 0.0.20, real per `npm outdated`, still unordered (see above).
+7. FROM THE CTRL-C VOYAGE — `process.stdin.setRawMode(false)` in src/index.ts: Crew could not
+   verify it at the time because no signal could be delivered, and QM did not establish
+   whether it is load-bearing. Targets are green with it present. NOW TESTABLE, since the
+   driver fix means signals actually arrive. Harbour question.
+8. FROM THE CTRL-C VOYAGE — TERMINAL WIDTH, the one gap found and not ordered. See STILL
+   UNORDERED above; needs pty-driver.py's hardcoded 24x80 made settable first.
 
-Shipped earlier today: 2692ae9 (four-promotion batch; every promotion caught a real defect)
-and e22cca2 (502-retry follow-up), both pushed. Then dk ordered slow-scenario work:
-Shipwright ran a selective probe plus the chartered full laned window (17:18-17:54 UTC,
-production tree = a0d1ffd): 283 scenario-runs, all green except the riders; window wall
-2197s/2250; pressure lines clean, zero OOM. OOM rider RETIRED (verified by focused run).
-028 red CONFIRMED as the worker-recovery gap: deriveWorkerCount only ratchets down, nothing
-restores parallelism (~10 min/window cost at 1 worker). Licensed greens measured for the
-first time: @pipeline 319.1s (the true #1), 004 destructive-diff 159.3, 026 pair 87.6/83.8,
-012 pair 81.3/75.9. Wait-composition audit: corpus is signal-ended throughout; the only
-true Godot was 002 never-reachable (100% budget exhaustion); 027 never-a-link's 107s is
-the REAL Vercel CLI's own retries (accepted as real-dependency cost); 020 serving's old
-fixture-debt flag is DISCHARGED (rides the shared deployment).
+BUDGET VALUES, live in RIGGING (dk 2026-07-19, real-world mixed-load basis; contention =
+normal): logic 375, eval 240, sandbox 900 (presumes 2 restored workers), sandboxSerial 900,
+laned WINDOW 2250. Re-ratchet only from a measured co-launched window, NEVER a bare edit.
 
-dk RULINGS, ALL EXECUTED as spec/RIGGING edits — work in flight, uncommitted, riding the
-watchbill:
-1. 026 reclaim pair MERGED into one scenario seeding both leftover shapes (026 feature).
-2. WAIT SHRINKS: 002 never-reachable now pins an 8s budget via the JOLLY_READINESS_BUDGET_MS
-   Given; 002 not-yet-serving pins a 5s serve-delay Given; NEW @logic constant-pin scenario
-   "The default readiness budget is 600 seconds unless overridden" (002).
-3. WORKER RESTORE: verification-economy worker-prior scenario AMENDED — a clean record
-   restores toward configured parallelism, and a count held low by a clean record reddens.
-   QM implements in features/support/pressure.ts (deriveWorkerCount). Retires the standing
-   028 red once a clean window records restored workers.
-4. BUDGETS (final, real-world mixed-load basis per dk; contention = normal): logic 375;
-   budget 2250 now judged as the LANED WINDOW wall (sum-to-window edit landed in the
-   budget-fit scenario); sandbox 900 presumes restored 2 workers. Re-ratchet from the next
-   window, never a bare edit.
-5. Ceiling-pinned-step @invariant ADOPTED (verification-economy): a step running at its
-   declared read ceiling reds; planted-red proof at adoption is QM's.
-6. Push at clear APPROVED — notes commits only; production tree unchanged since a0d1ffd.
+FRESH SESSION OPENING (dk's ruling 2026-07-20, at the 0.13.0 boundary): /captain -> read this
+file -> **INVOKE SHIPWRIGHT FOR HARBOUR**. Deck is clean and level with origin/main, which is
+the harbour-entry guard satisfied; no watchbill, no perturbations, no @captain or @shipwright
+scenarios standing. The agenda is the 8 numbered items above. Nothing is owed to QM.
 
-WATCHBILL LIVE — the fresh session dispatches QM on it (role + base commit + project root,
-base = HEAD after the notes push): watch1 @logic targets (constant-pin, worker-restore,
-budget-fit re-proof, ceiling rule), watch2 @sandbox targets (026 merged scenario, both
-shrunk 002 waits), watch3/4/5 tier lanes = the NEXT measurement window (post-shrink,
-post-restore) from which dk re-ratchets values. EXPECTED: watch1/2 red-then-green (new and
-edited steps; the ceiling rule owes its planted red); the pressure.ts support edit selects
-tier sweeps = exactly watch3-5; 028's standing red retires at the watch5 window provided
-the restore lands first (watch order holds that). ARCHITECTURE counts may drift (net +2
-scenarios) — custody refits. Supersede debris: the two deleted 026 scenario names orphan
-their unshared step defs — QM/custody cleans.
+Harbour runs its own full regression — that is the ONE pivot licensed to run the whole suite,
+and it doubles as the co-launched laned window the budget re-ratchet needs. Present those
+numbers to dk for the ratchet ruling.
 
-FRESH SESSION OPENING: /captain -> read this file -> dispatch QM. Relay duty: detached-run
-and subagent signals route to MAIN, not up the chain — arm `tail --pid=<exact ps PID>`
-background waiters, SendMessage the role on exit, and VERIFY a fired waiter's PID is gone
-before relaying (cap-fires happen). AFTER voyage + custody: present the new window numbers
-to dk (re-ratchet ruling), offer push. npm publish PARKED (2FA). Order the @bomb.sh/tab
-0.0.19 -> 0.0.20 bump as custody hygiene with this voyage (latest-stable policy, flagged
-by Boatswain).
+Relay duty: detached-run and subagent signals route to MAIN, not up the chain — arm
+`tail --pid=<exact ps PID>` background waiters on the CHAIN ROOT, SendMessage the role on
+exit, and VERIFY a fired waiter's PID is gone before relaying (cap-fires happen). Proven
+again this voyage: Boatswain launched a detached sandbox sweep and ended its turn honestly;
+the Captain-side waiter was the only thing that resumed it.
 
 ## Parked findings (harbour and product observations, no action ordered)
 
