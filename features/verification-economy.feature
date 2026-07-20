@@ -201,6 +201,12 @@ Feature: Verification economy
       economy audit.
     - The check needs no new instrumentation: every tier command already writes
       its wall clock into the weather record in the wake.
+    - The check judges a completed window. A lane still running has written no
+      completion into its record, so a check running inside the window it
+      judges silently omits every unfinished lane, its own included, and
+      reports green over the lanes that happen to have finished. Omission is
+      indistinguishable from fitting the budget, so the absent lane must redden
+      rather than be skipped.
 
   @logic @invariant
   Scenario: Each tier's recorded wall clock fits its budget from the rigging
@@ -212,9 +218,67 @@ Feature: Verification economy
     And a tier over its budget should redden the check, naming the tier, its budget, and the recorded time
 
   @logic @invariant
+  Scenario: A budget judged over an incomplete window reddens instead of reporting green
+    Given the tier budgets configured in "RIGGING.md"
+    And a wall-clock record in which one tier's lane has not recorded its completion
+    When each tier's recorded wall clock is compared to that tier's budget
+    Then the check should redden, naming the tier whose lane is incomplete
+    And it should distinguish an incomplete lane from a lane that fits its budget
+    And no tier should be reported as fitting its budget on a record carrying no completion
+
+  @logic @invariant
   Scenario: A step that runs pinned at its declared read ceiling reds the check
     Given the per-step durations the latest tier runs wrote into the wake
     And the read ceilings declared in the verification support
     When each step's measured duration is joined against its declared ceiling
     Then no step's measured duration should reach its declared ceiling
     And planting a read whose signal never matches should redden the check before the plant is removed
+
+  Rule: Every tier that can spend records a ledger
+
+    - A ledger written for one tier alone leaves every other tier's spends
+      unrecorded by construction, so no entry exists to join against a licensed
+      set. The default tier is the one paid on every inner-loop run, so an
+      unrecorded spend there is the most expensive kind.
+
+  @logic @invariant
+  Scenario: A tier that spawns an expensive command writes a ledger entry for it
+    Given the tiers configured in "RIGGING.md"
+    And the spend ledger each tier's last run wrote into the wake
+    When each tier's recorded spends are joined against its licensed scenario set
+    Then every tier that spawned an expensive command should have written a ledger
+    And no spend should be attributed to a scenario outside the licensed set
+    And a tier that spawned an expensive command and wrote no ledger should redden the check
+
+  Rule: A run reclaims the processes it spawned
+
+    - Reclamation covers cloud resources and scratch directories, age-gated and
+      namespace-scoped. A spawned operating-system process falls outside it, so
+      a detached child that outlives its run is reclaimed by nothing.
+    - A detached child blocking with no terminal attached costs its run
+      nothing it can observe, so the tier reports green and the leak is
+      invisible. The harness already tracks the run's process set to attribute
+      out-of-memory kills; reclamation is a second reader of that set.
+
+  @sandbox @invariant
+  Scenario: A tier run leaves none of its spawned processes running
+    Given the process set a tier run recorded as its own
+    When the tier run exits
+    Then no process the run spawned should still be running
+    And a process the run left behind should redden the check, naming the command and its process id
+
+  Rule: The recorded dependencies match the package manifest
+
+    - "RIGGING.md" records dependencies under its Dependencies section and
+      "package.json" declares them. Absent a join, a dependency installed but
+      unrecorded, or recorded but uninstalled, is invisible to every role that
+      reads either file alone.
+
+  @logic @invariant
+  Scenario: Every declared dependency is recorded in the rigging
+    Given the dependencies declared in "package.json"
+    And the dependencies recorded under the Dependencies section of "RIGGING.md"
+    When the two sets are joined by dependency name
+    Then every declared dependency should be recorded in the rigging
+    And every recorded dependency should be declared in the manifest
+    And a dependency present in one and absent from the other should redden the check, naming it and the side it is missing from

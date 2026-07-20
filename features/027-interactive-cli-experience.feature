@@ -402,3 +402,74 @@ Feature: Human-facing interactive CLI experience
     When `jolly start` runs in an interactive terminal
     Then the init stage's running description on stderr should be the `start.stage.init` message from `assets/messages/cli.json`
     And the auth stage's running description on stderr should be the `start.stage.auth` message from `assets/messages/cli.json`
+
+  Rule: The setup-stage progress survives a terminal narrower than its widest row
+
+    - The in-place redraw moves the cursor up one line per stage and erases one
+      line per stage. A row wider than the terminal soft-wraps onto a second
+      physical line, so the cursor-up count runs short and the erase leaves the
+      wrap remnant on screen: the display duplicates and garbles rather than
+      updating in place.
+    - The stage descriptions live in "assets/messages/cli.json", so
+      lengthening one there is enough to exceed a terminal's width with no code
+      change. The width the display must survive is the terminal's, never a
+      value assumed from the descriptions that happen to be shipped.
+
+  @logic
+  Scenario: The setup-stage progress redraws in place on a narrow terminal
+    Given a fresh empty project directory
+    And an interactive terminal 40 columns wide
+    When `jolly start` runs in an interactive terminal
+    And the run reaches the storefront stage
+    Then each setup stage should appear exactly once in the progress region
+    And no stage row should appear twice on screen
+    And the progress should redraw the same region in place rather than appending one line per update
+
+  @logic
+  Scenario: A stage description too wide for the terminal is shortened rather than wrapped
+    Given a fresh empty project directory
+    And an interactive terminal 40 columns wide
+    When `jolly start` runs in an interactive terminal
+    And the run reaches the storefront stage
+    Then the storefront stage's row should occupy exactly one terminal line
+    And the row should still name the storefront stage
+
+  Rule: The unattended stages run with the terminal in cooked mode
+
+    - The prompts put the terminal in raw mode, which disables the driver's
+      signal characters, so a Ctrl-C arriving after the last prompt would reach
+      the process as a stray byte rather than as SIGINT. The stages that follow
+      the prompts are unattended, and Ctrl-C is the only control the human has
+      left over them.
+    - This scenario pins the state the stages require, not the call that
+      establishes it. Whether the prompt library restores cooked mode itself or
+      the CLI restores it explicitly is an implementation choice; either
+      satisfies this contract, and a rebuild is free to change it.
+
+  @logic
+  Scenario: Ctrl-C reaches the unattended stages as a signal rather than as input
+    Given a fresh empty project directory
+    And `jolly start` runs in an interactive terminal
+    When the run reaches the first unattended setup stage
+    Then the terminal should be in cooked mode, so the driver turns Ctrl-C into a signal
+    And the run should carry no raw-mode terminal state left over from the prompts
+
+  Rule: The interrupted close names the same stages the normal close names
+
+    - Both closes answer one question, which setup stages did not finish, and
+      both render the same catalog sentence. The normal close counts only
+      side-effecting stages, deliberately, so a preflight stage that never ran
+      is not reported as unfinished setup. The interrupt handler applies no
+      such filter and counts every planned stage.
+    - One question answered in one place. Where the side-effecting stage set
+      is written more than once, the closes drift apart, and the interrupted
+      close names preflight stages the normal close excludes.
+
+  @logic
+  Scenario: Interrupting the run names only the side-effecting stages that did not finish
+    Given a fresh empty project directory
+    And `jolly start` runs in an interactive terminal
+    When the user presses Ctrl-C while a setup stage is running
+    Then the interactive output should name the side-effecting stages that did not finish
+    And it should not name a preflight stage among the unfinished stages
+    And the stages it names should be the same set the normal close would name for that run

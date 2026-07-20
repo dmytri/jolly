@@ -1,0 +1,34 @@
+{
+  "watch1": {
+    "scenarios": [
+      "features/verification-economy.feature:A budget judged over an incomplete window reddens instead of reporting green",
+      "features/verification-economy.feature:Every declared dependency is recorded in the rigging"
+    ]
+  },
+  "watch2": {
+    "scenarios": [
+      "features/methodology-conformance.feature:Every plank names a current step-definition pattern"
+    ]
+  },
+  "watch3": {
+    "scenarios": [
+      "features/user-facing-copy-from-catalog.feature:The non-first-party host refusal reads its sentence from the catalog",
+      "features/user-facing-copy-from-catalog.feature:Every thrown error's prose resolves to a catalog entry",
+      "features/command-surface-consistency.feature:Every command site derives from one declared command surface"
+    ]
+  },
+  "watch4": {
+    "scenarios": [
+      "features/027-interactive-cli-experience.feature:Interrupting the run names only the side-effecting stages that did not finish",
+      "features/027-interactive-cli-experience.feature:Ctrl-C reaches the unattended stages as a signal rather than as input",
+      "features/027-interactive-cli-experience.feature:The setup-stage progress redraws in place on a narrow terminal",
+      "features/027-interactive-cli-experience.feature:A stage description too wide for the terminal is shortened rather than wrapped"
+    ]
+  },
+  "watch5": {
+    "scenarios": [
+      "features/verification-economy.feature:A tier that spawns an expensive command writes a ledger entry for it",
+      "features/verification-economy.feature:A tier run leaves none of its spawned processes running"
+    ]
+  }
+}

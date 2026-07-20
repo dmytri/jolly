@@ -47,6 +47,8 @@ Feature: Methodology conformance
     Given the "@planks" step texts in the implementation directories
     When each is cross-referenced by exact string match against the step-definition patterns reported by "step-usage"
     Then every plank's step should match one current step-definition pattern
+    And the match should compare the plank's whole text, stripping no leading Gherkin keyword from either side
+    And a plank carrying a leading "Given", "When", or "Then" should redden the check, naming the plank and its seam
     And a plank matching no current step-definition pattern should redden the check
     And a `@planks-provisional(...)` annotation naming a current `@captain` scenario should conform, one naming a promoted or absent scenario should redden the check
 

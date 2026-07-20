@@ -88,126 +88,80 @@ PUBLISHED-ARTIFACT SMOKE TEST: satisfied this session and worth repeating at eac
 `npx @dk/jolly@<version> --help` from an empty dir. It is the cheap check that catches a
 broken bundle, which a green local tree never will.
 
-## STANDING METHOD STATE (from the 2026-07-19 one-seam/one-test voyage, still current)
+## HARBOUR CLOSED 2026-07-20. 12 targets ordered, watchbill live, nothing owed to Shipwright.
 
-dk's goal then, achieved: ONE seam AND ONE test per expensive spend class. Verification
-economy is means, not end. 43 of 257 scenarios (17%) audit the project itself.
+Full regression, co-launched laned window, ALL GREEN: window 1437s/2250, eval 183s/240 (4/4),
+logic 381s/375 (229/229, BREACH), sandbox serial 657s/900 (3/3) + parallel 780s/900 (51/51).
+287 scenarios all passed. This IS the re-ratchet basis; dk ruled HOLD BOTH BUDGETS until the
+item-2 placement fix means the check actually enforces what is set. Do not edit a budget value.
 
-LICENCE RULINGS (all landed, lint clean, still binding):
-- verification-economy: licence Rule = one holder per spend class, PLUS a declared exemption
-  @spend-is-the-assertion for a scenario whose assertion cannot exist without its own
-  creation. Invariant counts undeclared holders only, and reds a stray declaration.
-  Proved by planted red (QM stripped the tag; check named both holders).
-- 012 "Jolly creates a Saleor Cloud environment" = sole licence holder.
-- 004 destructive-diff = @creates-env @spend-is-the-assertion. dk ruling after the strict
-  form proved unsatisfiable: the guard reds only on a product the recipe does NOT declare,
-  the shared store holds exactly the declared catalog, and seeding a foreign product into it
-  is the documented cascade regression (features/support/recipe-on-shared.ts).
-- 012 reuse + 026 reclamation: @creates-env dropped, both GREEN on the real sandbox tier.
+DK'S FOUR HARBOUR RULINGS:
+1. Budgets: hold both. Re-ratchet from the NEXT window, after placement is fixed.
+2. Item 2 = POST-WINDOW GATE. The check's logic is correct; only its placement is wrong.
+3. Plank dialect: MIGRATE to verbatim upstream form. Against my recommendation; dk's call.
+4. All 10 skeletons promoted.
 
-THE SPEND RED IS CLOSED (verified 2026-07-20, do not re-open): "Every recorded toolchain
-spend belongs to the shared provisioning or a licensed scenario" is @logic @invariant, so it
-executes inside the logic lane, and that lane swept 229/229 green this voyage. The check
-answered; no dispatch owed.
+THE ITEM-2 PROOF, THE CLEANEST ARTEFACT THIS HARBOUR PRODUCED: the identical scenario, same
+tree, same 378.0s figure, reported GREEN inside the laned window and RED when run solo after.
+The only variable is whether the record it reads had finished being written. A check cannot
+judge a window it runs inside: its own lane has no `testRunFinished` yet, so it excludes
+itself. This is why the fix is relocation, not a rewrite. Every other reading of the evidence
+was compatible with "the check has a bug"; this one is not.
 
-THE BUDGET RED IS AN ARTIFACT, not breakage: it cited sandbox 1412.4s, the PREVIOUS window's
-record, because the logic lane reads wake records while a sibling lane is still writing them.
-Against the real 712.6s it passes. STRUCTURAL FINDING FOR HARBOUR: the laned window breaks
-every wake-reading conformance check the same way — they must read the COMPLETED window, not
-whatever is on disk mid-flight. Same bug class as the wake-reader defect QM fixed, one level up.
+PER-TIER BUDGETS ARE EQUALLY BLIND. The old note called them "the real guard" — REFUTED by the
+same run. budget-logic has never been enforced by the run that produces it.
 
-@bomb.sh/tab 0.0.19 -> 0.0.20 is REAL (npm outdated confirms) but has no failing target
-ordering it. Manufacturing one is gold-plating. It goes to harbour.
+PLANK DIALECT, WHAT I FOUND EDITING IT: the spec ALREADY said "exact string match". The
+Given/When/Then dialect lives in the CHECKER, which strips the keyword before comparing. Spec
+and implementation have disagreed all along; the migration is therefore a 3-line spec edit that
+reds against all 457 planks, and Crew does the mechanical migration. Cost is real: 457
+annotations in src/, zero current defects, bought for upstream alignment + retiring the latent
+hazard (strip is safe only while no pattern starts with a Gherkin keyword; 0 of 1145, asserted
+by nothing until now).
 
-BUDGET-CHECK COLLISION — ruled tonight, structural fix DEFERRED TO HARBOUR. A verification-
-support edit mandates a solo tier sweep; that sweep overwrites one lane's record; the
-budget-fit check assembles its window from per-lane records and so spans the old lanes' launch
-to the solo exit. It reported 2843.2s for a window that never happened (real laned window
-~1260s). The check cannot distinguish "the window overran" from "the lanes were not
-co-launched", and coverage/ is git-ignored so the prior record is unrecoverable. TONIGHT'S
-RULING: refresh by running a real laned window, do NOT touch the check under time pressure —
-loosening it masks a real overrun later. HARBOUR FIX: judge the window budget only when a
-co-launched window exists, report a distinguishable red when one does not, and let the
-per-tier budgets (logic 375, sandbox 900) keep guarding solo sweeps so nothing hides.
+THREE REAL DEFECTS HARBOUR FOUND, all now watchbill targets:
+- PROCESS LEAK: `spawnVercelSignIn` (src/index.ts:4286) is detached+unref'd BY DESIGN, reached
+  from the DEPLOY stage (:4635), not the interactive path. `loadPendingVercelUrl` reads a
+  dotfile under projectDir() = a fresh temp dir per sandbox scenario, so the reuse guard NEVER
+  finds the pending URL and a new grant spawns every time. Deploys then succeeded = sign-in was
+  never needed. Ledger recorded neither logins nor probes (668 entries, zero matching), so the
+  spend check was structurally blind. Every harness `kill` holds a direct child handle; a
+  detached unref'd child has none by construction.
+- LOGIC-TIER UNRECORDED SPEND: runStorefrontStage ran 12x in the DEFAULT tier; the ledger is
+  written for sandbox alone. The tier paid on every inner-loop run records nothing.
+  (`vercel whoami` in logic is BY DESIGN: probeVercelSession 48x, spawnVercelSignIn 0x. Dropped.)
+- SIDE_EFFECTING written in THREE places; onInterrupt (src/index.ts:5342) applies NO
+  side-effecting filter, so a Ctrl-C close names preflight stages the normal close excludes.
 
-LAST FULL-CORPUS EVIDENCE (2026-07-20 ctrl-c voyage, no cache): @logic 229/229 308s/375,
-@sandbox serial 3/3 598.65s/900 + parallel 51/51 730.12s/900, all exit 0. @eval NOT run this
-voyage (no eval hunk; eval steps do not import runUnderPty) — last known 4/4 168.9s/240.
-Harbour owes the co-launched laned window, which is also the budget re-ratchet basis.
+ITEM 7 SETTLED, and neither expected answer: src/index.ts:5335 executes 19 times, the
+setRawMode(false) call has BRANCH COUNT 0. Never fired, ever, including both PTY Ctrl-C
+scenarios driving real clack prompts. Clack restores cooked mode itself. So the line is
+unverified in BOTH directions. NOT deleted — reachable-but-unexecuted is unspecified
+behaviour, so it got a scenario pinning the STATE the stages need, not the call.
 
-BUDGET-FIT IS A FALSE GREEN — RULED: defer the fix to harbour, do NOT trust the check.
-QM proved the scenario is @logic, so it executes INSIDE the logic lane and sees only lanes
-that finished before it. The sandbox lane is always longest and always outlasts it, so the
-2250s window ceiling is NOT ENFORCED during a laned window: the check computed 372.6s from
-logic+eval with sandbox silently excluded. QM's wake.ts fix removed the earlier FICTION (the
-phantom 2843.2s false red) but cannot supply the missing extent, because the scenario's own
-Rule forbids new instrumentation. Three misleading results tonight, zero real overruns caught.
-THE REAL GUARD IS THE PER-TIER BUDGETS (logic 375, eval 240, sandbox 900): enforceable from
-inside a lane, and all passed honestly. HARBOUR OPTIONS: move the window ceiling to whoever
-launches the window, or drop it and keep per-tier only. Do not let it keep reading as coverage.
+PLANKING CLEAN: 457 planks, 0 stale, 0 unmatched, 0 provisional. Nothing owed.
 
-HARBOUR AGENDA (dk-raised tonight, both real):
-1. RULE PROSE IS 38% OF THE FEATURE CORPUS — 1461 of 3817 lines. Worst by prose-per-scenario:
-   025 (31.3), 003 (24.0), 005 (16.5), 004 (11.6), verification-economy (7.7). dk: "not clear
-   what impact these rules have since they're not executable". Prose has exactly two
-   legitimate jobs: reader orientation, and durable context a perturbed seam is rebuilt from.
-   Everything else is restatement, an unenforced requirement, or rationale that belongs in git
-   or here. Shipwright audit: classify every Rule claim as enforced / unenforced-and-matters /
-   rationale. The middle bucket is the only one with teeth.
-2. Lane-staleness in wake-reading checks (above), and the budget-fit window ceiling (above).
-   Same bug class: a check reading the wake mid-flight instead of the COMPLETED window.
-3. ORPHANED STEP DEFINITIONS: 21, measured by Boatswain 2026-07-20 via step-usage, against 16
-   recorded in RIGGING at last harbour. Grown by 5 across intervening voyages. Enumerable from
-   `npx cucumber-js -p all --dry-run --format usage-json`. RIGGING's recorded count is stale.
-4. PLANK DIALECT: this project REQUIRES a Given/When/Then prefix (461 planks carry it),
-   diverging from the shared Planking agreement's verbatim-pattern rule. Internally
-   consistent; wants a harbour ruling, not a silent fix.
-5. NO DERIVED CHECK JOINS `## Dependencies` AGAINST package.json (standing, restated by
-   Boatswain 2026-07-20). That gap let c8 ship undeclared and happy-dom linger unused. A
-   conformance scenario joining the two is the fix.
-6. @bomb.sh/tab 0.0.19 -> 0.0.20, real per `npm outdated`, still unordered (see above).
-7. FROM THE CTRL-C VOYAGE — `process.stdin.setRawMode(false)` in src/index.ts: Crew could not
-   verify it at the time because no signal could be delivered, and QM did not establish
-   whether it is load-bearing. Targets are green with it present. NOW TESTABLE, since the
-   driver fix means signals actually arrive. Harbour question.
-8. FROM THE CTRL-C VOYAGE — TERMINAL WIDTH, the one gap found and not ordered. See STILL
-   UNORDERED above; needs pty-driver.py's hardcoded 24x80 made settable first.
+COVERAGE TRIAGE IS PARTIAL AND SAYS SO: logic tier only, 80.98% stmt / 82.6% branch. Sandbox
+instrumented was skipped deliberately (would double a 24-min leg). No module at 0%, so no
+coverage skeletons owed. Weakest branch: start-close 60%, device-grant 63%, cloud-api 66% —
+understated, since sandbox/eval exercise those paths uninstrumented.
 
-BUDGET VALUES, live in RIGGING (dk 2026-07-19, real-world mixed-load basis; contention =
-normal): logic 375, eval 240, sandbox 900 (presumes 2 restored workers), sandboxSerial 900,
-laned WINDOW 2250. Re-ratchet only from a measured co-launched window, NEVER a bare edit.
+RULE PROSE: dk's agenda item 1. Shipwright's skeletons ADDED ~55 lines of it; I trimmed the
+harbour-measurement narration ("Harbour measured X 19 times") out at promotion and kept only
+durable rebuild context. The 13 unenforced-and-matters Rule claims are UNRESOLVED — worst: no
+scenario asserts a COMPLETED `jolly start` reports success. Next harbour, or order it.
 
-FRESH SESSION OPENING (dk's ruling 2026-07-20, at the 0.13.0 boundary): /captain -> read this
-file -> **INVOKE SHIPWRIGHT FOR HARBOUR**. Deck is clean and level with origin/main, which is
-the harbour-entry guard satisfied; no watchbill, no perturbations, no @captain or @shipwright
-scenarios standing. The agenda is the 8 numbered items above. Nothing is owed to QM.
-
-Harbour runs its own full regression — that is the ONE pivot licensed to run the whole suite,
-and it doubles as the co-launched laned window the budget re-ratchet needs. Present those
-numbers to dk for the ratchet ruling.
-
-Relay duty: detached-run and subagent signals route to MAIN, not up the chain — arm
-`tail --pid=<exact ps PID>` background waiters on the CHAIN ROOT, SendMessage the role on
-exit, and VERIFY a fired waiter's PID is gone before relaying (cap-fires happen). Proven
-again this voyage: Boatswain launched a detached sandbox sweep and ended its turn honestly;
-the Captain-side waiter was the only thing that resumed it.
-
-## Parked findings (harbour and product observations, no action ordered)
-
-- Next harbour: zero-usage defs at 21 (baseline 16); 002's 5 orphaned defs + orchestrator
-  re-plank to @composition; stage-timing/riskContext/sign-in-gate orphaned patterns named
-  by planks on src start seams (behaviour-stale plank risk); RIGGING prose drift
-  (step-usage counts; dependency-audit note); README "Node >= 23" vs engines >=20.12.0;
-  usage-json dry-run exits 0 on undefined steps.
-- Overlap charter: run-liveness reclamation (age gate cannot tell a dead run's leftovers
-  from a live sibling's; org slot headroom above the shared store is ~1, so one young
-  leftover starves every creation for a whole leg).
-- Product observations, dk's to order or drop: the vercel reuse path costs 111s in 020
-  serving confirmation (product efficiency); each deploy-stage walk pays ~46s npx+vercel
-  spawn latency (002 URL-reuse); per-stage timings in the closing summary would decompose
-  PTY walls the harness cannot see into (027 failed-close, the logic ceiling at 60.1s).
-- features/support/tls/ carries a deliberate loopback-only test cert (CN
-  jolly-loopback-test; secures nothing real) — durable fixture, not a leak.
+STILL OPEN, dk's to rule:
+- DEPENDENCY UPGRADES, unordered: @bomb.sh/tab 0.0.19 -> 0.0.21 (moved past the 0.0.20 in the
+  old note) and @cucumber/cucumber 13.1.1 -> 13.2.0 (already inside the declared ^13.1.1 range).
+  RIGGING's latest-stable policy calls a held version a defect; both are recorded at their
+  sites WITHOUT upgrading, since selection is Captain's. No failing target orders them.
+- THREE UNREACHABLE EXPORTS: DEVICE_CLIENT_ID, platformAuthScheme, STRIPE_APP_NAME. Functions
+  reachable, exports not. platformAuthScheme carries a feature-018 product rule and a plank,
+  but the plank points at a full CLI-spawn scenario, so the Bearer/Token decision is never
+  verified through the seam already shaped to expose it. Narrow vs adopt-as-seam = design call.
+- SIDE_EFFECTING three-place literal: scenario ordered (watch4), but whether to consolidate to
+  one exported constant or one derived surface is Crew's smallest-change call.
 
 ## THE ONE FACT NO MECHANISM CARRIES ANY MORE
 

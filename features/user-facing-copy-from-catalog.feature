@@ -50,3 +50,31 @@ Feature: User-facing copy is sourced from the message catalog
     When the CLI renders the `start.noSuchKey` message
     Then the render should fail, naming "start.noSuchKey" as the missing key
     And no rendered output should carry the text "undefined"
+
+  Rule: Thrown-error prose reaches the human from the catalog
+
+    - An error's message is authored at the throw site and reaches the human
+      through the envelope's error entry. The conformance checker follows a
+      value through a literal or a local const, and the envelope's message is
+      assigned from a property access on the caught error, so the checker's
+      follow stops one hop short and the prose passes unchecked.
+    - The sentences are literals in "src/lib/cloud-api.ts" and
+      "src/lib/device-grant.ts", including the non-first-party host refusal a
+      sibling scenario already asserts reaches stderr. Interpolated data such
+      as a host name or a status code stays at the throw site; the surrounding
+      sentence is copy and owes a key.
+
+  @logic
+  Scenario: The non-first-party host refusal reads its sentence from the catalog
+    Given a fresh empty project directory
+    When Jolly is asked to reach the host "evil.example.com"
+    Then the run should fail with the stable code `NON_FIRST_PARTY_HOST`
+    And the error message should be the catalog's non-first-party host sentence
+    And the message should name "evil.example.com" as the refused host
+
+  @logic
+  Scenario: Every thrown error's prose resolves to a catalog entry
+    Given Jolly's source tree and the message catalog
+    When every error message authored at a throw site in "src/" is joined against the catalog entries
+    Then every authored sentence should resolve to a catalog entry
+    And a sentence authored inline at a throw site should redden the check, naming its file and line
