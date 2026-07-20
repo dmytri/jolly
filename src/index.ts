@@ -5032,6 +5032,8 @@ const STAGE_DESCRIPTIONS: Record<string, string> = {
  * @planks("Then it should update a stage's status in place as the run reaches that stage, so each stage's progress is visible during the run rather than only after it ends")
  * @planks("Then the running stage's row should describe in plain language what that stage is doing")
  * @planks("Then the progress should redraw the same region in place rather than appending one line per update")
+ * @planks("Then the interactive output should name the setup stage that was interrupted")
+ * @planks("Then the setup-stage progress rows should stay readable, with Jolly's closing line below them rather than drawn over them")
  */
 function stageProgress(
   stageNames: string[],
@@ -5039,6 +5041,7 @@ function stageProgress(
 ): {
   start: (stage: string) => void;
   update: (stage: string, status: StageStatus) => void;
+  interrupt: (stage: string) => void;
   stop: () => void;
 } {
   const out = process.stderr;
@@ -5048,7 +5051,7 @@ function stageProgress(
   // stage's work — a spinner would not animate. Instead, the CURRENT stage shows
   // a static `▸ running` glyph (set before it executes), then ✓/✗ when it
   // resolves: an honest "here's where the run is" cursor, no fake animation.
-  type StageVis = StageStatus | "running";
+  type StageVis = StageStatus | "running" | "interrupted";
   const statuses = new Map<string, StageVis>(stageNames.map((s) => [s, "pending" as StageVis]));
   const glyph = (status: StageVis): string => {
     switch (status) {
@@ -5071,7 +5074,8 @@ function stageProgress(
   const label = (s: string, status: StageVis): string => {
     if (status === "running" && descriptions[s]) return paint(SGR.dim, ` — ${descriptions[s]}`);
     if (status === "awaiting-approval") return paint(SGR.yellow, " — awaiting approval");
-    if (status === "blocked" || status === "error") return paint(SGR.red, ` — ${status}`);
+    if (status === "blocked" || status === "error" || status === "interrupted")
+      return paint(SGR.red, ` — ${status}`);
     return "";
   };
   const row = (s: string): string => {
@@ -5108,6 +5112,14 @@ function stageProgress(
       statuses.set(stage, status);
       render();
     },
+    // The human interrupted this stage mid-run: redraw its row in place so the
+    // stage that was running is named on the screen the human is left with, and
+    // leave every later stage untouched (they never ran).
+    interrupt: (stage) => {
+      if (!statuses.has(stage)) return;
+      statuses.set(stage, "interrupted");
+      render();
+    },
     stop: () => {},
   };
 }
@@ -5123,6 +5135,10 @@ function stageProgress(
  * @planks("Given `jolly start --dry-run` runs in an interactive terminal")
  * @planks("When `jolly start` runs in an interactive terminal")
  * @planks("When the user presses Enter at every prompt")
+ * @planks("When the user presses Ctrl-C while a setup stage is running")
+ * @planks("Then the terminal cursor should be visible again after Jolly exits")
+ * @planks("Then the interactive output should state that setup was interrupted and did not complete")
+ * @planks("Then the exit code should be non-zero")
  */
 async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
   clackIntro(cliMessage("start.intro"), CLACK_STDERR);
@@ -5309,6 +5325,44 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
   // place as the run reaches it — not one fixed spinner (feature 027). stdout
   // stays reserved for the final result summary emit() prints (feature 020).
   const progress = stageProgress(plan.map((s) => s.stage));
+
+  // Ctrl-C during the unattended stages (feature 027). @clack puts the terminal
+  // in raw mode to read its prompts, and raw mode disables the driver's signal
+  // characters, so a Ctrl-C after the last prompt arrives as a stray byte and the
+  // run carries on to its last stage as if nothing happened. The prompts are done
+  // here, so hand the terminal back to cooked mode and the driver turns Ctrl-C
+  // into SIGINT for this process again.
+  if (process.stdin.isTTY && process.stdin.isRaw) process.stdin.setRawMode(false);
+  const resolvedStages = new Map<string, StageStatus>();
+  let runningStage: string | undefined;
+  const onInterrupt = (): void => {
+    if (runningStage) progress.interrupt(runningStage);
+    // The stages that never finished, so the close names them rather than
+    // claiming a run that stopped part-way through completed.
+    const unfinished = plan
+      .map((s) => s.stage)
+      .filter((s) => {
+        const status = resolvedStages.get(s);
+        return status !== "completed" && status !== "skipped";
+      });
+    // The prompt and progress regions hide the cursor while they redraw; restore
+    // it before exiting, or the human's shell is left with an invisible cursor.
+    process.stderr.write("\x1b[?25h");
+    process.stderr.write(
+      cliMessage("start.close.notFinished", {
+        stages: unfinished.join(", "),
+        stageWord:
+          unfinished.length > 1
+            ? cliMessage("start.close.stageWord.plural")
+            : cliMessage("start.close.stageWord.singular"),
+        reasons: "",
+      }) + "\n",
+    );
+    // 128 + SIGINT, the shell convention for a process killed by Ctrl-C.
+    process.exit(130);
+  };
+  process.on("SIGINT", onInterrupt);
+
   try {
     const core = await runStartCore(
       {
@@ -5321,8 +5375,15 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
           "domain-label": resolved.environmentName,
         },
       },
-      (stage, status) => progress.update(stage, status),
-      (stage) => progress.start(stage),
+      (stage, status) => {
+        resolvedStages.set(stage, status);
+        if (runningStage === stage) runningStage = undefined;
+        progress.update(stage, status);
+      },
+      (stage) => {
+        runningStage = stage;
+        progress.start(stage);
+      },
     );
 
     // The completed interactive run closes with a concise human summary, not the
@@ -5344,6 +5405,7 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
       link: process.stderr.isTTY && !process.env["NO_COLOR"] ? osc8Hyperlink : undefined,
     });
   } finally {
+    process.off("SIGINT", onInterrupt);
     progress.stop();
   }
 }

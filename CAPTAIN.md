@@ -17,18 +17,42 @@ dk was asked to rotate the two tokens pasted in that session; assume they may ha
 An E403 naming "bypass 2fa" means the token lacks that capability, not that auth is
 misconfigured — regenerate with bypass ticked, `npm config set` the one value, done.
 
-THE TWO ROUTES, dk's choice at open:
-1. HARBOUR — the agenda at the foot of this block. All methodology, no product.
-2. PRODUCT — the TUI coverage gap below. dk's stated direction all session was BACK TO
-   PRODUCT, and the verification economy work is now done: the suite is cheap enough that
-   product iteration is no longer gated on it.
+## VOYAGE IN FLIGHT (2026-07-20): CTRL-C COVERAGE. Specs + watchbill written, QM not yet run.
 
-PRODUCT CANDIDATE, dk-reviewed 2026-07-19, NOT yet ordered: REAL-TERMINAL COVERAGE.
-027-interactive-cli-experience carries 29 scenarios but 26 are @logic and only 3 reach a
-real sandbox. A @logic scenario asserts what a render function returns; it cannot tell you
-the terminal experience is right. Uncovered surface, in the order a real user meets it:
-prompt sequencing, TTY detection, signal handling, terminal width, Ctrl-C mid-stage. This
-is the largest product-facing gap and the one a human hits first.
+dk chose PRODUCT over harbour, then narrowed to Ctrl-C only. dk also ruled mid-turn: KEEP
+TESTS FAST FOLLOWING POLICY — that ruling is why both new scenarios are @logic, not @sandbox.
+
+TWO NEW @logic SCENARIOS in 027, watch1, both expected red (undefined steps, confirmed by
+dry-run): "Interrupting the unattended stages leaves the terminal usable" and "...reports
+the interrupted stage honestly". gplint clean; both references select exactly one scenario.
+
+THE NOTES' OLD PREMISE WAS REFUTED — do not restore it. The retired claim was "027 carries
+26 @logic scenarios that assert what a render function returns; only 3 reach a real
+sandbox." FALSE: 027's @logic scenarios drive a REAL kernel PTY via runUnderPty
+(features/support/pty-driver.py), so isTTY is genuinely true and real escape sequences are
+read back. "More sandbox coverage" was the WRONG LEVER — sandbox is where the 900s budget
+lives, and the fix for a TUI gap is a logic-lane PTY run, not a cloud resource.
+
+ALSO ALREADY COVERED, do not re-spend: TTY detection (020:55 "Human output is plain when
+stdout is not a terminal", 007:49) and prompt sequencing (the eight Enter-at-every-prompt
+scenarios, under that same real PTY). Of the five gaps the old note named, only signal
+handling and terminal width were genuinely unspecified.
+
+THE PRODUCTION FACTS BEHIND THIS VOYAGE (observed, not recalled): there is NO SIGINT handler
+anywhere in src/. clackIsCancel covers cancel AT A PROMPT (6 call sites, src/index.ts
+5163-5284), but the unattended stages are Jolly's own hand-rolled stageProgress display (the
+sanctioned Bombshell carve-out, src/index.ts ~5030+), and Ctrl-C there is a raw default kill
+mid cursor-up/erase-reprint. src/ contains zero references to terminal width.
+
+STILL UNORDERED, dk's to rule:
+- TERMINAL WIDTH. src/ has no width handling; the redraw counts rows to move the cursor back
+  and the comment at src/index.ts:5084 ALREADY fears exactly this drift ("shift the cursor-up
+  reference down a line and duplicate the first row"). A wrapped row IS that drift. Writable
+  as @logic at 40 columns, but pty-driver.py:235 hardcodes 24x80 — making it settable is
+  verification support, QM's to build, ordered by the scenario. dk deferred this, not declined.
+- CTRL-C MID-STORE-CREATION leaking a real cloud resource. The genuinely harmful case: the
+  human interrupts, a Saleor store exists, nobody is told. Needs real creation = @sandbox =
+  the 900s budget, which is why it was NOT ordered under the keep-tests-fast ruling.
 
 AGENT-MODE BREADTH IS DECLINED, not deferred. dk 2026-07-20: stick to ONE baseline model.
 The @eval lane's 4 scenarios against the fixed deepseek/deepseek-v4-flash baseline are the

@@ -190,6 +190,24 @@ Feature: Human-facing interactive CLI experience
     And the progress should redraw the same region in place rather than appending one line per update
     And stdout should carry no progress or spinner text
 
+  @logic
+  Scenario: Interrupting the unattended stages leaves the terminal usable
+    Given a fresh empty project directory
+    And `jolly start` runs in an interactive terminal
+    When the user presses Ctrl-C while a setup stage is running
+    Then the terminal cursor should be visible again after Jolly exits
+    And the setup-stage progress rows should stay readable, with Jolly's closing line below them rather than drawn over them
+
+  @logic
+  Scenario: Interrupting the unattended stages reports the interrupted stage honestly
+    Given a fresh empty project directory
+    And `jolly start` runs in an interactive terminal
+    When the user presses Ctrl-C while a setup stage is running
+    Then the interactive output should name the setup stage that was interrupted
+    And the interactive output should state that setup was interrupted and did not complete
+    And Jolly must not print a fabricated store URL or verification result
+    And the exit code should be non-zero
+
   @logic @property
   Scenario: The interactive layer never pollutes machine output
     Given a fresh empty project directory

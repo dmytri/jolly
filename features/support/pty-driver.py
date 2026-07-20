@@ -121,6 +121,51 @@ def wait_for_marker(marker, search_from):
             return search_from
         time.sleep(0.05)
 
+def finish(child):
+    """Settle the child and report whether it was PARKED, not merely unreaped.
+
+    `stillRunning` answers "was the run parked at the output it was read for, or
+    did it end on its own". In `readUntil="exit"` mode the read ends at EOF on the
+    PTY, and EOF arrives when the slave closes — a moment BEFORE the exiting child
+    is reaped. Sampling poll() there reports a process that is already leaving as
+    still running, so a scenario asserting the CLI exits itself reds on the
+    sampling instant rather than on the CLI. Wait for the exit that EOF already
+    announced, bounded, and treat only a child that outlasts that wait as parked.
+    In marker mode the caller ends the read deliberately while the child is
+    expected to still be there, so the immediate sample IS the answer.
+    """
+    if read_until == "exit":
+        try:
+            return child.wait(timeout=5), False
+        except subprocess.TimeoutExpired:
+            child.kill()
+            return child.wait(), True
+    still = child.poll() is None
+    if still:
+        child.kill()
+    try:
+        return child.wait(timeout=2), still
+    except subprocess.TimeoutExpired:
+        child.kill()
+        return child.wait(), still
+
+
+def acquire_controlling_terminal():
+    """Make the child's stdin PTY its CONTROLLING terminal, in a new session.
+
+    Without this the slave fd is merely an open file to the child: the line
+    discipline has no foreground process group to signal, so the INTR character
+    (`\\x03`, Ctrl-C) is echoed as `^C` and generates no SIGINT. A scenario that
+    interrupts the CLI would then observe the UNINTERRUPTED run and assert
+    against it. `start_new_session=True` alone is not enough — Python calls
+    setsid() without TIOCSCTTY, and a session leader with no controlling
+    terminal signals nothing. Runs in the child after the fds are dup'd, so fd 0
+    is the PTY slave.
+    """
+    os.setsid()
+    fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+
+
 # A real window size for every PTY. Without it the terminal reports 0 columns and
 # full-screen renderers (Bombshell/@clack/prompts) wrap after every character,
 # shattering the prompt text in the captured stream.
@@ -176,6 +221,7 @@ if cfg.get("separateStreams"):
         cwd=cfg["cwd"],
         env=cfg["env"],
         close_fds=True,
+        preexec_fn=acquire_controlling_terminal,
     )
     for s in (in_slave, out_slave, err_slave):
         os.close(s)
@@ -206,14 +252,7 @@ if cfg.get("separateStreams"):
                 note_output(chunk)
         if read_ended():
             break
-    still_running = child.poll() is None
-    if still_running:
-        child.kill()
-    try:
-        code = child.wait(timeout=2)
-    except subprocess.TimeoutExpired:
-        child.kill()
-        code = child.wait()
+    code, still_running = finish(child)
     os.write(
         1,
         json.dumps(
@@ -241,6 +280,7 @@ child = subprocess.Popen(
     cwd=cfg["cwd"],
     env=cfg["env"],
     close_fds=True,
+    preexec_fn=acquire_controlling_terminal,
 )
 os.close(slave)
 
@@ -274,14 +314,7 @@ while True:
     if child.poll() is not None and not select.select([master], [], [], 0)[0]:
         break
 
-still_running = child.poll() is None
-if still_running:
-    child.kill()
-try:
-    code = child.wait(timeout=2)
-except subprocess.TimeoutExpired:
-    child.kill()
-    code = child.wait()
+code, still_running = finish(child)
 
 os.write(
     1,

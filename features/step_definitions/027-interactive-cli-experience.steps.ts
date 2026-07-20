@@ -20,6 +20,7 @@ import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 import { ptyAvailable, runUnderPty } from "../support/pty.ts";
+import { renderTerminal } from "../support/terminal-screen.ts";
 import { acceptEveryPrompt, startPromptSequence } from "../support/start-prompts.ts";
 import { findEnvelope } from "../support/envelope.ts";
 import { listOrganizations } from "../support/cloud.ts";
@@ -1818,6 +1819,210 @@ Then(
     );
   },
 );
+
+// ─── Ctrl-C during the unattended stages (feature 027) ─────────────────────
+// The human interrupts a running setup stage. Both scenarios are on-screen
+// claims, so the run is driven on ONE merged PTY — the single terminal a human
+// watches — and the assertions read the rendered screen (support/terminal-screen)
+// rather than the byte stream: the live progress region redraws by cursor-up and
+// erase, so the stream carries every draft of a row and only the screen says
+// which one survived.
+//
+// The interrupt is a real SIGINT: `\x03` written to the PTY master is the byte a
+// terminal driver turns into SIGINT for the foreground process group, exactly as
+// a keyboard Ctrl-C does. It is fed only once the running stage's own
+// description is OBSERVED, so "while a setup stage is running" is a fact of the
+// run and not a hope about its timing.
+
+/** The running description of the stage the interrupt lands on. */
+const INTERRUPTED_STAGE = "store";
+const INTERRUPTED_STAGE_KEY = "start.stage.store";
+// The leading, unwrapped part of the catalog message: clack wraps at the 80-column
+// PTY width, so a marker spanning a wrap point would never be observed as one
+// substring.
+const INTERRUPTED_STAGE_MARKER = "creating your Saleor store";
+
+/** The screen the human is left with, and where the interrupt landed on it. */
+function interruptedScreen(world: JollyWorld): {
+  lines: string[];
+  stageRow: number;
+} {
+  const lines = renderTerminal(world.lastRun!.stdout);
+  const stageRow = lines.findIndex(
+    (line) =>
+      new RegExp(`\\b${INTERRUPTED_STAGE}\\b`, "i").test(line) &&
+      STAGE_STATUS_MARKER.test(line),
+  );
+  assert.ok(
+    stageRow >= 0,
+    `the interrupted run's screen must still show the "${INTERRUPTED_STAGE}" stage row; screen was:\n${lines.join("\n")}`,
+  );
+  return { lines, stageRow };
+}
+
+/** Everything the run printed after the interrupt landed. */
+function afterInterrupt(world: JollyWorld): string {
+  const out = stripAnsi(world.lastRun!.stdout);
+  const index = out.lastIndexOf(INTERRUPTED_STAGE_MARKER);
+  assert.ok(
+    index >= 0,
+    `the run must have reached the "${INTERRUPTED_STAGE}" stage; got:\n${out}`,
+  );
+  return out.slice(index);
+}
+
+When(
+  "the user presses Ctrl-C while a setup stage is running",
+  { timeout: 170_000 },
+  function (this: JollyWorld) {
+    assert.ok(ptyAvailable(), "the PTY driver must be available");
+    // Copy drift in the marker would silently move the interrupt to a different
+    // moment, so it is checked against the catalog the stage renders from.
+    assert.ok(
+      catalogMessage(INTERRUPTED_STAGE_KEY).includes(INTERRUPTED_STAGE_MARKER),
+      `the interrupt marker "${INTERRUPTED_STAGE_MARKER}" is no longer part of the ` +
+        `"${INTERRUPTED_STAGE_KEY}" catalog message — update it so the interrupt still ` +
+        `lands while that stage is running`,
+    );
+    const argv = (this.notes.startArgv as string[]) ?? ["start"];
+    const sequence = startPromptSequence({ argv, cwd: this.projectDir });
+    const run = runUnderPty({
+      runtime: process.env.HARNESS_CLI_RUNTIME ?? "node",
+      argv: [CLI_ENTRY, ...argv],
+      cwd: this.projectDir,
+      // A real-format stand-in staff token satisfies start's auth gate without a
+      // real sign-in, so the run reaches its setup stages (as the live-progress
+      // scenarios above drive it).
+      env: interactiveChildEnv({ JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN }),
+      // Accept every prompt, then send SIGINT when the stage is observed running.
+      inputs: [...acceptEveryPrompt(sequence), "\x03"],
+      waitFor: [...sequence, INTERRUPTED_STAGE_MARKER],
+      // The interrupt must make the CLI exit on its own; the read ends at EOF, so
+      // a run that swallows SIGINT hits the ceiling and reds rather than passing.
+      readUntil: "exit",
+      perChunkTimeoutMs: 90_000,
+      timeoutMs: 150_000,
+    });
+    this.previousRun = this.lastRun;
+    this.lastRun = {
+      args: argv,
+      cwd: this.projectDir,
+      exitCode: run.exitCode,
+      stdout: run.output,
+      stderr: "",
+      envelope: findEnvelope(run.output),
+    };
+    this.notes.interruptStillRunning = run.stillRunning;
+
+    // The interrupt must actually have stopped the run, or this scenario is not
+    // this scenario: a run that ignores SIGINT reaches its last stage and closes
+    // normally, and the terminal it leaves behind is the UNINTERRUPTED one. Every
+    // assertion downstream would then pass without the behaviour it names. The
+    // run is known interrupted when the stages beyond the interrupted one never
+    // ran — `stripe` is the last stage the uninterrupted flow reaches.
+    const screen = renderTerminal(run.output);
+    const reachedLastStage = screen.some(
+      (line) => /\bstripe\b/i.test(line) && /[✓✗]/.test(line),
+    );
+    assert.ok(
+      !reachedLastStage,
+      `Ctrl-C during the "${INTERRUPTED_STAGE}" stage must stop the run, but it carried on ` +
+        `to its last stage and closed normally, so the interrupt had no effect. Screen was:\n${screen.join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "the terminal cursor should be visible again after Jolly exits",
+  function (this: JollyWorld) {
+    const raw = this.lastRun!.stdout;
+    // The live progress region hides the cursor while it redraws. Whatever it
+    // hides it must restore before exiting, or the human's shell is left with an
+    // invisible cursor. The last cursor-visibility toggle the terminal saw is what
+    // the human is left with.
+    const toggles = [...raw.matchAll(/\x1b\[\?25(l|h)/g)].map((m) => m[1]);
+    assert.ok(
+      toggles.includes("l"),
+      `the interrupted run must have hidden the cursor for its live progress region, ` +
+        `otherwise this scenario proves nothing; raw output:\n${JSON.stringify(raw.slice(-2000))}`,
+    );
+    assert.equal(
+      toggles[toggles.length - 1],
+      "h",
+      `after an interrupt Jolly must restore the terminal cursor before exiting; the last ` +
+        `cursor toggle the terminal saw was a hide. Raw tail:\n${JSON.stringify(raw.slice(-2000))}`,
+    );
+  },
+);
+
+Then(
+  "the setup-stage progress rows should stay readable, with Jolly's closing line below them rather than drawn over them",
+  function (this: JollyWorld) {
+    const { lines, stageRow } = interruptedScreen(this);
+    // Readable: the stage row survives on screen as text, not as a blanked line.
+    assert.ok(
+      lines[stageRow]!.trim().length > 0,
+      `the "${INTERRUPTED_STAGE}" stage row must stay readable on the final screen; screen was:\n${lines.join("\n")}`,
+    );
+    // Below, not over: Jolly's closing line is the last thing it writes, and it
+    // occupies a row beneath the progress rows rather than overwriting one.
+    const closingRow = lines.reduce(
+      (last, line, index) => (line.trim().length > 0 ? index : last),
+      -1,
+    );
+    assert.ok(
+      closingRow > stageRow,
+      `Jolly's closing line must be drawn BELOW the setup-stage progress rows, not over ` +
+        `them; the last written row (${closingRow}) is not below the "${INTERRUPTED_STAGE}" ` +
+        `stage row (${stageRow}). Screen was:\n${lines.join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "the interactive output should name the setup stage that was interrupted",
+  function (this: JollyWorld) {
+    const closing = afterInterrupt(this);
+    assert.match(
+      closing,
+      new RegExp(`\\b${INTERRUPTED_STAGE}\\b`, "i"),
+      `after the interrupt Jolly must name the "${INTERRUPTED_STAGE}" stage it was running; got:\n${closing}`,
+    );
+  },
+);
+
+Then(
+  "the interactive output should state that setup was interrupted and did not complete",
+  function (this: JollyWorld) {
+    const closing = afterInterrupt(this);
+    assert.match(
+      closing,
+      /\b(interrupted|cancelled|canceled|stopped)\b/i,
+      `after the interrupt Jolly must state that setup was interrupted; got:\n${closing}`,
+    );
+    assert.match(
+      closing,
+      /did not (?:complete|finish)|never (?:completed|finished)|incomplete|unfinished|not complete/i,
+      `after the interrupt Jolly must state that setup did not complete; got:\n${closing}`,
+    );
+  },
+);
+
+Then("the exit code should be non-zero", function (this: JollyWorld) {
+  // The CLI must exit ITSELF on the interrupt. A run the PTY driver had to kill
+  // reports a non-zero code too, so the exit is only evidence once the run is
+  // known to have ended on its own.
+  assert.equal(
+    this.notes.interruptStillRunning,
+    false,
+    "the interrupted run must exit on its own; it was still running when the read ended",
+  );
+  assert.notEqual(
+    this.lastRun!.exitCode,
+    0,
+    `an interrupted setup must exit non-zero; got exit ${this.lastRun!.exitCode}`,
+  );
+});
 
 Then(
   "the run should continue past the auth stage in the same session",
