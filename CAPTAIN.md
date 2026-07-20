@@ -4,7 +4,41 @@
 
 Binding behaviour lives in `.feature` specs and referenced `assets/**`. History lives in git. These notes carry only what the next cycle needs.
 
-## STATE (2026-07-19, 21:10): ONE-SEAM/ONE-TEST LANDED — one red open, then custody, then CLEAR + HARBOUR.
+## NEXT SESSION — read this block first, then the STATE block below.
+
+SHIPPED: @dk/jolly@0.12.5 published and VERIFIED (registry reports 0.12.5; `npx
+@dk/jolly@0.12.5 --help` runs the published bundle from a clean dir). 7 commits on
+origin/main. Deck clean, watchbill struck. 0.12.5 is BEHAVIOURALLY IDENTICAL to 0.12.4:
+one extract-function refactor, 12 lines. No user-visible change.
+
+NPM IS NOW FITTED. `~/.npmrc` carries a granular token WITH 2FA bypass, so plain `npm
+publish` works with no env vars and no flags, exactly as RIGGING's `ship:` value declares.
+dk was asked to rotate the two tokens pasted in that session; assume they may have.
+An E403 naming "bypass 2fa" means the token lacks that capability, not that auth is
+misconfigured — regenerate with bypass ticked, `npm config set` the one value, done.
+
+THE TWO ROUTES, dk's choice at open:
+1. HARBOUR — the agenda at the foot of this block. All methodology, no product.
+2. PRODUCT — the TUI coverage gap below. dk's stated direction all session was BACK TO
+   PRODUCT, and the verification economy work is now done: the suite is cheap enough that
+   product iteration is no longer gated on it.
+
+PRODUCT CANDIDATE, dk-reviewed 2026-07-19, NOT yet ordered: REAL-TERMINAL COVERAGE.
+027-interactive-cli-experience carries 29 scenarios but 26 are @logic and only 3 reach a
+real sandbox. A @logic scenario asserts what a render function returns; it cannot tell you
+the terminal experience is right. Uncovered surface, in the order a real user meets it:
+prompt sequencing, TTY detection, signal handling, terminal width, Ctrl-C mid-stage. This
+is the largest product-facing gap and the one a human hits first.
+
+AGENT-MODE BREADTH IS DECLINED, not deferred. dk 2026-07-20: stick to ONE baseline model.
+The @eval lane's 4 scenarios against the fixed deepseek/deepseek-v4-flash baseline are the
+intended coverage. Do not propose testing other models. See the FIXED BASELINE fact below.
+
+PUBLISHED-ARTIFACT SMOKE TEST: satisfied this session and worth repeating at each publish —
+`npx @dk/jolly@<version> --help` from an empty dir. It is the cheap check that catches a
+broken bundle, which a green local tree never will.
+
+## STATE (2026-07-19, 21:10): ONE-SEAM/ONE-TEST LANDED — voyage closed, shipped as 0.12.5.
 
 dk's goal: ONE seam AND ONE test per expensive spend class, then BACK TO PRODUCT.
 Verification economy is means, not end. 43 of 257 scenarios (17%) audit the project itself.
