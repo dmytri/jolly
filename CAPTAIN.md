@@ -212,6 +212,29 @@ the Captain-side `tail --pid` fallback waiter saved every one. ALWAYS arm it:
   The upstream fix retires all three: resume the role on its own run's exit and no Captain
   needs to know any of this. Until then it is discipline standing in for machinery, and
   discipline has already been observed to fail here.
+- DEPENDENCIES BELONG TO FITTING OUT, NOT CREW (dk ruling 2026-07-20; upstream candidate).
+  Shipshape currently routes a dependency BY ITS CONSUMER: the rigging's own dependencies
+  install at fitting out, and Crew installs a product dependency "as the mechanical part of a
+  spec-ordered change". dk: Crew should not do dependencies at all — installation is fitting
+  out, full stop. The argument, as it came up tonight:
+  - Installing is a RIGGING act, not a production-code change. It moves the lockfile, the
+    resolution graph, and the engines constraints — tree-wide blast radius, reaching every
+    tier and every future run. Crew's whole charter is the SMALLEST change for ONE failing
+    target; handing it an act whose radius is the entire tree contradicts that on its face.
+  - The consumer split makes the route depend on a classification the isolated role is worst
+    placed to make. Whether @bomb.sh/tab is "the rigging's own" or "one the implementation
+    consumes" is a judgment call needing tree-wide context, which is exactly what Crew does
+    not have. Shipwright, at fitting out, has it by construction.
+  - THE GAP THAT EXPOSED IT (tonight, real): RIGGING's `latest-stable` policy makes a held
+    version a defect and says "a role upgrades it". But an upgrade ordered by POLICY has no
+    failing target, so the Crew route does not open — Crew is dispatched only for a failing
+    target. There was NO legal route for a policy-ordered upgrade. I did it as Captain and
+    flagged the boundary; dk's ruling is the fix. Fitting out has no such precondition.
+  - Upstream shape: strike the Crew clause from the Rigging read contract, and let Shipwright
+    own every install and upgrade, at fitting out and at harbour. A spec that needs a new
+    dependency then raises a Captain blocker routed to Shipwright, one round-trip, rather
+    than a Crew mate resolving a registry question mid-target with no context.
+
 - ONE SEAM IS NOT ONE TEST (dk 2026-07-19, the session's main finding; strong upstream
   candidate). A single-creation-seam invariant can be fully green while N scenarios each
   call that one seam for real. Jolly: creation lived at one seam, enforced by a ts-morph
