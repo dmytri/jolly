@@ -742,3 +742,76 @@ export function ledgerEntriesWithin(
     (entry) => entry.at >= window.startMs && entry.at <= window.endMs,
   );
 }
+
+// ─── Per-tier ledger coverage: every tier that can spend records a ledger ────
+
+/** The tier tags a configured tier is known by (RIGGING.md "## Tiers"). */
+export const TIER_TAGS = ["@logic", "@sandbox", "@eval"] as const;
+
+/**
+ * The tags a scenario carries to be entitled to spawn an expensive command: a
+ * spend licence (@pipeline, @creates-env), a toolchain-element licence, or the
+ * @spend-is-the-assertion declaration. A tier hosting any such scenario can
+ * spend, so its spawns must be recorded in a ledger.
+ */
+export const SPEND_LICENCE_TAGS = [
+  "@pipeline",
+  "@creates-env",
+  "@toolchain-element",
+  SPEND_IS_THE_ASSERTION,
+] as const;
+
+/**
+ * Every tier that hosts a scenario licensed to spawn an expensive command,
+ * derived from the specs' tags: a scenario carrying a spend-licence tag places
+ * the tier tag it also carries (@logic/@sandbox/@eval) in the can-spend set.
+ */
+export function tiersThatCanSpend(tags: Map<string, Set<string>>): Set<string> {
+  const tiers = new Set<string>();
+  for (const scenarioTags of tags.values()) {
+    if (!SPEND_LICENCE_TAGS.some((tag) => scenarioTags.has(tag))) continue;
+    for (const tier of TIER_TAGS) {
+      if (scenarioTags.has(tier)) tiers.add(tier);
+    }
+  }
+  return tiers;
+}
+
+/**
+ * Every tier whose spends the wake's ledger carries, from the entries' tier
+ * field, normalized to the RIGGING tier tag (`sandbox` → `@sandbox`).
+ */
+export function tiersWithLedger(entries: SpendEntry[]): Set<string> {
+  const tiers = new Set<string>();
+  for (const entry of entries) tiers.add(`@${entry.tier}`);
+  return tiers;
+}
+
+export interface LedgerCoverageFinding {
+  tier: string;
+  message: string;
+}
+
+/**
+ * Every tier that can spend (hosts a spend-licensed scenario) yet wrote no
+ * ledger: its spawns go unrecorded by construction, so no entry exists to join
+ * against its licensed set. The default tier, paid on every inner-loop run, is
+ * the most expensive place for this gap.
+ */
+export function tiersMissingLedger(
+  canSpend: Set<string>,
+  withLedger: Set<string>,
+): LedgerCoverageFinding[] {
+  const findings: LedgerCoverageFinding[] = [];
+  for (const tier of canSpend) {
+    if (withLedger.has(tier)) continue;
+    findings.push({
+      tier,
+      message:
+        `the ${tier} tier hosts a scenario licensed to spawn an expensive ` +
+        `command but wrote no spend ledger, so its spends go unrecorded and ` +
+        `cannot be joined against its licensed set`,
+    });
+  }
+  return findings;
+}

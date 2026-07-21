@@ -7,27 +7,35 @@
 // the shell, never a JSON envelope.
 import t from "@bomb.sh/tab";
 
-// The top-level command surface offered for completion (feature 006).
+// The top-level command surface offered for completion: every top-level command
+// a user may invoke, the feature 029 stage commands included (feature
+// command-surface-consistency).
 /**
- * @planks("Then the error should name the supported commands login, logout, auth status, init, start, doctor, upgrade, skills, create, and completion")
+ * @planks("the script should reference the supported commands help, login, logout, auth, init, start, create, storefront, recipe, stock, stripe, deploy, doctor, upgrade, skills, and completion")
  */
 const COMMANDS: ReadonlyArray<readonly [string, string]> = [
+  ["help", "List the Jolly commands"],
   ["login", "Authenticate to Saleor Cloud"],
   ["logout", "Remove the stored Saleor Cloud token"],
   ["auth", "Inspect authentication status"],
   ["init", "Set up the local project (skills, .mcp.json, AGENTS.md)"],
   ["start", "Run the guided end-to-end setup"],
+  ["create", "Create a store"],
+  ["storefront", "Run the storefront stage"],
+  ["recipe", "Run the recipe stage"],
+  ["stock", "Run the stock stage"],
+  ["stripe", "Run the stripe stage"],
+  ["deploy", "Run the deploy stage"],
   ["doctor", "Diagnose the project setup"],
   ["upgrade", "Upgrade Jolly and the installed skills"],
   ["skills", "Install the Jolly and Saleor agent-skills"],
-  ["create", "Create a store"],
   ["completion", "Print a shell completion script"],
 ];
 
 let registered = false;
 /**
- * @planks("When the agent runs `jolly completion bash`")
- * @planks("When the agent runs `jolly complete -- lo`")
+ * @planks("the agent runs `jolly completion bash`")
+ * @planks("the agent runs `jolly complete -- lo`")
  */
 function register(): void {
   if (registered) return;
@@ -39,12 +47,11 @@ function register(): void {
  * Handle `jolly completion <shell>` (prints the completion script) and
  * `jolly complete -- <words>` (prints candidate completions). Returns the
  * process exit code.
- * @planks("When the agent runs `jolly completion bash`")
- * @planks("Then stdout should contain a shell completion script for the `jolly` command")
- * @planks("Then the script should reference the supported commands login, logout, init, start, doctor, upgrade, skills, and create")
- * @planks("When the agent runs `jolly complete -- lo`")
- * @planks("Then stdout should list the candidate completions `login` and `logout`")
- * @planks("Then the error should name the supported commands login, logout, auth status, init, start, doctor, upgrade, skills, create, and completion")
+ * @planks("the agent runs `jolly completion bash`")
+ * @planks("stdout should contain a shell completion script for the `jolly` command")
+ * @planks("the script should reference the supported commands help, login, logout, auth, init, start, create, storefront, recipe, stock, stripe, deploy, doctor, upgrade, skills, and completion")
+ * @planks("the agent runs `jolly complete -- lo`")
+ * @planks("stdout should list the candidate completions `login` and `logout`")
  */
 export function runCompletion(argv: string[]): number {
   register();

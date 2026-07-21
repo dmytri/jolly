@@ -72,6 +72,45 @@ export function parseRecordedDependencies(riggingText: string): string[] {
   return names;
 }
 
+export interface DependencyNameViolation {
+  name: string;
+  /** The side the dependency is missing from. */
+  missingFrom: "rigging" | "manifest";
+  message: string;
+}
+
+/**
+ * The two-way join by dependency name: every name package.json declares is
+ * recorded under RIGGING.md's `## Dependencies`, and every name recorded there
+ * is declared in the manifest. Either file read alone hides a one-sided entry,
+ * so the join is the only place the disagreement is visible.
+ */
+export function joinDependencyNames(
+  declared: string[],
+  recorded: string[],
+): DependencyNameViolation[] {
+  const violations: DependencyNameViolation[] = [];
+  const recordedSet = new Set(recorded);
+  const declaredSet = new Set(declared);
+  for (const name of declared) {
+    if (recordedSet.has(name)) continue;
+    violations.push({
+      name,
+      missingFrom: "rigging",
+      message: `package.json declares the dependency "${name}", which the rigging does not record`,
+    });
+  }
+  for (const name of recorded) {
+    if (declaredSet.has(name)) continue;
+    violations.push({
+      name,
+      missingFrom: "manifest",
+      message: `the rigging records the dependency "${name}", which package.json does not declare`,
+    });
+  }
+  return violations;
+}
+
 interface Manifest {
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;

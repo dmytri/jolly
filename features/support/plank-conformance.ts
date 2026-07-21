@@ -201,14 +201,6 @@ export function findPlankFormViolations(
             });
           return;
         }
-        const step = stepTextOf(docLine)!;
-        if (!STEP_KEYWORDS.some((keyword) => step.startsWith(`${keyword} `))) {
-          violations.push({
-            file,
-            line,
-            message: `${file}:${line} plank step "${step}" starts with no "Given", "When", or "Then" keyword`,
-          });
-        }
       });
     }
 
@@ -281,29 +273,29 @@ export function collectStepUsagePatterns(): string[] {
   return usage.map((entry) => entry.pattern);
 }
 
-/** A plank step with its leading Given/When/Then keyword removed, so it can be
- * compared against a keyword-less step-definition pattern. */
-function withoutKeyword(step: string): string {
-  for (const keyword of STEP_KEYWORDS) {
-    const prefix = `${keyword} `;
-    if (step.startsWith(prefix)) return step.slice(prefix.length);
-  }
-  return step;
+/** Whether the plank's step carries a leading Gherkin keyword the pattern it
+ * claims to name never carries. The binding keyword is the step definition's
+ * own construct, so a plank carrying one is malformed rather than merely
+ * unmatched. */
+export function carriesLeadingKeyword(step: string): boolean {
+  return STEP_KEYWORDS.some((keyword) => step.startsWith(`${keyword} `));
 }
 
 /**
  * Unpatterned planks: planks whose step matches no current step-definition
- * pattern by exact string. `step-usage` reports each pattern without a leading
- * keyword, so a plank matches when its keyword-stripped step equals a pattern
- * verbatim. A plank carrying a concrete example line rather than the pattern
- * matches nothing and is reported: it stores a second copy of the join the
- * runner already derives, and drifts with every data edit.
+ * pattern by exact string. The join is set membership on the plank's WHOLE
+ * text, with no normalization on either side: `step-usage` reports the pattern
+ * exactly as the step definition declares it, and the plank is that string with
+ * nothing added. Stripping a leading keyword before comparing would accept a
+ * malformed plank as a match, and a plank that reads as coverage it does not
+ * have is more dangerous than one that matches nothing. A plank carrying a
+ * concrete example line rather than the pattern matches nothing and is
+ * reported: it stores a second copy of the join the runner already derives, and
+ * drifts with every data edit.
  */
 export function findUnpatternedPlanks(planks: Plank[], patterns: Iterable<string>): Plank[] {
   const patternSet = new Set(patterns);
-  return planks.filter(
-    (plank) => !patternSet.has(plank.step) && !patternSet.has(withoutKeyword(plank.step)),
-  );
+  return planks.filter((plank) => !patternSet.has(plank.step));
 }
 
 export interface ProvisionalPlank {

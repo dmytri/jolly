@@ -219,7 +219,7 @@ Feature: Human-facing interactive CLI experience
   Scenario: An unsupported command fails clearly and names the supported surface
     When the agent runs `jolly frobnicate --json`
     Then the envelope status should be "error" with a stable `code`
-    And the error should name the supported commands login, logout, auth status, init, start, doctor, upgrade, skills, create, and completion
+    And the error should name the supported commands help, login, logout, auth, init, start, create, storefront, recipe, stock, stripe, deploy, doctor, upgrade, skills, and completion
 
   @logic
   Scenario: An unsupported flag fails clearly on the agent path, never silently ignored
@@ -231,7 +231,7 @@ Feature: Human-facing interactive CLI experience
   Scenario: Shell completion emits a script naming the command surface
     When the agent runs `jolly completion bash`
     Then stdout should contain a shell completion script for the `jolly` command
-    And the script should reference the supported commands login, logout, init, start, doctor, upgrade, skills, and create
+    And the script should reference the supported commands help, login, logout, auth, init, start, create, storefront, recipe, stock, stripe, deploy, doctor, upgrade, skills, and completion
 
   @logic
   Scenario: Shell completion returns candidate completions at completion time

@@ -169,7 +169,12 @@ def acquire_controlling_terminal():
 # A real window size for every PTY. Without it the terminal reports 0 columns and
 # full-screen renderers (Bombshell/@clack/prompts) wrap after every character,
 # shattering the prompt text in the captured stream.
-WINSZ = struct.pack("HHHH", 24, 80, 0, 0)
+#
+# The width is configurable so a scenario can drive a narrow terminal and observe
+# what the CLI does with a row too wide for it. 80 is the default a caller that
+# names no width gets, which is the width every existing scenario was written at.
+COLS = int(cfg.get("cols") or 80)
+WINSZ = struct.pack("HHHH", 24, COLS, 0, 0)
 
 
 def feed_inputs(master_fd, sends_seq):
@@ -271,7 +276,7 @@ master, slave = pty.openpty()
 # Give the PTY a real window size. Without it the terminal reports 0 columns and
 # full-screen prompt renderers (Bombshell/@clack/prompts) wrap after every
 # character, shattering the prompt text in the captured stream.
-fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
+fcntl.ioctl(slave, termios.TIOCSWINSZ, WINSZ)
 child = subprocess.Popen(
     argv,
     stdin=slave,
@@ -287,6 +292,35 @@ os.close(slave)
 # Drive the prompts as a human would (shared with the separate-streams mode):
 # wait for each prompt to render, then send the next scripted chunk.
 threading.Thread(target=feed_inputs, args=(master, sends), daemon=True).start()
+
+# Sample the terminal's line-discipline state the moment a named marker appears.
+# Whether Ctrl-C reaches the child as SIGINT is a property of the tty's termios
+# flags, not of anything the child prints, so it can only be observed here, from
+# the terminal itself, while the run is parked at that marker. ISIG is the bit
+# the driver consults to turn Ctrl-C into a signal; ICANON and ECHO are the other
+# two the prompt libraries clear when they take the terminal into raw mode.
+SAMPLE_AT = cfg.get("sampleTermiosAt") or []
+termios_sample = None
+
+
+def sample_termios(fd, seen):
+    """The tty's mode flags, once every marker has appeared. None until then."""
+    if not SAMPLE_AT:
+        return None
+    text = bytes(seen).decode("utf-8", "replace")
+    if not all(marker in text for marker in SAMPLE_AT):
+        return None
+    try:
+        attrs = termios.tcgetattr(fd)
+    except OSError:
+        return None
+    lflag = attrs[3]
+    return {
+        "isig": bool(lflag & termios.ISIG),
+        "icanon": bool(lflag & termios.ICANON),
+        "echo": bool(lflag & termios.ECHO),
+    }
+
 
 out = bytearray()
 deadline = time.time() + timeout
@@ -309,6 +343,8 @@ while True:
             break
         out += chunk
         note_output(chunk)
+        if termios_sample is None:
+            termios_sample = sample_termios(master, out)
     if read_ended():
         break
     if child.poll() is not None and not select.select([master], [], [], 0)[0]:
@@ -324,6 +360,7 @@ os.write(
             "code": code if code is not None else -1,
             "stillRunning": still_running,
             "timedOut": timed_out,
+            "termios": termios_sample,
         }
     ).encode(),
 )

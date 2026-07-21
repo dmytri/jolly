@@ -419,25 +419,32 @@ When("the agent inspects `jolly --help`", function (this: JollyWorld) {
 });
 
 Then(
-  "it should list exactly the commands `login`, `logout`, `auth status`, `init`, `start`, `doctor`, `upgrade`, `skills`, `create`, and `completion`",
+  "it should list exactly the commands `help`, `login`, `logout`, `auth`, `init`, `start`, `create`, `storefront`, `recipe`, `stock`, `stripe`, `deploy`, `doctor`, `upgrade`, `skills`, and `completion`",
   function (this: JollyWorld) {
     const expected = [
+      "help",
       "login",
       "logout",
-      "auth status",
+      "auth",
       "init",
       "start",
+      "create",
+      "storefront",
+      "recipe",
+      "stock",
+      "stripe",
+      "deploy",
       "doctor",
       "upgrade",
       "skills",
-      "create",
       "completion",
     ];
     const data = this.envelope.data as { commands?: unknown };
     const listed = Array.isArray(data.commands) ? (data.commands as string[]) : [];
     assert.ok(listed.length > 0, "`jolly --help` must list its commands in the envelope");
-    // Collapse create's subcommands (e.g. `create store`) to the top-level `create`.
-    const topLevel = new Set(listed.map((c) => (c.startsWith("create ") ? "create" : c)));
+    // The surface names top-level commands only; collapse any subcommand entry
+    // (e.g. `create store`, `auth status`) to its top-level command.
+    const topLevel = new Set(listed.map((c) => c.split(" ")[0]!));
     assert.deepEqual(
       [...topLevel].sort(),
       [...expected].sort(),
@@ -465,28 +472,31 @@ Then(
 );
 
 Then(
-  "no `deployment`, `deploy`, `recipe`, or `storefront` subcommand should appear anywhere in the surface",
+  "`status` should appear as a subcommand of `auth`, never as a top-level command",
   function (this: JollyWorld) {
-    const forbidden = ["deployment", "deploy", "recipe", "storefront"];
-    // Command/subcommand surfaces are the machine-readable envelope (feature 020):
-    // an agent enumerates them via --json; default --help is human usage only.
+    // The surface names top-level commands, so `auth` is the entry and `status`
+    // is its subcommand, never a top-level command of its own.
     this.runCli(["--help", "--json"], { env: absentCredentialsEnv() });
     const rootData = this.envelope.data as { commands?: unknown };
     const rootCommands = Array.isArray(rootData.commands)
       ? (rootData.commands as string[])
       : [];
-    this.runCli(["create", "--help", "--json"], { env: absentCredentialsEnv() });
-    const createData = this.envelope.data as { subcommands?: Array<{ name?: string }> };
-    const createSubs = (Array.isArray(createData.subcommands) ? createData.subcommands : [])
+    const topLevel = new Set(rootCommands.map((c) => c.split(" ")[0]!));
+    assert.ok(topLevel.has("auth"), "`auth` must appear as a top-level command");
+    assert.ok(
+      !topLevel.has("status"),
+      `\`status\` must never be a top-level command; got ${[...topLevel].join(", ")}`,
+    );
+    // status is auth's subcommand: read auth's machine-readable subcommand list.
+    this.runCli(["auth", "--help", "--json"], { env: absentCredentialsEnv() });
+    const authData = this.envelope.data as { subcommands?: Array<{ name?: string }> };
+    const authSubs = (Array.isArray(authData.subcommands) ? authData.subcommands : [])
       .map((s) => s.name)
       .filter((n): n is string => typeof n === "string");
-    const surface = [...rootCommands, ...createSubs].map((c) => c.toLowerCase());
-    for (const term of forbidden) {
-      assert.ok(
-        !surface.some((c) => c === term || c.split(" ").includes(term)),
-        `no \`${term}\` subcommand may appear in the command surface; got ${surface.join(", ")}`,
-      );
-    }
+    assert.ok(
+      authSubs.includes("status"),
+      `\`jolly auth --help\` must list \`status\` as a subcommand; got ${authSubs.join(", ")}`,
+    );
   },
 );
 

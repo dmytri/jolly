@@ -7,7 +7,7 @@
 // its own scenario.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { REPO_ROOT } from "../support/repo-root.ts";
 import type { JollyWorld } from "../support/world.ts";
@@ -18,6 +18,7 @@ import {
   readTierCommands,
   readTierWallClock,
   readWakeRecord,
+  readConfiguredTierTags,
   runTierCommand,
   sandboxSweepLegWindows,
   tierNameFromRecordPath,
@@ -57,11 +58,15 @@ import {
   scenarioTagsFromSpecs,
   strayExemptionScenarios,
   sweepLegEntries,
+  tiersMissingLedger,
+  tiersThatCanSpend,
+  tiersWithLedger,
   unlicensedSpends,
   EXPENSIVE_SPEND_LICENCES,
   SHARED_PROVISIONING,
   SPEND_LEDGER_PATH,
   TOOLCHAIN_SPENDS,
+  type LedgerCoverageFinding,
   type RunWindow,
   type SpendEntry,
   type SpendViolation,
@@ -87,6 +92,18 @@ import {
   type ReaderSelection,
   type WakeReaderFixture,
 } from "../support/wake-run-scope.ts";
+import {
+  joinDependencyNames,
+  manifestDependencyNames,
+  parseRecordedDependencies,
+  type DependencyNameViolation,
+} from "../support/dependency-record-conformance.ts";
+import {
+  leftoverProcessFindings,
+  readLeftoverProcesses,
+  type LeftoverFinding,
+  type LeftoverProcess,
+} from "../support/process-reclaim.ts";
 
 Given(
   "the tier commands configured in {string}",
@@ -1083,6 +1100,112 @@ Then(
   },
 );
 
+// ─── Every tier that can spend records a ledger ─────────────────────────────
+
+Given(
+  "the tiers configured in {string}",
+  function (this: JollyWorld, riggingFile: string) {
+    const tiers = readConfiguredTierTags(riggingFile);
+    assert.ok(
+      tiers.length > 0,
+      `${riggingFile} configures no tier tags under "## Tiers"`,
+    );
+    this.notes.configuredTierTags = tiers;
+  },
+);
+
+Given(
+  "the spend ledger each tier's last run wrote into the wake",
+  function (this: JollyWorld) {
+    const entries = lastRunEntries(readSpendLedger());
+    assert.ok(
+      entries.length > 0,
+      `the wake carries no spend ledger at ${SPEND_LEDGER_PATH} — no tier run ` +
+        `has recorded one; run the sandbox tier (broad-sandbox and ` +
+        `broad-sandbox-serial in RIGGING.md) so the recorder writes it`,
+    );
+    this.notes.perTierLedgerEntries = entries;
+  },
+);
+
+When(
+  "each tier's recorded spends are joined against its licensed scenario set",
+  function (this: JollyWorld) {
+    const entries = this.notes.perTierLedgerEntries as SpendEntry[];
+    const tags = scenarioTagsFromSpecs();
+    this.notes.perTierUnlicensed = unlicensedSpends(entries, tags);
+    this.notes.ledgerCoverage = tiersMissingLedger(
+      tiersThatCanSpend(tags),
+      tiersWithLedger(entries),
+    );
+  },
+);
+
+Then(
+  "every tier that spawned an expensive command should have written a ledger",
+  function (this: JollyWorld) {
+    const findings = this.notes.ledgerCoverage as LedgerCoverageFinding[];
+    assert.equal(
+      findings.length,
+      0,
+      `tiers that can spawn an expensive command but wrote no ledger:\n${findings
+        .map((finding) => `  - ${finding.message}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "no spend should be attributed to a scenario outside the licensed set",
+  function (this: JollyWorld) {
+    const violations = this.notes.perTierUnlicensed as SpendViolation[];
+    assert.equal(
+      violations.length,
+      0,
+      `spends attributed to scenarios outside the licensed set:\n${violations
+        .map((violation) => `  - ${violation.message}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "a tier that spawned an expensive command and wrote no ledger should redden the check",
+  function () {
+    // Planted red: a tier known to host a spend-licensed scenario (@logic +
+    // @pipeline) whose ledger set carries no @logic entry. The same join the
+    // real assertion uses must name that tier.
+    const plantedTags = new Map<string, Set<string>>([
+      ["A logic-tier pipeline proof", new Set(["@logic", "@pipeline"])],
+    ]);
+    const canSpend = tiersThatCanSpend(plantedTags);
+    assert.ok(
+      canSpend.has("@logic"),
+      "the planted @logic @pipeline scenario must place @logic in the can-spend set",
+    );
+    const withoutLogicLedger = tiersWithLedger([
+      {
+        run: "planted",
+        tier: "sandbox",
+        at: Date.now(),
+        scenario: "(run)",
+        spend: "run-start",
+      },
+    ]);
+    const findings = tiersMissingLedger(canSpend, withoutLogicLedger);
+    assert.ok(
+      findings.some((finding) => finding.tier === "@logic"),
+      "a tier that can spend but wrote no ledger must redden the check, naming the tier",
+    );
+    // Plant removed: a ledger set that includes @logic leaves the check green.
+    assert.equal(
+      tiersMissingLedger(canSpend, new Set(["@logic"])).length,
+      0,
+      "a tier that can spend and wrote a ledger must leave the check green",
+    );
+  },
+);
+
 // ─── One licence holder per expensive spend class ───────────────────────────
 
 Given("Jolly's feature files", function (this: JollyWorld) {
@@ -1360,6 +1483,96 @@ Then(
   },
 );
 
+// ─── A budget judged over an incomplete window ──────────────────────────────
+
+Given(
+  "a wall-clock record in which one tier's lane has not recorded its completion",
+  function (this: JollyWorld) {
+    // The condition is constructed, not waited for: a lane mid-flight writes no
+    // completion, and the judgment's behaviour under that record is what this
+    // scenario pins. One lane completes well inside its budget so the verdict
+    // has both kinds to tell apart.
+    const budgets = this.notes.tierBudgets as TierBudgets;
+    const complete = "logic";
+    const incomplete = "eval";
+    assert.ok(
+      budgets.perTierSeconds[complete] !== undefined &&
+        budgets.perTierSeconds[incomplete] !== undefined,
+      `the rigging must budget both ${complete} and ${incomplete} for this check`,
+    );
+    this.notes.incompleteLaneTier = incomplete;
+    this.notes.completeLaneTier = complete;
+    this.notes.tierClocks = [
+      {
+        tier: complete,
+        recordPath: `coverage/weather/${complete}.ndjson`,
+        seconds: 1,
+      },
+      {
+        tier: incomplete,
+        recordPath: `coverage/weather/${incomplete}.ndjson`,
+        incomplete: true as const,
+      },
+    ];
+  },
+);
+
+Then(
+  "the check should redden, naming the tier whose lane is incomplete",
+  function (this: JollyWorld) {
+    const judgment = this.notes.budgetJudgment as BudgetJudgment;
+    const tier = this.notes.incompleteLaneTier as string;
+    const finding = judgment.incomplete.find((lane) => lane.tier === tier);
+    assert.ok(
+      finding,
+      `the incomplete ${tier} lane was not reported: ${JSON.stringify(judgment)}`,
+    );
+    assert.ok(
+      finding.message.includes(tier),
+      `the finding must name the tier: ${finding.message}`,
+    );
+  },
+);
+
+Then(
+  "it should distinguish an incomplete lane from a lane that fits its budget",
+  function (this: JollyWorld) {
+    const judgment = this.notes.budgetJudgment as BudgetJudgment;
+    const incomplete = this.notes.incompleteLaneTier as string;
+    const complete = this.notes.completeLaneTier as string;
+    assert.ok(
+      judgment.fitting.includes(complete),
+      `the completed ${complete} lane fits its budget and must be reported as fitting: ${JSON.stringify(judgment)}`,
+    );
+    assert.ok(
+      judgment.incomplete.every((lane) => lane.tier !== complete),
+      `the completed ${complete} lane must not be reported incomplete`,
+    );
+    assert.ok(
+      judgment.incomplete.some((lane) => lane.tier === incomplete),
+      `the ${incomplete} lane must be reported incomplete`,
+    );
+  },
+);
+
+Then(
+  "no tier should be reported as fitting its budget on a record carrying no completion",
+  function (this: JollyWorld) {
+    const judgment = this.notes.budgetJudgment as BudgetJudgment;
+    const incompleteTiers = new Set(judgment.incomplete.map((lane) => lane.tier));
+    const wrongly = judgment.fitting.filter((tier) => incompleteTiers.has(tier));
+    assert.deepEqual(
+      wrongly,
+      [],
+      `tiers reported as fitting on a record carrying no completion: ${wrongly.join(", ")}`,
+    );
+    assert.ok(
+      judgment.perTier.every((violation) => !incompleteTiers.has(violation.tier)),
+      "a lane carrying no completion was given a budget verdict",
+    );
+  },
+);
+
 // ─── A step pinned at its declared read ceiling ─────────────────────────────
 
 Given(
@@ -1444,6 +1657,179 @@ Then(
       pinnedReadFindings(ceilings, [{ ...plant, durationMs: planted.ceilingMs * 0.1 }]).length,
       0,
       "a read ending on its signal well inside the ceiling must leave the check green",
+    );
+  },
+);
+
+// ─── A run reclaims the processes it spawned ─────────────────────────────────
+
+Given(
+  "the process set a tier run recorded as its own",
+  function (this: JollyWorld) {
+    // Completed tier records only: a run appends its leftover-process line at
+    // exit, so a tier executing right now has no completed record here. Collect
+    // every tier record carrying a leftover-process line; at least one must
+    // exist, or there is no recorded run to judge.
+    const commands = readTierCommands("RIGGING.md");
+    const paths = new Set<string>();
+    for (const command of commands) {
+      if (command.recordPath) paths.add(command.recordPath);
+    }
+    const recorded: Array<{ tier: string; leftovers: LeftoverProcess[] }> = [];
+    for (const recordPath of paths) {
+      const leftovers = readLeftoverProcesses(join(REPO_ROOT, recordPath));
+      if (leftovers === undefined) continue;
+      recorded.push({ tier: tierNameFromRecordPath(recordPath), leftovers });
+    }
+    assert.ok(
+      recorded.length > 0,
+      "no tier record carries a leftover-process line — run a tier through its " +
+        "configured command (e.g. broad in RIGGING.md) so its record exists to judge",
+    );
+    this.notes.recordedProcessSets = recorded;
+  },
+);
+
+When("the tier run exits", function (this: JollyWorld) {
+  const recorded = this.notes.recordedProcessSets as Array<{
+    tier: string;
+    leftovers: LeftoverProcess[];
+  }>;
+  this.notes.leftoverFindings = recorded.flatMap((entry) =>
+    leftoverProcessFindings(entry.leftovers).map((finding) => ({
+      ...finding,
+      tier: entry.tier,
+    })),
+  );
+});
+
+Then(
+  "no process the run spawned should still be running",
+  function (this: JollyWorld) {
+    const findings = this.notes.leftoverFindings as Array<
+      LeftoverFinding & { tier: string }
+    >;
+    assert.equal(
+      findings.length,
+      0,
+      `tier runs left processes running after they exited:\n${findings
+        .map((finding) => `  - [${finding.tier}] ${finding.message}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "a process the run left behind should redden the check, naming the command and its process id",
+  function () {
+    // Planted red: a recorded leftover process. The same judge the real
+    // assertion uses must name the command and the process id.
+    const planted: LeftoverProcess = { pid: 4242, comm: "vercel" };
+    const findings = leftoverProcessFindings([planted]);
+    assert.equal(findings.length, 1, "a leftover process must redden the check");
+    assert.ok(
+      findings[0]!.message.includes("4242") && findings[0]!.message.includes("vercel"),
+      `the finding must name the command and the process id: ${findings[0]!.message}`,
+    );
+    // Plant removed: a run that reclaimed every process it spawned leaves the
+    // check green.
+    assert.equal(
+      leftoverProcessFindings([]).length,
+      0,
+      "a run that left no process behind must leave the check green",
+    );
+  },
+);
+
+// ─── The recorded dependencies match the package manifest ───────────────────
+
+Given(
+  "the dependencies declared in {string}",
+  function (this: JollyWorld, manifestFile: string) {
+    const declared = manifestDependencyNames(
+      readFileSync(join(REPO_ROOT, manifestFile), "utf8"),
+    );
+    assert.ok(declared.length > 0, `${manifestFile} declares no dependencies`);
+    this.notes.declaredDependencies = declared;
+  },
+);
+
+Given(
+  "the dependencies recorded under the Dependencies section of {string}",
+  function (this: JollyWorld, riggingFile: string) {
+    const recorded = parseRecordedDependencies(
+      readFileSync(join(REPO_ROOT, riggingFile), "utf8"),
+    );
+    assert.ok(
+      recorded.length > 0,
+      `${riggingFile} records no dependencies under "## Dependencies"`,
+    );
+    this.notes.recordedDependencies = recorded;
+  },
+);
+
+When("the two sets are joined by dependency name", function (this: JollyWorld) {
+  this.notes.dependencyNameViolations = joinDependencyNames(
+    this.notes.declaredDependencies as string[],
+    this.notes.recordedDependencies as string[],
+  );
+});
+
+Then(
+  "every declared dependency should be recorded in the rigging",
+  function (this: JollyWorld) {
+    const violations = (
+      this.notes.dependencyNameViolations as DependencyNameViolation[]
+    ).filter((violation) => violation.missingFrom === "rigging");
+    assert.equal(
+      violations.length,
+      0,
+      `dependencies declared but unrecorded:\n${violations
+        .map((violation) => `  - ${violation.message}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "every recorded dependency should be declared in the manifest",
+  function (this: JollyWorld) {
+    const violations = (
+      this.notes.dependencyNameViolations as DependencyNameViolation[]
+    ).filter((violation) => violation.missingFrom === "manifest");
+    assert.equal(
+      violations.length,
+      0,
+      `dependencies recorded but undeclared:\n${violations
+        .map((violation) => `  - ${violation.message}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "a dependency present in one and absent from the other should redden the check, naming it and the side it is missing from",
+  function () {
+    const violations = joinDependencyNames(["only-declared"], ["only-recorded"]);
+    const declaredSide = violations.find(
+      (violation) => violation.name === "only-declared",
+    );
+    const recordedSide = violations.find(
+      (violation) => violation.name === "only-recorded",
+    );
+    assert.ok(declaredSide, "a declared-but-unrecorded dependency was not reported");
+    assert.equal(declaredSide.missingFrom, "rigging");
+    assert.ok(
+      declaredSide.message.includes("only-declared") &&
+        declaredSide.message.includes("rigging"),
+      `the violation must name the dependency and the side: ${declaredSide.message}`,
+    );
+    assert.ok(recordedSide, "a recorded-but-undeclared dependency was not reported");
+    assert.equal(recordedSide.missingFrom, "manifest");
+    assert.ok(
+      recordedSide.message.includes("only-recorded") &&
+        recordedSide.message.includes("package.json"),
+      `the violation must name the dependency and the side: ${recordedSide.message}`,
     );
   },
 );

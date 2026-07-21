@@ -41,7 +41,7 @@ interface StageEntry {
 // deploy was left pending) — means setup did not finish, and the close must say
 // so honestly rather than fabricate a live store (feature 027 Rule).
 /**
- * @planks("Then the interactive output should state that setup stopped and nothing was created")
+ * @planks("the interactive output should state that setup stopped and nothing was created")
  */
 function incompleteStages(core: CloseEnvelope): string[] {
   const stages = (core.data as { stages?: unknown }).stages;
@@ -57,7 +57,7 @@ function incompleteStages(core: CloseEnvelope): string[] {
 }
 
 /**
- * @planks("Then the closing summary on stdout should name the store's Saleor Dashboard URL")
+ * @planks("the closing summary on stdout should name the store's Saleor Dashboard URL")
  */
 function dashboardUrlFrom(core: CloseEnvelope, endpoint?: string): string | undefined {
   const store = (core.data as { store?: { dashboardUrl?: unknown } }).store;
@@ -73,7 +73,7 @@ function dashboardUrlFrom(core: CloseEnvelope, endpoint?: string): string | unde
 }
 
 /**
- * @planks("Then the closing summary on stdout should name the deployed storefront URL")
+ * @planks("the closing summary on stdout should name the deployed storefront URL")
  */
 function storefrontUrlFrom(core: CloseEnvelope): string | undefined {
   const deploy = (core.data as {
@@ -90,7 +90,7 @@ function storefrontUrlFrom(core: CloseEnvelope): string | undefined {
 // they are excluded — only true stage outcomes (e.g. `recipe-deployed`,
 // `vercel-deployed`, `store-provisioned`, `stripe-app-installed`) remain.
 /**
- * @planks("Then the interactive output should state that setup stopped and nothing was created")
+ * @planks("the interactive output should state that setup stopped and nothing was created")
  */
 function failureReasons(core: CloseEnvelope): string[] {
   return core.checks
@@ -105,15 +105,15 @@ function failureReasons(core: CloseEnvelope): string[] {
 }
 
 /**
- * @planks("Then the human result on stdout should state in prose that the plan was previewed and nothing was created")
- * @planks("Then the human result on stdout should carry no per-check `[status] check-id` enumeration line")
- * @planks("Then the human result on stdout should carry no `next:` command line")
- * @planks("Then the closing summary on stdout should name the store's Saleor Dashboard URL")
- * @planks("Then the closing summary on stdout should name the deployed storefront URL")
- * @planks("Then the closing summary on stdout should name the Stripe Dashboard key entry as the human's remaining step")
- * @planks("Then the closing summary on stdout should not enumerate per-check results as `[status] check-id` lines")
- * @planks("Then the closing summary on stdout should not present the Saleor endpoint or SALEOR_TOKEN readiness check, which the store stage resolved, as a failure of the completed run")
- * @planks("Then the interactive output should state that setup stopped and nothing was created")
+ * @planks("the human result on stdout should state in prose that the plan was previewed and nothing was created")
+ * @planks("the human result on stdout should carry no per-check `[status] check-id` enumeration line")
+ * @planks("the human result on stdout should carry no `next:` command line")
+ * @planks("the closing summary on stdout should name the store's Saleor Dashboard URL")
+ * @planks("the closing summary on stdout should name the deployed storefront URL")
+ * @planks("the closing summary on stdout should name the Stripe Dashboard key entry as the human's remaining step")
+ * @planks("the closing summary on stdout should not enumerate per-check results as `[status] check-id` lines")
+ * @planks("the closing summary on stdout should not present the Saleor endpoint or SALEOR_TOKEN readiness check, which the store stage resolved, as a failure of the completed run")
+ * @planks("the interactive output should state that setup stopped and nothing was created")
  */
 export function interactiveCloseSummary<E extends CloseEnvelope>(
   core: E,

@@ -100,6 +100,26 @@ const PROSE = /[A-Za-z]{2,}/;
 /** A cycle and deeply chained consts both stop here. */
 const MAX_DEPTH = 8;
 
+/**
+ * The catalog resolver itself. Its refusal reports the failure to find an
+ * entry, so no entry can render it: a key lookup for that sentence would be the
+ * same lookup that just failed. The exemption is the one seam, not the file.
+ */
+const CATALOG_RESOLVER_FILE = "src/lib/messages.ts";
+const CATALOG_RESOLVER_FUNCTION = "cliMessage";
+
+/** Whether a throw sits inside the catalog resolver seam. */
+function inCatalogResolver(statement: Node, file: string): boolean {
+  if (file !== CATALOG_RESOLVER_FILE) return false;
+  return statement
+    .getAncestors()
+    .some(
+      (ancestor) =>
+        Node.isFunctionDeclaration(ancestor) &&
+        ancestor.getName() === CATALOG_RESOLVER_FUNCTION,
+    );
+}
+
 let cachedProject: Project | undefined;
 
 function project(): Project {
@@ -440,4 +460,114 @@ export function joinCliMessageKeys(
   }
   const unreferenced = Object.keys(catalog).filter((key) => !referenced.has(key));
   return { unresolved, unreferenced };
+}
+
+/** A user-facing sentence authored at a throw site rather than in the catalog. */
+export interface ThrowSiteProse {
+  /** Repo-root-relative path of the file carrying the throw. */
+  file: string;
+  /** 1-based line number of the authored sentence. */
+  line: number;
+  /** The sentence as authored, with interpolations shown as `${...}`. */
+  text: string;
+}
+
+/**
+ * Every user-facing sentence authored at a throw site in the implementation.
+ *
+ * An error's message reaches the human through the envelope's error entry, but
+ * the envelope assigns it from a property access on the caught error, so the
+ * prose-surface checker's value-follow stops one hop short and the sentence
+ * passes unchecked. This checker starts at the throw instead: the message
+ * argument of a thrown error is copy, so it owes a catalog key exactly as any
+ * other prose surface does. A message that resolves through `cliMessage`
+ * carries its key; a string literal or template authored at the site does not.
+ *
+ * Interpolated data such as a host name or a status code is not copy, so a
+ * template's interpolations are left in place and only its surrounding wording
+ * decides whether the site authored a sentence.
+ *
+ * Pass `injected` to plant a violation for a planted-red proof; the injected
+ * sources are virtual and are removed before returning.
+ */
+export function findThrowSiteProse(
+  injected: InjectedSource[] = [],
+): ThrowSiteProse[] {
+  const found: ThrowSiteProse[] = [];
+  const added = injected.map((source) =>
+    project().createSourceFile(join(REPO_ROOT, source.file), source.text, {
+      overwrite: true,
+    }),
+  );
+  try {
+    for (const source of project().getSourceFiles()) {
+      const file = repoRelative(source.getFilePath());
+      if (!IMPLEMENTATION.some((dir) => file.startsWith(dir))) continue;
+
+      for (const statement of source.getDescendantsOfKind(
+        SyntaxKind.ThrowStatement,
+      )) {
+        if (inCatalogResolver(statement, file)) continue;
+        const thrown = statement.getExpression();
+        if (!Node.isNewExpression(thrown)) continue;
+        const message = thrown.getArguments()[0];
+        if (!message) continue;
+        const authored = authoredSentence(message, 0);
+        if (!authored) continue;
+        if (!PROSE.test(authored.text)) continue;
+        const site = repoRelative(authored.node.getSourceFile().getFilePath());
+        if (!IMPLEMENTATION.some((dir) => site.startsWith(dir))) continue;
+        found.push({
+          file: site,
+          line: authored.node.getStartLineNumber(),
+          text: authored.text,
+        });
+      }
+    }
+  } finally {
+    for (const source of added) project().removeSourceFile(source);
+  }
+  return found;
+}
+
+/**
+ * The sentence a throw site's message argument authors, or undefined when the
+ * message resolves through the catalog or carries no authored wording. Copy
+ * handed along as a variable is still authored copy, so a local const is
+ * followed to its initializer.
+ */
+function authoredSentence(node: Node, depth: number): Fragment | undefined {
+  if (depth > MAX_DEPTH) return undefined;
+  if (Node.isStringLiteral(node) || Node.isNoSubstitutionTemplateLiteral(node)) {
+    return { text: node.getLiteralText(), node };
+  }
+  if (Node.isTemplateExpression(node)) {
+    // The interpolations are data; the surrounding wording is the copy.
+    return { text: node.getText().slice(1, -1), node };
+  }
+  // A sentence split across `+` operands is still one authored sentence, so
+  // both sides are followed and their wording joined. Splitting copy across
+  // operands would otherwise hide it from a check that reads only literals.
+  if (
+    Node.isBinaryExpression(node) &&
+    node.getOperatorToken().getKind() === SyntaxKind.PlusToken
+  ) {
+    const left = authoredSentence(node.getLeft(), depth + 1);
+    const right = authoredSentence(node.getRight(), depth + 1);
+    if (!left && !right) return undefined;
+    return { text: `${left?.text ?? ""}${right?.text ?? ""}`, node };
+  }
+  // A call authors no sentence at this site: a `cliMessage` lookup carries its
+  // key, and any other call constructs its value from run data.
+  if (Node.isCallExpression(node)) return undefined;
+  if (Node.isIdentifier(node)) {
+    const declaration = node
+      .getSymbol()
+      ?.getDeclarations()
+      .find((entry) => Node.isVariableDeclaration(entry));
+    if (!declaration || !Node.isVariableDeclaration(declaration)) return undefined;
+    const initializer = declaration.getInitializer();
+    return initializer ? authoredSentence(initializer, depth + 1) : undefined;
+  }
+  return undefined;
 }

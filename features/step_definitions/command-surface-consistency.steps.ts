@@ -6,10 +6,17 @@
 // pins that the two name the same set of commands. The two `When` steps that run
 // `jolly --help` and `jolly frobnicate --json` are shared (006/027); this file
 // carries only the cross-run comparison Then.
-import { Then } from "@cucumber/cucumber";
+import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import type { JollyWorld } from "../support/world.ts";
 import type { CliResult } from "../support/world.ts";
+import {
+  commandSites,
+  commandSurfaceViolations,
+  declaredSurface,
+  type CommandSite,
+  type SurfaceViolation,
+} from "../support/command-surface-conformance.ts";
 
 // The help envelope advertises its command set as `data.commands`.
 function helpCommandSet(run: CliResult): string[] | undefined {
@@ -46,5 +53,69 @@ Then(
       `the command set advertised by \`jolly --help\` (${JSON.stringify([...helpSet].sort())}) ` +
         `must equal the set the unknown-command error names (${JSON.stringify([...errorSet].sort())})`,
     );
+  },
+);
+
+// ─── Every command site derives from one declared command surface ───────────
+//
+// The four sites a command name is written in today (completion registration,
+// help command data, dispatch switch, unknown-command remediation) are joined
+// against the one declaration they must all derive from. Where no declaration
+// exists, that absence is the violation: four hand-maintained copies join to
+// nothing.
+
+Given("the command surface Jolly declares", function (this: JollyWorld) {
+  this.notes.declaredSurface = declaredSurface();
+});
+
+When(
+  "the completion registration, the help command data, the dispatch cases, and the unknown-command remediation are each read",
+  function (this: JollyWorld) {
+    const sites = commandSites();
+    this.notes.commandSites = sites;
+    this.notes.surfaceViolations = commandSurfaceViolations(
+      this.notes.declaredSurface as string[] | undefined,
+      sites,
+    );
+  },
+);
+
+Then("each site's command set should equal the declared surface", function (this: JollyWorld) {
+  const violations = this.notes.surfaceViolations as SurfaceViolation[];
+  assert.equal(
+    violations.length,
+    0,
+    `command sites disagreeing with the declared surface:\n${violations
+      .map((violation) => `  - ${violation.message}`)
+      .join("\n")}`,
+  );
+});
+
+Then(
+  "a command present in one site and absent from another should redden the check, naming the command and the site missing it",
+  function (this: JollyWorld) {
+    const sites = this.notes.commandSites as CommandSite[];
+    const surface = ["login", "logout"];
+    const planted: CommandSite[] = [
+      { name: "the planted complete site", file: "src/planted.ts", commands: ["login", "logout"] },
+      { name: "the planted incomplete site", file: "src/planted.ts", commands: ["login"] },
+    ];
+    const violations = commandSurfaceViolations(surface, planted);
+    const missing = violations.find(
+      (violation) =>
+        violation.command === "logout" && violation.site === "the planted incomplete site",
+    );
+    assert.ok(missing, "a command absent from one site was not reported");
+    assert.ok(
+      missing.message.includes("logout") &&
+        missing.message.includes("the planted incomplete site"),
+      `the report must name the command and the site missing it: ${missing.message}`,
+    );
+    assert.equal(
+      violations.filter((violation) => violation.site === "the planted complete site").length,
+      0,
+      "a site whose set equals the surface must not be reported",
+    );
+    assert.ok(sites.length === 4, `expected the four command sites; got ${sites.length}`);
   },
 );

@@ -14,8 +14,8 @@ export interface NormalizedSaleorUrl {
 }
 
 /**
- * @planks("Then the envelope `data` should report the normalized endpoint `https:\/\/my-shop.saleor.cloud\/graphql\/`")
- * @planks("Then the clarifying question Jolly returns should match the catalog's entry")
+ * @planks("the envelope `data` should report the normalized endpoint `https:\/\/my-shop.saleor.cloud\/graphql\/`")
+ * @planks("the clarifying question Jolly returns should match the catalog's entry")
  */
 export function normalizeSaleorUrl(input: string): NormalizedSaleorUrl {
   const clarification = cliMessage("saleorUrl.clarification");

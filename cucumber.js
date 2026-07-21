@@ -24,6 +24,7 @@ process.env.HARNESS_RUN_ID ??= `run-${Date.now().toString(36)}-${Math.random()
 // message streams the tier commands in RIGGING.md write.
 import { armPressureRecording, deriveWorkerCount } from "./features/support/pressure.ts";
 import { armRunEndRecording } from "./features/support/spend-ledger.ts";
+import { armProcessReclaimRecording } from "./features/support/process-reclaim.ts";
 const logicWorkers = deriveWorkerCount("coverage/weather/logic.ndjson", 2);
 const sandboxWorkers = deriveWorkerCount("coverage/weather/sandbox.ndjson", 2);
 
@@ -49,6 +50,13 @@ armPressureRecording({
 // pressure recorder: a command that stopped loading this config stops marking,
 // which the run-scope conformance check reddens on.
 armRunEndRecording();
+
+// Process reclamation (feature verification-economy, "A run reclaims the
+// processes it spawned"): a tier-record run records the descendants still alive
+// at its coordinating process's exit into its own message stream, so a detached
+// child that outlived the run is legible rather than invisibly green. Same
+// config-load ride as the recorders above.
+armProcessReclaimRecording();
 
 const common = {
   import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],

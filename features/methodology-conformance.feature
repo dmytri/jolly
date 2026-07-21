@@ -23,7 +23,7 @@ Feature: Methodology conformance
   Scenario: Every plank sits in a docblock on the declaration it describes
     Given the implementation directories "src/" and "bin/"
     When the plank-form check reads every "@planks" token in them
-    Then each should sit in a docblock attached to a declaration and carry a "Given", "When", or "Then" step
+    Then each should sit in a docblock attached to a declaration and carry a quoted step text
     And a "@planks" token attached to a type alias rather than the seam beneath it should redden the check
     And a "@planks" token in a line comment or inside a function body should redden the check
 

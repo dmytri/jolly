@@ -34,6 +34,7 @@ import {
   type TokenMatch,
 } from "../support/methodology-conformance.ts";
 import {
+  carriesLeadingKeyword,
   collectPlanks,
   collectProvisionalPlanks,
   collectStepUsagePatterns,
@@ -197,8 +198,8 @@ When(
 );
 
 Then(
-  "each should sit in a docblock attached to a declaration and carry a {string}, {string}, or {string} step",
-  function (this: JollyWorld, _given: string, _when: string, _then: string) {
+  "each should sit in a docblock attached to a declaration and carry a quoted step text",
+  function (this: JollyWorld) {
     const violations = this.notes.plankFormViolations as PlankViolation[];
     assert.equal(
       violations.length,
@@ -345,6 +346,72 @@ Then(
         .map((plank) => `  - ${plank.file}:${plank.line} "${plank.step}"`)
         .join("\n")}`,
     );
+  },
+);
+
+Then(
+  "the match should compare the plank's whole text, stripping no leading Gherkin keyword from either side",
+  function (this: JollyWorld) {
+    // Take a real current pattern and prepend a keyword. The pattern side is
+    // unchanged, so anything that still matches can only have stripped the
+    // keyword from the plank side.
+    const patterns = this.notes.usagePatterns as string[];
+    const pattern = patterns[0];
+    assert.ok(pattern, "step-usage reported no step-definition pattern to compare against");
+    const planted: InjectedSource = {
+      file: "src/.planted-keyword-prefixed-plank.ts",
+      text: [
+        `/** @planks("Given ${pattern.replace(/"/g, '\\"')}") */`,
+        "export function keywordPrefixedSeam(): boolean {",
+        "  return true;",
+        "}",
+      ].join("\n"),
+    };
+    const planks = collectPlanks(this.notes.implDirs as string[], [planted]);
+    const unpatterned = findUnpatternedPlanks(planks, patterns);
+    assert.ok(
+      unpatterned.some((plank) => plank.file === planted.file),
+      `a plank carrying a leading keyword before the current pattern "${pattern}" ` +
+        "matched it, so the join stripped the keyword instead of comparing whole texts",
+    );
+  },
+);
+
+Then(
+  "a plank carrying a leading {string}, {string}, or {string} should redden the check, naming the plank and its seam",
+  function (this: JollyWorld, given: string, when: string, then: string) {
+    const patterns = this.notes.usagePatterns as string[];
+    const pattern = patterns[0];
+    assert.ok(pattern, "step-usage reported no step-definition pattern to compare against");
+    for (const keyword of [given, when, then]) {
+      const planted: InjectedSource = {
+        file: `src/.planted-${keyword.toLowerCase()}-plank.ts`,
+        text: [
+          `/** @planks("${keyword} ${pattern.replace(/"/g, '\\"')}") */`,
+          `export function ${keyword.toLowerCase()}PrefixedSeam(): boolean {`,
+          "  return true;",
+          "}",
+        ].join("\n"),
+      };
+      const planks = collectPlanks(this.notes.implDirs as string[], [planted]);
+      const reported = findUnpatternedPlanks(planks, patterns).find(
+        (plank) => plank.file === planted.file,
+      );
+      assert.ok(
+        reported,
+        `a plank carrying a leading "${keyword}" was not reported`,
+      );
+      assert.ok(
+        carriesLeadingKeyword(reported.step),
+        `the reported plank must carry the leading keyword: "${reported.step}"`,
+      );
+      assert.ok(
+        reported.step.startsWith(`${keyword} `) &&
+          reported.file === planted.file &&
+          reported.line > 0,
+        `the report must name the plank and its seam: ${JSON.stringify(reported)}`,
+      );
+    }
   },
 );
 

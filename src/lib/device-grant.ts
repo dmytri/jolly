@@ -5,6 +5,7 @@
 // token endpoint while the human authorizes in a browser. Every request targets
 // the first-party host auth.saleor.io (feature 020 allowlist).
 import { isFirstPartyHost } from "./hosts.ts";
+import { cliMessage } from "./messages.ts";
 
 const DEFAULT_REALM_BASE = "https://auth.saleor.io/realms/saleor-cloud";
 
@@ -27,9 +28,9 @@ export const DEVICE_CLIENT_ID = "jolly";
 const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
 
 /**
- * @planks("When ^the agent runs `jolly (?!(?:start|doctor|upgrade) --json`)(login|init|start|doctor|upgrade|skills|create store) (--json|--quiet|--yes)`$")
- * @planks("When the user runs `jolly login`")
- * @planks("When the agent runs `jolly doctor saleor --json`")
+ * @planks("^the agent runs `jolly (?!(?:start|doctor|upgrade) --json`)(login|init|start|doctor|upgrade|skills|create store) (--json|--quiet|--yes)`$")
+ * @planks("the user runs `jolly login`")
+ * @planks("the agent runs `jolly doctor saleor --json`")
  */
 export class DeviceGrantError extends Error {
   readonly code: string;
@@ -41,7 +42,7 @@ export class DeviceGrantError extends Error {
 }
 
 /** Refuse — before any fetch — to contact a non-first-party host.
- * @planks("Then ^they should be exactly cloud\.saleor\.io, auth\.saleor\.io, the customer's `\*\.saleor\.cloud` domains, and github\.com, plus any `JOLLY_SALEOR_CLOUD_API_URL` or `JOLLY_SALEOR_AUTH_URL` override$")
+ * @planks("^they should be exactly cloud\.saleor\.io, auth\.saleor\.io, the customer's `\*\.saleor\.cloud` domains, and github\.com, plus any `JOLLY_SALEOR_CLOUD_API_URL` or `JOLLY_SALEOR_AUTH_URL` override$")
  */
 function assertFirstParty(url: string): void {
   let host: string;
@@ -49,13 +50,15 @@ function assertFirstParty(url: string): void {
     host = new URL(url).hostname;
   } catch {
     throw new DeviceGrantError(
-      `Refusing to send a request to an unparseable URL: ${url}`,
+      cliMessage("request.error.unparseableUrl", { url }),
       "NON_FIRST_PARTY_HOST",
     );
   }
   if (!isFirstPartyHost(host)) {
     throw new DeviceGrantError(
-      `Refusing to send a request to non-first-party host ${host}.`,
+      cliMessage("createStore.error.nonFirstPartyHost.message", {
+        pastedHost: host,
+      }),
       "NON_FIRST_PARTY_HOST",
     );
   }
@@ -74,9 +77,9 @@ export interface DeviceAuthorization {
 
 /**
  * Start the grant: request a device code with client_id=jolly.
- * @planks("When ^the agent runs `jolly (?!(?:start|doctor|upgrade) --json`)(login|init|start|doctor|upgrade|skills|create store) (--json|--quiet|--yes)`$")
- * @planks("When the user runs `jolly login`")
- * @planks("When the agent runs `jolly start --json` in a non-interactive shell")
+ * @planks("^the agent runs `jolly (?!(?:start|doctor|upgrade) --json`)(login|init|start|doctor|upgrade|skills|create store) (--json|--quiet|--yes)`$")
+ * @planks("the user runs `jolly login`")
+ * @planks("the agent runs `jolly start --json` in a non-interactive shell")
  */
 export async function requestDeviceCode(): Promise<DeviceAuthorization> {
   const url = deviceAuthUrl();
@@ -92,7 +95,10 @@ export async function requestDeviceCode(): Promise<DeviceAuthorization> {
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
     throw new DeviceGrantError(
-      `The Saleor auth host rejected the device-code request (HTTP ${response.status}). ${detail}`,
+      cliMessage("deviceGrant.error.deviceCodeRejected", {
+        status: response.status,
+        detail,
+      }),
       "DEVICE_CODE_REQUEST_FAILED",
     );
   }
@@ -125,7 +131,7 @@ const REFRESH_GRANT_TYPE = "refresh_token";
  * long run refreshes the short-lived access token"). Returns the new access
  * token and the (possibly rotated) refresh token. Targets the first-party host
  * auth.saleor.io (feature 020 allowlist).
- * @planks("When the agent runs `jolly doctor saleor --json`")
+ * @planks("the agent runs `jolly doctor saleor --json`")
  */
 export async function refreshAccessToken(
   refreshToken: string,
@@ -148,7 +154,7 @@ export async function refreshAccessToken(
   if (!response.ok || typeof body["access_token"] !== "string") {
     const error = String(body["error"] ?? `HTTP ${response.status}`);
     throw new DeviceGrantError(
-      `The refresh grant did not return a fresh access token: ${error}.`,
+      cliMessage("deviceGrant.error.noFreshAccessToken", { detail: error }),
       error || "REFRESH_GRANT_FAILED",
     );
   }
@@ -164,7 +170,7 @@ export async function refreshAccessToken(
  * the payload without verifying the signature — enough to decide a proactive
  * refresh. A token that cannot be parsed is treated as expired so the caller
  * refreshes rather than sending a stale credential.
- * @planks("When the agent runs `jolly doctor saleor --json`")
+ * @planks("the agent runs `jolly doctor saleor --json`")
  */
 export function isJwtExpired(token: string, skewSeconds = 30): boolean {
   const parts = token.split(".");
@@ -188,8 +194,8 @@ const sleep = (ms: number): Promise<void> =>
  * `interval`, backs off on `slow_down`, and keeps waiting on
  * `authorization_pending` until the device code expires. Returns the access and
  * refresh tokens once the grant completes.
- * @planks("When ^the agent runs `jolly (?!(?:start|doctor|upgrade) --json`)(login|init|start|doctor|upgrade|skills|create store) (--json|--quiet|--yes)`$")
- * @planks("When the user runs `jolly login`")
+ * @planks("^the agent runs `jolly (?!(?:start|doctor|upgrade) --json`)(login|init|start|doctor|upgrade|skills|create store) (--json|--quiet|--yes)`$")
+ * @planks("the user runs `jolly login`")
  */
 export async function pollForDeviceTokens(
   auth: DeviceAuthorization,
@@ -226,12 +232,18 @@ export async function pollForDeviceTokens(
       continue;
     }
     throw new DeviceGrantError(
-      `The device authorization grant did not complete: ${error || `HTTP ${response.status}`}.`,
+      cliMessage("deviceGrant.error.grantIncomplete", {
+        detail:
+          error ||
+          cliMessage("deviceGrant.error.grantIncomplete.httpDetail", {
+            status: response.status,
+          }),
+      }),
       error || "DEVICE_GRANT_FAILED",
     );
   }
   throw new DeviceGrantError(
-    "The device code expired before it was authorized.",
+    cliMessage("deviceGrant.error.deviceCodeExpired"),
     "DEVICE_CODE_EXPIRED",
   );
 }

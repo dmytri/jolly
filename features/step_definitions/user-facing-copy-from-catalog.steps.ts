@@ -18,12 +18,15 @@ import type { JollyWorld } from "../support/world.ts";
 import { normalizeSaleorUrl } from "../../src/lib/saleor-url.ts";
 import {
   findInlineProseLiterals,
+  findThrowSiteProse,
   joinCliMessageKeys,
   type CatalogJoin,
   type InjectedSource,
   type ProseLiteral,
+  type ThrowSiteProse,
 } from "../support/copy-catalog-conformance.ts";
 import { cliMessage } from "../../src/lib/messages.ts";
+import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 
 const CLI_MESSAGES_PATH = join(REPO_ROOT, "assets", "messages", "cli.json");
 const CLARIFICATION_KEY = "saleorUrl.clarification";
@@ -350,6 +353,172 @@ Then(
     assert.ok(
       !output.includes(forbidden),
       `the rendered output carries the text "${forbidden}": ${JSON.stringify(output)}`,
+    );
+  },
+);
+
+// ─── Every thrown error's prose resolves to a catalog entry ─────────────────
+
+When(
+  "every error message authored at a throw site in {string} is joined against the catalog entries",
+  function (this: JollyWorld, _sourceDir: string) {
+    this.notes.throwSiteProse = findThrowSiteProse();
+  },
+);
+
+Then(
+  "every authored sentence should resolve to a catalog entry",
+  function (this: JollyWorld) {
+    const authored = this.notes.throwSiteProse as ThrowSiteProse[];
+    assert.equal(
+      authored.length,
+      0,
+      `sentences authored at a throw site instead of resolving through the catalog:\n${authored
+        .map((site) => `  - ${site.file}:${site.line} ${JSON.stringify(site.text)}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "a sentence authored inline at a throw site should redden the check, naming its file and line",
+  function () {
+    const planted: InjectedSource = {
+      file: "src/.planted-throw-site-prose.ts",
+      text: [
+        "export function plantedThrowSite(host: string): never {",
+        "  throw new Error(`Refusing to reach the planted host ${host}.`);",
+        "}",
+      ].join("\n"),
+    };
+    const reported = findThrowSiteProse([planted]).find(
+      (site) => site.file === planted.file,
+    );
+    assert.ok(reported, "a sentence authored inline at a throw site was not reported");
+    assert.ok(
+      reported.line > 0,
+      `the report must name the line: ${JSON.stringify(reported)}`,
+    );
+    assert.ok(
+      reported.text.includes("Refusing to reach the planted host"),
+      `the report must carry the authored sentence: ${reported.text}`,
+    );
+  },
+);
+
+Then(
+  "a sentence assembled by concatenation at a throw site should redden the check, since a sentence split across operands is still authored copy",
+  function () {
+    const planted: InjectedSource = {
+      file: "src/.planted-concatenated-throw-site-prose.ts",
+      text: [
+        "export function plantedConcatenatedThrowSite(host: string): never {",
+        '  throw new Error("Refusing to reach the planted host " + host + " on this run.");',
+        "}",
+      ].join("\n"),
+    };
+    const reported = findThrowSiteProse([planted]).find(
+      (site) => site.file === planted.file,
+    );
+    assert.ok(
+      reported,
+      "a sentence assembled by concatenation at a throw site was not reported",
+    );
+    assert.ok(
+      reported.text.includes("Refusing to reach the planted host") &&
+        reported.text.includes("on this run"),
+      `the report must carry the wording from both operands: ${reported.text}`,
+    );
+  },
+);
+
+Then(
+  "the catalog resolver's own missing-key refusal should be exempt, since no entry can render the failure to find an entry",
+  function (this: JollyWorld) {
+    const authored = this.notes.throwSiteProse as ThrowSiteProse[];
+    assert.equal(
+      authored.filter((site) => site.file === "src/lib/messages.ts").length,
+      0,
+      "the catalog resolver's own missing-key refusal must be exempt: a key " +
+        "lookup for that sentence is the same lookup that just failed",
+    );
+    // The exemption is the resolver seam, not the file: a sentence authored at
+    // any other throw in the same file is still reported.
+    const planted: InjectedSource = {
+      file: "src/lib/messages.ts",
+      text: [
+        readFileSync(join(REPO_ROOT, "src/lib/messages.ts"), "utf8"),
+        "export function plantedResolverNeighbour(): never {",
+        '  throw new Error("The planted neighbour refuses to run.");',
+        "}",
+      ].join("\n"),
+    };
+    const reported = findThrowSiteProse([planted]).find((site) =>
+      site.text.includes("The planted neighbour refuses to run"),
+    );
+    assert.ok(
+      reported,
+      "the exemption must cover the resolver seam alone; a sentence authored " +
+        "at another throw in the same file was not reported",
+    );
+  },
+);
+
+// ─── The non-first-party host refusal reads its sentence from the catalog ───
+
+When(
+  "Jolly is asked to reach the host {string}",
+  function (this: JollyWorld, host: string) {
+    // The refusal is pre-flight, before any request is sent, so the customer-
+    // supplied host is never contacted; the token is a stand-in that keeps the
+    // run from stopping at the auth gate instead of the host guard.
+    this.notes.refusedHost = host;
+    this.runCli(
+      ["create", "store", "--url", `https://${host}/graphql/`, "--json"],
+      { env: absentCredentialsEnv({ JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN }) },
+    );
+  },
+);
+
+Then(
+  "the run should fail with the stable code `NON_FIRST_PARTY_HOST`",
+  function (this: JollyWorld) {
+    const envelope = this.lastRun?.envelope;
+    assert.ok(envelope, "the run produced no envelope");
+    assert.equal(envelope.status, "error", "the run did not fail");
+    const codes = (envelope.errors ?? []).map((entry) => entry["code"]);
+    assert.ok(
+      codes.includes("NON_FIRST_PARTY_HOST"),
+      `errors[] must carry the stable code NON_FIRST_PARTY_HOST; got ${JSON.stringify(codes)}`,
+    );
+  },
+);
+
+Then(
+  "the error message should be the catalog's non-first-party host sentence",
+  function (this: JollyWorld) {
+    const refusal = (this.lastRun?.envelope?.errors ?? []).find(
+      (entry) => entry["code"] === "NON_FIRST_PARTY_HOST",
+    );
+    assert.ok(refusal, "expected a NON_FIRST_PARTY_HOST error entry");
+    const message = String(refusal["message"]);
+    this.notes.refusalMessage = message;
+    const host = String(this.notes.refusedHost);
+    assert.equal(
+      message,
+      cliMessage("createStore.error.nonFirstPartyHost.message", { pastedHost: host }),
+      "the refusal message must be the catalog's sentence, rendered with the refused host",
+    );
+  },
+);
+
+Then(
+  "the message should name {string} as the refused host",
+  function (this: JollyWorld, host: string) {
+    const message = String(this.notes.refusalMessage);
+    assert.ok(
+      message.includes(host),
+      `the refusal must name the refused host "${host}"; got: ${message}`,
     );
   },
 );

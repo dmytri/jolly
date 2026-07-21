@@ -23,8 +23,8 @@ function catalogPath(): string {
 }
 
 /**
- * @planks('When ^the CLI renders the `([\w.]+)` message with organization "([^"]+)"$')
- * @planks('When ^the CLI renders the `([\w.]+)` message$')
+ * @planks('^the CLI renders the `([\w.]+)` message with organization "([^"]+)"$')
+ * @planks('^the CLI renders the `([\w.]+)` message$')
  */
 export function cliMessage(
   key: string,

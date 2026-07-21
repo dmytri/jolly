@@ -293,6 +293,30 @@ export function fullRegressionBudgetMs(riggingFile = "RIGGING.md"): number {
   return budgets.plainSeconds * 1000;
 }
 
+/** A `## Tiers` tier line naming its tag: `- default: @logic. ...`. Budget,
+ * weather, lanes, and runrecord lines carry no leading `@`, so they are skipped. */
+const TIER_TAG_LINE = /^- [a-z-]+: (@[a-z]+)\b/;
+
+/**
+ * The tier tags `RIGGING.md` configures under `## Tiers`, in order and without
+ * duplicates: the universe of tiers a per-tier check reasons over.
+ */
+export function readConfiguredTierTags(riggingFile: string): string[] {
+  const text = readFileSync(join(REPO_ROOT, riggingFile), "utf8");
+  const tags: string[] = [];
+  let inTiers = false;
+  for (const line of text.split("\n")) {
+    if (line.startsWith("## ")) {
+      inTiers = line.trim() === "## Tiers";
+      continue;
+    }
+    if (!inTiers) continue;
+    const match = TIER_TAG_LINE.exec(line.trim());
+    if (match && !tags.includes(match[1]!)) tags.push(match[1]!);
+  }
+  return tags;
+}
+
 /** The kebab-case tier name a record path carries: `sandboxSerial` → `sandbox-serial`. */
 export function tierNameFromRecordPath(recordPath: string): string {
   const base = recordPath.split("/").pop() ?? recordPath;
@@ -403,9 +427,32 @@ export interface BudgetViolation {
   message: string;
 }
 
+/**
+ * A lane of the judged window that has recorded no completion, so it carries no
+ * wall clock to compare against a budget. Omitting it would read exactly like
+ * fitting the budget, so it is carried as its own verdict instead.
+ */
+export interface IncompleteLane {
+  tier: string;
+  recordPath: string;
+  message: string;
+}
+
+/** A lane the wake carries: a completed run's clock, or one still incomplete. */
+export type TierLane = TierClock | { tier: string; recordPath: string; incomplete: true };
+
+const isIncomplete = (
+  lane: TierLane,
+): lane is { tier: string; recordPath: string; incomplete: true } =>
+  (lane as { incomplete?: true }).incomplete === true;
+
 export interface BudgetJudgment {
   /** Tiers whose recorded wall clock exceeds their budget. */
   perTier: BudgetViolation[];
+  /** Lanes that recorded no completion, so no budget verdict exists for them. */
+  incomplete: IncompleteLane[];
+  /** Tiers whose completed wall clock fits their budget, named. */
+  fitting: string[];
   /**
    * The laned window, in seconds: the lanes' shared launch to the last lane's
    * exit. Undefined when no record carries a completed run window.
@@ -418,12 +465,29 @@ export interface BudgetJudgment {
 /** Compare each tier's recorded wall clock, and their sum, to the budgets. */
 export function checkTierBudgets(
   budgets: TierBudgets,
-  clocks: TierClock[],
+  clocks: TierLane[],
 ): BudgetJudgment {
   const perTier: BudgetViolation[] = [];
-  for (const clock of clocks) {
+  const incomplete: IncompleteLane[] = [];
+  const fitting: string[] = [];
+  for (const lane of clocks) {
+    if (isIncomplete(lane)) {
+      // A lane still running has written no completion, so it has no clock to
+      // judge. Reporting it as fitting would make omission indistinguishable
+      // from passing, which is the whole failure this verdict exists to name.
+      incomplete.push({
+        tier: lane.tier,
+        recordPath: lane.recordPath,
+        message:
+          `the ${lane.tier} lane recorded no completion in ${lane.recordPath}, ` +
+          `so its wall clock cannot be judged against its budget`,
+      });
+      continue;
+    }
+    const clock = lane;
     const budgetSeconds = budgets.perTierSeconds[clock.tier];
-    if (budgetSeconds !== undefined && clock.seconds > budgetSeconds) {
+    if (budgetSeconds === undefined) continue;
+    if (clock.seconds > budgetSeconds) {
       perTier.push({
         tier: clock.tier,
         budgetSeconds,
@@ -432,6 +496,8 @@ export function checkTierBudgets(
           `the ${clock.tier} tier recorded ${clock.seconds.toFixed(1)}s against ` +
           `its ${budgetSeconds}s budget`,
       });
+    } else {
+      fitting.push(clock.tier);
     }
   }
   // The lanes run concurrently, so the regression's real cost is the window
@@ -467,7 +533,7 @@ export function checkTierBudgets(
       }
     }
   }
-  const judgment: BudgetJudgment = { perTier };
+  const judgment: BudgetJudgment = { perTier, incomplete, fitting };
   if (earliestStartMs === undefined || latestEndMs === undefined) return judgment;
   const windowSeconds = (latestEndMs - earliestStartMs) / 1000;
   judgment.windowSeconds = windowSeconds;

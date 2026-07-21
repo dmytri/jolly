@@ -30,9 +30,10 @@ import {
   type SharedDeployment,
 } from "../support/deployed-storefront.ts";
 import { materializePreparedStorefront } from "../support/storefront-fixture.ts";
-import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
+import { REPO_ROOT, type CliResult, type JollyWorld } from "../support/world.ts";
 import { writeEnvValues } from "../../src/lib/env-file.ts";
 import { cliMessage } from "../../src/lib/messages.ts";
+import { interactiveCloseSummary } from "../../src/lib/start-close.ts";
 
 const CLI_ENTRY = join(REPO_ROOT, "src", "index.ts");
 
@@ -137,23 +138,29 @@ When("the agent runs `jolly frobnicate --json`", function (this: JollyWorld) {
   this.runCli(["frobnicate", "--json"], { env: absentCredentialsEnv() });
 });
 
-// Every supported command, exactly as the scenario names them. "auth status" is
-// the two-word subcommand; the rest are single tokens.
+// Every supported command, exactly as the scenario names them. The surface is
+// top-level commands, so `auth` is the entry and `status` is its subcommand.
 const SUPPORTED_COMMANDS = [
+  "help",
   "login",
   "logout",
-  "auth status",
+  "auth",
   "init",
   "start",
+  "create",
+  "storefront",
+  "recipe",
+  "stock",
+  "stripe",
+  "deploy",
   "doctor",
   "upgrade",
   "skills",
-  "create",
   "completion",
 ];
 
 Then(
-  "the error should name the supported commands login, logout, auth status, init, start, doctor, upgrade, skills, create, and completion",
+  "the error should name the supported commands help, login, logout, auth, init, start, create, storefront, recipe, stock, stripe, deploy, doctor, upgrade, skills, and completion",
   function (this: JollyWorld) {
     const text = (
       this.envelope.summary +
@@ -221,7 +228,7 @@ Then(
 );
 
 Then(
-  "the script should reference the supported commands login, logout, init, start, doctor, upgrade, skills, and create",
+  "the script should reference the supported commands help, login, logout, auth, init, start, create, storefront, recipe, stock, stripe, deploy, doctor, upgrade, skills, and completion",
   function (this: JollyWorld) {
     // The Bombshell (@bomb.sh/tab) completion script names the command surface
     // the way feature 027's Rule mandates: not by embedding a static list, but by
@@ -236,7 +243,7 @@ Then(
     );
     this.runCli(["complete", "--", ""], { env: absentCredentialsEnv() });
     const offered = this.lastRun!.stdout;
-    for (const command of ["login", "logout", "init", "start", "doctor", "upgrade", "skills", "create"]) {
+    for (const command of SUPPORTED_COMMANDS) {
       assert.ok(
         new RegExp(`(^|\\s)${command}(\\s|$)`, "m").test(offered),
         `the completion surface must offer the command "${command}"; got: ${offered}`,
@@ -1820,6 +1827,302 @@ Then(
   },
 );
 
+// ─── The unattended stages run with the terminal in cooked mode (027) ──────
+// The prompts take the terminal into raw mode, which clears ISIG and so disables
+// the driver's signal characters. Once the last prompt is answered the stages are
+// unattended and Ctrl-C is the only control the human has left, so the terminal
+// must be back in cooked mode by then. That is a property of the tty's own
+// termios flags, not of anything the CLI prints, so it is read from the terminal
+// (support/pty.ts `sampleTermiosAt`) while the run is parked at the first
+// unattended stage. The Rule pins the STATE, not the call that establishes it:
+// whether the prompt library restores it or the CLI does is a free choice.
+
+/** The first stage that runs unattended, once the prompts are answered. */
+const FIRST_UNATTENDED_STAGE_KEY = "start.stage.init";
+const FIRST_UNATTENDED_STAGE_MARKER = "setting up skills";
+
+function sampledTermios(world: JollyWorld): {
+  isig: boolean;
+  icanon: boolean;
+  echo: boolean;
+} {
+  const sample = world.notes.termiosAtFirstStage as
+    | { isig: boolean; icanon: boolean; echo: boolean }
+    | undefined;
+  assert.ok(
+    sample,
+    "the terminal's mode was not sampled: the run never reached the first " +
+      "unattended stage, so this scenario proves nothing",
+  );
+  return sample;
+}
+
+When(
+  "the run reaches the first unattended setup stage",
+  { timeout: 170_000 },
+  function (this: JollyWorld) {
+    assert.ok(ptyAvailable(), "the PTY driver must be available");
+    assert.ok(
+      catalogMessage(FIRST_UNATTENDED_STAGE_KEY).includes(
+        FIRST_UNATTENDED_STAGE_MARKER,
+      ),
+      `the marker "${FIRST_UNATTENDED_STAGE_MARKER}" is no longer part of the ` +
+        `"${FIRST_UNATTENDED_STAGE_KEY}" catalog message — update it so the ` +
+        `terminal is still sampled at the first unattended stage`,
+    );
+    const argv = (this.notes.startArgv as string[]) ?? ["start"];
+    const sequence = startPromptSequence({ argv, cwd: this.projectDir });
+    const run = runUnderPty({
+      runtime: process.env.HARNESS_CLI_RUNTIME ?? "node",
+      argv: [CLI_ENTRY, ...argv],
+      cwd: this.projectDir,
+      env: interactiveChildEnv({ JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN }),
+      inputs: acceptEveryPrompt(sequence),
+      waitFor: [...sequence, FIRST_UNATTENDED_STAGE_MARKER],
+      readUntil: [FIRST_UNATTENDED_STAGE_MARKER],
+      sampleTermiosAt: [FIRST_UNATTENDED_STAGE_MARKER],
+      perChunkTimeoutMs: 90_000,
+      timeoutMs: 150_000,
+    });
+    this.previousRun = this.lastRun;
+    this.lastRun = {
+      args: argv,
+      cwd: this.projectDir,
+      exitCode: run.exitCode,
+      stdout: run.output,
+      stderr: "",
+      envelope: findEnvelope(run.output),
+    };
+    this.notes.termiosAtFirstStage = run.termios;
+  },
+);
+
+Then(
+  "the terminal should be in cooked mode, so the driver turns Ctrl-C into a signal",
+  function (this: JollyWorld) {
+    const mode = sampledTermios(this);
+    assert.equal(
+      mode.isig,
+      true,
+      "ISIG is clear on the terminal at the first unattended stage, so the line " +
+        "discipline generates no SIGINT: a Ctrl-C from the human would reach the " +
+        "run as a stray byte, and the stages that follow the prompts would be " +
+        "uninterruptible",
+    );
+  },
+);
+
+Then(
+  "the run should carry no raw-mode terminal state left over from the prompts",
+  function (this: JollyWorld) {
+    const mode = sampledTermios(this);
+    assert.deepEqual(
+      { icanon: mode.icanon, echo: mode.echo },
+      { icanon: true, echo: true },
+      "the prompts put the terminal into raw mode (ICANON and ECHO cleared) and " +
+        "it is still there at the first unattended stage, so the prompts' " +
+        "terminal state outlived the prompts",
+    );
+  },
+);
+
+// ─── The progress region on a narrow terminal (feature 027) ────────────────
+// The terminal is genuinely narrow: the width reaches the child through the
+// PTY's window size (support/pty.ts `cols`), so the CLI reads it from its own
+// tty exactly as it would from a narrow window. Telling the renderer a width
+// through an environment variable would prove only that the harness can set a
+// variable. The screen is then replayed at the SAME width, so a row that wrapped
+// for the human wraps here too.
+
+/** The stage the narrow-terminal scenarios drive the run to. */
+const NARROW_STAGE = "storefront";
+const NARROW_STAGE_KEY = "start.stage.storefront";
+// The leading, unwrapped fragment of the stage's catalog description: a marker
+// spanning a wrap point at 40 columns would never be observed as one substring.
+const NARROW_STAGE_MARKER = "cloning the storefront";
+
+/** Every stage the run plans, as the catalog names them. */
+function allStages(): string[] {
+  return [...PREFLIGHT_STAGES, ...CLOSE_SIDE_EFFECTING_STAGES];
+}
+
+function narrowColumns(world: JollyWorld): number {
+  const cols = world.notes.terminalColumns as number | undefined;
+  assert.ok(cols, "the scenario must name the terminal's width first");
+  return cols;
+}
+
+/** The progress region as the human sees it, replayed at the run's own width. */
+function progressScreen(world: JollyWorld): string[] {
+  return renderTerminal(world.lastRun!.stderr, narrowColumns(world));
+}
+
+/** The screen rows that report a stage's status. */
+function stageRows(world: JollyWorld): string[] {
+  return progressScreen(world)
+    .filter((line) => STAGE_STATUS_MARKER.test(line))
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+Given(
+  "an interactive terminal {int} columns wide",
+  function (this: JollyWorld, columns: number) {
+    this.notes.terminalColumns = columns;
+  },
+);
+
+/**
+ * The narrow-terminal run, built once per worker and shared.
+ *
+ * Both narrow-terminal scenarios drive the SAME run — `jolly start` at the same
+ * width, read to the same stage — and each then asserts its own property of the
+ * screen it left. The run is ambient state neither scenario asserts the
+ * provisioning of, so it is built once and reused (Verification agreement,
+ * "provision ambient state once and share it"). Driving it twice spent ~25s of
+ * the logic tier's budget to produce a second identical screen. Keyed by width
+ * and argv, so a scenario naming different ones still gets its own run, and a
+ * cache miss runs it, so either scenario passes alone.
+ */
+const narrowRuns = new Map<string, CliResult>();
+
+When(
+  "the run reaches the storefront stage",
+  { timeout: 170_000 },
+  function (this: JollyWorld) {
+    assert.ok(ptyAvailable(), "the PTY driver must be available");
+    const argvKey = (this.notes.startArgv as string[]) ?? ["start"];
+    const cacheKey = `${narrowColumns(this)}::${argvKey.join(" ")}`;
+    const cached = narrowRuns.get(cacheKey);
+    if (cached) {
+      this.previousRun = this.lastRun;
+      this.lastRun = cached;
+      return;
+    }
+    assert.ok(
+      catalogMessage(NARROW_STAGE_KEY).includes(NARROW_STAGE_MARKER),
+      `the marker "${NARROW_STAGE_MARKER}" is no longer part of the ` +
+        `"${NARROW_STAGE_KEY}" catalog message — update it so the run is still ` +
+        `read to the "${NARROW_STAGE}" stage`,
+    );
+    const argv = (this.notes.startArgv as string[]) ?? ["start"];
+    const sequence = startPromptSequence({ argv, cwd: this.projectDir });
+    const run = runUnderPty({
+      runtime: process.env.HARNESS_CLI_RUNTIME ?? "node",
+      argv: [CLI_ENTRY, ...argv],
+      cwd: this.projectDir,
+      env: interactiveChildEnv({ JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN }),
+      cols: narrowColumns(this),
+      separateStreams: true,
+      inputs: acceptEveryPrompt(sequence),
+      waitFor: [...sequence, NARROW_STAGE_MARKER],
+      // Read to the stage under assertion and no further; the driver stops the
+      // child there, so the run leaves nothing behind.
+      readUntil: [NARROW_STAGE_MARKER],
+      perChunkTimeoutMs: 90_000,
+      timeoutMs: 150_000,
+    });
+    this.previousRun = this.lastRun;
+    this.lastRun = {
+      args: argv,
+      cwd: this.projectDir,
+      exitCode: run.exitCode,
+      stdout: run.stdout ?? "",
+      stderr: run.stderr ?? "",
+      envelope: findEnvelope(run.stdout ?? run.output),
+    };
+    assert.ok(
+      stripAnsi(this.lastRun.stderr).includes(NARROW_STAGE_MARKER),
+      `the run must have reached the "${NARROW_STAGE}" stage; the progress ` +
+        `region was:\n${progressScreen(this).join("\n")}`,
+    );
+    narrowRuns.set(cacheKey, this.lastRun);
+  },
+);
+
+Then(
+  "each setup stage should appear exactly once in the progress region",
+  function (this: JollyWorld) {
+    const rows = stageRows(this);
+    const screen = progressScreen(this).join("\n");
+    const repeated: string[] = [];
+    for (const stage of allStages()) {
+      const naming = rows.filter((row) =>
+        new RegExp(`\\b${stage}\\b`, "i").test(row),
+      );
+      if (naming.length > 1) repeated.push(`${stage} (${naming.length} rows)`);
+    }
+    assert.deepEqual(
+      repeated,
+      [],
+      `a live progress region redraws each stage in place, so every stage holds ` +
+        `one row however narrow the terminal; these stages hold more than one: ` +
+        `${repeated.join(", ")}. Screen was:\n${screen}`,
+    );
+  },
+);
+
+Then("no stage row should appear twice on screen", function (this: JollyWorld) {
+  const rows = stageRows(this);
+  const seen = new Map<string, number>();
+  for (const row of rows) seen.set(row, (seen.get(row) ?? 0) + 1);
+  const duplicated = [...seen.entries()].filter(([, count]) => count > 1);
+  assert.deepEqual(
+    duplicated.map(([row, count]) => `${JSON.stringify(row)} x${count}`),
+    [],
+    `the progress region redraws in place, so no stage row is left standing ` +
+      `twice on the screen the human is looking at. Screen was:\n` +
+      progressScreen(this).join("\n"),
+  );
+});
+
+Then(
+  "the storefront stage's row should occupy exactly one terminal line",
+  function (this: JollyWorld) {
+    const columns = narrowColumns(this);
+    const screen = progressScreen(this);
+    const index = screen.findIndex(
+      (line) =>
+        new RegExp(`\\b${NARROW_STAGE}\\b`, "i").test(line) &&
+        STAGE_STATUS_MARKER.test(line),
+    );
+    assert.ok(
+      index >= 0,
+      `the progress region must show a "${NARROW_STAGE}" stage row; screen was:\n${screen.join("\n")}`,
+    );
+    assert.ok(
+      screen[index]!.length <= columns,
+      `the "${NARROW_STAGE}" row must fit the ${columns}-column terminal; it ran ` +
+        `to ${screen[index]!.length} columns: ${JSON.stringify(screen[index])}`,
+    );
+    // A description too wide is shortened, not wrapped, so the row's own text
+    // does not continue onto the line below it.
+    const description = catalogMessage(NARROW_STAGE_KEY);
+    const tail = description.slice(Math.max(0, description.length - 12));
+    const next = screen[index + 1] ?? "";
+    assert.ok(
+      !next.includes(tail),
+      `the "${NARROW_STAGE}" description must be shortened rather than wrapped, ` +
+        `but its tail ${JSON.stringify(tail)} continues on the next line: ` +
+        `${JSON.stringify(next)}`,
+    );
+  },
+);
+
+Then("the row should still name the storefront stage", function (this: JollyWorld) {
+  const screen = progressScreen(this);
+  const row = screen.find(
+    (line) =>
+      new RegExp(`\\b${NARROW_STAGE}\\b`, "i").test(line) &&
+      STAGE_STATUS_MARKER.test(line),
+  );
+  assert.ok(
+    row,
+    `shortening must not cost the stage its name: no row on the ` +
+      `${narrowColumns(this)}-column screen names "${NARROW_STAGE}". Screen was:\n${screen.join("\n")}`,
+  );
+});
+
 // ─── Ctrl-C during the unattended stages (feature 027) ─────────────────────
 // The human interrupts a running setup stage. Both scenarios are on-screen
 // claims, so the run is driven on ONE merged PTY — the single terminal a human
@@ -1928,6 +2231,140 @@ When(
       !reachedLastStage,
       `Ctrl-C during the "${INTERRUPTED_STAGE}" stage must stop the run, but it carried on ` +
         `to its last stage and closed normally, so the interrupt had no effect. Screen was:\n${screen.join("\n")}`,
+    );
+  },
+);
+
+// Every setup stage the run plans, in the order the catalog declares them. The
+// prompts precede the unattended stages, so `init` and `auth` are the preflight
+// pair the interrupt scenario's Rule distinguishes from the side-effecting
+// stages that follow — `store` is the stage the interrupt lands on.
+const PREFLIGHT_STAGES = ["init", "auth"];
+const CLOSE_SIDE_EFFECTING_STAGES = [
+  "store",
+  "storefront",
+  "recipe",
+  "stock",
+  "deploy",
+  "stripe",
+];
+
+/**
+ * The stage names a close sentence reports as unfinished, read out of the
+ * catalog's own `start.close.notFinished` template so a copy edit moves this
+ * reader with it rather than silently matching nothing.
+ */
+function closeNamedStages(text: string): string[] | undefined {
+  const head = catalogMessage("start.close.notFinished").split("{reasons}")[0]!;
+  const pattern = head
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    .replace("\\{stages\\}", "(.+?)")
+    .replace("\\{stageWord\\}", "\\S+");
+  const match = new RegExp(pattern).exec(text);
+  if (!match) return undefined;
+  return match[1]!
+    .split(/,\s*/)
+    .map((stage) => stage.trim())
+    .filter(Boolean);
+}
+
+/** The stage names the interrupted run reported as unfinished. */
+function interruptNamedStages(world: JollyWorld): string[] {
+  const named = closeNamedStages(stripAnsi(world.lastRun!.stdout));
+  assert.ok(
+    named,
+    "the interrupted close must render the catalog's " +
+      `"start.close.notFinished" sentence naming the stages that did not ` +
+      `complete; screen was:\n${renderTerminal(world.lastRun!.stdout).join("\n")}`,
+  );
+  return named;
+}
+
+Then(
+  "the interactive output should name the side-effecting stages that did not finish",
+  function (this: JollyWorld) {
+    const named = interruptNamedStages(this);
+    assert.ok(
+      named.length > 0,
+      "the interrupted close must name at least one unfinished stage: the run " +
+        `was stopped during "${INTERRUPTED_STAGE}", which never completed`,
+    );
+    const notSideEffecting = named.filter(
+      (stage) => !CLOSE_SIDE_EFFECTING_STAGES.includes(stage),
+    );
+    assert.deepEqual(
+      notSideEffecting,
+      [],
+      `the interrupted close must name only side-effecting stages; it named ` +
+        `${JSON.stringify(named)}, and ${JSON.stringify(notSideEffecting)} ` +
+        `${notSideEffecting.length === 1 ? "is" : "are"} not side-effecting`,
+    );
+    assert.ok(
+      named.includes(INTERRUPTED_STAGE),
+      `the stage the interrupt landed on ("${INTERRUPTED_STAGE}") did not ` +
+        `complete, so the close must name it; it named ${JSON.stringify(named)}`,
+    );
+  },
+);
+
+Then(
+  "it should not name a preflight stage among the unfinished stages",
+  function (this: JollyWorld) {
+    const named = interruptNamedStages(this);
+    const preflight = named.filter((stage) => PREFLIGHT_STAGES.includes(stage));
+    assert.deepEqual(
+      preflight,
+      [],
+      `a preflight stage is not unfinished setup, so the interrupted close must ` +
+        `not name one; it named ${JSON.stringify(preflight)} among ` +
+        `${JSON.stringify(named)}`,
+    );
+  },
+);
+
+Then(
+  "the stages it names should be the same set the normal close would name for that run",
+  function (this: JollyWorld) {
+    const named = interruptNamedStages(this);
+    // The normal close is not re-derived here, it is RUN: the same
+    // `interactiveCloseSummary` seam the uninterrupted run closes through is
+    // given this run's own observed stage outcomes, and its sentence is read
+    // back through the same catalog reader. A reimplementation of the filter
+    // would agree with itself and prove nothing.
+    const { lines } = interruptedScreen(this);
+    const stages = [...PREFLIGHT_STAGES, ...CLOSE_SIDE_EFFECTING_STAGES].map((stage) => {
+      const row = lines.find(
+        (line) =>
+          new RegExp(`\\b${stage}\\b`, "i").test(line) &&
+          STAGE_STATUS_MARKER.test(line),
+      );
+      return {
+        stage,
+        status: row && /[✓✔]/.test(row) ? "completed" : "pending",
+      };
+    });
+    const closed = interactiveCloseSummary(
+      {
+        summary: "",
+        checks: [],
+        nextSteps: [],
+        data: { stages },
+      } as unknown as Parameters<typeof interactiveCloseSummary>[0],
+      { stripeStep: "" },
+    );
+    const normal = closeNamedStages(closed.summary);
+    assert.ok(
+      normal,
+      "the normal close must render the same catalog sentence for a run with " +
+        `unfinished stages; it rendered: ${JSON.stringify(closed.summary)}`,
+    );
+    assert.deepEqual(
+      [...named].sort(),
+      [...normal].sort(),
+      `both closes answer one question, so the interrupted close must name the ` +
+        `same stage set the normal close names for this run: interrupted named ` +
+        `${JSON.stringify([...named].sort())}, normal named ` +
+        `${JSON.stringify([...normal].sort())}`,
     );
   },
 );

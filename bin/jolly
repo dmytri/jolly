@@ -20,8 +20,8 @@
 // syntax or module error.
 
 /**
- * @planks("When the published `jolly` launcher runs")
- * @planks("Then it should exit with an error naming the minimum Node version")
+ * @planks("the published `jolly` launcher runs")
+ * @planks("it should exit with an error naming the minimum Node version")
  */
 var MIN_NODE_MAJOR = 20;
 var MIN_NODE_LABEL = "20.12.0";

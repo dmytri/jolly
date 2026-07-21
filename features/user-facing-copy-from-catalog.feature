@@ -78,3 +78,5 @@ Feature: User-facing copy is sourced from the message catalog
     When every error message authored at a throw site in "src/" is joined against the catalog entries
     Then every authored sentence should resolve to a catalog entry
     And a sentence authored inline at a throw site should redden the check, naming its file and line
+    And a sentence assembled by concatenation at a throw site should redden the check, since a sentence split across operands is still authored copy
+    And the catalog resolver's own missing-key refusal should be exempt, since no entry can render the failure to find an entry

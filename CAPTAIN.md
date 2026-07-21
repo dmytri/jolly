@@ -4,7 +4,63 @@
 
 Binding behaviour lives in `.feature` specs and referenced `assets/**`. History lives in git. These notes carry only what the next cycle needs.
 
-## NEXT SESSION — read this block first, then the STATE block below.
+## VOYAGE IN FLIGHT (2026-07-20): 5-WATCH VERIFICATION VOYAGE. Blockers resolved, back to QM.
+
+QM worked watches 1-3, returned on three blockers. All three now resolved in durable artifacts.
+Tree carries role-advanced work in flight (QM verification + Crew's production): NOT dirt, no
+Boatswain pre-clean owed. Watches 4 and 5 are untouched — QM has not started them.
+
+SECOND QM RETURNED CONTAMINATED, ZERO TARGETS RUN. It ran `git diff features/ CAPTAIN.md` in
+its opening pass and read these notes. DISPATCH QM AS A SUBAGENT (`shipshape:qm`), never as
+`/shipshape:qm` in the main loop — that is the whole cause, see the upstream block. Nothing
+durable was owed to fix it and nothing was written for it; the watchbill is intact.
+
+QM proposed a RIGGING.md diff-command value as the fix. DECLINED, wrong layer: a rigging value
+is advice a role may or may not compose, and this hazard already has a construction-level home
+in the custody hook. `.ignore` says so itself. No refit owed to Shipwright.
+
+BLOCKER 1, PLANK KEYWORD CONTRADICTION — RESOLVED IN SPEC. Two @invariant scenarios in
+methodology-conformance were mutually exclusive: the plank-FORM scenario required every plank to
+carry a Given/When/Then, the plank-PATTERN-JOIN scenario reddens on exactly that. The Planking
+agreement settles it — the binding keyword is the step definition's own construct and is never
+carried into the plank — so the FORM scenario carried the superseded rule. Its step now reads
+"carry a quoted step text". QM must drop the keyword assertion at plank-conformance.ts:205 to
+match; that checker is verification support, QM's own. Crew already stripped the keyword from all
+457 planks across 9 files.
+
+BLOCKER 2, THROW-SITE PROSE — 27 CATALOG ENTRIES AUTHORED. cliMessage catalog now carries
+cloudApi.error.*, deviceGrant.error.*, and one shared request.error.unparseableUrl (the same
+sentence throws in both cloud-api.ts and device-grant.ts, so one key, not two copies). The
+non-first-party sentence REUSES the existing createStore.error.nonFirstPartyHost.message from
+both call sites — naming smell (createStore. prefix serving device-grant) accepted over a
+duplicate copy that would drift. Crew was blocked by the custody hook on assets/; it can now land.
+
+Two rulings became binding steps on the throw-site scenario, so they are not just prose:
+1. The catalog resolver's own missing-key refusal (messages.ts:38) is EXEMPT — no entry can render
+   the failure to find an entry. Recursion or a direct read would both be worse than the exemption.
+2. Concatenated sentences must redden. cloud-api.ts:387 authors real copy as a string
+   concatenation and escapes the current template-only checker. Entry authored
+   (cloudApi.error.environmentLimitReached); QM owes the checker the concatenation case.
+
+BLOCKER 3, COMMAND SURFACE — dk RULED. Surface is 16 top-level commands: help, login, logout,
+auth, init, start, create, storefront, recipe, stock, stripe, deploy, doctor, upgrade, skills,
+completion. The five STAGE commands are on it because feature 029's Background already calls each
+stage "first-class" — the spec answered this, not me. Token is `auth`, not `auth status`:
+the surface names commands, status is a subcommand like create's.
+OFF the surface: the no-arg default (help without naming it) and `complete` (shell calls it at
+completion time, a human never types it). Recorded in command-surface-consistency's Rule prose.
+
+CHECKER GAP FOR QM, observed not assumed: `completion` is dispatched at src/index.ts:6227, OUTSIDE
+the top-level switch. A dispatch-site reader that only walks switch cases under-reports the surface
+by one. src/index.ts:5988 is the help site; src/lib/completion.ts COMMANDS is the completion site.
+
+WATCHBILL now 16 scenarios over 5 watches. Watch3 grew to 6: the two 027 scenarios that
+hand-enumerate the surface were edited to the new 16 and must reach QM. Deliberately KEPT
+"Help and the unknown-command error name the same command set" — it looked superseded by the new
+structural scenario, but it is not: the structural one reads SOURCE, that one runs the real CLI
+and proves the shipped binary behaves. Different proofs. Do not delete it.
+
+## PRIOR SESSION — shipped 0.13.0.
 
 SHIPPED: @dk/jolly@0.13.0 published and VERIFIED (registry reports 0.13.0; `npx
 @dk/jolly@0.13.0 --help` runs the published bundle from a clean dir, exit 0). Pushed to
@@ -70,12 +126,78 @@ anywhere in src/. clackIsCancel covers cancel AT A PROMPT (6 call sites, src/ind
 sanctioned Bombshell carve-out, src/index.ts ~5030+), and Ctrl-C there is a raw default kill
 mid cursor-up/erase-reprint. src/ contains zero references to terminal width.
 
+TERMINAL WIDTH: SUPERSEDED RULING. dk first ruled DROP (2026-07-20), then REVERSED to KEEP
+(2026-07-21) on learning QM/Crew had already BUILT and GREENED both scenarios (watch4 4/4)
+before the drop could apply. Deleting would revert working, verified code. Keep condition dk
+set: "if it doesn't increase full regression latency too much." Judged satisfied: the width
+work adds ~90s to the FULL REGRESSION WINDOW (budget 2250, harbour 1437, ~800s headroom). The
+breach it contributes to is the FAST-TIER budget (375), a different ceiling; see the budget
+blocker below. Both width scenarios and their pty-driver.py/pty.ts/terminal-screen.ts support
+STAND. Do not re-order without a new ruling.
+
+"SUPER BASIC TUI" RAISED AND CLOSED 2026-07-20: dk asked, then ruled KEEP IN-PLACE, CHANGE
+NOTHING. The multi-stage in-place redraw stands as specified in 020:67, 027:188, 027:48-55, and
+001:41. Do not reopen without a new ruling. What was on the table and declined: appending one
+line per stage resolution (no cursor math, keeps per-stage visibility), and full-basic single
+clack spinner (would have retired the sanctioned Bombshell carve-out at 027:279 and deleted the
+hand-rolled renderer). The carve-out therefore STANDS and remains justified. Note the standing
+tension for future harbours: the hand-rolled display is the sole reason width sensitivity
+exists at all, and it is the sole live exception to the no-redundant-implementation invariant.
+
+SECOND QM PASS DISPATCHED 2026-07-21. First QM returned 12/16 green (watches 1,2,4 done;
+watch3 4/6; watch5 untouched) on three blockers, ALL NOW RESOLVED in durable artifacts:
+- BLOCKER 1 (spec contradiction): dk RULED command surface = SIXTEEN, stages first-class
+  (2026-07-21, confirming the prior-session ruling against a contradicting 006). Fixed
+  features/006:44 to name the 16 and assert `status` is an `auth` subcommand, dropping the
+  old "exactly ten / forbid deploy,recipe,storefront" line. 020 and 018 `jolly auth status`
+  invocations stay valid (status is auth's subcommand). Production still emits 10 (shipped
+  dist verified) → Crew makes help/remediation/completion/COMMAND_SURFACE anchor emit 16.
+- BLOCKER 2 (catalog): 4 keys authored in cli.json. Two whole sentences
+  (cloudApi.error.domainLabelTaken :388, cloudApi.error.creationConfirmationTimeout :527) and
+  two inline fallback literals the envelope-prose check flagged (cloudApi.status.unknown :557,
+  deviceGrant.error.grantIncomplete.httpDetail :236). Crew wires each site to render via
+  cliMessage. Found by RUNNING both blocked targets, not guessing (check-precedence).
+- BLOCKER 3 (logic budget 392 vs 375): dk RULED ACCEPT THE BREACH (2026-07-21). Do NOT
+  re-ratchet, do NOT edit budget-logic. This is the explicit dk exception the standing rule
+  requires for riding a conformance-family red: the budget-fit @logic @invariant scenario
+  reds on the logic tier and custody proceeds over it THIS voyage. Keep budget-fit OFF the
+  watchbill so QM does not dispatch on it; it is a knowingly-ridden red, not a target. Next
+  harbour re-ratchets from a laned window per RIGGING. NO FULL REGRESSION this voyage: it is
+  a harbour action; the @sandbox process-leak target runs via its own sandbox command.
+
+WATCHBILL REBUILT for the second pass: 3 watches, 10 targets — surface reconciliation (5),
+catalog wiring (3), ledger + process-leak (2). watch5's ledger is sandbox-only by
+construction at 3 sites in features/support/spend-ledger.ts; generalizing to the logic tier
+is QM support and obligates a sweep. Process-leak is @sandbox (~35-min run), dk INCLUDED it.
+
+SECOND QM PASS RETURNED WATCHBILL SPENT 2026-07-21. 9 of 10 targets genuinely green (@logic),
+confirmed in a 239-scenario logic sweep (238 passed; the 1 red is the accepted budget breach).
+Crew added a COMMAND_SURFACE declaration in src/index.ts and wired the four surface sites to
+16; wired the four catalog throw-sites through cliMessage in cloud-api.ts + device-grant.ts.
+QM generalized the spend ledger to the logic tier and built a process-reclaim recorder
+(features/support/process-reclaim.ts), both planted-red proven. typecheck clean. Greens in
+runrecord at deck-state hash f4927dfb310d6be1c137a6c94b77a805a67c958a.
+
+THE ONE SOFT TARGET, dk RULED 2026-07-21: process-leak (`A tier run leaves none of its
+spawned processes running`) is @sandbox. QM proved the CHECK MECHANISM (planted-red) but
+verified against the LOGIC tier's process record, where the real leak it guards
+(spawnVercelSignIn, a detached unref'd child reached only from the sandbox deploy stage)
+cannot appear. So the mechanism is green, the real behaviour is UNVERIFIED. dk ruled: take
+custody now on the 9 green + the armed check; HARBOUR's full regression runs the sandbox tier
+and is its real proof. If the spawnVercelSignIn leak is real it reds at harbour and is fixed
+there (it was already the harbour-deferred detached-child finding). NOT deferral-as-avoidance:
+harbour is the authorized home for the sandbox sweep and is the immediate next step, so this
+routes the ~35-min run to its one occurrence instead of double-spending it.
+
+006 stale Rule prose (QM's spec-quality blocker 2) FIXED: the "Thin command surface" Rule now
+names the 16 with `status` under `auth`, and frames storefront/recipe/stock/stripe/deploy as
+first-class stage commands per feature 029. gplint clean.
+
+CUSTODY DISPATCHED: Boatswain told the budget-fit @invariant red is dk's accepted exception
+(ride it, do not block custody), since Boatswain reverifying the touched verification-economy
+support may select the logic sweep and hit it. Strike the spent watchbill with the commit.
+
 STILL UNORDERED, dk's to rule:
-- TERMINAL WIDTH. src/ has no width handling; the redraw counts rows to move the cursor back
-  and the comment at src/index.ts:5084 ALREADY fears exactly this drift ("shift the cursor-up
-  reference down a line and duplicate the first row"). A wrapped row IS that drift. Writable
-  as @logic at 40 columns, but pty-driver.py:235 hardcodes 24x80 — making it settable is
-  verification support, QM's to build, ordered by the scenario. dk deferred this, not declined.
 - CTRL-C MID-STORE-CREATION leaking a real cloud resource. The genuinely harmful case: the
   human interrupts, a Saleor store exists, nobody is told. Needs real creation = @sandbox =
   the 900s budget, which is why it was NOT ordered under the keep-tests-fast ruling.
@@ -185,6 +307,31 @@ the Captain-side `tail --pid` fallback waiter saved every one. ALWAYS arm it:
 
 ## Upstream (~/shipshape, dk: edit directly, no ceremony)
 
+- A ROLE RUN IN THE MAIN LOOP HAS NO CUSTODY AT ALL (2026-07-20, observed tonight, not
+  reasoned). `hooks/scripts/bash-custody.sh` reads role identity from the payload's
+  `agent_type` and exits 0 when it is absent: "Payloads with no shipshape agent_type are the
+  human-facing main loop or a foreign agent; custody does not apply there." A `/shipshape:qm`
+  slash invocation carries no `agent_type`. So a role entered by slash command runs with the
+  notes guard off, write custody off, commit custody off — every guard, not just the one that
+  bit. The hook is CORRECT; it never ran. Line 66 denies the exact command tonight's QM
+  executed, and Crew was blocked by this same hook on `assets/` earlier in this voyage, which
+  is what proves the subagent path is enforced and the slash path is not.
+  The asymmetry is invisible at the point of use: both routes announce the same role and read
+  the same skill, and nothing in either tells the operator that one of them is unguarded.
+  Candidate shapes, dk's call: have the role skill refuse to proceed when it cannot observe
+  its own enforcement, or carry role identity by a vector the slash path also sets. A rule
+  enforced on one invocation route and not the other is worse than one enforced on neither,
+  because the guarded route teaches the operator to trust the guard.
+- GIT DIFF IS AN UNGUARDED RESULT-SET READER OF THE NOTES (2026-07-20). Distinct from the
+  above and it bites a CORRECTLY dispatched QM too. The hook's result-set custody enumerates
+  search tools only — grep, rg, ag, ack — and denies the vectors that escape `.ignore`:
+  recursive grep, ignore-override flags, shell globs. `git diff` is in none of those lists,
+  reads no ignore artifact, and on a dirty tree dumps CAPTAIN.md's content while NAMING
+  nothing, so the mention-based notecheck cannot see it either. Same hazard class as recursive
+  grep, absent from the guard. `git show`, `git log -p`, and `git stash show -p` are the same
+  vector. Roles genuinely need the role-advanced diff — QM step 6 and Boatswain's staging both
+  reason over it — so the fix is a guarded form, not a denial: deny the unscoped read and name
+  the pathspec-excluded form, the way the search branch names `rg -t md`.
 - Resume-on-signal machinery remains the TOP work item — the harness must resume a role on
   its detached run's exit, not discipline. THE GAP, stated whole, because the fix has to be
   designed against it: a verification run can outlast the runtime's foreground command

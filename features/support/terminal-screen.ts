@@ -13,7 +13,7 @@
 // The grid grows downward instead of scrolling, so the whole session's final
 // rendering is available and "below" stays decidable past 24 rows.
 
-const COLUMNS = 80;
+const DEFAULT_COLUMNS = 80;
 
 interface Cursor {
   row: number;
@@ -24,13 +24,18 @@ function ensureRow(rows: string[][], index: number): void {
   while (rows.length <= index) rows.push([]);
 }
 
-function put(rows: string[][], cursor: Cursor, char: string): void {
+function put(
+  rows: string[][],
+  cursor: Cursor,
+  char: string,
+  columns: number,
+): void {
   ensureRow(rows, cursor.row);
   const row = rows[cursor.row]!;
   while (row.length < cursor.col) row.push(" ");
   row[cursor.col] = char;
   cursor.col += 1;
-  if (cursor.col >= COLUMNS) {
+  if (cursor.col >= columns) {
     cursor.col = 0;
     cursor.row += 1;
   }
@@ -41,7 +46,10 @@ function put(rows: string[][], cursor: Cursor, char: string): void {
  * bottom, trailing blank lines removed. Index in the returned array IS vertical
  * position, so "below" is a comparison of indices.
  */
-export function renderTerminal(stream: string): string[] {
+export function renderTerminal(
+  stream: string,
+  columns: number = DEFAULT_COLUMNS,
+): string[] {
   const rows: string[][] = [];
   const cursor: Cursor = { row: 0, col: 0 };
 
@@ -145,7 +153,7 @@ export function renderTerminal(stream: string): string[] {
     }
     if (char === "\x07") continue;
 
-    put(rows, cursor, char);
+    put(rows, cursor, char, columns);
   }
 
   const lines = rows.map((row) => row.join("").replace(/\s+$/, ""));

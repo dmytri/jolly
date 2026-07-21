@@ -24,6 +24,12 @@ export interface PtyRunResult {
    */
   stillRunning: boolean;
   /**
+   * The tty's line-discipline flags at the sampled moment, when
+   * `sampleTermiosAt` asked for them. `isig` true means the driver turns Ctrl-C
+   * into SIGINT; `icanon` and `echo` are the flags a raw-mode prompt clears.
+   */
+  termios?: { isig: boolean; icanon: boolean; echo: boolean };
+  /**
    * Only in `separateStreams` mode: the child's stdout and stderr captured on
    * distinct PTYs, so the feature 020 progress contract (progress on stderr, a
    * clean stdout) is observable. `output` is their concatenation.
@@ -83,6 +89,21 @@ export interface PtyRunOptions {
    * progress contract needs them distinguished.
    */
   separateStreams?: boolean;
+  /**
+   * The terminal's width in columns, applied to every PTY the run allocates.
+   * Defaults to 80, the width every scenario that names no width was written
+   * at. A scenario naming a narrow terminal sets this so the CLI genuinely sees
+   * one, rather than being told about it through an environment variable the
+   * renderer may ignore.
+   */
+  cols?: number;
+  /**
+   * Sample the terminal's line-discipline flags once every marker here has
+   * appeared, and report them as `termios`. Whether Ctrl-C reaches the child as
+   * a signal is a property of the tty, not of anything the child prints, so it
+   * is observable only from the terminal while the run is parked at the marker.
+   */
+  sampleTermiosAt?: string[];
 }
 
 /** True when python3 with the `pty` module is available to allocate a PTY. */
@@ -111,6 +132,7 @@ export function runUnderPty(options: PtyRunOptions): PtyRunResult {
       err?: string;
       code?: number;
       stillRunning?: boolean;
+      termios?: { isig: boolean; icanon: boolean; echo: boolean } | null;
       timedOut?: boolean;
     };
     try {
@@ -141,6 +163,7 @@ export function runUnderPty(options: PtyRunOptions): PtyRunResult {
       exitCode: parsed.code ?? -1,
       output,
       stillRunning: parsed.stillRunning ?? false,
+      termios: parsed.termios ?? undefined,
       ...(stderr === undefined ? {} : { stdout: decoded, stderr }),
     };
   } finally {
