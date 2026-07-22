@@ -75,8 +75,9 @@ let ensuring: Promise<string> | undefined;
 
 /** A prepared template is complete only when both the clone (package.json) and
  * the install (node_modules) landed — a partial dir left by a crashed prior build
- * must be rebuilt, never adopted. */
-function templateIsComplete(dir: string): boolean {
+ * must be rebuilt, never adopted. The staged consumer copy shares this shape, so
+ * the same predicate judges a staged storefront's completeness. */
+export function templateIsComplete(dir: string): boolean {
   return existsSync(join(dir, "package.json")) && existsSync(join(dir, "node_modules"));
 }
 
@@ -230,6 +231,31 @@ function buildTemplateFresh(dir: string): string {
  */
 export async function materializePreparedStorefront(destStorefrontDir: string): Promise<void> {
   const template = await ensurePreparedStorefront();
+  await stageVerifiedPreparedStorefront(destStorefrontDir, template, () => {
+    // The memoized template was evicted mid-run — a foreign reclaim deleted the
+    // shared dir this run's memo still points at. Drop the resolved memo so a
+    // fresh coordination rebuilds the template, rather than copying from a gone
+    // source into the consumer's storefront.
+    ensuring = undefined;
+    return ensurePreparedStorefront();
+  });
+}
+
+/**
+ * Copy the prepared-storefront template into a consumer's destination, from a
+ * template VERIFIED complete first. A template memoized earlier in the run can be
+ * evicted mid-run by a foreign reclaim, and copying from that unverified source
+ * stages a partial or empty storefront. So verify the memoized template is still
+ * complete and, when it is not, re-materialize it through `build` before copying.
+ * The build seam is a parameter so the eviction-resilience control flow can be
+ * exercised without a second real clone+install.
+ */
+export async function stageVerifiedPreparedStorefront(
+  destStorefrontDir: string,
+  memoizedTemplate: string,
+  build: () => Promise<string>,
+): Promise<void> {
+  const template = templateIsComplete(memoizedTemplate) ? memoizedTemplate : await build();
   rmSync(destStorefrontDir, { recursive: true, force: true });
   cpSync(template, destStorefrontDir, { recursive: true });
 }

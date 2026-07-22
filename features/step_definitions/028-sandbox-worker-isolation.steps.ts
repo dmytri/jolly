@@ -13,6 +13,10 @@
 // same name twice and fail here.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
+import {
+  declaredTierWorkers,
+  workerCountFinding,
+} from "../support/pressure.ts";
 import { workerNamespace } from "../support/sandbox.ts";
 import type { JollyWorld } from "../support/world.ts";
 
@@ -100,14 +104,20 @@ When(
 );
 
 Then(
-  "the parallel @sandbox profile runs its workers in parallel and excludes the @pipeline and @creates-env scenarios",
+  "the parallel @sandbox profile should run at the worker count the rigging declares for that tier, and should exclude the @pipeline and @creates-env scenarios",
   function (this: JollyWorld) {
     const sandboxProfiles = this.notes.sandboxProfiles as [
       string,
       CucumberProfile,
     ][];
+    // The parallel profile is the one that does NOT select the licensed serial
+    // spends. Selecting it by a worker count of 2 or more would read a declared
+    // ceiling of one worker as the absence of a parallel profile.
     const parallel = sandboxProfiles.filter(
-      ([, p]) => typeof p.parallel === "number" && p.parallel >= 2,
+      ([, p]) =>
+        typeof p.parallel === "number" &&
+        typeof p.tags === "string" &&
+        p.tags.includes("not @pipeline"),
     );
     assert.equal(
       parallel.length,
@@ -123,11 +133,17 @@ Then(
           `exclude the licensed ${licensed} scenarios`,
       );
     }
+    // The count the profile carries is the plain value the rigging declares,
+    // read as configured. A number pinned in the runner configuration instead,
+    // or one an auto-tuner derived, reads here as a mismatch.
+    const declared = declaredTierWorkers("sandbox");
+    const finding = workerCountFinding(name, profile.parallel!, declared);
+    assert.equal(finding, undefined, finding?.message ?? "");
   },
 );
 
 Then(
-  "a separate profile runs the @pipeline and @creates-env scenarios serially",
+  "a separate profile should run the @pipeline and @creates-env scenarios serially",
   function (this: JollyWorld) {
     const sandboxProfiles = this.notes.sandboxProfiles as [
       string,
@@ -154,6 +170,37 @@ Then(
       workers <= 1,
       `licensed @sandbox profile "${name}" runs ${workers} workers in parallel; ` +
         `the @pipeline and @creates-env scenarios must run serially`,
+    );
+  },
+);
+
+Then(
+  "a profile whose worker count differs from the count the rigging declares should redden the check, naming the profile and both counts",
+  function () {
+    // Planted red, judged by the same code path the real assertion uses: a
+    // profile carrying a count the rigging did not declare.
+    const declared = declaredTierWorkers("sandbox");
+    const finding = workerCountFinding("sandbox", declared + 3, declared);
+    assert.ok(
+      finding,
+      "a profile whose worker count differs from the declared count must redden the check",
+    );
+    assert.equal(finding.profile, "sandbox", "the finding must name the profile");
+    assert.equal(
+      finding.profileWorkers,
+      declared + 3,
+      "the finding must name the count the profile carries",
+    );
+    assert.equal(
+      finding.declaredWorkers,
+      declared,
+      "the finding must name the count the rigging declares",
+    );
+    // Plant removed: a profile carrying the declared count leaves the check green.
+    assert.equal(
+      workerCountFinding("sandbox", declared, declared),
+      undefined,
+      "a profile carrying the declared count must leave the check green",
     );
   },
 );

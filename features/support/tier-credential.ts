@@ -14,8 +14,17 @@
 // for real — no key material reaches the child — never substituted with a dummy
 // value (AGENTS.md, "Real services always").
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
+import { EVAL_SPEND_LEDGER_PATH } from "./eval-spend-ledger.ts";
 import { REPO_ROOT } from "./repo-root.ts";
 import { runId } from "./sandbox.ts";
 import { readTierCommands, type TierCommand } from "./wake.ts";
@@ -102,11 +111,29 @@ export function runTierWithoutCredential(options: {
  */
 export function preserveWakeRecord(command: TierCommand): () => void {
   if (command.recordPath === undefined) return () => {};
-  const path = join(REPO_ROOT, command.recordPath);
-  const before = existsSync(path) ? readFileSync(path) : undefined;
+  // The tier's own message stream, and the spend ledger the same nested run
+  // appends to. Both are real wake artifacts every wake reader joins on, so a
+  // credential-less rehearsal must leave neither changed.
+  const paths = [join(REPO_ROOT, command.recordPath), EVAL_SPEND_LEDGER_PATH];
+  const saved = paths.map((path) => {
+    if (!existsSync(path)) return { path, content: undefined };
+    const stats = statSync(path);
+    return { path, content: readFileSync(path), atime: stats.atime, mtime: stats.mtime };
+  });
   return () => {
-    if (before === undefined) rmSync(path, { force: true });
-    else writeFileSync(path, before);
+    for (const entry of saved) {
+      if (entry.content === undefined) {
+        rmSync(entry.path, { force: true });
+        continue;
+      }
+      writeFileSync(entry.path, entry.content);
+      // Restore the timestamps too. A leg's run window ENDS at its record's
+      // mtime, so restoring content alone leaves the old run's wall clock
+      // hanging off a new mtime: a phantom window over a run that never
+      // happened, in which the real run's run-end no longer sits. That reads
+      // downstream as a broken or disarmed recorder.
+      utimesSync(entry.path, entry.atime!, entry.mtime!);
+    }
   };
 }
 

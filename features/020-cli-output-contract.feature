@@ -114,6 +114,13 @@ Feature: Jolly CLI output contract
     And an error envelope whose `nextSteps` are supplied for only some error codes, and empty for the rest, should redden the check
 
   @logic @property
+  Scenario: No envelope reports overall success while carrying a failed check
+    Given Jolly's envelope construction code
+    When the envelopes it can emit are enumerated with the checks they carry
+    Then no envelope carrying a check whose status is `fail` should report an overall `success` status
+    And an envelope constructed with a success status over a failed check should redden the check, naming the check id and the construction site
+
+  @logic @property
   Scenario Outline: Output never exposes secrets
     When the agent runs `<command>` in default, `--json`, and `--quiet` modes
     Then no human text, nor any field of the envelope when one is emitted, should contain the secret value

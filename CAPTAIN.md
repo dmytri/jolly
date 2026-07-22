@@ -4,478 +4,264 @@
 
 Binding behaviour lives in `.feature` specs and referenced `assets/**`. History lives in git. These notes carry only what the next cycle needs.
 
-## VOYAGE IN FLIGHT (2026-07-20): 5-WATCH VERIFICATION VOYAGE. Blockers resolved, back to QM.
+---
 
-QM worked watches 1-3, returned on three blockers. All three now resolved in durable artifacts.
-Tree carries role-advanced work in flight (QM verification + Crew's production): NOT dirt, no
-Boatswain pre-clean owed. Watches 4 and 5 are untouched — QM has not started them.
+# DECK STATE
 
-SECOND QM RETURNED CONTAMINATED, ZERO TARGETS RUN. It ran `git diff features/ CAPTAIN.md` in
-its opening pass and read these notes. DISPATCH QM AS A SUBAGENT (`shipshape:qm`), never as
-`/shipshape:qm` in the main loop — that is the whole cause, see the upstream block. Nothing
-durable was owed to fix it and nothing was written for it; the watchbill is intact.
+**HEAD = `2e73338`. NOTHING IS COMMITTED.** Everything on the deck is role-advanced work in
+flight from the current voyage. It is not lost work; it is a voyage's output awaiting custody.
 
-QM proposed a RIGGING.md diff-command value as the fix. DECLINED, wrong layer: a rigging value
-is advice a role may or may not compose, and this hazard already has a construction-level home
-in the custody hook. `.ignore` says so itself. No refit owed to Shipwright.
+- `src/index.ts` — Crew's ONE production change: `runStartCore` derived the start envelope's
+  `status` from `bootstrapFailed`/`allStagesDone` only, never from the `initEnv`/`doctor` checks it
+  folds in, so `jolly start` could report `success` while carrying a `fail` check. Now derives from
+  the carried checks. A real honesty defect against Jolly's core promise. Still in the
+  inlined-ternary shape an old checker forced; correct and green, readability item for harbour.
+- `features/support/eval-spend-ledger.ts`, `features/support/envelope-honesty-conformance.ts` (new)
+- `features/support/eval.ts` — capture guard: an uncovered expensive command now FAILS LOUDLY
+  naming what is missing, instead of falling through to the real network.
+- `features/support/storefront-fixture.ts` — the self-heal fixture fix, verified @sandbox 56/56.
+- `features/support/captures/eval-captures.json` — re-recorded, legitimate verification output from
+  the licensed run. Do NOT revert it (see LESSONS 6).
+- `assets/homepage/setup.md` — dk-ruled --dry-run removal. ALREADY DEPLOYED; live == source,
+  verified by curl. Do not deploy again to "sync".
+- Spec edits per the simplification below; `RIGGING.md`; `watchbill.json` (untracked).
 
-BLOCKER 1, PLANK KEYWORD CONTRADICTION — RESOLVED IN SPEC. Two @invariant scenarios in
-methodology-conformance were mutually exclusive: the plank-FORM scenario required every plank to
-carry a Given/When/Then, the plank-PATTERN-JOIN scenario reddens on exactly that. The Planking
-agreement settles it — the binding keyword is the step definition's own construct and is never
-carried into the plank — so the FORM scenario carried the superseded rule. Its step now reads
-"carry a quoted step text". QM must drop the keyword assertion at plank-conformance.ts:205 to
-match; that checker is verification support, QM's own. Crew already stripped the keyword from all
-457 planks across 9 files.
+**Stale unstaged residue from a STOPPED QM**: `features/support/pressure.ts` and
+`features/step_definitions/028-sandbox-worker-isolation.steps.ts` were modified and never reported
+green. The simplification deletes the pressure derivation outright, so `pressure.ts` is now QM's to
+remove. Do not let either ride a custody commit unexamined.
 
-BLOCKER 2, THROW-SITE PROSE — 27 CATALOG ENTRIES AUTHORED. cliMessage catalog now carries
-cloudApi.error.*, deviceGrant.error.*, and one shared request.error.unparseableUrl (the same
-sentence throws in both cloud-api.ts and device-grant.ts, so one key, not two copies). The
-non-first-party sentence REUSES the existing createStore.error.nonFirstPartyHost.message from
-both call sites — naming smell (createStore. prefix serving device-grant) accepted over a
-duplicate copy that would drift. Crew was blocked by the custody hook on assets/; it can now land.
+---
 
-Two rulings became binding steps on the throw-site scenario, so they are not just prose:
-1. The catalog resolver's own missing-key refusal (messages.ts:38) is EXEMPT — no entry can render
-   the failure to find an entry. Recursion or a direct read would both be worse than the exemption.
-2. Concatenated sentences must redden. cloud-api.ts:387 authors real copy as a string
-   concatenation and escapes the current template-only checker. Entry authored
-   (cloudApi.error.environmentLimitReached); QM owes the checker the concatenation case.
+# THE SIMPLIFICATION VOYAGE — dk ruled 2026-07-22, EXECUTED
 
-BLOCKER 3, COMMAND SURFACE — dk RULED. Surface is 16 top-level commands: help, login, logout,
-auth, init, start, create, storefront, recipe, stock, stripe, deploy, doctor, upgrade, skills,
-completion. The five STAGE commands are on it because feature 029's Background already calls each
-stage "first-class" — the spec answered this, not me. Token is `auth`, not `auth status`:
-the surface names commands, status is a subcommand like create's.
-OFF the surface: the no-arg default (help without naming it) and `complete` (shell calls it at
-completion time, a human never types it). Recorded in command-surface-consistency's Rule prose.
+dk ruled the full 54-scenario non-product review and took **all 16 removals**. Method corpus
+**54/275 (20%) -> 38/259 (14.7%)**. gplint clean.
 
-CHECKER GAP FOR QM, observed not assumed: `completion` is dispatched at src/index.ts:6227, OUTSIDE
-the top-level switch. A dispatch-site reader that only walks switch cases under-reports the surface
-by one. src/index.ts:5988 is the help site; src/lib/completion.ts COMMANDS is the completion site.
+Cut (9): VE worker-backoff, VE incomplete-window, VE wake-read-run-scoped, VE dependency-join
+(duplicate of methodology-conformance's), VE sandbox-no-ledger (sub-case), command-surface
+help-vs-unknown (subsumed), the two methodology custody-hook outlines (they test SHIPSHAPE'S hook,
+not Jolly), 026 reclamation-by-domain-label @logic (duplicate lane of the @sandbox one).
 
-WATCHBILL now 16 scenarios over 5 watches. Watch3 grew to 6: the two 027 scenarios that
-hand-enumerate the surface were edited to the new 16 and must reach QM. Deliberately KEPT
-"Help and the unknown-command error name the same command set" — it looked superseded by the new
-structural scenario, but it is not: the structural one reads SOURCE, that one runs the real CLI
-and proves the shipped binary behaves. Different proofs. Do not delete it.
+Merged (7 -> 3): single-creation-seam x5 + module-boundary x1 -> 2 facets (import-boundary,
+call-pattern) since one ts-morph checker discharged all six; VE wall-clock + VE pressure -> one
+wake-record scenario; VE waits + VE reads -> one observed-signal scenario; VE sandbox-ledger-join +
+VE any-tier-ledger -> one join.
 
-## PRIOR SESSION — shipped 0.13.0.
+**The declared-ceiling blocker is resolved by deletion.** With no pressure-derived backoff there is
+no ceiling-vs-backoff distinction to spec: `workers-sandbox: 1` and `workers-logic: 2` are now plain
+declared worker counts read as configured. `cucumber.js` must read them, not derive them.
 
-SHIPPED: @dk/jolly@0.13.0 published and VERIFIED (registry reports 0.13.0; `npx
-@dk/jolly@0.13.0 --help` runs the published bundle from a clean dir, exit 0). Pushed to
-origin/main as e0b007c, tagged v0.13.0. Deck clean, watchbill struck.
+**`lanes` is retired** (adopted 2026-07-19, retired 2026-07-22) and replaced by `order`: one tier at
+a time, cheapest first. The window `budget: 2250` went with it; per-tier budgets stay as plain
+numbers. Concurrent lanes OOM-killed a sweep and took two sibling lanes down on this 7.9 GB box.
+Sequential sums to ~41 min against a laned 37.5 min that was never once achieved. Feature 030
+run-scoped isolation STAYS — load-bearing for @logic's 2 workers and for foreign agents on this box.
 
-0.13.0 is a REAL user-visible change, unlike 0.12.5: Ctrl-C during the unattended stages now
-exits honestly instead of killing mid-redraw. Minor bump earned on that basis.
+Kept and worth naming: VE out-of-memory-kill-reds (the OOM was real, twice, dmesg-confirmed) and VE
+eval-captures-still-serve (the guard that ends the eval saga below).
 
-TAG HYGIENE: v0.12.5 was NEVER TAGGED — last session's release skipped it while every other
-release back to v0.9.x carries a tag. Left alone deliberately (dk's history to rewrite, not
-mine). Also note `git push --follow-tags` does NOT push a lightweight tag; tag with `-a` or
-push the tag explicitly, as this session had to.
+---
 
-NPM IS NOW FITTED. `~/.npmrc` carries a granular token WITH 2FA bypass, so plain `npm
-publish` works with no env vars and no flags, exactly as RIGGING's `ship:` value declares.
-dk was asked to rotate the two tokens pasted in that session; assume they may have.
-An E403 naming "bypass 2fa" means the token lacks that capability, not that auth is
-misconfigured — regenerate with bypass ticked, `npm config set` the one value, done.
+# THE ONE FACT NO MECHANISM CARRIES
 
-## VOYAGE CLOSED (2026-07-20): CTRL-C COVERAGE. Committed 52959f7, ahead 1, NOT pushed.
+**`deepseek/deepseek-v4-flash` is Jolly's FIXED `@eval` baseline model. An eval red is an affordance
+fault, never a model fault.** Never propose a different eval model; never touch `HARNESS_EVAL_MODEL`.
+On any `@eval` red, fix Jolly's affordance (`assets/skills/jolly` or the `/setup` page). If it must
+bind QM, it becomes a `.feature` scenario, never a note.
+AGENT-MODE BREADTH IS DECLINED, not deferred (dk 2026-07-20): ONE baseline model, full stop.
 
-dk chose PRODUCT over harbour, then narrowed to Ctrl-C only. dk also ruled mid-turn: KEEP
-TESTS FAST FOLLOWING POLICY — that ruling is why both new scenarios are @logic, not @sandbox.
+---
 
-TWO NEW @logic SCENARIOS in 027, both green: "Interrupting the unattended stages leaves the
-terminal usable" and "...reports the interrupted stage honestly". 6 files, +528/-32.
+# THE EVAL SAGA — root-caused, now guarded
 
-THE PTY HARNESS HAD NEVER DELIVERED A CTRL-C. Three pre-existing defects in pty-driver.py,
-all surfaced only because we finally asserted something needing a real signal:
-1. The driver spawned the child with NO CONTROLLING TERMINAL, so the slave fd was just an
-   open file and the line discipline had no process group to signal — 0x03 delivered nothing.
-   Fixed with os.setsid() + TIOCSCTTY on both spawn paths. NOTE: start_new_session=True alone
-   does NOT do it; Python calls setsid() without TIOCSCTTY. Carry this fact.
-2. finish() sampled poll() at PTY EOF, which arrives BEFORE the exiting child is reaped, so a
-   CLI that did exit reported as parked. Now waits on the exit EOF announced.
-3. QM's first pass had scenario 1 green on an UNINTERRUPTED run: the CLI ignored SIGINT,
-   marched to its last stage, and a normal close satisfies "cursor restored, line below rows".
-   The When now asserts the run never reached its final `stripe` stage, so a swallowed
-   interrupt cannot read as coverage. Crew disproved QM's own signal-delivery claim with a
-   three-case probe rather than accepting it — the reason all three defects surfaced.
+The eval red was NEVER an affordance problem. **The recorded shared store was DEAD.** Golden captures
+bound to a store returning 404; the capture served Jolly a dead domain; `jolly start` CORRECTLY
+polled it for readiness; the agent's 600s budget drained; the harness reported "the baseline agent
+timed out". **Polling writes no ledger entry**, which is why every cheaper diagnostic missed it.
+Re-recorded via the licensed @pipeline run; eval now green 19/19 in ~43s where it used to time out
+at 10m 6s. Guarded by VE "Every endpoint the eval captures record still serves".
 
-@sandbox WAS SWEPT and is GREEN against the driver change — this question is CLOSED, do not
-re-spend. Serial 3/3 598.65s/900, parallel 51/51 730.12s/900, both exit 0. The driver fix is
-behaviourally real for every PTY spawn (TIOCSCTTY alters signal semantics, finish() alters
-exit reporting), and 027/020/018 sandbox scenarios drive an interactive terminal, so a
-@logic-only green would NOT have covered it. Logic sweep 229/229 308s/375.
+Also fixed en route: the eval capture layer's npx shim intercepted only `@dk/jolly` and `vercel`, so
+`npx skills add` x8 and a real store-mutating `@saleor/configurator` deploy ran LIVE every eval run.
+Feature 025 already specified the configurator deploy as capture-served, so that was an
+implementation defect against existing spec.
 
-THE NOTES' OLD PREMISE WAS REFUTED — do not restore it. The retired claim was "027 carries
-26 @logic scenarios that assert what a render function returns; only 3 reach a real
-sandbox." FALSE: 027's @logic scenarios drive a REAL kernel PTY via runUnderPty
-(features/support/pty-driver.py), so isTTY is genuinely true and real escape sequences are
-read back. "More sandbox coverage" was the WRONG LEVER — sandbox is where the 900s budget
-lives, and the fix for a TUI gap is a logic-lane PTY run, not a cloud resource.
+**Eval diagnostics gap, unfixed:** `HARNESS_EVAL_TRANSCRIPT_DIR` cannot diagnose a timeout, the
+eval's only failure mode. `pi -p` BUFFERS and prints only the final answer, so a timeout kill leaves
+`agent.stdout.txt` EMPTY by construction. To see the turns: snapshot
+`/tmp/jolly-cannon-fodder-run-*/session/*.jsonl` out of the run root DURING the run.
+**Also: the persisted `.env` is UNSCRUBBED except for `HARNESS_OPENROUTER_API_KEY`** — it writes live
+`JOLLY_SALEOR_CLOUD_TOKEN` and `SALEOR_TOKEN` in plaintext. Captain printed it into a session
+transcript on 2026-07-21; dk was told to consider that token disclosed. **Still owed: rotation.**
 
-ALSO ALREADY COVERED, do not re-spend: TTY detection (020:55 "Human output is plain when
-stdout is not a terminal", 007:49) and prompt sequencing (the eight Enter-at-every-prompt
-scenarios, under that same real PTY). Of the five gaps the old note named, only signal
-handling and terminal width were genuinely unspecified.
+---
 
-THE PRODUCTION FACTS BEHIND THIS VOYAGE (observed, not recalled): there is NO SIGINT handler
-anywhere in src/. clackIsCancel covers cancel AT A PROMPT (6 call sites, src/index.ts
-5163-5284), but the unattended stages are Jolly's own hand-rolled stageProgress display (the
-sanctioned Bombshell carve-out, src/index.ts ~5030+), and Ctrl-C there is a raw default kill
-mid cursor-up/erase-reprint. src/ contains zero references to terminal width.
+# HARBOUR ITEM: the 12 PTY scenarios are half the logic tier (dk ruled 2026-07-22)
 
-TERMINAL WIDTH: SUPERSEDED RULING. dk first ruled DROP (2026-07-20), then REVERSED to KEEP
-(2026-07-21) on learning QM/Crew had already BUILT and GREENED both scenarios (watch4 4/4)
-before the drop could apply. Deleting would revert working, verified code. Keep condition dk
-set: "if it doesn't increase full regression latency too much." Judged satisfied: the width
-work adds ~90s to the FULL REGRESSION WINDOW (budget 2250, harbour 1437, ~800s headroom). The
-breach it contributes to is the FAST-TIER budget (375), a different ceiling; see the budget
-blocker below. Both width scenarios and their pty-driver.py/pty.ts/terminal-screen.ts support
-STAND. Do not re-order without a new ruling.
+Measured in the first sequential sweep, so you need not re-derive it. @logic: 220 scenarios,
+median **0.70s**, mean **5.30s** — mean is 7.6x median, the exact shape verification-economy's own
+Rule predicts. Parallelism is already 1.98x at 2 workers, so **no worker change touches this.**
 
-"SUPER BASIC TUI" RAISED AND CLOSED 2026-07-20: dk asked, then ruled KEEP IN-PLACE, CHANGE
-NOTHING. The multi-stage in-place redraw stands as specified in 020:67, 027:188, 027:48-55, and
-001:41. Do not reopen without a new ruling. What was on the table and declined: appending one
-line per stage resolution (no cursor math, keeps per-stage visibility), and full-basic single
-clack spinner (would have retired the sanctioned Bombshell carve-out at 027:279 and deleted the
-hand-rolled renderer). The carve-out therefore STANDS and remains justified. Note the standing
-tension for future harbours: the hand-rolled display is the sole reason width sensitivity
-exists at all, and it is the sole live exception to the no-redundant-implementation invariant.
+Twelve PTY/interactive scenarios = **569s of 1165.6s scenario time (49%)**:
 
-SECOND QM PASS DISPATCHED 2026-07-21. First QM returned 12/16 green (watches 1,2,4 done;
-watch3 4/6; watch5 untouched) on three blockers, ALL NOW RESOLVED in durable artifacts:
-- BLOCKER 1 (spec contradiction): dk RULED command surface = SIXTEEN, stages first-class
-  (2026-07-21, confirming the prior-session ruling against a contradicting 006). Fixed
-  features/006:44 to name the 16 and assert `status` is an `auth` subcommand, dropping the
-  old "exactly ten / forbid deploy,recipe,storefront" line. 020 and 018 `jolly auth status`
-  invocations stay valid (status is auth's subcommand). Production still emits 10 (shipped
-  dist verified) → Crew makes help/remediation/completion/COMMAND_SURFACE anchor emit 16.
-- BLOCKER 2 (catalog): 4 keys authored in cli.json. Two whole sentences
-  (cloudApi.error.domainLabelTaken :388, cloudApi.error.creationConfirmationTimeout :527) and
-  two inline fallback literals the envelope-prose check flagged (cloudApi.status.unknown :557,
-  deviceGrant.error.grantIncomplete.httpDetail :236). Crew wires each site to render via
-  cliMessage. Found by RUNNING both blocked targets, not guessing (check-precedence).
-- BLOCKER 3 (logic budget 392 vs 375): dk RULED ACCEPT THE BREACH (2026-07-21). Do NOT
-  re-ratchet, do NOT edit budget-logic. This is the explicit dk exception the standing rule
-  requires for riding a conformance-family red: the budget-fit @logic @invariant scenario
-  reds on the logic tier and custody proceeds over it THIS voyage. Keep budget-fit OFF the
-  watchbill so QM does not dispatch on it; it is a knowingly-ridden red, not a target. Next
-  harbour re-ratchets from a laned window per RIGGING. NO FULL REGRESSION this voyage: it is
-  a harbour action; the @sandbox process-leak target runs via its own sandbox command.
+| s | scenario |
+|---|---|
+| 79.3 | A failed setup stage closes honestly, naming the stage |
+| 67.6 | Progress is shown in place on stderr, never on the result stream |
+| 50.8 | Jolly start pauses for agent approval at the first high-risk stage |
+| 48.7 | Interactive start signs the human in to Saleor inline |
+| 47.3 | A stage description too wide for the terminal is shortened |
+| 46.0 | The running stage's description comes from the message catalog |
+| 44.8 | The setup-stage progress redraws in place on a narrow terminal |
+| 44.6 | Setup-stage progress shows each stage as its own live status |
+| 40.8 | Jolly start does not fabricate Stripe stage completion |
+| 33.7 | Interrupting the unattended stages reports honestly |
+| 33.5 | Ctrl-C reaches the unattended stages as a signal |
+| 31.5 | jolly start composes the stage seams in order |
 
-WATCHBILL REBUILT for the second pass: 3 watches, 10 targets — surface reconciliation (5),
-catalog wiring (3), ledger + process-leak (2). watch5's ledger is sandbox-only by
-construction at 3 sites in features/support/spend-ledger.ts; generalizing to the logic tier
-is QM support and obligates a sweep. Process-leak is @sandbox (~35-min run), dk INCLUDED it.
+These PASS the merged observed-signal check, so they are not burning guessed delays; the cost is
+real terminal work through `runUnderPty`. dk ruled `budget-logic` ratchets 375 -> 650 now and
+**re-ratchets DOWN** once this lands. Attack the 569s, not the ceiling.
 
-SECOND QM PASS RETURNED WATCHBILL SPENT 2026-07-21. 9 of 10 targets genuinely green (@logic),
-confirmed in a 239-scenario logic sweep (238 passed; the 1 red is the accepted budget breach).
-Crew added a COMMAND_SURFACE declaration in src/index.ts and wired the four surface sites to
-16; wired the four catalog throw-sites through cliMessage in cloud-api.ts + device-grant.ts.
-QM generalized the spend ledger to the logic tier and built a process-reclaim recorder
-(features/support/process-reclaim.ts), both planted-red proven. typecheck clean. Greens in
-runrecord at deck-state hash f4927dfb310d6be1c137a6c94b77a805a67c958a.
+---
 
-THE ONE SOFT TARGET, dk RULED 2026-07-21: process-leak (`A tier run leaves none of its
-spawned processes running`) is @sandbox. QM proved the CHECK MECHANISM (planted-red) but
-verified against the LOGIC tier's process record, where the real leak it guards
-(spawnVercelSignIn, a detached unref'd child reached only from the sandbox deploy stage)
-cannot appear. So the mechanism is green, the real behaviour is UNVERIFIED. dk ruled: take
-custody now on the 9 green + the armed check; HARBOUR's full regression runs the sandbox tier
-and is its real proof. If the spawnVercelSignIn leak is real it reds at harbour and is fixed
-there (it was already the harbour-deferred detached-child finding). NOT deferral-as-avoidance:
-harbour is the authorized home for the sandbox sweep and is the immediate next step, so this
-routes the ~35-min run to its one occurrence instead of double-spending it.
+# Open, dk's to rule
 
-006 stale Rule prose (QM's spec-quality blocker 2) FIXED: the "Thin command surface" Rule now
-names the 16 with `status` under `auth`, and frames storefront/recipe/stock/stripe/deploy as
-first-class stage commands per feature 029. gplint clean.
+- Whether force-reclaim can take the SHARED STORE despite its exemption. If it can, the eval
+  captures go stale on a cadence.
+- Outbound: npm publish (0.13.0 shipped; this voyage is unshipped) and whether the homepage needs
+  anything further. dk has approved nothing yet.
 
-CUSTODY DISPATCHED: Boatswain told the budget-fit @invariant red is dk's accepted exception
-(ride it, do not block custody), since Boatswain reverifying the touched verification-economy
-support may select the logic sweep and hit it. Strike the spent watchbill with the commit.
+---
 
-STILL UNORDERED, dk's to rule:
-- CTRL-C MID-STORE-CREATION leaking a real cloud resource. The genuinely harmful case: the
-  human interrupts, a Saleor store exists, nobody is told. Needs real creation = @sandbox =
-  the 900s budget, which is why it was NOT ordered under the keep-tests-fast ruling.
+# LESSONS — Captain errors, do not repeat
 
-AGENT-MODE BREADTH IS DECLINED, not deferred. dk 2026-07-20: stick to ONE baseline model.
-The @eval lane's 4 scenarios against the fixed deepseek/deepseek-v4-flash baseline are the
-intended coverage. Do not propose testing other models. See the FIXED BASELINE fact below.
+1. **READ THE TRANSCRIPT BEFORE DIAGNOSING AN EVAL RED.** Captain diagnosed it TWICE from a one-line
+   traced-command list and shipped a `setup.md` copy edit on the second wrong diagnosis. Reverted.
+2. **THREE Captain theories died in one session**: the dry-run latch, reference-block shopping, and
+   `pnpm install` being the cost. #3 died hardest — closing the capture hole removed EVERY live spend
+   and moved the timeout by FOUR SECONDS. **Measure the gap; do not theorise it.**
+3. **DO NOT WRITE WHILE A ROLE HOLDS THE DECK.** Captain edited a feature file and the watchbill
+   mid-run, moving the deck hash and voiding carried greens.
+4. **VERIFY A ROLE'S LOAD-BEARING CLAIM BEFORE RULING ON IT.** QM reported a skill ref as
+   agent-chosen and needing a product ruling; it was Jolly's own DEFAULT_SKILLS entry.
+5. **DO NOT WRITE A WATCHBILL ENTRY FROM MEMORY.** Captain invented a scenario name; the tree had a
+   different one. Always grep the actual name.
+6. `eval-captures.json` per-run identity is LOAD-BEARING (the eval asserts surfaced == recorded). Do
+   NOT revert it as "taint" — an earlier Captain did, voided QM's greens, forced a ~40min rerun.
 
-PUBLISHED-ARTIFACT SMOKE TEST: satisfied this session and worth repeating at each publish —
-`npx @dk/jolly@<version> --help` from an empty dir. It is the cheap check that catches a
-broken bundle, which a green local tree never will.
+---
 
-## HARBOUR CLOSED 2026-07-20. 12 targets ordered, watchbill live, nothing owed to Shipwright.
+# Resume-loop mechanics
 
-Full regression, co-launched laned window, ALL GREEN: window 1437s/2250, eval 183s/240 (4/4),
-logic 381s/375 (229/229, BREACH), sandbox serial 657s/900 (3/3) + parallel 780s/900 (51/51).
-287 scenarios all passed. This IS the re-ratchet basis; dk ruled HOLD BOTH BUDGETS until the
-item-2 placement fix means the check actually enforces what is set. Do not edit a budget value.
+The runtime's tracked-background mechanism (`run_in_background`) re-invokes Captain on process exit
+and is the correct route: it is a real signal, not a poll. Use it for any run that outlasts a
+foreground budget. The hand-carried waiter below is the fallback where that mechanism is absent:
+- `tail --pid=<EXACT NUMBER> -f /dev/null` only. PID read from `ps` in the FOREGROUND first.
+  NEVER `pgrep` in the waiter (self-matches; node's comm is "MainThread" here).
+- **ARM ON THE CHAIN ROOT**, not the first cucumber PID. Walk the ppid chain to the script or its
+  detached wrapper. Arming on a leaf fires at the first target's exit and relays a partial watch as
+  complete. Bit twice historically.
+- **CONFIRM THE PID IS GONE** (`ps -p`) before relaying: a cap-fire looks exactly like an exit.
+- This box also runs FOREIGN agents (`shipshape-shakedown`). Filter them out of `ps` first.
 
-DK'S FOUR HARBOUR RULINGS:
-1. Budgets: hold both. Re-ratchet from the NEXT window, after placement is fixed.
-2. Item 2 = POST-WINDOW GATE. The check's logic is correct; only its placement is wrong.
-3. Plank dialect: MIGRATE to verbatim upstream form. Against my recommendation; dk's call.
-4. All 10 skeletons promoted.
+---
 
-THE ITEM-2 PROOF, THE CLEANEST ARTEFACT THIS HARBOUR PRODUCED: the identical scenario, same
-tree, same 378.0s figure, reported GREEN inside the laned window and RED when run solo after.
-The only variable is whether the record it reads had finished being written. A check cannot
-judge a window it runs inside: its own lane has no `testRunFinished` yet, so it excludes
-itself. This is why the fix is relocation, not a rewrite. Every other reading of the evidence
-was compatible with "the check has a bug"; this one is not.
+# Held product rules
 
-PER-TIER BUDGETS ARE EQUALLY BLIND. The old note called them "the real guard" — REFUTED by the
-same run. budget-logic has never been enforced by the run that produces it.
+- Stripe keys stay the human's: Jolly installs the app and points at the Dashboard.
+- `.env` org is 100% cannon fodder, cap **2 environments**; delete a fresh account's default store.
+  `jolly-cannon-fodder-` prefix is the ONLY safety boundary; never widen.
+- Shared-store transient death self-heals next invocation; retry a heavy 404 ONCE.
+- One licence: `@pipeline` = 002 operational-readiness proof only. Element licence for
+  `@creates-env` guard deploys (004). One creation test per seam. Fixture SOURCE pinned in Givens.
+- Golden captures record against the PERSISTENT shared store + shared deployment (live URLs); reject
+  per-run-tainted observations by CONTENT. Harbour re-verifies captures vs live services.
+- Reclamation is age-gated (feature 030): stale = older than the full-regression budget; a younger
+  namespaced resource is a live sibling's. Shared store exempt by name.
+- SUPERSEDED RULINGS, settled: terminal width KEPT (dk reversed a drop on 2026-07-21). "Super basic
+  TUI" RAISED AND CLOSED 2026-07-20: keep in-place multi-stage redraw, change nothing. The
+  hand-rolled display remains the sole live exception to the no-redundant-implementation invariant.
+  Do not reopen either without a new ruling.
 
-PLANK DIALECT, WHAT I FOUND EDITING IT: the spec ALREADY said "exact string match". The
-Given/When/Then dialect lives in the CHECKER, which strips the keyword before comparing. Spec
-and implementation have disagreed all along; the migration is therefore a 3-line spec edit that
-reds against all 457 planks, and Crew does the mechanical migration. Cost is real: 457
-annotations in src/, zero current defects, bought for upstream alignment + retiring the latent
-hazard (strip is safe only while no pattern starts with a Gherkin keyword; 0 of 1145, asserted
-by nothing until now).
+---
 
-THREE REAL DEFECTS HARBOUR FOUND, all now watchbill targets:
-- PROCESS LEAK: `spawnVercelSignIn` (src/index.ts:4286) is detached+unref'd BY DESIGN, reached
-  from the DEPLOY stage (:4635), not the interactive path. `loadPendingVercelUrl` reads a
-  dotfile under projectDir() = a fresh temp dir per sandbox scenario, so the reuse guard NEVER
-  finds the pending URL and a new grant spawns every time. Deploys then succeeded = sign-in was
-  never needed. Ledger recorded neither logins nor probes (668 entries, zero matching), so the
-  spend check was structurally blind. Every harness `kill` holds a direct child handle; a
-  detached unref'd child has none by construction.
-- LOGIC-TIER UNRECORDED SPEND: runStorefrontStage ran 12x in the DEFAULT tier; the ledger is
-  written for sandbox alone. The tier paid on every inner-loop run records nothing.
-  (`vercel whoami` in logic is BY DESIGN: probeVercelSession 48x, spawnVercelSignIn 0x. Dropped.)
-- SIDE_EFFECTING written in THREE places; onInterrupt (src/index.ts:5342) applies NO
-  side-effecting filter, so a Ctrl-C close names preflight stages the normal close excludes.
+# Standing rules, learned the hard way
 
-ITEM 7 SETTLED, and neither expected answer: src/index.ts:5335 executes 19 times, the
-setRawMode(false) call has BRANCH COUNT 0. Never fired, ever, including both PTY Ctrl-C
-scenarios driving real clack prompts. Clack restores cooked mode itself. So the line is
-unverified in BOTH directions. NOT deleted — reachable-but-unexecuted is unspecified
-behaviour, so it got a scenario pinning the STATE the stages need, not the call.
+- NEVER quote these notes to another role; give the command that answers, never the note.
+- Grep is an opinion; run the join. Trust a set-enumerating check only after verifying it enumerated
+  — a check CAN report green while resolving nothing (QM's envelope checker did exactly that:
+  shorthand property nodes carry the property's symbol, not the value's).
+- Never let anything follow a verification run in the same command; the summary line is evidence,
+  the exit code is hearsay. (Observed: a failing eval run exited 0.)
+- Kill by exact ps-listed PID, never `pgrep -f`.
+- Interactive-path changes verify through `features/support/pty.ts` `runUnderPty`.
+- `--max-old-space-size=4096` on this 7.9 GB box.
+- dk wants live play-by-play; resume a dispatched agent on the observed signal, never poll.
+- dk wants QUESTIONS AS QUESTIONS: crisp, structured, one decision each.
+- A tier's wall clock inflates hard under contention; contention from neighbour agents is the NORMAL
+  operating condition. Instrumented runs never stand as operational priors.
+- Do not let a remedy outrun its measurement; never let an approved plan survive a refuted premise.
+- One writer at a time; dispatch thin (role + base commit).
+- A Captain spec edit rides a watchbill entry EVEN during blocker resolution.
+- DISPATCH QM AS A SUBAGENT (`shipshape:qm`), never `/shipshape:qm` in the main loop: a slash-invoked
+  role carries no `agent_type`, so the custody hook exits 0 and EVERY guard is off.
+- A verification checker can PRESSURE Crew into contorting correct code to satisfy a text scan.
 
-PLANKING CLEAN: 457 planks, 0 stale, 0 unmatched, 0 provisional. Nothing owed.
+---
 
-COVERAGE TRIAGE IS PARTIAL AND SAYS SO: logic tier only, 80.98% stmt / 82.6% branch. Sandbox
-instrumented was skipped deliberately (would double a 24-min leg). No module at 0%, so no
-coverage skeletons owed. Weakest branch: start-close 60%, device-grant 63%, cloud-api 66% —
-understated, since sandbox/eval exercise those paths uninstrumented.
-
-RULE PROSE: dk's agenda item 1. Shipwright's skeletons ADDED ~55 lines of it; I trimmed the
-harbour-measurement narration ("Harbour measured X 19 times") out at promotion and kept only
-durable rebuild context. The 13 unenforced-and-matters Rule claims are UNRESOLVED — worst: no
-scenario asserts a COMPLETED `jolly start` reports success. Next harbour, or order it.
-
-STILL OPEN, dk's to rule:
-- DEPENDENCY UPGRADES, unordered: @bomb.sh/tab 0.0.19 -> 0.0.21 (moved past the 0.0.20 in the
-  old note) and @cucumber/cucumber 13.1.1 -> 13.2.0 (already inside the declared ^13.1.1 range).
-  RIGGING's latest-stable policy calls a held version a defect; both are recorded at their
-  sites WITHOUT upgrading, since selection is Captain's. No failing target orders them.
-- THREE UNREACHABLE EXPORTS: DEVICE_CLIENT_ID, platformAuthScheme, STRIPE_APP_NAME. Functions
-  reachable, exports not. platformAuthScheme carries a feature-018 product rule and a plank,
-  but the plank points at a full CLI-spawn scenario, so the Bearer/Token decision is never
-  verified through the seam already shaped to expose it. Narrow vs adopt-as-seam = design call.
-- SIDE_EFFECTING three-place literal: scenario ordered (watch4), but whether to consolidate to
-  one exported constant or one derived surface is Crew's smallest-change call.
-
-## THE ONE FACT NO MECHANISM CARRIES ANY MORE
-
-**`deepseek/deepseek-v4-flash` is Jolly's FIXED `@eval` baseline model. An eval red is an
-affordance fault, never a model fault.** Never propose a different eval model; never touch
-`HARNESS_EVAL_MODEL`. On any `@eval` red, fix Jolly's affordance (the `assets/skills/jolly`
-copy or the `/setup` page). If it must bind QM, it becomes a `.feature` scenario, never a note.
-
-## Resume-loop mechanics (proven; carry until upstream mechanizes it)
-
-Captain hand-carries role resume across detached runs: role launches detached, ends turn;
-Captain waits on the run, SendMessages the role on exit. Many lost signals across sessions;
-the Captain-side `tail --pid` fallback waiter saved every one. ALWAYS arm it:
-- `tail --pid=<EXACT NUMBER>` only, pid read from `ps` in the FOREGROUND first. NEVER pgrep
-  in the waiter (self-matches; node comm is "MainThread" here).
-- A nested role cannot be signalled through its parent — tell the parent the run exited and
-  to collect/re-run itself. Subagent reports can route to MAIN when the child cannot reach
-  its parent by name; Captain relays substance down the chain.
-- Confirm a fired waiter's PID is gone (`ps -p`) before relaying: a cap-fire looks like an
-  exit.
-
-## Upstream (~/shipshape, dk: edit directly, no ceremony)
-
-- A ROLE RUN IN THE MAIN LOOP HAS NO CUSTODY AT ALL (2026-07-20, observed tonight, not
-  reasoned). `hooks/scripts/bash-custody.sh` reads role identity from the payload's
-  `agent_type` and exits 0 when it is absent: "Payloads with no shipshape agent_type are the
-  human-facing main loop or a foreign agent; custody does not apply there." A `/shipshape:qm`
-  slash invocation carries no `agent_type`. So a role entered by slash command runs with the
-  notes guard off, write custody off, commit custody off — every guard, not just the one that
-  bit. The hook is CORRECT; it never ran. Line 66 denies the exact command tonight's QM
-  executed, and Crew was blocked by this same hook on `assets/` earlier in this voyage, which
-  is what proves the subagent path is enforced and the slash path is not.
-  The asymmetry is invisible at the point of use: both routes announce the same role and read
-  the same skill, and nothing in either tells the operator that one of them is unguarded.
-  Candidate shapes, dk's call: have the role skill refuse to proceed when it cannot observe
-  its own enforcement, or carry role identity by a vector the slash path also sets. A rule
-  enforced on one invocation route and not the other is worse than one enforced on neither,
-  because the guarded route teaches the operator to trust the guard.
-- GIT DIFF IS AN UNGUARDED RESULT-SET READER OF THE NOTES (2026-07-20). Distinct from the
-  above and it bites a CORRECTLY dispatched QM too. The hook's result-set custody enumerates
-  search tools only — grep, rg, ag, ack — and denies the vectors that escape `.ignore`:
-  recursive grep, ignore-override flags, shell globs. `git diff` is in none of those lists,
-  reads no ignore artifact, and on a dirty tree dumps CAPTAIN.md's content while NAMING
-  nothing, so the mention-based notecheck cannot see it either. Same hazard class as recursive
-  grep, absent from the guard. `git show`, `git log -p`, and `git stash show -p` are the same
-  vector. Roles genuinely need the role-advanced diff — QM step 6 and Boatswain's staging both
-  reason over it — so the fix is a guarded form, not a denial: deny the unscoped read and name
-  the pathspec-excluded form, the way the search branch names `rg -t md`.
-- Resume-on-signal machinery remains the TOP work item — the harness must resume a role on
-  its detached run's exit, not discipline. THE GAP, stated whole, because the fix has to be
-  designed against it: a verification run can outlast the runtime's foreground command
-  budget (Jolly's laned sandbox window is ~37 minutes). Hand-off custody forbids a role
-  ending its turn holding live work, so the role launches the run DETACHED and ends its turn
-  honestly. Nothing then wakes that role when the run exits. The run finishes, its output
-  sits on disk, and the voyage stalls on a completed run nobody read. Hand-off custody also
-  forbids the obvious patch — a sleep loop re-checking the process is the busy-wait the
-  agreement names, spending the turn to learn what the exit reports for free.
-- THE WAITER is the stopgap Captain hand-carries in that gap, and it is scaffolding, not a
-  Shipshape concept. `tail --pid=<PID> -f /dev/null` blocks until PID exits and outputs
-  nothing: a pure block-until-dead. Captain runs it in the background, the runtime notifies
-  on its completion, Captain confirms the PID is gone and SendMessages the role "your run
-  exited, collect it". Every lost signal this session was recovered this way. Three edges,
-  all of which have bitten:
-  - EXACT PID read from `ps` in the FOREGROUND first. Never `pgrep` inside the waiter: it
-    self-matches and fires instantly (node's comm is "MainThread" here, so name matching is
-    worthless anyway).
-  - ARM ON THE CHAIN ROOT (dk 2026-07-19, bit twice this session). A role that launches N
-    targets from a generated shell script hands the relay a PROCESS TREE, not a process.
-    Arming on the first cucumber PID in `ps` fires at the FIRST target's exit and relays a
-    partial watch as if it were complete. Walk the ppid chain to the script
-    (`bash /…/watchN.sh`) and wait on THAT.
-  - CONFIRM THE PID IS GONE (`ps -p`) before relaying: a cap-fire looks exactly like an exit.
-  The upstream fix retires all three: resume the role on its own run's exit and no Captain
-  needs to know any of this. Until then it is discipline standing in for machinery, and
-  discipline has already been observed to fail here.
-- DEPENDENCIES BELONG TO FITTING OUT, NOT CREW (dk ruling 2026-07-20; upstream candidate).
-  Shipshape currently routes a dependency BY ITS CONSUMER: the rigging's own dependencies
-  install at fitting out, and Crew installs a product dependency "as the mechanical part of a
-  spec-ordered change". dk: Crew should not do dependencies at all — installation is fitting
-  out, full stop. The argument, as it came up tonight:
-  - Installing is a RIGGING act, not a production-code change. It moves the lockfile, the
-    resolution graph, and the engines constraints — tree-wide blast radius, reaching every
-    tier and every future run. Crew's whole charter is the SMALLEST change for ONE failing
-    target; handing it an act whose radius is the entire tree contradicts that on its face.
-  - The consumer split makes the route depend on a classification the isolated role is worst
-    placed to make. Whether @bomb.sh/tab is "the rigging's own" or "one the implementation
-    consumes" is a judgment call needing tree-wide context, which is exactly what Crew does
-    not have. Shipwright, at fitting out, has it by construction.
-  - THE GAP THAT EXPOSED IT (tonight, real): RIGGING's `latest-stable` policy makes a held
-    version a defect and says "a role upgrades it". But an upgrade ordered by POLICY has no
-    failing target, so the Crew route does not open — Crew is dispatched only for a failing
-    target. There was NO legal route for a policy-ordered upgrade. I did it as Captain and
-    flagged the boundary; dk's ruling is the fix. Fitting out has no such precondition.
-  - Upstream shape: strike the Crew clause from the Rigging read contract, and let Shipwright
-    own every install and upgrade, at fitting out and at harbour. A spec that needs a new
-    dependency then raises a Captain blocker routed to Shipwright, one round-trip, rather
-    than a Crew mate resolving a registry question mid-target with no context.
-
-- ONE SEAM IS NOT ONE TEST (dk 2026-07-19, the session's main finding; strong upstream
-  candidate). A single-creation-seam invariant can be fully green while N scenarios each
-  call that one seam for real. Jolly: creation lived at one seam, enforced by a ts-morph
-  checker, and was tested at FOUR — ~6 real env creations per run, ~945s, four of the top
-  six cost outliers, all structurally conformant. The seam invariant answers "does creation
-  live in one place", never "is creation paid for once". Shipshape's Verification agreement
-  should name both, because the cheap structural check reads as if it discharged the
-  expensive one.
-- LICENCE TAGS SHOULD DEFAULT TO CARDINALITY ONE. The agreement requires the licensed set be
-  "declared and enumerable, never inferred from prose" — necessary and not sufficient: an
-  enumerable set of four is still four full spends per run. Proposed default: at most one
-  licensed scenario per spend class, a second reddens, and a genuine second declares itself.
-  Jolly now pins this as a @logic @invariant grouping licensed scenarios by class.
-- THE SPEND LEDGER OUTPERFORMED PER-SCENARIO DURATION as a harbour economy lens. Duration
-  says which scenario is slow; the ledger says WHY by attributing each expensive spend to the
-  running scenario, so the four scenarios to change fell out mechanically instead of by
-  reading specs. Candidate standing lens beside the cost outliers and the wait-composition
-  audit: join ledger to licence tags first, then read durations.
-- BUDGETS ARE POST-HOC BY CONSTRUCTION, and the agreement should SAY so (dk 2026-07-19:
-  "killing runs means more latency"). A budget reads the wall clock the weather record
-  already carries and reddens after the fact; it never aborts a run. Nothing in Jolly kills
-  on budget, but the agreement's "ceiling, not advice" phrasing invites a timeout-kill
-  implementation that would spend the whole run's work to learn what the record reports free.
-- METHODOLOGY-CORPUS RATIO AS A HARBOUR METRIC. Jolly: 43 of 257 scenarios (17%) audit the
-  project's own method rather than the product — verification-economy 13, methodology-
-  conformance 11, 026 live-by-design 9, single-creation-seam 5, 028 worker isolation 3,
-  module-boundary 1, command-surface 1. Individually each is legitimate; nothing surfaces the
-  aggregate, and every voyage spent on that 17% is a voyage not spent on the product. Cheap
-  to derive from tags, and it makes methodology overhead a number dk can rule on.
-- A NO-SEED SCENARIO NEEDS A NON-VACUITY GUARD. Dropping a licence usually means the scenario
-  stops seeding its own precondition and asserts against ambient state instead — which passes
-  silently when the ambient state is empty. Jolly's 026 reclamation is the live case. The
-  reuse-and-share rule should carry the obligation: a scenario that no longer creates its
-  precondition states what makes it non-vacuous, or it reddens when it observes nothing.
-- Tier-taxonomy findings (dk 2026-07-18, keep): tiers are execution profiles; lanes are
-  tags (@composition adopted). "Primary tier" collapses into licence tags + primaries-first
-  order. Eval-gating couples to COMMITTED captures at harbour cadence. Element-spend licence
-  gap: pin fixture SOURCE in Givens; @spends-<element> tags if it recurs. Golden-capture
-  tiers are the cheap-composite pattern. TS perturb idiom: guard form preserves narrowing.
-  Instrumented streams are a SEPARATE wake path by construction.
-- Latency findings (dk 2026-07-18, keep): ~4/5 of batch wall was agent latency. Levers:
-  concurrent focused groups (ADOPTED), parallel Crew mates (ADOPTED), resume-on-signal,
-  event-driven narration (ADOPTED). Proposed, awaiting dk: support-edit selection
-  refinement (join-selected recheck; tier sweep only for tier-global files; conformance
-  family via its own command).
-- Tier-lane overlap as a RIGGING `lanes` value (adopted here 2026-07-19): upstream
-  candidate — the Watchbill policy's cheapest-first serial ordering should admit a
-  rigging-declared concurrent-lanes override; the laned window doubles as the budget
-  measurement, and the window (not the tier sum) is the budget-fit basis.
-- Wait-composition audit as a harbour economy lens (adopted here 2026-07-19): decompose
-  slow scenarios' walls from the message streams; Godot = success condition IS the timeout.
-  Candidate standing lens beside the cost outliers.
-
-## Fresh-VM fitting-out (git-invisible, manual)
+# Fresh-VM fitting-out (git-invisible, manual)
 
 0. `~/.claude/settings.json` = `"autoMemoryEnabled": false` (Article-7 vector; dk ruled global).
 1. `npm ci`; confirm `node_modules/.bin/cucumber-js` resolves to `@cucumber/cucumber`.
 2. `.env`: `JOLLY_SALEOR_CLOUD_TOKEN` + `HARNESS_OPENROUTER_API_KEY`.
 3. `vercel login` (operator, browser) — @sandbox only; eval needs no Vercel session.
-4. `gh auth setup-git`. npm publish also needs `npm login` / @dk publish token (see parked).
+4. `gh auth setup-git`. npm publish needs `~/.npmrc` with a granular token WITH 2FA bypass; plain
+   `npm publish` then works with no env vars. An E403 naming "bypass 2fa" means the token lacks that
+   capability — regenerate with bypass ticked.
 
-## Held product rules
+---
 
-- Stripe keys stay the human's: Jolly installs the app and points at the Dashboard.
-- `.env` org is 100% cannon fodder, cap 2 environments; delete a fresh account's default store.
-  `jolly-cannon-fodder-` prefix is the ONLY safety boundary; never widen.
-- Shared-store transient death self-heals next invocation; retry a heavy 404 ONCE.
-- One licence: `@pipeline` = 002 operational-readiness proof only. Element licence for
-  `@creates-env` guard deploys (004). One creation test per seam; different parameters, not
-  different sequences. Fixture SOURCE pinned in Givens where a template serves (029 deploy).
-- Golden captures record against the PERSISTENT shared store + shared deployment (live URLs);
-  reject per-run-tainted observations by CONTENT. Harbour re-verifies captures vs live services.
-- Reclamation is age-gated (feature 030): stale = older than the full-regression budget; a
-  younger namespaced resource is a live sibling's. Shared store exempt by name, as before.
+# Upstream findings (~/shipshape, dk: edit directly, no ceremony)
 
-## Standing rules, learned the hard way
-
-- NEVER quote these notes to another role; give the command that answers, never the note.
-- Grep is an opinion; run the join. Trust a set-enumerating check only after verifying it enumerated.
-- Never let anything follow a verification run in the same command; the summary line is evidence,
-  the exit code is hearsay.
-- Kill by exact ps-listed PID, never `pgrep -f` (self-matches). Wait on exact PIDs only.
-- Interactive-path changes verify through `features/support/pty.ts` `runUnderPty`.
-- `--max-old-space-size=4096` on this 7.9 GB box.
-- dk wants live play-by-play; resume a dispatched agent on the observed signal, never poll.
-- dk wants QUESTIONS AS QUESTIONS: crisp, structured, one decision each — the structured
-  tool works; keep using it.
-- A tier's wall clock inflates hard under contention; measure budgets under the concurrency
-  they will actually run in; instrumented runs never stand as operational priors. Contention
-  from neighbour agents is the NORMAL operating condition per dk 2026-07-19.
-- Do not let a remedy outrun its measurement; never let an approved plan survive a refuted premise.
-- One writer at a time; dispatch thin (role + base commit); hold Captain writes while a role
-  holds the deck — spec edits NEVER land while a measured sweep is in flight.
-- Conformance family (@logic @property/@invariant) must be green before custody, riding reds
-  excepted only by an explicit dk ruling.
-- A Captain spec edit rides a watchbill entry EVEN during blocker resolution; an edit to a
-  scenario QM just made executable orphans the definition.
+- **RESUME-ON-SIGNAL.** A verification run can outlast the runtime's foreground budget. Hand-off
+  custody forbids a role ending its turn holding live work AND forbids the sleep-loop patch. Claude
+  Code's tracked-background mechanism DOES solve this and should be named in the agreement as the
+  sanctioned route; the gap is that the skill text describes no such affordance, so roles hand-carry
+  a waiter instead.
+- **A ROLE RUN IN THE MAIN LOOP HAS NO CUSTODY AT ALL.** `hooks/scripts/bash-custody.sh` reads role
+  identity from `agent_type` and exits 0 when absent. A `/shipshape:qm` slash invocation carries
+  none, so notes guard, write custody, and commit custody are ALL off. The hook is correct; it never
+  runs. A rule enforced on one invocation route and not the other is worse than one enforced on
+  neither.
+- **GIT DIFF IS AN UNGUARDED READER OF THE NOTES.** Result-set custody enumerates search tools only
+  (grep/rg/ag/ack). `git diff` reads no ignore artifact and on a dirty tree dumps CAPTAIN.md while
+  NAMING nothing, so the mention-based notecheck cannot see it. Same for `git show`, `git log -p`,
+  `git stash show -p`. Fix is a guarded form, not a denial.
+- **DEPENDENCIES BELONG TO FITTING OUT, NOT CREW** (dk 2026-07-20). Now upstream doctrine; confirm it
+  landed.
+- **ONE SEAM IS NOT ONE TEST** (dk 2026-07-19). A single-creation-seam invariant can be fully green
+  while N scenarios each call that seam for real. The cheap structural check reads as if it
+  discharged the expensive one.
+- **A STRUCTURAL CHECKER DISCHARGING N SCENARIOS IS N-1 SCENARIOS TOO MANY** (2026-07-22). Six
+  scenarios in two features all resolved to one ts-morph checker restating one rule per resource.
+  The Scantling agreement names the outline form of this smell but not the across-features form,
+  where it is harder to see and grows a scenario per resource forever.
+- **DUPLICATE CHECKS SURVIVE BECAUSE NOTHING JOINS FEATURES** (2026-07-22). The dependency-record
+  join was implemented TWICE, in two features, with two step definitions. Both green, forever. A
+  harbour check for semantically duplicate conformance scenarios would have caught it.
+- **A METHOD CORPUS GUARDS ITS OWN MACHINERY** (2026-07-22). 6 of this voyage's 16 removals existed
+  only to guard the concurrency subsystem being removed. Methodology overhead is self-amplifying:
+  every mechanism added to the method corpus arrives with its own guards. Worth an Article.
+- **LICENCE TAGS SHOULD DEFAULT TO CARDINALITY ONE**: an enumerable licensed set of four is still
+  four full spends per run.
+- **THE SPEND LEDGER OUTPERFORMED PER-SCENARIO DURATION** as an economy lens: duration says which
+  scenario is slow, the ledger says WHY by attributing each spend.
+- **BUDGETS ARE POST-HOC BY CONSTRUCTION** and the agreement should say so; "ceiling, not advice"
+  invites a timeout-kill implementation that spends the whole run to learn what the record reports
+  free.
+- **METHODOLOGY-CORPUS RATIO AS A HARBOUR METRIC**: cheap to derive from tags, and it makes
+  methodology overhead a number dk can rule on. First test complete: 20% -> 14.7% in one voyage.
+- **A NO-SEED SCENARIO NEEDS A NON-VACUITY GUARD**: dropping a licence usually means the scenario
+  stops seeding its precondition and asserts against ambient state, passing silently when empty.

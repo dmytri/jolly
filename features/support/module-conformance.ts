@@ -313,6 +313,137 @@ export function locateProductionSpawnSeams(literals: string[]): SeamLocation[] {
  * Each missing piece would let a command diverge from the shared flag surface,
  * so each is reported as a violation.
  */
+/**
+ * One creation seam the checker declares for an externally-created resource.
+ * A verification-layer resource declares the file its real spawn lives in; a
+ * production resource declares the spawn literals that locate it, and its seam
+ * is the single enclosing function those spawns share.
+ */
+export interface DeclaredCreationSeam {
+  resource: string;
+  scope: "verification" | "production";
+  /** The declared file seam, for a verification-layer resource. */
+  file?: string;
+  /** The spawn literals that locate a production resource's real spawns. */
+  literals?: string[];
+}
+
+/**
+ * Every CLI-spawned external resource and the single seam its creation lives
+ * in. One structural fact, applied uniformly, so a new resource adds a seam
+ * declaration here rather than a scenario to the spec.
+ */
+export const DECLARED_CREATION_SEAMS: DeclaredCreationSeam[] = [
+  { resource: "Saleor environment", scope: "verification", file: ENV_FACTORY },
+  { resource: "Vercel project", scope: "verification", file: SANDBOX_SEAM },
+  {
+    resource: "Vercel deployment",
+    scope: "production",
+    literals: ["deploy", "--prod"],
+  },
+  {
+    // Feature 004 pins the spawned form as `npx @saleor/configurator@latest
+    // deploy`, so the locator matches that exact spawn element.
+    resource: "starter-recipe deploy",
+    scope: "production",
+    literals: ["@saleor/configurator@latest", "deploy"],
+  },
+  {
+    resource: "Paper storefront clone",
+    scope: "production",
+    literals: ["clone", "https://github.com/saleor/storefront.git"],
+  },
+];
+
+/** A real creation spawn sitting outside the single seam declared for its resource. */
+export interface CreationSeamFinding {
+  resource: string;
+  /** The spawn's site, `<file>:<line>`. */
+  site: string;
+  /** The seam the spawn belongs in. */
+  seam: string;
+  message: string;
+}
+
+/**
+ * Judge one production resource's located spawns against the single-seam rule:
+ * every located spawn shares one enclosing seam. The seam the resource's
+ * spawns already share stands as the declared one, so a spawn that drifted out
+ * of it is named against the seam it belongs in. Pure over its input, so the
+ * planted red judges the same code path the real assertion does.
+ */
+export function judgeProductionSeam(
+  resource: string,
+  locations: SeamLocation[],
+): CreationSeamFinding[] {
+  if (locations.length === 0) {
+    return [
+      {
+        resource,
+        site: "(none located)",
+        seam: "(none)",
+        message:
+          `no real ${resource} spawn is located in src/ — the creation seam is ` +
+          `missing from production source`,
+      },
+    ];
+  }
+  const seams = new Map<string, { label: string; count: number }>();
+  for (const location of locations) {
+    const current = seams.get(location.seamKey);
+    if (current) current.count += 1;
+    else seams.set(location.seamKey, { label: location.seamLabel, count: 1 });
+  }
+  if (seams.size === 1) return [];
+  // The seam holding the most spawns is the resource's home; the strays are named against it.
+  const [homeKey, home] = [...seams.entries()].sort(
+    (a, b) => b[1].count - a[1].count,
+  )[0]!;
+  return locations
+    .filter((location) => location.seamKey !== homeKey)
+    .map((location) => ({
+      resource,
+      site: `${location.file}:${location.line}`,
+      seam: home.label,
+      message:
+        `${resource}: the spawn at ${location.file}:${location.line} sits in ` +
+        `${location.seamLabel}, outside the single seam ${home.label} the ` +
+        `resource's other spawns share`,
+    }));
+}
+
+/**
+ * Every real creation spawn that falls outside the single seam declared for
+ * the resource it creates, across the verification layer and production source.
+ */
+export function findCreationSeamFindings(): CreationSeamFinding[] {
+  const findings: CreationSeamFinding[] = [];
+  for (const declared of DECLARED_CREATION_SEAMS) {
+    if (declared.scope === "verification") {
+      const violations =
+        declared.file === ENV_FACTORY
+          ? findCreationSeamViolations()
+          : findVercelProjectSeamViolations();
+      for (const violation of violations) {
+        findings.push({
+          resource: declared.resource,
+          site: `${violation.file}:${violation.line}`,
+          seam: declared.file!,
+          message: violation.message,
+        });
+      }
+      continue;
+    }
+    findings.push(
+      ...judgeProductionSeam(
+        declared.resource,
+        locateProductionSpawnSeams(declared.literals!),
+      ),
+    );
+  }
+  return findings;
+}
+
 export function findGlobalOutputFlagViolations(): Violation[] {
   const violations: Violation[] = [];
   const source = project().getSourceFile(

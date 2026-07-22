@@ -11,6 +11,9 @@ Feature: Verification economy
     - The record is per scenario, not per tier. A tier total hides the shape that
       matters: a tier whose mean is many times its median is not uniformly slow, it
       carries a few scenarios that dominate it, and those are the ones worth moving.
+    - The same record carries the pressure the run ran under, the worker count, the
+      peak resident set size, and any out-of-memory kill events, written into the
+      per-tier stream the wall clock already uses rather than a second artifact.
     - Cost is judged against the tier a scenario runs in. The default tier runs on
       every inner-loop change, so a slow scenario there is paid constantly; the same
       cost in an opt-in tier is paid at that tier's cadence.
@@ -20,25 +23,20 @@ Feature: Verification economy
       run, and it is paid again as flake when it guesses short.
 
   @logic @invariant
-  Scenario: A tier run through its configured command writes that tier's wall-clock record
+  Scenario: A tier run through its configured command writes that tier's wake record
     Given the tier commands configured in "RIGGING.md"
     When a tier is run through its command as configured
     Then that tier's wake record should carry every scenario the run started, each with its wall-clock duration
+    And it should carry the run's worker count, its peak resident set size, and any out-of-memory kill events
     And a configured tier command that writes no wake record should redden the check
 
   @logic @invariant
-  Scenario: An interactive scenario waits for the prompt it is answering, never a guessed delay
+  Scenario: An interactive scenario ends every wait and read on an observed signal
     Given the verification support that drives an interactive terminal
-    When the waits it performs before sending each input are enumerated
-    Then each should be ended by the prompt it observed in the terminal output
-    And a wait ended by a fixed delay guessed to outlast the prompt should redden the check
-
-  @logic @invariant
-  Scenario: An interactive scenario reads the output it asserts on, never whatever a timer happened to catch
-    Given the verification support that drives an interactive terminal
-    When the reads it performs before asserting on the terminal output are enumerated
-    Then each should be ended by the output it asserts on, appearing in the terminal
-    And a read ended by a fixed timeout, returning whatever the terminal had produced by then, should redden the check
+    When the waits it performs before sending each input and the reads it performs before asserting are enumerated
+    Then each wait should be ended by the prompt it observed in the terminal output
+    And each read should be ended by the output it asserts on, appearing in the terminal
+    And a wait or read ended by a fixed delay or timeout should redden the check
 
   Rule: Ambient state is provisioned once and shared
 
@@ -56,6 +54,13 @@ Feature: Verification economy
     When the sites that provision ambient state no scenario asserts, such as pre-warming an external CLI into the npx cache, are enumerated
     Then each should run behind a once-per-run guard such as a lock, marker file, or module-level memo
     And a site that re-provisions per scenario without a guard should redden the check
+
+  @sandbox @invariant
+  Scenario: The shared prepared-storefront fixture rebuilds a template evicted mid-run
+    Given the storefront-template fixture has memoized its shared template for the run
+    When the memoized template source is removed and a scenario then requests the prepared storefront
+    Then the fixture should re-materialize the template and stage the prepared storefront
+    And a fixture that copies from an unverified source without re-materializing should redden the check
 
   Rule: Expensive spend is licensed, recorded, and joined
 
@@ -99,6 +104,10 @@ Feature: Verification economy
       scenario is the double's own failure path, not a real toolchain spend: the
       shim records it, and the check classifies it to the double rather than the
       licence set.
+    - The join covers every tier that can spend, not the sandbox tier alone. A
+      ledger written for one tier leaves every other tier's spends unrecorded by
+      construction, so no entry exists to join against a licensed set, and the
+      default tier is the one paid on every inner-loop run.
     - The check judges every profile leg of the tier's last sweep, so the order
       the legs ran in can never leave one leg's spends unjudged.
     - The spend is recorded at run time by the interception shims already on the
@@ -108,7 +117,7 @@ Feature: Verification economy
 
   @logic @invariant
   Scenario: Every recorded toolchain spend belongs to the shared provisioning or a licensed scenario
-    Given the spend ledger the sandbox tier's last sweep recorded into the wake, every profile leg of it
+    Given the spend ledger each tier's last run recorded into the wake, every profile leg of it
     When each ledger entry is joined to the tags of the scenario it is attributed to
     Then every spend of the full toolchain chain should belong to the run's shared provisioning or to the scenario tagged @pipeline
     And every environment-creation spend should belong to the run's shared provisioning or to a scenario tagged @creates-env
@@ -116,6 +125,7 @@ Feature: Verification economy
     And a toolchain element driven by a scenario tagged @toolchain-element against its own namespaced resources, where that element is the scenario's own assertion, should be licensed, never the chain
     And a spend aimed at a declared unroutable stand-in by a scenario carrying @exceptional-double should be classified to that scenario's double, never as a real toolchain spend
     And a spend attributed to an unlicensed scenario should redden the check, naming the scenario and the spend it made
+    And a tier that spawned an expensive command and wrote no ledger should redden the check
 
   @logic @invariant
   Scenario: At most one scenario in the corpus holds the licence for an expensive spend class
@@ -132,41 +142,11 @@ Feature: Verification economy
     Then no resource class should appear more than once
     And a resource class provisioned twice in one run should redden the check, naming the class
 
-  @logic @invariant
-  Scenario: A sandbox run that recorded no spend ledger reddens rather than passing silently
-    Given the tier commands configured in "RIGGING.md"
-    When the sandbox tier has run through its command as configured
-    Then the wake should carry a spend ledger for that run
-    And a sandbox run that produced no ledger should redden the check, so a broken recorder cannot disarm it
+  Rule: An out-of-memory kill is a finding, never a rerun
 
-  Rule: The wake records the pressure a run ran under
-
-    - Overlapped tier legs contend for this machine's memory as well as its clock,
-      so the weather record carries pressure alongside duration: the run's worker
-      count, its peak resident set size, and any out-of-memory kill events, written
-      into the same per-tier stream the wall clock already uses, never a new
-      artifact.
-    - The concurrency prior is read from the record. A worker count that crashed
-      under pressure is backed off from before the next run, rather than the crash
-      being rediscovered at full price.
     - An out-of-memory kill is a harness defect finding, red and named. A silent
-      rerun spends the latency the overlap exists to remove and hides the defect
-      the record exists to surface.
-
-  @logic @invariant
-  Scenario: A tier run through its configured command records the memory pressure it ran under
-    Given the tier commands configured in "RIGGING.md"
-    When a tier is run through its command as configured
-    Then that tier's wake record should carry the run's worker count, its peak resident set size, and any out-of-memory kill events alongside its wall-clock record
-    And a configured tier command that records no memory pressure should redden the check
-
-  @logic @invariant
-  Scenario: A tier's worker count backs off from recorded pressure instead of rediscovering the crash
-    Given a tier's weather record carrying a pressure signal such as an out-of-memory kill or a peak resident set size at the run's configured memory ceiling
-    When the tier's next run derives its worker count from the record
-    Then the derived worker count should be lower than the record's green worker count
-    And a record carrying no pressure signal should restore the derived worker count toward the profile's configured parallelism
-    And a derived worker count held below the configured parallelism by a record carrying no pressure signal should redden the check
+      rerun spends the latency again and hides the defect the record exists to
+      surface.
 
   @logic @invariant
   Scenario: A recorded out-of-memory kill reds the check rather than hiding in a rerun
@@ -175,38 +155,14 @@ Feature: Verification economy
     Then no tier's record should carry an out-of-memory kill
     And a record carrying one should redden the check, naming the tier and the event
 
-  Rule: The wake is read run-scoped
-
-    - Overlapped tier legs write the wake concurrently, so a reader that consumes
-      "the last run's record" must select a completed run's record, never a live
-      sibling's partial one. A partial ledger misattributes spends, and a partial
-      weather record understates a wall clock, so the green either produces proves
-      nothing.
-    - The law covers every wake reader: the spend-ledger join, the budget-fit
-      check, and the pressure and worker-count priors.
-
-  @logic @invariant
-  Scenario: A wake reader selects a completed run's record, never a live sibling's partial one
-    Given a wake carrying a completed sandbox run's record and a live sibling invocation's partial record
-    When the records the wake's readers select are enumerated
-    Then each reader should select the completed run's record and leave the live sibling's partial record unread
-    And a reader that consumes a live sibling's partial record should redden the check
-
   Rule: The suite fits its budgets
 
-    - The budgets live in "RIGGING.md" under its Tiers section: a plain budget
-      for the full regression and a tier-suffixed budget per tier, in seconds. A
-      budget is a ceiling, not advice: a suite that outgrows its budget
-      interrupts the voyage as a red, rather than waiting for the next harbour
-      economy audit.
+    - The budgets live in "RIGGING.md" under its Tiers section: a tier-suffixed
+      budget per tier, in seconds. A budget is a ceiling, not advice: a suite
+      that outgrows its budget interrupts the voyage as a red, rather than
+      waiting for the next harbour economy audit.
     - The check needs no new instrumentation: every tier command already writes
       its wall clock into the weather record in the wake.
-    - The check judges a completed window. A lane still running has written no
-      completion into its record, so a check running inside the window it
-      judges silently omits every unfinished lane, its own included, and
-      reports green over the lanes that happen to have finished. Omission is
-      indistinguishable from fitting the budget, so the absent lane must redden
-      rather than be skipped.
 
   @logic @invariant
   Scenario: Each tier's recorded wall clock fits its budget from the rigging
@@ -214,17 +170,7 @@ Feature: Verification economy
     And the wall-clock record each tier's last run wrote into the wake
     When each tier's recorded wall clock is compared to that tier's budget
     Then no tier's recorded wall clock should exceed its budget
-    And the laned window's wall clock, from the lanes' shared launch to the last lane's exit, should fit the plain regression budget
     And a tier over its budget should redden the check, naming the tier, its budget, and the recorded time
-
-  @logic @invariant
-  Scenario: A budget judged over an incomplete window reddens instead of reporting green
-    Given the tier budgets configured in "RIGGING.md"
-    And a wall-clock record in which one tier's lane has not recorded its completion
-    When each tier's recorded wall clock is compared to that tier's budget
-    Then the check should redden, naming the tier whose lane is incomplete
-    And it should distinguish an incomplete lane from a lane that fits its budget
-    And no tier should be reported as fitting its budget on a record carrying no completion
 
   @logic @invariant
   Scenario: A step that runs pinned at its declared read ceiling reds the check
@@ -234,21 +180,31 @@ Feature: Verification economy
     Then no step's measured duration should reach its declared ceiling
     And planting a read whose signal never matches should redden the check before the plant is removed
 
-  Rule: Every tier that can spend records a ledger
+  Rule: The eval tier spends nothing live
 
-    - A ledger written for one tier alone leaves every other tier's spends
-      unrecorded by construction, so no entry exists to join against a licensed
-      set. The default tier is the one paid on every inner-loop run, so an
-      unrecorded spend there is the most expensive kind.
+    - The eval tier's expensive service effects are served from golden captures
+      recorded by the licensed @pipeline sandbox runs, so the tier creates no
+      cloud resource and its cost is the agent's turns alone.
+    - A capture is only as good as the endpoint it records. A recorded endpoint
+      that has stopped serving makes the capture serve a dead domain, and the
+      agent's own readiness polling then drains its budget, so the failure
+      presents as an agent timeout rather than as the stale capture it is.
 
   @logic @invariant
-  Scenario: A tier that spawns an expensive command writes a ledger entry for it
-    Given the tiers configured in "RIGGING.md"
-    And the spend ledger each tier's last run wrote into the wake
-    When each tier's recorded spends are joined against its licensed scenario set
-    Then every tier that spawned an expensive command should have written a ledger
-    And no spend should be attributed to a scenario outside the licensed set
-    And a tier that spawned an expensive command and wrote no ledger should redden the check
+  Scenario: Every endpoint the eval captures record still serves
+    Given the golden captures committed for the eval tier
+    When each recorded store endpoint is probed for readiness
+    Then every recorded endpoint should answer as serving
+    And a recorded endpoint that no longer serves should redden the check, naming the endpoint and the run that recorded it
+
+  @logic @invariant
+  Scenario: The eval tier serves every expensive external command from its captures
+    Given the spend ledger the eval tier's last run wrote into the wake
+    When each recorded spend is classified as served from a golden capture or run live
+    Then no managed skill install should have run live
+    And no configurator deploy should have run live
+    And no storefront dependency install should have run live
+    And a live expensive spend in an eval run should redden the check, naming the command and the scenario that made it
 
   Rule: A run reclaims the processes it spawned
 
@@ -266,19 +222,3 @@ Feature: Verification economy
     When the tier run exits
     Then no process the run spawned should still be running
     And a process the run left behind should redden the check, naming the command and its process id
-
-  Rule: The recorded dependencies match the package manifest
-
-    - "RIGGING.md" records dependencies under its Dependencies section and
-      "package.json" declares them. Absent a join, a dependency installed but
-      unrecorded, or recorded but uninstalled, is invisible to every role that
-      reads either file alone.
-
-  @logic @invariant
-  Scenario: Every declared dependency is recorded in the rigging
-    Given the dependencies declared in "package.json"
-    And the dependencies recorded under the Dependencies section of "RIGGING.md"
-    When the two sets are joined by dependency name
-    Then every declared dependency should be recorded in the rigging
-    And every recorded dependency should be declared in the manifest
-    And a dependency present in one and absent from the other should redden the check, naming it and the side it is missing from

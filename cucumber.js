@@ -22,11 +22,22 @@ process.env.HARNESS_RUN_ID ??= `run-${Date.now().toString(36)}-${Math.random()
 // record carrying none leaves the green count standing; no record leaves the
 // configured starting prior. The record paths are the same cwd-relative
 // message streams the tier commands in RIGGING.md write.
-import { armPressureRecording, deriveWorkerCount } from "./features/support/pressure.ts";
+import {
+  armPressureRecording,
+  CONFIGURED_PARALLELISM,
+  declaredTierWorkers,
+} from "./features/support/pressure.ts";
 import { armRunEndRecording } from "./features/support/spend-ledger.ts";
+import { armEvalRunEndRecording } from "./features/support/eval-spend-ledger.ts";
 import { armProcessReclaimRecording } from "./features/support/process-reclaim.ts";
-const logicWorkers = deriveWorkerCount("coverage/weather/logic.ndjson", 2);
-const sandboxWorkers = deriveWorkerCount("coverage/weather/sandbox.ndjson", 2);
+const logicWorkers = declaredTierWorkers("logic");
+// Sandbox concurrency is the `workers-sandbox` value RIGGING.md declares, read
+// as configured rather than derived at run time. The heavy @sandbox toolchain
+// scenarios (deploy's real vercel build, storefront prepare) OOM this
+// resource-limited VM when they co-reside, and this box's capacity is an
+// operator fact that does not change between runs, so the count stays a plain
+// declared value in the rigging where it is legible (feature 028).
+const sandboxWorkers = declaredTierWorkers("sandbox");
 
 // Record this run's own pressure into the message stream its argv names (only
 // a tier-record run names one; focused runs, discovery, and worker children
@@ -35,12 +46,9 @@ const sandboxWorkers = deriveWorkerCount("coverage/weather/sandbox.ndjson", 2);
 // stops recording, which is exactly what the pressure-record conformance
 // scenario reddens on.
 armPressureRecording({
-  default: 1,
+  ...CONFIGURED_PARALLELISM,
   logic: logicWorkers,
   sandbox: sandboxWorkers,
-  sandboxSerial: 1,
-  eval: 1,
-  all: 1,
 });
 
 // Run-scoped wake reading (feature verification-economy, "The wake is read
@@ -50,6 +58,10 @@ armPressureRecording({
 // pressure recorder: a command that stopped loading this config stops marking,
 // which the run-scope conformance check reddens on.
 armRunEndRecording();
+// The same completion marking for the @eval tier's own ledger: an eval
+// tier-record run appends its run-end at exit, so the eval ledger's readers
+// select a completed run and never a live sibling's partial one.
+armEvalRunEndRecording();
 
 // Process reclamation (feature verification-economy, "A run reclaims the
 // processes it spawned"): a tier-record run records the descendants still alive

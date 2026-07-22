@@ -45,7 +45,8 @@ Feature: Agent skill affordance evaluation
       affordance — is exercised for real on every run.
     - The expensive service effects Jolly's commands would produce — the Saleor
       Cloud environment creation, the configurator deploy, the storefront clone
-      and install, and the Vercel deploy — are served from golden captures:
+      and install, the managed skill installs `jolly init` drives through `npx
+      skills add`, and the Vercel deploy — are served from golden captures:
       recorded mechanically from the licensed `@pipeline` sandbox runs of the
       same commands, committed with the verification support, and re-verified
       against the live services at harbour. This is the layered golden-capture
@@ -54,6 +55,12 @@ Feature: Agent skill affordance evaluation
       `@sandbox` tier, and every canned response is a recorded capture, never
       hand-authored. Each capture site is marked and justified inline, naming
       its source run.
+    - An expensive external command the captures do not cover fails loudly and
+      names what is missing, rather than falling through to the real network.
+      A silent fall-through spends real install latency inside the agent's own
+      budget, so the tier measures network weather instead of the affordance,
+      and the run reads as an affordance failure when nothing about the
+      affordance failed.
     - The workspace still seeds only what authentication documents expect — the
       runtime `JOLLY_SALEOR_CLOUD_TOKEN`, but NOT the store endpoint
       (`NEXT_PUBLIC_SALEOR_API_URL`) or `SALEOR_TOKEN` — so the agent exercises

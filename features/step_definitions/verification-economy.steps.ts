@@ -7,9 +7,31 @@
 // its own scenario.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { REPO_ROOT } from "../support/repo-root.ts";
+import {
+  EVAL_CAPTURES_PATH,
+  deadRecordedEndpoints,
+  probeRecordedEndpoint,
+  readEvalCaptures,
+  recordedEndpoints,
+  type DeadEndpointFinding,
+  type RecordedEndpoint,
+} from "../support/eval-captures.ts";
+import {
+  EVAL_SPEND_LEDGER_PATH,
+  lastEvalRunEntries,
+  liveExpensiveSpends,
+  readEvalSpendLedger,
+  type EvalSpendEntry,
+  type LiveSpendViolation,
+} from "../support/eval-spend-ledger.ts";
+import {
+  stageVerifiedPreparedStorefront,
+  templateIsComplete,
+} from "../support/storefront-fixture.ts";
 import type { JollyWorld } from "../support/world.ts";
 import {
   checkTierBudgets,
@@ -20,7 +42,7 @@ import {
   readWakeRecord,
   readConfiguredTierTags,
   runTierCommand,
-  sandboxSweepLegWindows,
+  sweepLegWindows,
   tierNameFromRecordPath,
   withoutRecordWrite,
   type BudgetJudgment,
@@ -31,9 +53,11 @@ import {
   type TierRun,
 } from "../support/wake.ts";
 import {
+  CONFIGURED_PARALLELISM,
   deriveWorkerCount,
   oomKillFindings,
   readPressureRecord,
+  readTierWorkerCeilings,
   workerRestoreFinding,
   type OomFinding,
   type PressureRecord,
@@ -54,6 +78,7 @@ import {
   ledgerEntriesWithin,
   licenceExclusivityViolations,
   licensedScenariosBySpendClass,
+  readAllSpendLedgers,
   readSpendLedger,
   scenarioTagsFromSpecs,
   strayExemptionScenarios,
@@ -197,7 +222,7 @@ Then(
 // ─── The wake records the pressure a run ran under ──────────────────────────
 
 Then(
-  "that tier's wake record should carry the run's worker count, its peak resident set size, and any out-of-memory kill events alongside its wall-clock record",
+  "it should carry the run's worker count, its peak resident set size, and any out-of-memory kill events",
   function (this: JollyWorld) {
     const command = this.notes.tierCommand as TierCommand;
     const run = this.notes.tierRun as TierRun;
@@ -233,165 +258,6 @@ Then(
     assert.ok(
       Array.isArray(pressure.oomKills),
       "the pressure record must carry its out-of-memory kill events, empty when none occurred",
-    );
-  },
-);
-
-Then(
-  "a configured tier command that records no memory pressure should redden the check",
-  { timeout: 130_000 },
-  function (this: JollyWorld) {
-    const configured = this.notes.tierCommand as TierCommand;
-    // The recording rides the run config the command loads, so the plant is the
-    // SAME configured command over a config with the recording machinery
-    // unwired — the run still writes its wall-clock record, records no
-    // pressure, and must read as pressure-less, which is what reddens the check.
-    const tier = fixtureTier("no-pressure-wiring", { wireRunConfig: false });
-    this.cleanup.register("wake fixture tier (no pressure wiring)", () => tier.remove());
-    const run = runTierCommand(tier, configured);
-    assert.ok(
-      run.recordPath,
-      "the planted run must still write its wake record; only the pressure wiring is unwired",
-    );
-    const wallClock = readWakeRecord(run.recordPath);
-    assert.ok(
-      wallClock && wallClock.scenarios.length > 0,
-      "the planted run must still write its wall-clock record",
-    );
-    assert.equal(
-      readPressureRecord(run.recordPath),
-      undefined,
-      "a run whose config records no memory pressure must read as pressure-less, so the presence check reddens",
-    );
-  },
-);
-
-Given(
-  "a tier's weather record carrying a pressure signal such as an out-of-memory kill or a peak resident set size at the run's configured memory ceiling",
-  function (this: JollyWorld) {
-    // Fixture records in the wake (git-ignored): one per named signal kind, and
-    // one clean record for the no-signal prior. All carry the same green worker
-    // count, so the backoff is legible against it.
-    const dir = join(REPO_ROOT, "coverage", "weather", `fixture-pressure-${process.pid}`);
-    this.cleanup.register(`pressure fixture records ${dir}`, () => {
-      rmSync(dir, { recursive: true, force: true });
-    });
-    mkdirSync(dir, { recursive: true });
-    const greenWorkers = 2;
-    const ceiling = 8_000_000_000;
-    const write = (name: string, pressure: PressureRecord): string => {
-      const recordPath = join(dir, name);
-      writeFileSync(recordPath, `${JSON.stringify({ pressure })}\n`, "utf8");
-      return recordPath;
-    };
-    this.notes.greenWorkers = greenWorkers;
-    this.notes.oomRecordPath = write("oom.ndjson", {
-      workers: greenWorkers,
-      peakRssBytes: ceiling / 2,
-      memoryCeilingBytes: ceiling,
-      oomKills: [
-        { pid: 4242, comm: "node", raw: "Out of memory: Killed process 4242 (node)" },
-      ],
-    });
-    this.notes.ceilingRecordPath = write("at-ceiling.ndjson", {
-      workers: greenWorkers,
-      peakRssBytes: ceiling,
-      memoryCeilingBytes: ceiling,
-      oomKills: [],
-    });
-    this.notes.cleanRecordPath = write("clean.ndjson", {
-      workers: greenWorkers,
-      peakRssBytes: ceiling / 2,
-      memoryCeilingBytes: ceiling,
-      oomKills: [],
-    });
-  },
-);
-
-When(
-  "the tier's next run derives its worker count from the record",
-  function (this: JollyWorld) {
-    // The profile's configured parallelism, held distinct from every fixture's
-    // recorded count: a derivation that ignored the record would surface as
-    // this value, not as a backoff, and a clean record restores toward it.
-    const configured = 7;
-    this.notes.configuredWorkers = configured;
-    this.notes.derivedFromOom = deriveWorkerCount(
-      this.notes.oomRecordPath as string,
-      configured,
-    );
-    this.notes.derivedFromCeiling = deriveWorkerCount(
-      this.notes.ceilingRecordPath as string,
-      configured,
-    );
-    this.notes.derivedFromClean = deriveWorkerCount(
-      this.notes.cleanRecordPath as string,
-      configured,
-    );
-  },
-);
-
-Then(
-  "the derived worker count should be lower than the record's green worker count",
-  function (this: JollyWorld) {
-    const green = this.notes.greenWorkers as number;
-    const derivations: Array<[string, number]> = [
-      ["an out-of-memory kill", this.notes.derivedFromOom as number],
-      ["a peak resident set size at the ceiling", this.notes.derivedFromCeiling as number],
-    ];
-    for (const [signal, derived] of derivations) {
-      assert.ok(
-        derived < green,
-        `a record carrying ${signal} must back the next run off below its green ` +
-          `worker count ${green} instead of rediscovering the crash; derived ${derived}`,
-      );
-      assert.ok(
-        derived >= 1,
-        `the backed-off worker count must stay a runnable count; derived ${derived}`,
-      );
-    }
-  },
-);
-
-Then(
-  "a record carrying no pressure signal should restore the derived worker count toward the profile's configured parallelism",
-  function (this: JollyWorld) {
-    const recorded = this.notes.greenWorkers as number;
-    const configured = this.notes.configuredWorkers as number;
-    const derived = this.notes.derivedFromClean as number;
-    assert.ok(
-      derived > recorded,
-      `a clean record must move the count toward the configured parallelism ` +
-        `${configured}; recorded ${recorded}, derived ${derived}`,
-    );
-    assert.ok(
-      derived <= configured,
-      `the restored count must not exceed the profile's configured parallelism ` +
-        `${configured}; derived ${derived}`,
-    );
-  },
-);
-
-Then(
-  "a derived worker count held below the configured parallelism by a record carrying no pressure signal should redden the check",
-  function (this: JollyWorld) {
-    const configured = this.notes.configuredWorkers as number;
-    const clean = readPressureRecord(this.notes.cleanRecordPath as string);
-    assert.ok(clean, "the clean fixture record must be readable");
-    // Planted: the pre-restore derivation, which left the recorded count
-    // standing. The check must name it rather than pass it.
-    const held = workerRestoreFinding(clean, clean.workers, configured);
-    assert.ok(
-      held,
-      "a derivation holding the recorded count below the configured parallelism " +
-        "must redden the check",
-    );
-    assert.match(held.message, /restoring toward it/);
-    // Plant removed: the live derivation restores, so the check is green on it.
-    assert.equal(
-      workerRestoreFinding(clean, this.notes.derivedFromClean as number, configured),
-      undefined,
-      "the restoring derivation must leave the check green",
     );
   },
 );
@@ -477,14 +343,17 @@ Given(
 );
 
 When(
-  "the waits it performs before sending each input are enumerated",
+  "the waits it performs before sending each input and the reads it performs before asserting are enumerated",
   function (this: JollyWorld) {
+    // One enumeration, both signal classes: the wait before each input and the
+    // read before each assertion.
     this.notes.waitViolations = findGuessedDelayWaits();
+    this.notes.readViolations = findTimerEndedReads();
   },
 );
 
 Then(
-  "each should be ended by the prompt it observed in the terminal output",
+  "each wait should be ended by the prompt it observed in the terminal output",
   function (this: JollyWorld) {
     const violations = this.notes.waitViolations as WaitViolation[];
     assert.equal(
@@ -498,9 +367,26 @@ Then(
 );
 
 Then(
-  "a wait ended by a fixed delay guessed to outlast the prompt should redden the check",
+  "each read should be ended by the output it asserts on, appearing in the terminal",
   function (this: JollyWorld) {
-    const planted: InjectedSource = {
+    const violations = this.notes.readViolations as ReadViolation[];
+    assert.equal(
+      violations.length,
+      0,
+      `interactive terminal reads ended by a timer rather than by the output they assert on:\n${violations
+        .map((violation) => `  - ${violation.message}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "a wait or read ended by a fixed delay or timeout should redden the check",
+  function (this: JollyWorld) {
+    // Planted red, both classes, judged by the same enumerations the real
+    // assertions use: an input fed on the guessed `inputDelayMs` cadence, and a
+    // terminal read left to end on the fixed `timeoutMs`.
+    const plantedWait: InjectedSource = {
       file: "features/step_definitions/.planted-guessed-delay.steps.ts",
       text: [
         'import { runUnderPty } from "../support/pty.ts";',
@@ -516,39 +402,13 @@ Then(
         "}",
       ].join("\n"),
     };
-    const violations = findGuessedDelayWaits([planted]);
     assert.ok(
-      violations.some((violation) => violation.file === planted.file),
+      findGuessedDelayWaits([plantedWait]).some(
+        (violation) => violation.file === plantedWait.file,
+      ),
       "an interactive input fed on the guessed `inputDelayMs` cadence was not reported",
     );
-  },
-);
-
-When(
-  "the reads it performs before asserting on the terminal output are enumerated",
-  function (this: JollyWorld) {
-    this.notes.readViolations = findTimerEndedReads();
-  },
-);
-
-Then(
-  "each should be ended by the output it asserts on, appearing in the terminal",
-  function (this: JollyWorld) {
-    const violations = this.notes.readViolations as ReadViolation[];
-    assert.equal(
-      violations.length,
-      0,
-      `interactive terminal reads ended by a timer rather than by the output they assert on:\n${violations
-        .map((violation) => `  - ${violation.message}`)
-        .join("\n")}`,
-    );
-  },
-);
-
-Then(
-  "a read ended by a fixed timeout, returning whatever the terminal had produced by then, should redden the check",
-  function (this: JollyWorld) {
-    const planted: InjectedSource = {
+    const plantedRead: InjectedSource = {
       file: "features/step_definitions/.planted-timer-ended-read.steps.ts",
       text: [
         'import { runUnderPty } from "../support/pty.ts";',
@@ -564,11 +424,15 @@ Then(
         "}",
       ].join("\n"),
     };
-    const violations = findTimerEndedReads([planted]);
     assert.ok(
-      violations.some((violation) => violation.file === planted.file),
+      findTimerEndedReads([plantedRead]).some(
+        (violation) => violation.file === plantedRead.file,
+      ),
       "a terminal read left to end on the fixed `timeoutMs` was not reported",
     );
+    // Plants removed: the tree's own interactive support carries neither.
+    assert.deepEqual(findGuessedDelayWaits(), []);
+    assert.deepEqual(findTimerEndedReads(), []);
   },
 );
 
@@ -629,27 +493,151 @@ Then(
   },
 );
 
+// ─── The shared prepared-storefront fixture rebuilds an evicted template ────
+
+/** Write a complete stand-in prepared-storefront template (package.json +
+ * node_modules), the shape the fixture's completeness predicate requires. */
+function stageStandInTemplate(dir: string): string {
+  mkdirSync(join(dir, "node_modules"), { recursive: true });
+  writeFileSync(join(dir, "package.json"), '{"name":"paper-stand-in"}\n', "utf8");
+  return dir;
+}
+
+Given(
+  "the storefront-template fixture has memoized its shared template for the run",
+  function (this: JollyWorld) {
+    // A stand-in for the shared template the fixture memoizes: a complete tree,
+    // so the completeness predicate the fixture guards its copy with treats it
+    // exactly as a real memoized template.
+    // @exceptional-double: the memoized template and its re-materialize build are
+    // stand-ins. The real Paper clone+install is covered for real by the
+    // @toolchain-element storefront scenario and the once-per-run shared
+    // provisioning; this scenario pins ONLY the fixture's
+    // re-materialize-before-copy control flow, which a second real build cannot
+    // exercise without a duplicate storefront-template shared-provisioning spend
+    // the economy check would then redden on.
+    const base = join(tmpdir(), `jolly-qm-storefront-evict-${process.pid}-${Date.now()}`);
+    this.cleanup.register(`storefront-evict fixture ${base}`, () => {
+      rmSync(base, { recursive: true, force: true });
+    });
+    const template = stageStandInTemplate(join(base, "template"));
+    let rebuilds = 0;
+    this.notes.evictBase = base;
+    this.notes.evictTemplate = template;
+    this.notes.evictDest = join(base, "storefront");
+    // The injected re-materialize builder: recreates the stand-in template and
+    // counts its invocations, so the Then can prove re-materialization happened.
+    this.notes.evictBuild = async (): Promise<string> => {
+      rebuilds += 1;
+      return stageStandInTemplate(template);
+    };
+    this.notes.evictRebuilds = (): number => rebuilds;
+    assert.ok(
+      templateIsComplete(template),
+      "the memoized stand-in template must start complete",
+    );
+  },
+);
+
+When(
+  "the memoized template source is removed and a scenario then requests the prepared storefront",
+  async function (this: JollyWorld) {
+    const template = this.notes.evictTemplate as string;
+    const dest = this.notes.evictDest as string;
+    const build = this.notes.evictBuild as () => Promise<string>;
+    // Evict the memoized template mid-run, exactly as a foreign reclaim would.
+    rmSync(template, { recursive: true, force: true });
+    assert.ok(!existsSync(template), "the memoized template source must be removed");
+    // The consumer requests the prepared storefront through the fixture's
+    // verified-staging seam.
+    await stageVerifiedPreparedStorefront(dest, template, build);
+  },
+);
+
+Then(
+  "the fixture should re-materialize the template and stage the prepared storefront",
+  function (this: JollyWorld) {
+    const rebuilds = (this.notes.evictRebuilds as () => number)();
+    const dest = this.notes.evictDest as string;
+    assert.ok(
+      rebuilds >= 1,
+      "the fixture copied from the evicted memoized source instead of " +
+        "re-materializing the template",
+    );
+    assert.ok(
+      templateIsComplete(dest),
+      `the staged prepared storefront is incomplete at ${dest} — the fixture did ` +
+        "not re-materialize the evicted template before copying",
+    );
+  },
+);
+
+Then(
+  "a fixture that copies from an unverified source without re-materializing should redden the check",
+  async function (this: JollyWorld) {
+    const base = this.notes.evictBase as string;
+    // The planted red: the retired copier that copies straight from the memoized
+    // path with no completeness re-check. Pointed at an evicted template, it
+    // stages an incomplete storefront (or throws on the gone source) — which the
+    // completeness check must catch.
+    const evicted = stageStandInTemplate(join(base, "evicted-template"));
+    rmSync(evicted, { recursive: true, force: true });
+    const unverifiedDest = join(base, "unverified-storefront");
+    let staged = true;
+    try {
+      rmSync(unverifiedDest, { recursive: true, force: true });
+      cpSync(evicted, unverifiedDest, { recursive: true });
+      staged = templateIsComplete(unverifiedDest);
+    } catch {
+      staged = false;
+    }
+    assert.equal(
+      staged,
+      false,
+      "copying from an unverified evicted source must fail the completeness " +
+        "check, so the re-materialize guard is proven necessary",
+    );
+    // Plant removed: the live re-materializing stager, given the same eviction,
+    // stages a complete storefront and leaves the check green.
+    const greenTemplate = stageStandInTemplate(join(base, "green-template"));
+    rmSync(greenTemplate, { recursive: true, force: true });
+    const greenDest = join(base, "green-storefront");
+    await stageVerifiedPreparedStorefront(greenDest, greenTemplate, async () =>
+      stageStandInTemplate(greenTemplate),
+    );
+    assert.ok(
+      templateIsComplete(greenDest),
+      "the re-materializing stager must stage a complete storefront on eviction",
+    );
+  },
+);
+
 // ─── Expensive spend is licensed, recorded, and joined ─────────────────────
 
 Given(
-  "the spend ledger the sandbox tier's last sweep recorded into the wake, every profile leg of it",
+  "the spend ledger each tier's last run recorded into the wake, every profile leg of it",
   function (this: JollyWorld) {
-    // Every profile leg of the last sweep: each sandbox-family record path's
-    // latest completed run, selected run-scoped by its run-end, so the order
-    // the legs ran in can never leave one leg's spends unjudged.
-    const legs = sandboxSweepLegWindows(readTierCommands("RIGGING.md"));
+    // Every profile leg of every tier's last run: each configured tier command's
+    // record path, its latest completed run selected run-scoped by its run-end,
+    // so the order the legs ran in can never leave one leg's spends unjudged and
+    // no tier that can spend goes unjudged.
+    const legs = sweepLegWindows(readTierCommands("RIGGING.md"));
     assert.ok(
       legs.length > 0,
-      "the wake carries no completed sandbox tier record — no profile leg of " +
-        "the sandbox tier has run through its configured command; run the " +
-        "sandbox tier (broad-sandbox and broad-sandbox-serial in RIGGING.md)",
+      "the wake carries no completed tier record — no tier has run through its " +
+        "configured command; run a tier command from RIGGING.md so its record " +
+        "exists to judge",
     );
-    const selection = sweepLegEntries(readSpendLedger(), legs);
-    const unresolved = selection.legs.filter((leg) => leg.run === undefined);
+    const selection = sweepLegEntries(readAllSpendLedgers(), legs);
+    // A leg that recorded nothing spawned nothing expensive; only a leg that
+    // recorded spends yet left no run-end is a broken or disarmed recorder.
+    const unresolved = selection.legs.filter(
+      (leg) => leg.run === undefined && !leg.spentNothing,
+    );
     assert.equal(
       unresolved.length,
       0,
-      `profile legs of the sandbox tier's last sweep with no completed run in ` +
+      `profile legs of the tiers' last runs with no completed run in ` +
         `the spend ledger at ${SPEND_LEDGER_PATH}: ` +
         `${unresolved.map((leg) => leg.tier).join(", ")} — the leg ran but its ` +
         `recorder left no run-end, so it is broken or disarmed; rerun the ` +
@@ -657,7 +645,7 @@ Given(
     );
     assert.ok(
       selection.entries.length > 0,
-      `the wake carries no spend ledger entry for the sandbox tier's last ` +
+      `the wake carries no spend ledger entry for the tiers' last ` +
         `sweep at ${SPEND_LEDGER_PATH}`,
     );
     this.notes.ledgerEntries = selection.entries;
@@ -1050,124 +1038,7 @@ function latestSandboxRunWindow(commands: TierCommand[]): RunWindow | undefined 
   return latest;
 }
 
-When(
-  "the sandbox tier has run through its command as configured",
-  function (this: JollyWorld) {
-    const commands = this.notes.tierCommands as TierCommand[];
-    const window = latestSandboxRunWindow(commands);
-    assert.ok(
-      window,
-      "the sandbox tier has not run through its configured command: no sandbox " +
-        "wake record exists to read; run broad-sandbox or broad-sandbox-serial",
-    );
-    this.notes.sandboxRunWindow = window;
-  },
-);
-
-Then("the wake should carry a spend ledger for that run", function (this: JollyWorld) {
-  const window = this.notes.sandboxRunWindow as RunWindow;
-  const within = ledgerEntriesWithin(window, readSpendLedger());
-  assert.ok(
-    within.length > 0,
-    `the wake carries no spend ledger entry for the sandbox tier's last run ` +
-      `(window ${new Date(window.startMs).toISOString()} .. ` +
-      `${new Date(window.endMs).toISOString()}): the run recorded nothing at ` +
-      `${SPEND_LEDGER_PATH}, so its recorder is broken or disarmed`,
-  );
-});
-
-Then(
-  "a sandbox run that produced no ledger should redden the check, so a broken recorder cannot disarm it",
-  function (this: JollyWorld) {
-    // The planted red: a run window that contains no ledger entry at all. The
-    // same selection the real assertion above uses must come back empty, which
-    // is exactly the condition that reddens it.
-    const planted: SpendEntry[] = [
-      {
-        run: "planted",
-        tier: "sandbox",
-        at: 1_000,
-        scenario: "(run)",
-        spend: "run-start",
-      },
-    ];
-    const window: RunWindow = { startMs: 2_000, endMs: 3_000 };
-    assert.equal(
-      ledgerEntriesWithin(window, planted).length,
-      0,
-      "a run window holding no ledger entry must select nothing, so the presence check reddens",
-    );
-  },
-);
-
 // ─── Every tier that can spend records a ledger ─────────────────────────────
-
-Given(
-  "the tiers configured in {string}",
-  function (this: JollyWorld, riggingFile: string) {
-    const tiers = readConfiguredTierTags(riggingFile);
-    assert.ok(
-      tiers.length > 0,
-      `${riggingFile} configures no tier tags under "## Tiers"`,
-    );
-    this.notes.configuredTierTags = tiers;
-  },
-);
-
-Given(
-  "the spend ledger each tier's last run wrote into the wake",
-  function (this: JollyWorld) {
-    const entries = lastRunEntries(readSpendLedger());
-    assert.ok(
-      entries.length > 0,
-      `the wake carries no spend ledger at ${SPEND_LEDGER_PATH} — no tier run ` +
-        `has recorded one; run the sandbox tier (broad-sandbox and ` +
-        `broad-sandbox-serial in RIGGING.md) so the recorder writes it`,
-    );
-    this.notes.perTierLedgerEntries = entries;
-  },
-);
-
-When(
-  "each tier's recorded spends are joined against its licensed scenario set",
-  function (this: JollyWorld) {
-    const entries = this.notes.perTierLedgerEntries as SpendEntry[];
-    const tags = scenarioTagsFromSpecs();
-    this.notes.perTierUnlicensed = unlicensedSpends(entries, tags);
-    this.notes.ledgerCoverage = tiersMissingLedger(
-      tiersThatCanSpend(tags),
-      tiersWithLedger(entries),
-    );
-  },
-);
-
-Then(
-  "every tier that spawned an expensive command should have written a ledger",
-  function (this: JollyWorld) {
-    const findings = this.notes.ledgerCoverage as LedgerCoverageFinding[];
-    assert.equal(
-      findings.length,
-      0,
-      `tiers that can spawn an expensive command but wrote no ledger:\n${findings
-        .map((finding) => `  - ${finding.message}`)
-        .join("\n")}`,
-    );
-  },
-);
-
-Then(
-  "no spend should be attributed to a scenario outside the licensed set",
-  function (this: JollyWorld) {
-    const violations = this.notes.perTierUnlicensed as SpendViolation[];
-    assert.equal(
-      violations.length,
-      0,
-      `spends attributed to scenarios outside the licensed set:\n${violations
-        .map((violation) => `  - ${violation.message}`)
-        .join("\n")}`,
-    );
-  },
-);
 
 Then(
   "a tier that spawned an expensive command and wrote no ledger should redden the check",
@@ -1306,82 +1177,6 @@ Then(
 
 // ─── The wake is read run-scoped ────────────────────────────────────────────
 
-Given(
-  "a wake carrying a completed sandbox run's record and a live sibling invocation's partial record",
-  function (this: JollyWorld) {
-    // Fixture wake inside the wake itself (git-ignored). Teardown registered
-    // before creation, loud on failure via the registry.
-    const dir = join(
-      REPO_ROOT,
-      "coverage",
-      "weather",
-      `fixture-run-scope-${process.pid}`,
-    );
-    this.cleanup.register(`wake run-scope fixture ${dir}`, () => {
-      rmSync(dir, { recursive: true, force: true });
-    });
-    this.notes.wakeFixture = writeWakeReaderFixture(dir);
-  },
-);
-
-When(
-  "the records the wake's readers select are enumerated",
-  function (this: JollyWorld) {
-    this.notes.readerSelections = enumerateWakeReaderSelections(
-      this.notes.wakeFixture as WakeReaderFixture,
-    );
-  },
-);
-
-Then(
-  "each reader should select the completed run's record and leave the live sibling's partial record unread",
-  function (this: JollyWorld) {
-    const selections = this.notes.readerSelections as ReaderSelection[];
-    // The law covers every wake reader; an enumeration that lost one would
-    // pass silently over the reader it no longer judges.
-    assert.deepEqual(
-      selections.map((selection) => selection.reader).sort(),
-      [...WAKE_READERS].sort(),
-      "the enumeration must cover every wake reader the run-scope law names",
-    );
-    const violations = runScopeViolations(selections);
-    assert.equal(
-      violations.length,
-      0,
-      `wake readers that consumed other than the completed run's record:\n${violations
-        .map((violation) => `  - ${violation.message}`)
-        .join("\n")}`,
-    );
-  },
-);
-
-Then(
-  "a reader that consumes a live sibling's partial record should redden the check",
-  function (this: JollyWorld) {
-    // The planted red: the retired append-order selection — "the last entry's
-    // run" — over the same fixture wake. The live sibling appended last, so
-    // this reader hands back its partial run, and the same judgment must
-    // redden, naming the reader and what it consumed.
-    const lastEntryScoped = (entries: SpendEntry[]): SpendEntry[] => {
-      const last = entries[entries.length - 1];
-      return last ? entries.filter((entry) => entry.run === last.run) : [];
-    };
-    const selections = enumerateWakeReaderSelections(
-      this.notes.wakeFixture as WakeReaderFixture,
-      { ledgerSelection: lastEntryScoped },
-    );
-    const violations = runScopeViolations(selections);
-    assert.ok(
-      violations.some(
-        (violation) =>
-          violation.reader === "spend-ledger join" &&
-          violation.message.includes("partial"),
-      ),
-      `a reader consuming the live sibling's partial record must redden, naming it: ${JSON.stringify(violations)}`,
-    );
-  },
-);
-
 // ─── The suite fits its budgets ─────────────────────────────────────────────
 
 Given(
@@ -1447,23 +1242,6 @@ Then("no tier's recorded wall clock should exceed its budget", function (this: J
 });
 
 Then(
-  "the laned window's wall clock, from the lanes' shared launch to the last lane's exit, should fit the plain regression budget",
-  function (this: JollyWorld) {
-    const judgment = this.notes.budgetJudgment as BudgetJudgment;
-    assert.ok(
-      judgment.windowSeconds !== undefined,
-      "no tier record carries a completed run window — run the tier commands " +
-        "as lanes so the window the budget judges exists",
-    );
-    assert.equal(
-      judgment.window,
-      undefined,
-      judgment.window?.message ?? "the laned window fits the regression budget",
-    );
-  },
-);
-
-Then(
   "a tier over its budget should redden the check, naming the tier, its budget, and the recorded time",
   function (this: JollyWorld) {
     const budgets: TierBudgets = { plainSeconds: 10, perTierSeconds: { planted: 2 } };
@@ -1484,94 +1262,6 @@ Then(
 );
 
 // ─── A budget judged over an incomplete window ──────────────────────────────
-
-Given(
-  "a wall-clock record in which one tier's lane has not recorded its completion",
-  function (this: JollyWorld) {
-    // The condition is constructed, not waited for: a lane mid-flight writes no
-    // completion, and the judgment's behaviour under that record is what this
-    // scenario pins. One lane completes well inside its budget so the verdict
-    // has both kinds to tell apart.
-    const budgets = this.notes.tierBudgets as TierBudgets;
-    const complete = "logic";
-    const incomplete = "eval";
-    assert.ok(
-      budgets.perTierSeconds[complete] !== undefined &&
-        budgets.perTierSeconds[incomplete] !== undefined,
-      `the rigging must budget both ${complete} and ${incomplete} for this check`,
-    );
-    this.notes.incompleteLaneTier = incomplete;
-    this.notes.completeLaneTier = complete;
-    this.notes.tierClocks = [
-      {
-        tier: complete,
-        recordPath: `coverage/weather/${complete}.ndjson`,
-        seconds: 1,
-      },
-      {
-        tier: incomplete,
-        recordPath: `coverage/weather/${incomplete}.ndjson`,
-        incomplete: true as const,
-      },
-    ];
-  },
-);
-
-Then(
-  "the check should redden, naming the tier whose lane is incomplete",
-  function (this: JollyWorld) {
-    const judgment = this.notes.budgetJudgment as BudgetJudgment;
-    const tier = this.notes.incompleteLaneTier as string;
-    const finding = judgment.incomplete.find((lane) => lane.tier === tier);
-    assert.ok(
-      finding,
-      `the incomplete ${tier} lane was not reported: ${JSON.stringify(judgment)}`,
-    );
-    assert.ok(
-      finding.message.includes(tier),
-      `the finding must name the tier: ${finding.message}`,
-    );
-  },
-);
-
-Then(
-  "it should distinguish an incomplete lane from a lane that fits its budget",
-  function (this: JollyWorld) {
-    const judgment = this.notes.budgetJudgment as BudgetJudgment;
-    const incomplete = this.notes.incompleteLaneTier as string;
-    const complete = this.notes.completeLaneTier as string;
-    assert.ok(
-      judgment.fitting.includes(complete),
-      `the completed ${complete} lane fits its budget and must be reported as fitting: ${JSON.stringify(judgment)}`,
-    );
-    assert.ok(
-      judgment.incomplete.every((lane) => lane.tier !== complete),
-      `the completed ${complete} lane must not be reported incomplete`,
-    );
-    assert.ok(
-      judgment.incomplete.some((lane) => lane.tier === incomplete),
-      `the ${incomplete} lane must be reported incomplete`,
-    );
-  },
-);
-
-Then(
-  "no tier should be reported as fitting its budget on a record carrying no completion",
-  function (this: JollyWorld) {
-    const judgment = this.notes.budgetJudgment as BudgetJudgment;
-    const incompleteTiers = new Set(judgment.incomplete.map((lane) => lane.tier));
-    const wrongly = judgment.fitting.filter((tier) => incompleteTiers.has(tier));
-    assert.deepEqual(
-      wrongly,
-      [],
-      `tiers reported as fitting on a record carrying no completion: ${wrongly.join(", ")}`,
-    );
-    assert.ok(
-      judgment.perTier.every((violation) => !incompleteTiers.has(violation.tier)),
-      "a lane carrying no completion was given a budget verdict",
-    );
-  },
-);
 
 // ─── A step pinned at its declared read ceiling ─────────────────────────────
 
@@ -1743,48 +1433,81 @@ Then(
 
 // ─── The recorded dependencies match the package manifest ───────────────────
 
-Given(
-  "the dependencies declared in {string}",
-  function (this: JollyWorld, manifestFile: string) {
-    const declared = manifestDependencyNames(
-      readFileSync(join(REPO_ROOT, manifestFile), "utf8"),
-    );
-    assert.ok(declared.length > 0, `${manifestFile} declares no dependencies`);
-    this.notes.declaredDependencies = declared;
-  },
-);
+// ─── The eval tier serves its expensive commands from the captures ──────────
+//
+// The @eval tier's expensive external commands — the managed skill installs
+// `jolly init` drives through `npx skills add`, the configurator deploy, the
+// storefront clone and install, the Vercel deploy — are served from golden
+// captures (feature 025). "Served from a capture" is a claim about what the
+// run actually spawned, so the eval PATH shims record which branch answered
+// each spawn into the eval ledger in the wake, and this check joins it.
 
 Given(
-  "the dependencies recorded under the Dependencies section of {string}",
-  function (this: JollyWorld, riggingFile: string) {
-    const recorded = parseRecordedDependencies(
-      readFileSync(join(REPO_ROOT, riggingFile), "utf8"),
-    );
+  "the spend ledger the eval tier's last run wrote into the wake",
+  function (this: JollyWorld) {
+    const entries = lastEvalRunEntries(readEvalSpendLedger());
     assert.ok(
-      recorded.length > 0,
-      `${riggingFile} records no dependencies under "## Dependencies"`,
+      entries.length > 0,
+      `the wake carries no spend ledger at ${EVAL_SPEND_LEDGER_PATH} — no eval ` +
+        `run has recorded its spends. Run the eval tier (broad-eval in ` +
+        `RIGGING.md) so its ledger is written.`,
     );
-    this.notes.recordedDependencies = recorded;
+    this.notes.evalLedgerEntries = entries;
   },
 );
 
-When("the two sets are joined by dependency name", function (this: JollyWorld) {
-  this.notes.dependencyNameViolations = joinDependencyNames(
-    this.notes.declaredDependencies as string[],
-    this.notes.recordedDependencies as string[],
+When(
+  "each recorded spend is classified as served from a golden capture or run live",
+  function (this: JollyWorld) {
+    const entries = this.notes.evalLedgerEntries as EvalSpendEntry[];
+    this.notes.evalLiveSpends = liveExpensiveSpends(entries);
+    this.attach(
+      `Eval run ${entries[0]?.run ?? "(unknown)"} spends:\n` +
+        entries
+          .filter((entry) => entry.spend !== "run-start" && entry.spend !== "run-end")
+          .map((entry) => `  ${entry.served.padEnd(7)} ${entry.spend} — ${entry.scenario}`)
+          .join("\n"),
+      "text/plain",
+    );
+  },
+);
+
+Then("no managed skill install should have run live", function (this: JollyWorld) {
+  const live = (this.notes.evalLiveSpends as LiveSpendViolation[]).filter(
+    (violation) => violation.spend === "skills-install",
+  );
+  assert.equal(
+    live.length,
+    0,
+    `managed skill installs run live in the eval tier:\n${live
+      .map((violation) => `  - ${violation.message}`)
+      .join("\n")}`,
+  );
+});
+
+Then("no configurator deploy should have run live", function (this: JollyWorld) {
+  const live = (this.notes.evalLiveSpends as LiveSpendViolation[]).filter(
+    (violation) => violation.spend === "configurator-deploy",
+  );
+  assert.equal(
+    live.length,
+    0,
+    `configurator deploys run live in the eval tier:\n${live
+      .map((violation) => `  - ${violation.message}`)
+      .join("\n")}`,
   );
 });
 
 Then(
-  "every declared dependency should be recorded in the rigging",
+  "no storefront dependency install should have run live",
   function (this: JollyWorld) {
-    const violations = (
-      this.notes.dependencyNameViolations as DependencyNameViolation[]
-    ).filter((violation) => violation.missingFrom === "rigging");
+    const live = (this.notes.evalLiveSpends as LiveSpendViolation[]).filter(
+      (violation) => violation.spend === "pnpm-install",
+    );
     assert.equal(
-      violations.length,
+      live.length,
       0,
-      `dependencies declared but unrecorded:\n${violations
+      `storefront dependency installs run live in the eval tier:\n${live
         .map((violation) => `  - ${violation.message}`)
         .join("\n")}`,
     );
@@ -1792,44 +1515,146 @@ Then(
 );
 
 Then(
-  "every recorded dependency should be declared in the manifest",
-  function (this: JollyWorld) {
-    const violations = (
-      this.notes.dependencyNameViolations as DependencyNameViolation[]
-    ).filter((violation) => violation.missingFrom === "manifest");
-    assert.equal(
-      violations.length,
-      0,
-      `dependencies recorded but undeclared:\n${violations
-        .map((violation) => `  - ${violation.message}`)
-        .join("\n")}`,
-    );
-  },
-);
-
-Then(
-  "a dependency present in one and absent from the other should redden the check, naming it and the side it is missing from",
+  "a live expensive spend in an eval run should redden the check, naming the command and the scenario that made it",
   function () {
-    const violations = joinDependencyNames(["only-declared"], ["only-recorded"]);
-    const declaredSide = violations.find(
-      (violation) => violation.name === "only-declared",
+    // The planted red: a ledger carrying one live configurator deploy. The
+    // same join the Then steps above ran must select it and name both the
+    // command and the scenario.
+    const planted: EvalSpendEntry[] = [
+      {
+        run: "planted",
+        tier: "eval",
+        at: Date.now(),
+        scenario: "(run)",
+        spend: "run-start",
+        served: "live",
+      },
+      {
+        run: "planted",
+        tier: "eval",
+        at: Date.now(),
+        scenario: "A baseline agent follows the published /setup entry point to set up a project",
+        spend: "configurator-deploy",
+        served: "live",
+        argv: ["npx", "@saleor/configurator@latest", "deploy"],
+      },
+    ];
+    const violations = liveExpensiveSpends(planted);
+    assert.equal(
+      violations.length,
+      1,
+      "a live expensive spend must redden the check",
     );
-    const recordedSide = violations.find(
-      (violation) => violation.name === "only-recorded",
-    );
-    assert.ok(declaredSide, "a declared-but-unrecorded dependency was not reported");
-    assert.equal(declaredSide.missingFrom, "rigging");
+    const violation = violations[0]!;
     assert.ok(
-      declaredSide.message.includes("only-declared") &&
-        declaredSide.message.includes("rigging"),
-      `the violation must name the dependency and the side: ${declaredSide.message}`,
+      violation.message.includes("npx @saleor/configurator@latest deploy"),
+      `the violation must name the command: ${violation.message}`,
     );
-    assert.ok(recordedSide, "a recorded-but-undeclared dependency was not reported");
-    assert.equal(recordedSide.missingFrom, "manifest");
     assert.ok(
-      recordedSide.message.includes("only-recorded") &&
-        recordedSide.message.includes("package.json"),
-      `the violation must name the dependency and the side: ${recordedSide.message}`,
+      violation.message.includes(
+        "A baseline agent follows the published /setup entry point to set up a project",
+      ),
+      `the violation must name the scenario that made the spend: ${violation.message}`,
+    );
+    // Plant removed: the same spend served from a capture leaves the check green.
+    assert.equal(
+      liveExpensiveSpends(
+        planted.map((entry) =>
+          entry.spend === "configurator-deploy"
+            ? { ...entry, served: "capture" as const }
+            : entry,
+        ),
+      ).length,
+      0,
+      "a spend served from a golden capture must leave the check green",
+    );
+  },
+);
+
+// ─── Every endpoint the eval captures record still serves ───────────────────
+//
+// The captures are recorded against persistent resources that outlive runs, so
+// a recorded endpoint that stopped serving is a stale capture. The eval then
+// drives a live agent against a dead URL, which the agent cannot tell apart
+// from an affordance it failed to find, so it burns its whole budget and the
+// run reads as an affordance failure when the affordance was never at fault.
+
+Given("the golden captures committed for the eval tier", function (this: JollyWorld) {
+  const captures = readEvalCaptures();
+  const endpoints = recordedEndpoints(captures);
+  assert.ok(
+    endpoints.length > 0,
+    `the committed capture store ${EVAL_CAPTURES_PATH} records no endpoint; ` +
+      `run the sandbox tier so the licensed @pipeline run records the shared ` +
+      `store and the shared deployment`,
+  );
+  this.notes.recordedEndpoints = endpoints;
+});
+
+When(
+  "each recorded store endpoint is probed for readiness",
+  { timeout: 180_000 },
+  async function (this: JollyWorld) {
+    const endpoints = this.notes.recordedEndpoints as RecordedEndpoint[];
+    this.notes.deadEndpoints = await deadRecordedEndpoints(endpoints, (endpoint) =>
+      probeRecordedEndpoint(endpoint),
+    );
+    this.attach(
+      `Probed recorded endpoints:\n` +
+        endpoints.map((e) => `  ${e.label}: ${e.url} (recorded by ${e.sourceRun})`).join("\n"),
+      "text/plain",
+    );
+  },
+);
+
+Then("every recorded endpoint should answer as serving", function (this: JollyWorld) {
+  const dead = this.notes.deadEndpoints as DeadEndpointFinding[];
+  assert.equal(
+    dead.length,
+    0,
+    `recorded capture endpoints that no longer serve:\n${dead
+      .map((finding) => `  - ${finding.message}`)
+      .join("\n")}`,
+  );
+});
+
+Then(
+  "a recorded endpoint that no longer serves should redden the check, naming the endpoint and the run that recorded it",
+  async function () {
+    // The planted red: the same join over a recorded endpoint whose probe
+    // reports it dead. The probe is injected, so the plant needs no network and
+    // no real endpoint is torn down to prove the check.
+    const planted: RecordedEndpoint[] = [
+      {
+        label: "shared deployment",
+        url: "https://jolly-cannon-fodder-shared-deploy.vercel.app",
+        sourceRun: "run-planted-0000",
+      },
+    ];
+    const findings = await deadRecordedEndpoints(planted, async () => ({
+      serving: false,
+      observed: "HTTP 404",
+    }));
+    assert.equal(findings.length, 1, "an endpoint that no longer serves must redden the check");
+    const finding = findings[0]!;
+    assert.ok(
+      finding.message.includes("https://jolly-cannon-fodder-shared-deploy.vercel.app"),
+      `the violation must name the endpoint: ${finding.message}`,
+    );
+    assert.ok(
+      finding.message.includes("run-planted-0000"),
+      `the violation must name the run that recorded it: ${finding.message}`,
+    );
+    // Plant removed: the same endpoint probing as serving leaves the check green.
+    assert.equal(
+      (
+        await deadRecordedEndpoints(planted, async () => ({
+          serving: true,
+          observed: "HTTP 200",
+        }))
+      ).length,
+      0,
+      "an endpoint that still serves must leave the check green",
     );
   },
 );

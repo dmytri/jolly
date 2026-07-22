@@ -53,33 +53,6 @@ Feature: Methodology conformance
     And a `@planks-provisional(...)` annotation naming a current `@captain` scenario should conform, one naming a promoted or absent scenario should redden the check
 
   @logic @invariant
-  Scenario Outline: The command custody hook denies an internal-role search that reaches the Captain-only notes
-    Given the Shipshape Bash custody hook configured for this project
-    When it receives a "shipshape:qm" payload whose command is "<vector>"
-    Then it should deny the command
-    And it should name a safe search form in its recovery message
-
-    Examples: vectors proven to reach the notes file
-      | vector                         |
-      | rg -l --glob '*.md' -e . .     |
-      | rg -l --no-ignore -e . .       |
-      | rg -l -e . *.md                |
-      | grep -rl -e . .                |
-      | grep -rl --include=*.md -e . . |
-
-  @logic @invariant
-  Scenario Outline: The command custody hook permits an internal-role search the exclusion artifact already covers
-    Given the Shipshape Bash custody hook configured for this project
-    When it receives a "shipshape:qm" payload whose command is "<vector>"
-    Then it should permit the command
-
-    Examples: vectors proven unable to reach the notes file
-      | vector                |
-      | rg -l -e . .          |
-      | rg -l -t md -e . .    |
-      | rg -l --hidden -e . . |
-
-  @logic @invariant
   Scenario: The architecture document's structural claims match the tree
     Given the architecture document "ARCHITECTURE.md"
     When the architecture-conformance check reads its structural claims

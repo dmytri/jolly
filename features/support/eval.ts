@@ -57,6 +57,7 @@ import {
   EVAL_CAPTURES_PATH,
   type EvalCaptures,
 } from "./eval-captures.ts";
+import { evalLedgerShimPrelude } from "./eval-spend-ledger.ts";
 import { STOREFRONT_TEMPLATE_DIRNAME } from "./storefront-fixture.ts";
 
 const REPO_ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -83,6 +84,7 @@ const DEFAULT_SKILL_IDS = [
   "storefront-builder",
   "saleor-core",
   "saleor-app",
+  "stripe-best-practices",
 ];
 
 export function evalModel(): string {
@@ -226,6 +228,8 @@ interface ShimCaptureConfig {
   templateDir: string;
   /** JSONL log of every capture the shims served (run evidence). */
   serveLogFile: string;
+  /** The workspace skill location the seeded default skill set was written to. */
+  skillsDir: string;
 }
 
 /**
@@ -286,8 +290,88 @@ if (pkg === "vercel" || (pkg || "").startsWith("vercel@")) {
     process.exit(1);
   }
   try { fs.appendFileSync(${JSON.stringify(captures.serveLogFile)}, JSON.stringify({ served: "vercel", family, argv: rest }) + "\\n"); } catch {}
+  recordEvalSpend("vercel-deploy", "capture", ["npx", "vercel", ...rest]);
   if (record.stdout) process.stdout.write(record.stdout);
   process.exit(record.exit == null ? 1 : record.exit);
+}
+`
+    : "";
+
+  // The capture guard, present only once the golden captures are armed
+  // (feature 025: "An expensive external command the captures do not cover
+  // fails loudly and names what is missing, rather than falling through to the
+  // real network"). A silent fall-through spends real install latency inside
+  // the agent's own budget, so the tier would measure network weather instead
+  // of the affordance.
+  //   - `npx skills add <ref>`: the golden material is the default skill set
+  //     seeded on disk from the real Captain-owned assets. Every skill the ref
+  //     names that is already present is served; a skill no capture covers
+  //     fails loudly and names it.
+  //   - `npx pnpm install`: the dependency tree is the prepared-storefront
+  //     template's own `node_modules`, materialized by the git-clone replay
+  //     from the licensed run's real clone + real install.
+  //   - `npx @saleor/configurator deploy`: no capture section records it, so it
+  //     fails loudly and names the recording route.
+  const captureGuard = captures
+    ? `
+{
+  const guardPath = require("node:path");
+  const guardKind = classifyEvalNpxSpend(pkg, argv.slice(i + 1));
+  const rest = argv.slice(i + 1);
+  const loud = (what, route) => {
+    process.stderr.write("golden-capture layer: " + what + "; " + route + "\\n");
+    process.exit(1);
+  };
+  if (guardKind === "skills-install") {
+    // @golden-capture: the served skill trees are the default skill set seeded
+    // into the workspace from the real shipped assets (setupEvalContext).
+    const wanted = [];
+    for (let k = 0; k < rest.length; k++) {
+      const token = rest[k];
+      if (token === "add") continue;
+      if (token === "--skill") { k++; continue; }
+      if (token.startsWith("-")) continue;
+      const at = token.lastIndexOf("@");
+      const slash = token.lastIndexOf("/");
+      const id = at > slash ? token.slice(at + 1) : token.slice(slash + 1);
+      if (id && id !== "*") wanted.push(id);
+    }
+    const missing = wanted.filter(
+      (id) => !fs.existsSync(guardPath.join(${JSON.stringify(captures.skillsDir)}, id)),
+    );
+    if (missing.length > 0) {
+      loud(
+        "no recorded capture for the managed skill install of " + missing.join(", ") +
+          " (npx " + argv.join(" ") + ")",
+        "run the sandbox tier so the licensed @pipeline run records it, or drop the skill from the set the eval covers",
+      );
+    }
+    recordEvalSpend("skills-install", "capture", ["npx", ...argv]);
+    process.stdout.write("skills add: served from the golden capture (" + wanted.join(", ") + ")\\n");
+    process.exit(0);
+  }
+  if (guardKind === "pnpm-install") {
+    // @golden-capture: the dependency tree is the prepared-storefront
+    // template's own node_modules, recorded by the licensed @pipeline sandbox
+    // run's real git clone + real npx pnpm install and materialized by the
+    // git-clone replay above.
+    if (!fs.existsSync(guardPath.join(process.cwd(), "node_modules"))) {
+      loud(
+        "no recorded capture for the storefront dependency install in " + process.cwd() +
+          " (npx " + argv.join(" ") + ")",
+        "the prepared-storefront template carries the installed tree; run the sandbox tier so the licensed run rebuilds it",
+      );
+    }
+    recordEvalSpend("pnpm-install", "capture", ["npx", ...argv]);
+    process.stdout.write("pnpm install: served from the prepared-storefront golden capture\\n");
+    process.exit(0);
+  }
+  if (guardKind === "configurator-deploy") {
+    loud(
+      "no recorded capture for the configurator deploy (npx " + argv.join(" ") + ")",
+      "run the sandbox tier so the licensed @pipeline run records it",
+    );
+  }
 }
 `
     : "";
@@ -297,6 +381,7 @@ if (pkg === "vercel" || (pkg || "").startsWith("vercel@")) {
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const argv = process.argv.slice(2);
+${evalLedgerShimPrelude()}
 let i = 0;
 while (i < argv.length && argv[i].startsWith("-")) i++;
 const pkg = argv[i];
@@ -313,7 +398,9 @@ if (pkg === "@dk/jolly" || pkg === "jolly") {
   if (r.stderr) process.stderr.write(r.stderr);
   process.exit(r.status == null ? 1 : r.status);
 }
-${vercelReplay}const r = spawnSync(${JSON.stringify(realNpxPath())}, argv, { stdio: "inherit" });
+${vercelReplay}${captureGuard}const liveSpend = classifyEvalNpxSpend(pkg, argv.slice(i + 1));
+if (liveSpend) recordEvalSpend(liveSpend, "live", ["npx", ...argv]);
+const r = spawnSync(${JSON.stringify(realNpxPath())}, argv, { stdio: "inherit" });
 process.exit(r.status == null ? 1 : r.status);
 `;
 
@@ -324,13 +411,8 @@ process.exit(r.status == null ? 1 : r.status);
   // material: a clone of Saleor Paper materializes the prepared-storefront
   // template — the tree the licensed run's real `git clone` + `npx pnpm
   // install` produced — and every other git invocation runs the real git.
-  if (captures) {
-    const gitShim = `#!/usr/bin/env node
-"use strict";
-const { spawnSync } = require("node:child_process");
-const fs = require("node:fs");
-const path = require("node:path");
-const argv = process.argv.slice(2);
+  const cloneReplay = captures
+    ? `
 if (argv[0] === "clone" && argv.some((a) => a.includes("saleor/storefront"))) {
   const dest = argv[argv.length - 1];
   // @golden-capture: the materialized tree is the prepared-storefront template
@@ -339,15 +421,25 @@ if (argv[0] === "clone" && argv.some((a) => a.includes("saleor/storefront"))) {
   // committed capture store).
   fs.cpSync(${JSON.stringify(captures.templateDir)}, dest, { recursive: true });
   try { fs.appendFileSync(${JSON.stringify(captures.serveLogFile)}, JSON.stringify({ served: "git-clone", dest }) + "\\n"); } catch {}
+  recordEvalSpend("git-clone", "capture", ["git", ...argv]);
   process.exit(0);
 }
+`
+    : "";
+  const gitShim = `#!/usr/bin/env node
+"use strict";
+const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
+const argv = process.argv.slice(2);
+${evalLedgerShimPrelude()}${cloneReplay}
+if (argv[0] === "clone") recordEvalSpend("git-clone", "live", ["git", ...argv]);
 const ownDir = path.dirname(process.argv[1]);
 const real = (process.env.PATH || "").split(path.delimiter).filter((d) => d !== ownDir).join(path.delimiter);
 const r = spawnSync("git", argv, { stdio: "inherit", env: { ...process.env, PATH: real } });
 process.exit(r.status == null ? 1 : r.status);
 `;
-    writeFileSync(join(shimDir, "git"), gitShim, { mode: 0o755 });
-  }
+  writeFileSync(join(shimDir, "git"), gitShim, { mode: 0o755 });
 }
 
 /**
@@ -579,6 +671,7 @@ export async function armGoldenCaptures(
     capturesPath: EVAL_CAPTURES_PATH,
     templateDir,
     serveLogFile,
+    skillsDir: join(ctx.workspace, ".agents", "skills"),
   });
 
   // The before picture for "the run should have created no cloud resource".

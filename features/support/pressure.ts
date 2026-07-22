@@ -22,6 +22,8 @@
 // environment allows observing.
 import { appendFileSync, closeSync, constants, existsSync, openSync, readFileSync, readSync, readdirSync } from "node:fs";
 import { totalmem } from "node:os";
+import { join } from "node:path";
+import { REPO_ROOT } from "./repo-root.ts";
 
 export interface OomKillEvent {
   /** The killed process id, when the kernel line carries one. */
@@ -95,6 +97,118 @@ export function pressureSignal(record: PressureRecord): boolean {
   );
 }
 
+// ─── The rigging's declared worker ceilings ─────────────────────────────────
+
+/**
+ * The parallelism each run profile is configured for, before the weather's
+ * backoff and the rigging's declared ceiling bound it. Held here, beside the
+ * derivation that consumes it, so the runner configuration carries no second
+ * copy and the 028 profile check can recompute the same expectation.
+ */
+export const CONFIGURED_PARALLELISM: Record<string, number> = {
+  default: 1,
+  logic: 2,
+  sandbox: 2,
+  sandboxSerial: 1,
+  eval: 1,
+  all: 1,
+};
+
+/** A `## Tiers` worker-ceiling line: `- workers-sandbox: 1`. */
+const WORKER_CEILING_LINE = /^- workers-([a-z-]+): (\d+)/;
+
+/**
+ * The worker ceilings `RIGGING.md` declares under `## Tiers`, keyed by tier.
+ * A ceiling is an operator capacity limit, declared in the rigging where it is
+ * legible, rather than pinned as a prior in the runner configuration where it
+ * reads as an ordinary starting value.
+ */
+export function readTierWorkerCeilings(riggingFile = "RIGGING.md"): Record<string, number> {
+  const text = readFileSync(join(REPO_ROOT, riggingFile), "utf8");
+  const ceilings: Record<string, number> = {};
+  let inTiers = false;
+  for (const line of text.split("\n")) {
+    if (line.startsWith("## ")) {
+      inTiers = line.trim() === "## Tiers";
+      continue;
+    }
+    if (!inTiers) continue;
+    const value = WORKER_CEILING_LINE.exec(line.trim());
+    if (!value) continue;
+    ceilings[value[1]!] = Number(value[2]);
+  }
+  return ceilings;
+}
+
+/** The worker ceiling the rigging declares for a tier, when it declares one. */
+export function tierWorkerCeiling(tier: string, riggingFile = "RIGGING.md"): number | undefined {
+  return readTierWorkerCeilings(riggingFile)[tier];
+}
+
+/**
+ * The worker count a tier's run profile runs at: the plain value the rigging
+ * declares under `## Tiers`, read as configured. This box's capacity is an
+ * operator fact that does not change between runs, so the count is declared
+ * rather than derived at run time; deriving it builds an auto-tuner that
+ * computes the declared value and adds its own failure modes to guard. The one
+ * seam the runner configuration and the feature 028 profile check both read,
+ * so the profile cannot carry a count the rigging did not declare.
+ */
+export function declaredTierWorkers(
+  tier: string,
+  riggingFile = "RIGGING.md",
+): number {
+  const declared = tierWorkerCeiling(tier, riggingFile);
+  return declared ?? CONFIGURED_PARALLELISM[tier] ?? 1;
+}
+
+/** A run profile whose worker count differs from the count the rigging declares. */
+export interface WorkerCountFinding {
+  profile: string;
+  profileWorkers: number;
+  declaredWorkers: number;
+  message: string;
+}
+
+/**
+ * The finding a profile carrying a worker count other than the declared one
+ * produces, naming the profile and both counts. Pure over its inputs, so the
+ * planted red judges the same code path the real assertion does.
+ */
+export function workerCountFinding(
+  profile: string,
+  profileWorkers: number,
+  declaredWorkers: number,
+): WorkerCountFinding | undefined {
+  if (profileWorkers === declaredWorkers) return undefined;
+  return {
+    profile,
+    profileWorkers,
+    declaredWorkers,
+    message:
+      `run profile "${profile}" runs ${profileWorkers} worker(s); RIGGING.md ` +
+      `declares ${declaredWorkers} for that tier`,
+  };
+}
+
+/**
+ * A profile's worker count: yesterday's weather for that tier, restored toward
+ * its configured parallelism, bounded above by the ceiling the rigging declares
+ * for it. The one seam the runner configuration and the 028 profile check both
+ * read, so the profile cannot carry a count the rigging did not license.
+ */
+export function deriveTierWorkers(
+  tier: string,
+  recordPath: string,
+  riggingFile = "RIGGING.md",
+): number {
+  return deriveWorkerCount(
+    recordPath,
+    CONFIGURED_PARALLELISM[tier] ?? 1,
+    tierWorkerCeiling(tier, riggingFile),
+  );
+}
+
 /**
  * The worker count a tier's next run starts from: yesterday's weather. A record
  * carrying a pressure signal backs off below its green worker count (never
@@ -109,13 +223,29 @@ export function pressureSignal(record: PressureRecord): boolean {
  * the configured parallelism on a clean record closes that gap, and the backoff
  * arm still catches the pressure the step up rediscovers.
  */
-export function deriveWorkerCount(recordPath: string, configuredWorkers: number): number {
+export function deriveWorkerCount(
+  recordPath: string,
+  configuredWorkers: number,
+  ceilingWorkers?: number,
+): number {
+  const bound = effectiveParallelism(configuredWorkers, ceilingWorkers);
   const record = readPressureRecord(recordPath);
   if (!record || !Number.isInteger(record.workers) || record.workers < 1) {
-    return configuredWorkers;
+    return bound;
   }
-  if (pressureSignal(record)) return Math.max(1, record.workers - 1);
-  return Math.min(configuredWorkers, record.workers + 1);
+  if (pressureSignal(record)) return Math.max(1, Math.min(bound, record.workers - 1));
+  return Math.min(bound, record.workers + 1);
+}
+
+/**
+ * The parallelism a tier may actually reach: its configured count, bounded by
+ * the ceiling the rigging declares for it. A declared ceiling is a capacity
+ * limit the operator owns, so the restore arm climbs to it and stops there
+ * instead of reading the held count as the recovery gap.
+ */
+function effectiveParallelism(configuredWorkers: number, ceilingWorkers?: number): number {
+  if (ceilingWorkers === undefined) return configuredWorkers;
+  return Math.max(1, Math.min(configuredWorkers, ceilingWorkers));
 }
 
 /** A derived worker count held below the configured parallelism by a record
@@ -137,18 +267,20 @@ export function workerRestoreFinding(
   record: PressureRecord,
   derivedWorkers: number,
   configuredWorkers: number,
+  ceilingWorkers?: number,
 ): WorkerRestoreFinding | undefined {
+  const bound = effectiveParallelism(configuredWorkers, ceilingWorkers);
   if (pressureSignal(record)) return undefined;
-  if (record.workers >= configuredWorkers) return undefined;
+  if (record.workers >= bound) return undefined;
   if (derivedWorkers > record.workers) return undefined;
   return {
     recordedWorkers: record.workers,
     derivedWorkers,
-    configuredWorkers,
+    configuredWorkers: bound,
     message:
       `a record carrying no pressure signal recorded ${record.workers} worker(s) and ` +
       `derived ${derivedWorkers}, holding below the configured parallelism of ` +
-      `${configuredWorkers} instead of restoring toward it`,
+      `${bound} instead of restoring toward it`,
   };
 }
 

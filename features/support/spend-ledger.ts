@@ -25,6 +25,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { VERCEL_OBS_PATH } from "./eval-captures.ts";
+import { readEvalSpendLedger } from "./eval-spend-ledger.ts";
 import { messageRecordPathFromArgv } from "./pressure.ts";
 import { REPO_ROOT } from "./repo-root.ts";
 import { runId } from "./sandbox.ts";
@@ -334,6 +335,34 @@ export function armRunEndRecording(): void {
 }
 
 // ─── Reading and judging the ledger ─────────────────────────────────────────
+
+/**
+ * Every parseable entry of every tier's ledger, in append order. The join
+ * covers every tier that can spend, not the sandbox tier alone, so the reader
+ * merges each ledger a tier writes: the sandbox tier's, and the eval tier's
+ * own, whose shim-written entries carry the same run, tier, at, scenario, and
+ * spend fields this join reads. Reading one ledger alone left every other
+ * tier's run-end unfindable, so a leg that recorded its completion correctly
+ * still read as a disarmed recorder.
+ */
+export function readAllSpendLedgers(): SpendEntry[] {
+  const evalEntries: SpendEntry[] = [];
+  for (const entry of readEvalSpendLedger()) {
+    // The run markers resolve the eval leg to a completed run. Beyond them only
+    // a LIVE spend is a real toolchain spend this join judges: a spend served
+    // from a golden capture ran no external command, and the eval tier's own
+    // capture scenario is what holds it to that.
+    if (entry.spend === "run-start" || entry.spend === "run-end") {
+      evalEntries.push({ ...entry, spend: entry.spend });
+      continue;
+    }
+    if (entry.served !== "live") continue;
+    const kind = TOOLCHAIN_SPENDS.find((spend) => spend === entry.spend);
+    if (!kind) continue;
+    evalEntries.push({ ...entry, spend: kind });
+  }
+  return [...readSpendLedger(), ...evalEntries].sort((a, b) => a.at - b.at);
+}
 
 /** Every parseable entry of the ledger, in append order. */
 export function readSpendLedger(path: string = SPEND_LEDGER_PATH): SpendEntry[] {
@@ -669,6 +698,15 @@ export interface SweepLegRun {
   /** The leg's selected completed run id; undefined when no run-end matches
    * the leg's window, a broken or disarmed recorder. */
   run?: string;
+  /**
+   * The leg recorded no ledger entry at all inside its window: a tier that
+   * spawned nothing expensive, not a broken recorder. The distinction matters
+   * once the join covers every tier: the default tier legitimately spends
+   * nothing on most runs, and reading its empty ledger as a disarmed recorder
+   * would redden every sweep. A tier that DID spawn an expensive command and
+   * wrote no ledger is caught by its own assertion, over the licensed set.
+   */
+  spentNothing?: boolean;
   window: RunWindow;
 }
 
@@ -695,15 +733,25 @@ export function sweepLegEntries(
   const runs = new Set<string>();
   for (const leg of legs) {
     let best: { run: string; distance: number } | undefined;
+    let recorded = 0;
+    // A leg owns an entry by tier AND time. Time alone lets a sibling tier's
+    // entry land inside another leg's window whenever two tiers run back to
+    // back, and a crashed run's orphan `run-start` then reads as the innocent
+    // leg's broken recorder. The sandbox legs share one tier family and are
+    // separated by their windows.
+    const family = leg.tier.split("-")[0];
     for (const entry of entries) {
-      if (entry.spend !== "run-end") continue;
+      if (entry.tier !== family) continue;
       if (entry.at < leg.startMs || entry.at > leg.endMs + RUN_END_GRACE_MS) continue;
+      recorded += 1;
+      if (entry.spend !== "run-end") continue;
       const distance = Math.abs(entry.at - leg.endMs);
       if (!best || distance < best.distance) best = { run: entry.run, distance };
     }
     selected.push({
       tier: leg.tier,
       ...(best ? { run: best.run } : {}),
+      ...(recorded === 0 ? { spentNothing: true } : {}),
       window: { startMs: leg.startMs, endMs: leg.endMs },
     });
     if (best) runs.add(best.run);

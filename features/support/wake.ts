@@ -401,10 +401,22 @@ export interface SweepLegWindow {
  * record carries no completed run is not part of the last sweep and
  * contributes no window.
  */
-export function sandboxSweepLegWindows(commands: TierCommand[]): SweepLegWindow[] {
+/**
+ * Every profile leg of every tier's last run: each configured tier command's
+ * record path, grouped by leg name, each leg's latest completed record standing
+ * as that leg's run window. The join covers every tier that can spend, not the
+ * sandbox tier alone: a ledger read for one tier leaves every other tier's
+ * spends unjudged by construction, and the default tier is the one paid on
+ * every inner-loop run. A leg whose record carries no completed run is not part
+ * of the last run and contributes no window.
+ */
+export function sweepLegWindows(
+  commands: TierCommand[],
+  keyPattern: RegExp = /^(broad|coverage)/,
+): SweepLegWindow[] {
   const paths = new Set<string>();
   for (const command of commands) {
-    if (!/^(broad|coverage)-sandbox/.test(command.key)) continue;
+    if (!keyPattern.test(command.key)) continue;
     if (command.recordPath) paths.add(command.recordPath);
   }
   const legs = new Map<string, SweepLegWindow>();

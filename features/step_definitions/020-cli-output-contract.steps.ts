@@ -37,6 +37,11 @@ import {
   findErrorEnvelopeRecoveryViolations,
   type ErrorEnvelopeSite,
 } from "../support/error-envelope-conformance.ts";
+import {
+  enumerateEnvelopeCheckSites,
+  findEnvelopeHonestyViolations,
+  type EnvelopeCheckSite,
+} from "../support/envelope-honesty-conformance.ts";
 import type { InjectedSource, Violation } from "../support/module-conformance.ts";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
 
@@ -1576,5 +1581,98 @@ Then(
         `the deploy reply names the host "${host}", outside the first-party allowlist and the captured deployment surface`,
       );
     }
+  },
+);
+
+// --- Scenario: No envelope reports overall success while carrying a failed check
+//
+// The envelope's `status` is the claim an agent reads first; a `checks` entry
+// with status `fail` says something did not work. An envelope carrying both
+// tells the agent the run succeeded while its own payload says otherwise, and
+// the agent believes the status. The construction code is enumerated rather
+// than each path driven, because a failure Jolly cannot be made to take at will
+// would otherwise go unchecked.
+
+Given("Jolly's envelope construction code", function (this: JollyWorld) {
+  assert.ok(
+    existsSync(CLI_ENTRY),
+    "the production source (src/index.ts) must exist to check",
+  );
+});
+
+When(
+  "the envelopes it can emit are enumerated with the checks they carry",
+  function (this: JollyWorld) {
+    this.notes.envelopeCheckSites = enumerateEnvelopeCheckSites();
+    this.notes.envelopeHonestyViolations = findEnvelopeHonestyViolations();
+  },
+);
+
+Then(
+  "no envelope carrying a check whose status is `fail` should report an overall `success` status",
+  function (this: JollyWorld) {
+    const sites = this.notes.envelopeCheckSites as EnvelopeCheckSite[];
+    assert.ok(
+      sites.length > 0,
+      "no envelope construction site carrying checks was found — the enumeration is not reading Jolly's construction code",
+    );
+    const violations = this.notes.envelopeHonestyViolations as Violation[];
+    assert.equal(
+      violations.length,
+      0,
+      `envelopes that can report success while carrying a failed check (${violations.length} of ${sites.length} sites):\n${violations
+        .map((violation) => `  - ${violation.message}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "an envelope constructed with a success status over a failed check should redden the check, naming the check id and the construction site",
+  function () {
+    // The planted red: a virtual source, never written to disk, claiming
+    // success over a check that literally failed. A check that cannot go red
+    // proves nothing about the envelopes that pass it.
+    const planted: InjectedSource = {
+      file: "src/.planted-success-over-failed-check.ts",
+      text: `export function plantedSuccessOverFailedCheck() {
+  return envelope({
+    command: "planted",
+    status: "success",
+    summary: "Planted.",
+    checks: [{ id: "planted-check", status: "fail", description: "Planted failure." }],
+  });
+}
+`,
+    };
+    const violations = findEnvelopeHonestyViolations([planted]);
+    const planted_violation = violations.find((violation) =>
+      violation.file.includes(".planted-success-over-failed-check.ts"),
+    );
+    assert.ok(
+      planted_violation,
+      "an envelope claiming success over a failed check must redden the check",
+    );
+    assert.ok(
+      planted_violation.message.includes("planted-check"),
+      `the violation must name the check id: ${planted_violation.message}`,
+    );
+    assert.ok(
+      planted_violation.message.includes(".planted-success-over-failed-check.ts") &&
+        /:\d+/.test(planted_violation.message),
+      `the violation must name the construction site: ${planted_violation.message}`,
+    );
+    // Plant removed: the same site with the check passing leaves the check green.
+    const cleared = findEnvelopeHonestyViolations([
+      {
+        file: planted.file,
+        text: planted.text.replace('status: "fail"', 'status: "pass"'),
+      },
+    ]).find((violation) => violation.file.includes(".planted-success-over-failed-check.ts"));
+    assert.equal(
+      cleared,
+      undefined,
+      "an envelope whose carried checks all pass must leave the check green",
+    );
   },
 );

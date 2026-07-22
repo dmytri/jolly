@@ -19,6 +19,11 @@ Feature: Sandbox worker isolation
       full-pipeline proofs (@pipeline) and the env-creating scenarios
       (@creates-env) run serially, and only the light query and check scenarios
       run in parallel.
+    - The parallel leg's worker count is a plain declared value in "RIGGING.md",
+      read as configured rather than derived at run time. This VM's capacity is
+      an operator fact that does not change between runs, so deriving the count
+      from the weather record builds an auto-tuner that computes the declared
+      value, and its own failure modes then need guarding.
 
   @logic @property
   Scenario: Two parallel sandbox workers provision distinct Saleor environments
@@ -36,5 +41,6 @@ Feature: Sandbox worker isolation
   Scenario: The @sandbox tier serializes the licensed spends and parallelizes the light ones
     Given the project's cucumber run profiles
     When the @sandbox run profiles are enumerated
-    Then the parallel @sandbox profile runs its workers in parallel and excludes the @pipeline and @creates-env scenarios
-    And a separate profile runs the @pipeline and @creates-env scenarios serially
+    Then the parallel @sandbox profile should run at the worker count the rigging declares for that tier, and should exclude the @pipeline and @creates-env scenarios
+    And a separate profile should run the @pipeline and @creates-env scenarios serially
+    And a profile whose worker count differs from the count the rigging declares should redden the check, naming the profile and both counts

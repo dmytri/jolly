@@ -29,6 +29,7 @@
 // long-lived (provision.ts), not scenario- or run-scoped cleanup.
 import { After, AfterAll, Before, BeforeAll } from "@cucumber/cucumber";
 import { ensureCliBundle, modelApiKey } from "./eval.ts";
+import { armEvalSpendRecording } from "./eval-spend-ledger.ts";
 import {
   derivedSecrets,
   ensureSharedEnvironment,
@@ -81,6 +82,19 @@ Before(
 //
 // This gate runs BEFORE the bundle build, so an unfitted run spends nothing: no
 // bundle, no workspace, no cloud call, and above all no model invocation.
+// Arm the eval spend recorder and attribute the scenario BEFORE anything the
+// eval spawns, so every expensive external command the run makes is recorded
+// with the branch that answered it — a golden capture, or the real binary
+// (feature verification-economy: every tier that can spend records a ledger).
+// Defined first: cucumber runs Before hooks in definition order.
+Before({ tags: "@eval" }, function (this: JollyWorld, { pickle }) {
+  armEvalSpendRecording(pickle.name);
+});
+
+After({ tags: "@eval" }, function () {
+  clearSpendAttribution();
+});
+
 Before({ tags: "@eval" }, function (this: JollyWorld) {
   if (modelApiKey() === undefined) {
     throw new Error(

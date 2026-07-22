@@ -304,3 +304,125 @@ export function assertCapturesComplete(captures: EvalCaptures): asserts captures
     );
   }
 }
+
+// ─── The recorded endpoints, and whether they still serve ───────────────────
+//
+// The captures are recorded against the run-shared PERSISTENT resources — the
+// shared store and the shared deployment, which outlive runs and are never torn
+// down — so every recorded endpoint is meant to stay live (feature 025, "Live
+// agent, golden-captured services"). An endpoint that stopped serving makes the
+// capture stale: the eval then drives a live agent against a dead URL, which
+// the agent cannot distinguish from an affordance it failed to find, so it
+// grinds through its whole budget and the run reads as an affordance failure
+// when nothing about the affordance failed.
+
+/** One endpoint a capture section records, with the run that recorded it. */
+export interface RecordedEndpoint {
+  /** Which capture section recorded it, for the failure message. */
+  label: string;
+  url: string;
+  sourceRun: string;
+}
+
+/** Every endpoint the committed captures record. */
+export function recordedEndpoints(captures: EvalCaptures): RecordedEndpoint[] {
+  const endpoints: RecordedEndpoint[] = [];
+  if (captures.environmentCreation) {
+    endpoints.push({
+      label: "shared store (environmentCreation)",
+      url: `https://${captures.environmentCreation.domain}/graphql/`,
+      sourceRun: captures.environmentCreation.sourceRun,
+    });
+  }
+  if (captures.deployment) {
+    endpoints.push({
+      label: "shared deployment",
+      url: captures.deployment.url,
+      sourceRun: captures.deployment.sourceRun,
+    });
+  }
+  return endpoints;
+}
+
+/** What a readiness probe observed at one endpoint. */
+export interface ProbeResult {
+  serving: boolean;
+  /** What was observed, for the failure message: a status, or a transport error. */
+  observed: string;
+}
+
+/**
+ * Probe one recorded endpoint for READINESS, not mere reachability. A store
+ * endpoint answers a real GraphQL query; a deployed storefront answers its own
+ * URL without a client error. A 404 from a torn-down deployment is a live HTTP
+ * server saying the storefront is gone, so "some response arrived" is not the
+ * bar — that is exactly the state this check exists to catch.
+ */
+export async function probeRecordedEndpoint(
+  endpoint: RecordedEndpoint,
+  budgetMs = 30_000,
+): Promise<ProbeResult> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), budgetMs);
+  try {
+    if (endpoint.url.endsWith("/graphql/")) {
+      const response = await fetch(endpoint.url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ query: "{__typename}" }),
+        signal: controller.signal,
+      });
+      if (!response.ok) return { serving: false, observed: `HTTP ${response.status}` };
+      const body = (await response.json()) as { data?: unknown };
+      return body.data !== undefined
+        ? { serving: true, observed: `HTTP ${response.status} with GraphQL data` }
+        : { serving: false, observed: `HTTP ${response.status} with no GraphQL data` };
+    }
+    const response = await fetch(endpoint.url, {
+      method: "GET",
+      redirect: "follow",
+      signal: controller.signal,
+    });
+    return response.status < 400
+      ? { serving: true, observed: `HTTP ${response.status}` }
+      : { serving: false, observed: `HTTP ${response.status}` };
+  } catch (error) {
+    return { serving: false, observed: `no response: ${String(error)}` };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export interface DeadEndpointFinding {
+  label: string;
+  url: string;
+  sourceRun: string;
+  message: string;
+}
+
+/**
+ * Every recorded endpoint that no longer serves, named with the run that
+ * recorded it so the red says which licensed run must re-record it. The probe
+ * is injected so the planted-red proof needs no network.
+ */
+export async function deadRecordedEndpoints(
+  endpoints: readonly RecordedEndpoint[],
+  probe: (endpoint: RecordedEndpoint) => Promise<ProbeResult>,
+): Promise<DeadEndpointFinding[]> {
+  const findings: DeadEndpointFinding[] = [];
+  for (const endpoint of endpoints) {
+    const result = await probe(endpoint);
+    if (result.serving) continue;
+    findings.push({
+      label: endpoint.label,
+      url: endpoint.url,
+      sourceRun: endpoint.sourceRun,
+      message:
+        `the recorded ${endpoint.label} endpoint ${endpoint.url} no longer serves ` +
+        `(${result.observed}); it was recorded by run ${endpoint.sourceRun}. Run the ` +
+        `sandbox tier so the licensed @pipeline run heals the resource and re-records ` +
+        `the capture.`,
+    });
+  }
+  return findings;
+}

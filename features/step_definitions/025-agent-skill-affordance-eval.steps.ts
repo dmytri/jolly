@@ -48,6 +48,7 @@ import {
   type WastedTurn,
 } from "../support/eval.ts";
 import { listAllEnvironments } from "../support/cloud.ts";
+import { makeNamespace } from "../support/sandbox.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 // A live LLM agent run is slow; the When step that runs it carries an explicit
@@ -476,9 +477,24 @@ Then(
       "the before picture of the org's environments must have been taken when the captures were armed",
     );
     const after = await listAllEnvironments(token);
-    const created = after.filter(
-      (env) => !c.preRunEnvironmentKeys!.has(`${env.org}/${env.key}`),
-    );
+    // Attribute the diff to THIS run. The org is shared, and RIGGING.md runs
+    // tier lanes concurrently, so an environment a sibling lane creates while
+    // this one is in flight appears in the after picture through no act of this
+    // run. Every harness-created environment carries its creating run's
+    // namespace, so one carrying a namespace that is not this run's is provably
+    // not this run's work. Anything else new still reds, including an
+    // arbitrarily named store the agent might have created: only a foreign
+    // run's own namespace is excused, never an unattributable resource.
+    const ownNamespace = makeNamespace();
+    const created = after
+      .filter((env) => !c.preRunEnvironmentKeys!.has(`${env.org}/${env.key}`))
+      .filter(
+        (env) =>
+          !(
+            env.name.startsWith("jolly-cannon-fodder-") &&
+            !env.name.startsWith(ownNamespace)
+          ),
+      );
     assert.equal(
       created.length,
       0,

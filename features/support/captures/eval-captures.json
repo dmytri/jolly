@@ -1,19 +1,19 @@
 {
   "deployment": {
-    "url": "https://jolly-cannon-fodder-shared-deploy-ja7lg68sh.vercel.app",
+    "url": "https://jolly-cannon-fodder-shared-deploy-nmi3kjw2x.vercel.app",
     "project": "jolly-cannon-fodder-shared-deploy",
-    "storeEndpoint": "https://jolly-cannon-fodder-shared-mrp3xq4i-ipupba.saleor.cloud/graphql/",
-    "sourceRun": "run-mrp4697l-3wrq"
+    "storeEndpoint": "https://jolly-cannon-fodder-shared-mrvv44fj-oo8jzl.saleor.cloud/graphql/",
+    "sourceRun": "run-mrvzlyny-tw9s"
   },
   "environmentCreation": {
-    "name": "jolly-cannon-fodder-shared-mrp3xq4i-ipupba",
-    "domain": "jolly-cannon-fodder-shared-mrp3xq4i-ipupba.saleor.cloud",
-    "dashboardUrl": "https://jolly-cannon-fodder-shared-mrp3xq4i-ipupba.saleor.cloud/dashboard/",
-    "sourceRun": "run-mrp3xlhu-7zkr"
+    "name": "jolly-cannon-fodder-shared-mrvv44fj-oo8jzl",
+    "domain": "jolly-cannon-fodder-shared-mrvv44fj-oo8jzl.saleor.cloud",
+    "dashboardUrl": "https://jolly-cannon-fodder-shared-mrvv44fj-oo8jzl.saleor.cloud/dashboard/",
+    "sourceRun": "run-mrvv41a4-pfb0"
   },
   "storefrontTemplate": {
     "dirname": "jolly-cannon-fodder-storefront-template",
-    "sourceRun": "licensed shared-pipeline provisioning of an earlier sandbox run (adopted by mrp4cp1r-qoro5t)"
+    "sourceRun": "run-mrvzlyny-tw9s"
   },
   "vercel": {
     "families": {
@@ -71,12 +71,12 @@
           "--project",
           "jolly-cannon-fodder-shared-deploy",
           "--build-env",
-          "NEXT_PUBLIC_SALEOR_API_URL=https://jolly-cannon-fodder-shared-mrp3xq4i-ipupba.saleor.cloud/graphql/",
+          "NEXT_PUBLIC_SALEOR_API_URL=https://jolly-cannon-fodder-shared-mrvv44fj-oo8jzl.saleor.cloud/graphql/",
           "--build-env",
           "NEXT_PUBLIC_DEFAULT_CHANNEL=us"
         ],
         "exit": 0,
-        "stdout": "{\n  \"status\": \"ok\",\n  \"deployment\": {\n    \"id\": \"dpl_8kpHx2BQZpdYHU79DwTV4nB2zCSz\",\n    \"url\": \"https://jolly-cannon-fodder-shared-deploy-ja7lg68sh.vercel.app\",\n    \"inspectorUrl\": \"https://vercel.com/dmytri-kleiners-projects/jolly-cannon-fodder-shared-deploy/8kpHx2BQZpdYHU79DwTV4nB2zCSz\",\n    \"readyState\": \"READY\",\n    \"target\": \"production\",\n    \"deploymentApiUrl\": \"https://api.vercel.com/v13/deployments/dpl_8kpHx2BQZpdYHU79DwTV4nB2zCSz\"\n  },\n  \"message\": \"Deployment jolly-cannon-fodder-shared-deploy-ja7lg68sh.vercel.app ready.\",\n  \"next\": [\n    {\n      \"command\": \"vercel inspect jolly-cannon-fodder-shared-deploy-ja7lg68sh.vercel.app\",\n      \"when\": \"Inspect deployment\"\n    },\n    {\n      \"command\": \"vercel deploy --prod\",\n      \"when\": \"Promote to production\"\n    }\n  ]\n}\n"
+        "stdout": "{\n  \"status\": \"ok\",\n  \"deployment\": {\n    \"id\": \"dpl_6CMY75sTiykehyXErpNg9xE7HuFG\",\n    \"url\": \"https://jolly-cannon-fodder-shared-deploy-nmi3kjw2x.vercel.app\",\n    \"inspectorUrl\": \"https://vercel.com/dmytri-kleiners-projects/jolly-cannon-fodder-shared-deploy/6CMY75sTiykehyXErpNg9xE7HuFG\",\n    \"readyState\": \"READY\",\n    \"target\": \"production\",\n    \"deploymentApiUrl\": \"https://api.vercel.com/v13/deployments/dpl_6CMY75sTiykehyXErpNg9xE7HuFG\"\n  },\n  \"message\": \"Deployment jolly-cannon-fodder-shared-deploy-nmi3kjw2x.vercel.app ready.\",\n  \"next\": [\n    {\n      \"command\": \"vercel inspect jolly-cannon-fodder-shared-deploy-nmi3kjw2x.vercel.app\",\n      \"when\": \"Inspect deployment\"\n    },\n    {\n      \"command\": \"vercel deploy --prod\",\n      \"when\": \"Promote to production\"\n    }\n  ]\n}\n"
       },
       "project-protection-disable": {
         "argv": [
@@ -142,6 +142,6 @@
         "stdout": ""
       }
     },
-    "sourceRun": "run-mrp50ao3-dxno"
+    "sourceRun": "run-mrvzlyny-tw9s"
   }
 }

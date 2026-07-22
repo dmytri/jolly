@@ -5904,7 +5904,7 @@ export async function runStartCore(
   }
   const status: EnvelopeStatus = bootstrapFailed
     ? "error"
-    : allStagesDone
+    : allStagesDone && !checks.some((c) => c.status === "fail")
       ? "success"
       : "warning";
 

@@ -1,140 +1,119 @@
-// Feature single-creation-seam — every real creation of an expensive external
-// resource happens at one seam (@logic @property).
+// Feature single-creation-seam — every CLI-spawned creation of an external
+// resource lives at its single declared seam (@logic @property).
 //
-// The ts-morph checker (features/support/module-conformance.ts) locates every
-// `create store --create-environment` CLI-spawn argument array in the
-// verification layer and reports any real one outside
-// features/support/env-factory.ts. A `--dry-run` preview array and an
-// `env-factory-exception:`-marked loopback-fake array create no real resource
-// and are not reported. The scenario names the verification layer, runs the
-// checker, and asserts every real invocation lives in the seam.
+// One structural fact, discharged once for every resource. The ts-morph checker
+// (features/support/module-conformance.ts) declares a seam per CLI-spawned
+// resource: in the verification layer the real `create store
+// --create-environment` spawn lives in features/support/env-factory.ts and the
+// real `vercel project add` spawn in features/support/sandbox.ts; in production
+// the Vercel deployment, the starter-recipe deploy, and the Paper storefront
+// clone each share one enclosing function. A `--dry-run` preview and a marked
+// loopback fake create no real resource and are excluded.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
 import {
-  findCreationSeamViolations,
-  findVercelProjectSeamViolations,
-  locateProductionSpawnSeams,
+  DECLARED_CREATION_SEAMS,
+  findCreationSeamFindings,
+  judgeProductionSeam,
+  type CreationSeamFinding,
+  type DeclaredCreationSeam,
   type SeamLocation,
-  type Violation,
 } from "../support/module-conformance.ts";
 
-Given("Jolly's verification layer", function (this: JollyWorld) {
-  assert.ok(
-    existsSync(join(REPO_ROOT, "features", "support")) &&
-      existsSync(join(REPO_ROOT, "features", "step_definitions")),
-    "the verification layer (features/support, features/step_definitions) must exist to check",
-  );
-});
+Given(
+  "the creation seams the structural checker declares for Jolly's production source and verification layer",
+  function (this: JollyWorld) {
+    assert.ok(
+      existsSync(join(REPO_ROOT, "src", "index.ts")),
+      "the production source (src/) must exist to check",
+    );
+    assert.ok(
+      existsSync(join(REPO_ROOT, "features", "support")) &&
+        existsSync(join(REPO_ROOT, "features", "step_definitions")),
+      "the verification layer (features/support, features/step_definitions) must exist to check",
+    );
+    const declared = DECLARED_CREATION_SEAMS;
+    assert.ok(
+      declared.length > 0,
+      "the structural checker declares no creation seam to judge against",
+    );
+    for (const seam of declared) {
+      if (seam.scope !== "verification") continue;
+      assert.ok(
+        existsSync(join(REPO_ROOT, seam.file!)),
+        `the declared ${seam.resource} seam ${seam.file} must exist`,
+      );
+    }
+    this.notes.declaredSeams = declared;
+  },
+);
 
 When(
-  "its real `create store --create-environment` invocations are located",
+  "every real creation spawn is located and attributed to an enclosing seam",
   function (this: JollyWorld) {
-    this.notes.seamViolations = findCreationSeamViolations();
+    this.notes.creationSeamFindings = findCreationSeamFindings();
   },
 );
 
 Then(
-  "every one lives in the single env-creation seam {string}",
-  function (this: JollyWorld, seam: string) {
-    assert.ok(
-      existsSync(join(REPO_ROOT, seam)),
-      `the single env-creation seam ${seam} must exist`,
-    );
-    const violations = this.notes.seamViolations as Violation[];
+  "each spawn should sit in the single seam declared for the resource it creates",
+  function (this: JollyWorld) {
+    const declared = this.notes.declaredSeams as DeclaredCreationSeam[];
+    const findings = this.notes.creationSeamFindings as CreationSeamFinding[];
     assert.equal(
-      violations.length,
+      findings.length,
       0,
-      `real \`create store --create-environment\` invocations outside ${seam}:\n${violations
-        .map((violation) => `  - ${violation.message}`)
-        .join("\n")}`,
+      `real creation spawns outside the single seam declared for their resource ` +
+        `(${declared.length} seams declared):\n${findings
+          .map((finding) => `  - ${finding.message}`)
+          .join("\n")}`,
     );
-  },
-);
-
-When(
-  "its real `vercel project add` invocations are located",
-  function (this: JollyWorld) {
-    this.notes.vercelProjectViolations = findVercelProjectSeamViolations();
   },
 );
 
 Then(
-  "every one lives in the single Vercel-project seam {string}",
-  function (this: JollyWorld, seam: string) {
-    assert.ok(
-      existsSync(join(REPO_ROOT, seam)),
-      `the single Vercel-project seam ${seam} must exist`,
-    );
-    const violations = this.notes.vercelProjectViolations as Violation[];
+  "a spawn that falls outside its declared seam should redden the check, naming the spawn, its site, and the seam it belongs in",
+  function () {
+    // Planted red, judged by the same code path the real assertion uses: one
+    // resource whose located spawns straddle two enclosing seams.
+    const home: SeamLocation = {
+      file: "src/index.ts",
+      line: 100,
+      seamKey: "src/index.ts:90",
+      seamLabel: "deployStorefront (src/index.ts:90)",
+    };
+    const stray: SeamLocation = {
+      file: "src/index.ts",
+      line: 400,
+      seamKey: "src/index.ts:380",
+      seamLabel: "runStartCommand (src/index.ts:380)",
+    };
+    const findings = judgeProductionSeam("Vercel deployment", [home, stray]);
     assert.equal(
-      violations.length,
-      0,
-      `real \`vercel project add\` invocations outside ${seam}:\n${violations
-        .map((violation) => `  - ${violation.message}`)
-        .join("\n")}`,
-    );
-  },
-);
-
-Given("Jolly's production source", function (this: JollyWorld) {
-  assert.ok(
-    existsSync(join(REPO_ROOT, "src", "index.ts")),
-    "the production source (src/) must exist to check",
-  );
-});
-
-When(
-  "its real `vercel deploy --prod` invocations are located",
-  function (this: JollyWorld) {
-    this.notes.seamLocations = locateProductionSpawnSeams(["deploy", "--prod"]);
-  },
-);
-
-When(
-  "its real `npx @saleor\\/configurator deploy` invocations are located",
-  function (this: JollyWorld) {
-    // Feature 004 pins the spawned form as `npx @saleor/configurator@latest
-    // deploy` (official current CLI), so the locator matches that exact spawn
-    // element; a drift to any other form reddens this check loudly.
-    this.notes.seamLocations = locateProductionSpawnSeams([
-      "@saleor/configurator@latest",
-      "deploy",
-    ]);
-  },
-);
-
-When(
-  "its real Paper storefront `git clone` invocations are located",
-  function (this: JollyWorld) {
-    this.notes.seamLocations = locateProductionSpawnSeams([
-      "clone",
-      "https://github.com/saleor/storefront.git",
-    ]);
-  },
-);
-
-Then(
-  "every one shares a single enclosing production seam",
-  function (this: JollyWorld) {
-    const locations = this.notes.seamLocations as SeamLocation[];
-    assert.ok(
-      locations.length >= 1,
-      "no real invocation located — the creation seam is missing from production source",
-    );
-    const seams = new Map(
-      locations.map((location) => [location.seamKey, location.seamLabel]),
-    );
-    assert.equal(
-      seams.size,
+      findings.length,
       1,
-      `real invocations spread across ${seams.size} enclosing seams instead of one:\n${[
-        ...seams.values(),
-      ]
-        .map((label) => `  - ${label}`)
-        .join("\n")}`,
+      `a spawn outside its declared seam must redden the check, once: ${JSON.stringify(findings)}`,
+    );
+    const [finding] = findings;
+    assert.equal(finding!.site, "src/index.ts:400", "the finding must name the spawn's site");
+    assert.equal(
+      finding!.resource,
+      "Vercel deployment",
+      "the finding must name the spawn it reports",
+    );
+    assert.equal(
+      finding!.seam,
+      home.seamLabel,
+      "the finding must name the seam the spawn belongs in",
+    );
+    // Plant removed: the same judge over spawns sharing one seam stays green.
+    assert.deepEqual(
+      judgeProductionSeam("Vercel deployment", [home, { ...stray, seamKey: home.seamKey, seamLabel: home.seamLabel }]),
+      [],
+      "spawns sharing one enclosing seam must leave the check green",
     );
   },
 );

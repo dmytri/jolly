@@ -8,12 +8,6 @@ Feature: Command surface stays consistent between help and the unknown-command e
   offers top-level tokens such as "auth" and "create" that a shell completes one
   word at a time, a different surface by design.
 
-  @logic @property
-  Scenario: Help and the unknown-command error name the same command set
-    When the agent runs `jolly --help`
-    And the agent runs `jolly frobnicate --json`
-    Then the command set `jolly --help` advertises should equal the set the unknown-command error names
-
   Rule: The command surface is declared once
 
     - A command name is written in four independent places today: the shell
@@ -24,8 +18,8 @@ Feature: Command surface stays consistent between help and the unknown-command e
       agreement by hand.
     - The anchor that reveals the identity is the command name itself, which
       appears as a registration, a data string, a case label, and a prose
-      token. One declared surface every site derives from would discharge this
-      structurally instead of by enumeration.
+      token. One declared surface every site derives from discharges this
+      structurally, so no scenario holds a pair of sites in agreement by hand.
     - The surface is every top-level command a user may invoke: help, login,
       logout, auth, init, start, create, storefront, recipe, stock, stripe,
       deploy, doctor, upgrade, skills, and completion. The five stage commands

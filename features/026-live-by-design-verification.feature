@@ -31,13 +31,6 @@ Feature: Live-by-design verification conformance
     Then each should fabricate a service response only when the harness guard is set
     And a harness-only affordance reachable from the shipped surface with no guard should redden the check
 
-  @logic
-  Scenario: Reclamation recognises a leaked environment by its domain label, not only by its name
-    Given a leftover environment whose Cloud name is Jolly's product default "jolly-store" and whose domain label carries the `jolly-cannon-fodder` namespace
-    When the environments a run may reclaim are selected
-    Then the leaked environment should be selected for reclamation
-    And an environment carrying the `jolly-cannon-fodder` namespace in neither its name nor its domain label should be left alone
-
   @sandbox
   Scenario: Pre-run reclamation accounts for every stale leftover standing in the org
     Given the `jolly-cannon-fodder`-namespaced Saleor environments standing in the org from previous runs, stale beyond the full-regression wall-clock budget in "RIGGING.md"

@@ -14,10 +14,11 @@ Run this one command and carry it through to the end:
 npx @dk/jolly start --yes --json
 ```
 
-`--yes` pre-approves the create and deploy stages so you don't stop for routine confirmations. The
-run takes several minutes — give it a generous budget or background it and poll; don't cancel it. (A
-`--dry-run` preview changes nothing, so previewing alone is **not** setup — you must run the real
-command above.) Re-running is safe: I skip the finished stages and resume where I left off.
+`--yes` pre-approves the create and deploy stages so you don't stop for routine confirmations. Run
+the command above for real now — it **is** the whole setup, not a preview, so don't stop to inspect
+or plan first; run it and carry it through to the end. The run takes several minutes — give it a
+generous budget or background it and poll; don't cancel it. Re-running is safe: I skip the finished
+stages and resume where I left off.
 
 A few steps need the human — the Saleor and Vercel sign-ins, creating any missing account, and the
 final Stripe keys (see **What needs your human** below). When you reach one: **relay the link (or ask

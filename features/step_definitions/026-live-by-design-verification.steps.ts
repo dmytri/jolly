@@ -63,6 +63,17 @@ const TEST_LAYER_DIRS = [
   join(REPO_ROOT, "features", "support"),
 ];
 
+// The subject this feature's @property scenarios scan: the shipped CLI's own
+// source. Defined here, in the one feature that binds it, since the
+// single-creation-seam feature that formerly shared it now names its subject
+// through the structural checker's declared seams instead.
+Given("Jolly's production source", function (this: JollyWorld) {
+  assert.ok(
+    existsSync(join(REPO_ROOT, "src", "index.ts")),
+    "the production source (src/) must exist to check",
+  );
+});
+
 /** This scanner's own file — excluded so its pattern literals aren't self-flagged. */
 const SELF = join("features", "step_definitions", "026-live-by-design-verification.steps.ts");
 
