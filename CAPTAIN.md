@@ -8,28 +8,33 @@ Binding behaviour lives in `.feature` specs and referenced `assets/**`. History 
 
 # DECK STATE
 
-**HEAD = `2e73338`. NOTHING IS COMMITTED.** Everything on the deck is role-advanced work in
-flight from the current voyage. It is not lost work; it is a voyage's output awaiting custody.
+**HEAD = `40f1436`, tree clean. The simplification voyage is COMMITTED.** dk ruled harbour next
+(2026-07-22). Entered harbour on a clean tree.
 
-- `src/index.ts` — Crew's ONE production change: `runStartCore` derived the start envelope's
-  `status` from `bootstrapFailed`/`allStagesDone` only, never from the `initEnv`/`doctor` checks it
-  folds in, so `jolly start` could report `success` while carrying a `fail` check. Now derives from
-  the carried checks. A real honesty defect against Jolly's core promise. Still in the
-  inlined-ternary shape an old checker forced; correct and green, readability item for harbour.
-- `features/support/eval-spend-ledger.ts`, `features/support/envelope-honesty-conformance.ts` (new)
-- `features/support/eval.ts` — capture guard: an uncovered expensive command now FAILS LOUDLY
-  naming what is missing, instead of falling through to the real network.
-- `features/support/storefront-fixture.ts` — the self-heal fixture fix, verified @sandbox 56/56.
-- `features/support/captures/eval-captures.json` — re-recorded, legitimate verification output from
-  the licensed run. Do NOT revert it (see LESSONS 6).
-- `assets/homepage/setup.md` — dk-ruled --dry-run removal. ALREADY DEPLOYED; live == source,
-  verified by curl. Do not deploy again to "sync".
-- Spec edits per the simplification below; `RIGGING.md`; `watchbill.json` (untracked).
+Shipped in `40f1436`: the 16-removal simplification, five re-derived budgets, three harness defects
+engineered out, and ONE production line — `runStartCore` no longer reports `success` while carrying
+a failed check (a real honesty defect against Jolly's core promise). Still in the inlined-ternary
+shape an old checker forced; correct and green, readability item for harbour.
 
-**Stale unstaged residue from a STOPPED QM**: `features/support/pressure.ts` and
-`features/step_definitions/028-sandbox-worker-isolation.steps.ts` were modified and never reported
-green. The simplification deletes the pressure derivation outright, so `pressure.ts` is now QM's to
-remove. Do not let either ride a custody commit unexamined.
+**Pending outbound: npm 0.13.1 is UNSHIPPED.** Local and published are both `0.13.0`, so shipping
+needs a bump. dk approved nothing; harbour work rides the next outbound with harbour's own full
+regression as its proof. The homepage needs NOTHING: live == source, verified by curl.
+
+## Carried into harbour
+
+- **24 orphaned step definitions.** THREE sites this voyage's cuts created, QM scope to delete:
+  `command-custody-hook.steps.ts` (DEAD IN FULL, 126 lines, all 5 defs zero-usage),
+  `026-live-by-design-verification.steps.ts` (3 defs), `command-surface-consistency.steps.ts` (1).
+  Plus 21 pre-existing across 002/004/005/006/008/012/018/027/shared. **Nine of the 21 are patterns
+  `runStartCore` planks against**, so the plank join stays GREEN while no runnable scenario binds
+  them — the behaviour-stale case the join cannot see. Worth a harbour lens of its own.
+- **`report.html` and `report.json` are TRACKED at repo root** — generated cucumber formatter
+  output, unchanged since `06f1a60`, referenced by no config. Wake committed into canon, against
+  the Transient output policy. Untrack them.
+- The 12 PTY scenarios (below).
+- Two orphan `run-start` entries in `coverage/weather/eval-spend-ledger.ndjson` (10:53:37,
+  12:07:35), both pre-dating the fix, outside every current leg window, harmless. Deliberately NOT
+  hand-edited: editing evidence to make a check pass is what the check exists to prevent.
 
 ---
 
