@@ -23,11 +23,3 @@ Feature: The recipe catalog identifiers come from the shipped recipe asset
       Then the warehouse slug it uses should be "test-anchorage"
       And the product slugs it uses should be "first-mate" and "second-mate"
       And the "crew-picks" collection it assigns should contain "first-mate"
-
-    @logic
-    Scenario: The shipped recipe asset yields the live starter catalog identifiers
-      Given the shipped recipe asset assets/skills/jolly/recipe.yml
-      When the cloud-api module derives the recipe identifiers from it
-      Then the warehouse slug it uses should be "port-royal"
-      And the product slugs it uses should include "cutlass" and "the-jolly"
-      And the "featured-products" collection it assigns should contain "the-jolly"

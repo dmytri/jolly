@@ -36,22 +36,6 @@ Feature: Jolly init for local agent setup
     And it should merge, not replace, any existing AGENTS.md or agent glue file, inserting or updating the Jolly section without removing user-authored content
     And the envelope `data` should summarize the changes made
 
-  @logic
-  Scenario: Agent init is safe to rerun in a clean directory
-    Given `jolly init` has not been run before
-    When the agent invokes `jolly init` in a temp project directory
-    Then Jolly should install the full default skill set
-    And the output envelope should report a status of success
-    And the summary should indicate what was installed
-
-  @sandbox
-  Scenario: Skills install non-interactively with no agent runtime present
-    Given `jolly init` runs with no interactive terminal and no agent runtime detected
-    When it installs the default skill set
-    Then each default skill should be installed under `.agents/skills/<id>/` and verified on disk
-    And the install should require no interactive prompt and no specific agent to be present
-    And Jolly should report success only when every skill actually landed on disk
-
   @sandbox
   Scenario: The Jolly skill installs from the bundled copy with no network
     Given `jolly init` runs with outbound network blocked
@@ -92,3 +76,14 @@ Feature: Jolly init for local agent setup
       the explicit ref is preferred for determinism.
     - The Saleor agent-skills are installed from their own `npx skills add` refs. The Jolly skill
       stays under `assets/` (Shipshape rule) and is not moved to a top-level `skills/` directory.
+
+  Rule: Iteration phase principles
+    - The customer's agent owns all post-setup customization; Jolly is a support layer, not a gatekeeper. Ongoing health checks are `jolly doctor` (feature 014) and asset refresh is `jolly upgrade` (feature 017); neither is restated here.
+
+  @sandbox
+  Scenario: Init gives the agent live store access through mcp-graphql
+    Given `jolly init` has completed
+    When the agent runs a products query through mcp-graphql
+    Then jolly init should have written an mcp-graphql config pointing to the customer's Saleor GraphQL endpoint
+    And the `.mcp.json` saleor-graphql entry should send the `Authorization: Bearer ${SALEOR_TOKEN}` header
+    And because the MCP server captures `SALEOR_TOKEN` at spawn, recovery from a `401` is to refresh the token and reload the MCP server

@@ -23,7 +23,7 @@ Feature: Command surface stays consistent between help and the unknown-command e
     - The surface is every top-level command a user may invoke: help, login,
       logout, auth, init, start, create, storefront, recipe, stock, stripe,
       deploy, doctor, upgrade, skills, and completion. The five stage commands
-      are on it because feature 029 makes each stage a first-class command, so
+      are on it because each stage is also a first-class command, so
       a surface that hides them contradicts the feature that specifies them.
     - The surface names top-level commands, so `auth` is the entry and `status`
       is its subcommand, exactly as `create` carries its own. A two-word entry

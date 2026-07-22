@@ -26,7 +26,10 @@ interface CloseEnvelope {
   errors: Array<Record<string, unknown>>;
 }
 
-// Side-effecting stages whose blocked/failed status is a genuine failure.
+/**
+ * Side-effecting stages whose blocked/failed status is a genuine failure.
+ * @planks("the stage runners, the stage descriptions, the high-risk gate, and the side-effecting close list are each read")
+ */
 const SIDE_EFFECTING = ["store", "storefront", "recipe", "stock", "deploy", "stripe"];
 
 interface StageEntry {

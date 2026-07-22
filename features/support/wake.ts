@@ -139,6 +139,36 @@ export function readTierCommands(riggingFile: string): TierCommand[] {
   return commands;
 }
 
+/**
+ * The wake directory the `coverage-*` commands write into. Those runs carry c8
+ * instrumentation overhead and harbour contention, so per `RIGGING.md`
+ * `## Tiers` `weather` they never stand as the operational record. Their
+ * basename equals the operational record's, and `tierNameFromRecordPath` reads
+ * the basename, so an instrumented record is otherwise judged under the
+ * operational tier's own name and its inflated clock reads as that tier's.
+ */
+const INSTRUMENTED_DIRECTORY = "instrumented";
+
+/** Whether a wake record path is an instrumented run's record. */
+export function isInstrumentedRecord(recordPath: string): boolean {
+  return recordPath.split("/").includes(INSTRUMENTED_DIRECTORY);
+}
+
+/**
+ * The distinct operational wake records the tier commands write, instrumented
+ * runs excluded. This is the record set a check reads when it judges a tier's
+ * real cost, such as the budget-fit check.
+ */
+export function operationalRecordPaths(commands: TierCommand[]): string[] {
+  const paths = new Set<string>();
+  for (const command of commands) {
+    if (!command.recordPath) continue;
+    if (isInstrumentedRecord(command.recordPath)) continue;
+    paths.add(command.recordPath);
+  }
+  return [...paths];
+}
+
 /** The same command with its record-writing flag dropped: the planted red. */
 export function withoutRecordWrite(command: TierCommand): TierCommand {
   return {

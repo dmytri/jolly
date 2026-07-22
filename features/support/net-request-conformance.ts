@@ -17,6 +17,7 @@
 // a shared helper, so the guard is looked for across the whole seam — the same
 // recognition rule the harness-affordance checker uses.
 import { Node, Project, SyntaxKind } from "ts-morph";
+import { sharedProject } from "./ts-project.ts";
 import { join, relative } from "node:path";
 import { REPO_ROOT } from "./repo-root.ts";
 import type { InjectedSource, Violation } from "./module-conformance.ts";
@@ -46,13 +47,8 @@ const NETWORK_MODULES = new Set([
   "undici",
 ]);
 
-let cachedProject: Project | undefined;
-
 function project(): Project {
-  cachedProject ??= new Project({
-    tsConfigFilePath: join(REPO_ROOT, "tsconfig.json"),
-  });
-  return cachedProject;
+  return sharedProject();
 }
 
 function repoRelative(absolutePath: string): string {

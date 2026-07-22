@@ -15,6 +15,7 @@
 // This file excludes itself from the scan, so its own example literals are never
 // self-flagged.
 import { Node, Project, SyntaxKind } from "ts-morph";
+import { sharedProject } from "./ts-project.ts";
 import { join, relative } from "node:path";
 import { REPO_ROOT } from "./repo-root.ts";
 
@@ -34,13 +35,8 @@ const PTY_ENTRY = "runUnderPty";
 const CHECKER_FILE = "features/support/interactive-reads.ts";
 const VERIFICATION_DIRS = ["features/support/", "features/step_definitions/"];
 
-let cachedProject: Project | undefined;
-
 function project(): Project {
-  cachedProject ??= new Project({
-    tsConfigFilePath: join(REPO_ROOT, "tsconfig.json"),
-  });
-  return cachedProject;
+  return sharedProject();
 }
 
 function repoRelative(absolutePath: string): string {

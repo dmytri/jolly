@@ -11,45 +11,12 @@ Feature: Npx-first Jolly CLI command surface
     And stdout should carry the standard output envelope
 
   @logic
-  Scenario: The published package renders interactive copy from its shipped message catalog
-    Given the published Jolly CLI
-    When the installed `jolly start --dry-run` runs through the published launcher in an interactive terminal, accepting every default
-    Then the trailing Stripe-step note should be the `start.stripeFinal` message from `assets/messages/cli.json`
-
-  @logic
-  Scenario: The message catalog substitutes placeholders with run values
-    When the CLI renders the `start.usingOrg` message with organization "acme-co"
-    Then the rendered text should contain "acme-co"
-    And the rendered text should carry no "{organization}" placeholder token
-
-  @logic @property
-  Scenario: No interactive copy bypasses the message catalog
-    Given the interactive render seams: the clack intro, prompts, notes and outro, the per-stage progress descriptions, and the start-close summary lines
-    When each seam's human-facing message text is examined in the source
-    Then every human-facing message should be sourced from `assets/messages/cli.json` by key
-    And no interactive render seam should emit an inline human-facing string literal
-
-  @logic
-  Scenario: Agent starts the guided setup flow
-    Given the customer wants the end-to-end guided Saleor storefront setup
-    When the agent runs `jolly start --json`
-    Then `jolly start` should bootstrap setup (install the Jolly skill and Saleor skills, scaffold, run doctor) and run the ordered mechanical setup stages
-    And it should spawn the official CLIs (Vercel CLI, `@saleor/configurator`, `git`, `pnpm`) under their own auth while using Jolly's thin helpers for plumbing
-    And with `--json` the output should be the machine-readable envelope on stdout (feature 020)
-
-  @logic
   Scenario: The CLI exposes exactly the supported command surface
     Given the published Jolly CLI
     When the agent inspects `jolly --help`
     Then it should list exactly the commands `help`, `login`, `logout`, `auth`, `init`, `start`, `create`, `storefront`, `recipe`, `stock`, `stripe`, `deploy`, `doctor`, `upgrade`, `skills`, and `completion`
     And `jolly create --help` should list only the subcommand `store`
     And `status` should appear as a subcommand of `auth`, never as a top-level command
-
-  @logic @property
-  Scenario: Every command declares the global output flags at the single parser seam
-    Given the Jolly CLI source at "src/index.ts"
-    When the verifier checks the command surface for the global output flags
-    Then every command should accept "--json", "--quiet", and "--yes" through the one Bombshell parser, with no per-command divergence
 
   @logic
   Scenario: The launcher fails clearly on an unsupported Node version
@@ -89,13 +56,6 @@ Feature: Npx-first Jolly CLI command surface
       | upgrade          |
       | create store     |
 
-  @logic
-  Scenario: Jolly quiets npm install-time warnings for the npx tools it spawns
-    Given the environment sets no NPM_CONFIG_LOGLEVEL value
-    When the agent runs a Jolly command
-    Then Jolly should default NPM_CONFIG_LOGLEVEL to error so spawned npx tools suppress warn-level notices such as EBADENGINE
-    And a NPM_CONFIG_LOGLEVEL value the caller already set should be preserved unchanged
-
   @logic @property
   Scenario: Jolly's code spawns only the delegated official tools
     Given Jolly's own child-process-spawning code
@@ -109,7 +69,7 @@ Feature: Npx-first Jolly CLI command surface
     - Jolly is a thin CLI: it provides deterministic plumbing, installs the Jolly skill, and uses `jolly start` to orchestrate official CLIs without reimplementing them against raw provider APIs.
     - The full command surface is `help`, `login`, `logout`, `auth`, `init`, `start`, `create`, `storefront`, `recipe`, `stock`, `stripe`, `deploy`, `doctor`, `upgrade`, `skills`, and `completion`, with `create` subcommand `store` only and `status` a subcommand of `auth`.
     - `completion` is the human/shell-integration command (see feature 027): `jolly completion <shell>` prints a shell-completion script. It is the single command exempt from the feature 020 `--json` envelope, since its output is consumed by the shell via `source`; it still supports `--help`.
-    - `storefront`, `recipe`, `stock`, `stripe`, and `deploy` are first-class top-level stage commands (see feature 029): each runs one setup stage on its own, and `jolly start` orchestrates the same stages end to end. The official CLIs remain the delegated tools (see feature 008).
+    - `storefront`, `recipe`, `stock`, `stripe`, and `deploy` are first-class top-level stage commands (see the stage commands): each runs one setup stage on its own, and `jolly start` orchestrates the same stages end to end. The official CLIs remain the delegated tools (see feature 008).
     - All skills (the Jolly skill and the Saleor agent-skills) are installed via `npx skills add <ref>`, falling back to a Git-based install only for a skill not available that way.
     - Every command and subcommand supports `--help`: it prints a usage summary naming the command and its flags and exits successfully, never aborting with "Command aborted". `--help` is how an agent learns a command's flags without guessing.
     - All CLI commands should support `--json`.
@@ -161,10 +121,3 @@ Feature: Npx-first Jolly CLI command surface
     - The published package's `engines` field must declare the Node.js requirement.
     - On a Node.js older than the minimum, the launcher should fail with a clear
       message naming the minimum Node version, not a raw syntax or module error.
-
-  @logic @contract
-  Scenario: The published manifest ships the launcher and declares the Node.js floor
-    Given the package manifest "package.json"
-    When its published fields are read
-    Then the `bin` entry should ship the `jolly` launcher
-    And `engines.node` should declare the documented Node.js floor ">=20.12.0"

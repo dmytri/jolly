@@ -587,13 +587,6 @@ When(
 );
 
 Then(
-  "the counts it states for feature files, step-definition files, and unit-test files should match the tree",
-  function (this: JollyWorld) {
-    assertNoArchitectureDrift(this, "count");
-  },
-);
-
-Then(
   "every module it lists under {string} should exist, and every module in {string} should be listed",
   function (this: JollyWorld, _listedDir: string, _treeDir: string) {
     assertNoArchitectureDrift(this, "module");
@@ -608,24 +601,9 @@ Then(
 );
 
 Then(
-  "a drifted count, a missing or unlisted module, or a named technology with no reference should redden the check",
+  "a missing or unlisted module, or a named technology with no reference, should redden the check",
   function (this: JollyWorld) {
     const text = this.notes.architectureText as string;
-
-    // A drifted count.
-    const drifted = text.replace(
-      /(\d+)(\s+Gherkin\s+feature files)/,
-      (_match, count: string, rest: string) => `${Number(count) + 1}${rest}`,
-    );
-    assert.notEqual(
-      drifted,
-      text,
-      "the document no longer states a feature-file count in a plantable form",
-    );
-    assert.ok(
-      findArchitectureDrift(drifted).some((violation) => violation.kind === "count"),
-      "a drifted feature-file count was not reported",
-    );
 
     // A listed module that does not exist.
     const modulesHeading = text.match(/^#{1,6}\s.*Library Modules.*$/m);
@@ -662,6 +640,25 @@ Then(
           violation.kind === "technology" && violation.message.includes(plantedTech),
       ),
       `the planted technology "${plantedTech}" was not reported as unreferenced`,
+    );
+  },
+);
+
+Then(
+  "a file count stated in the document should not be checked, since adding a file is routine and a count that reddens on routine work trains its reader to ignore it",
+  function (this: JollyWorld) {
+    // The inverse of a planted red: plant a count the tree cannot possibly
+    // match, and assert the check stays silent about it. Planting the sentence
+    // rather than mutating one the document happens to carry keeps the proof
+    // non-vacuous whether or not the shipped document still states any count.
+    const text = this.notes.architectureText as string;
+    const planted = `${text}\n\nThe project has 99999 Gherkin feature files, 99999 step-definition files, and 99999 files.\n`;
+    const before = findArchitectureDrift(text);
+    const after = findArchitectureDrift(planted);
+    assert.deepEqual(
+      after.map((violation) => violation.message).sort(),
+      before.map((violation) => violation.message).sort(),
+      "a stated file count changed the check's verdict; counts are no longer a checked claim",
     );
   },
 );

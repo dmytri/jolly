@@ -18,6 +18,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { Node, Project, SyntaxKind } from "ts-morph";
+import { sharedProject } from "./ts-project.ts";
 import { REPO_ROOT } from "./repo-root.ts";
 
 /**
@@ -66,13 +67,8 @@ const CHECKER_FILE = "features/support/read-ceilings.ts";
 const VERIFICATION_DIRS = ["features/support/", "features/step_definitions/"];
 const REGISTRARS = new Set(["Given", "When", "Then"]);
 
-let cachedProject: Project | undefined;
-
 function project(): Project {
-  cachedProject ??= new Project({
-    tsConfigFilePath: join(REPO_ROOT, "tsconfig.json"),
-  });
-  return cachedProject;
+  return sharedProject();
 }
 
 function repoRelative(absolutePath: string): string {

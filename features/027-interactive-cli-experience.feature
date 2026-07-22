@@ -65,6 +65,8 @@ Feature: Human-facing interactive CLI experience
     And the interactive output should list the side-effecting setup stages it will create, including the store, storefront, and deployment stages
     And the interactive output should not list the internal bootstrap stages `init` or `auth`, which are not human decisions
     And no file should be created or modified in the project directory
+    And the interactive output should name which remaining steps are the human's own
+    And the run should close with a concise human summary rather than the machine check list
 
   @logic
   Scenario: Interactive start prompts to choose the organization only when the token has more than one
@@ -74,32 +76,7 @@ Feature: Human-facing interactive CLI experience
     When the user presses Enter at every prompt
     Then the interactive output should present an organization choice naming "org-one" and "org-two"
     And accepting the default should name "org-one" as the target organization in the output
-
-  @logic
-  Scenario: Interactive start uses the only organization without asking when the token has exactly one
-    Given a fresh empty project directory
-    And the Cloud token can access organization "org-solo" only
-    And `jolly start --dry-run` runs in an interactive terminal
-    When the user presses Enter at every prompt
-    Then the interactive output should name "org-solo" as the target organization
-    And no organization choice should be shown, because the token resolves exactly one organization
-
-  @logic
-  Scenario: Interactive start tells the human which steps are theirs
-    Given a fresh empty project directory
-    And `jolly start --dry-run` runs in an interactive terminal
-    When the user presses Enter at every prompt
-    Then the interactive output should say Jolly will run the Vercel sign-in with the human up front, before the unattended stages
-    And the interactive output should name the Saleor Dashboard Stripe key entry as the final human step
-
-  @logic
-  Scenario: Interactive start reuses an already-configured store without re-prompting for the environment name
-    Given a fresh empty project directory
-    And a Saleor store is already configured in the project
-    And `jolly start --dry-run` runs in an interactive terminal
-    When the user presses Enter at every prompt
-    Then the interactive output should not prompt for an environment name
-    And the interactive output should say it is reusing the already-configured store
+    And a token that can access exactly one organization should use it without presenting a choice
 
   @logic
   Scenario: Interactive start offers to reuse an existing store or create a new one when the org has environments
@@ -109,30 +86,6 @@ Feature: Human-facing interactive CLI experience
     When the user presses Enter at every prompt
     Then the interactive output should offer to create a new store or reuse an existing one
     And the interactive output should name "road-panther-store" as a store the human can reuse
-
-  @logic
-  Scenario: Interactive start renders its up-front gate notes from the message catalog
-    Given a fresh empty project directory
-    And `jolly start --dry-run` runs in an interactive terminal
-    When the user presses Enter at every prompt
-    Then the up-front Vercel sign-in note should be the `start.vercelSignin` message from `assets/messages/cli.json`
-    And the trailing Stripe-step note should be the `start.stripeFinal` message from `assets/messages/cli.json`
-
-  @logic
-  Scenario: Interactive start renders its intro banner from the message catalog
-    Given a fresh empty project directory
-    And `jolly start --dry-run` runs in an interactive terminal
-    When the user presses Enter at every prompt
-    Then the interactive intro on stderr should be the `start.intro` message from `assets/messages/cli.json`
-
-  @logic
-  Scenario: Interactive start closes with a concise human summary, not the machine check list
-    Given a fresh empty project directory
-    And `jolly start --dry-run` runs in an interactive terminal
-    When the user presses Enter at every prompt
-    Then the human result on stdout should state in prose that the plan was previewed and nothing was created
-    And the human result on stdout should carry no per-check `[status] check-id` enumeration line
-    And the human result on stdout should carry no `next:` command line
 
   @sandbox
   Scenario: A completed interactive start closes by naming the live store and the remaining human step
@@ -144,14 +97,6 @@ Feature: Human-facing interactive CLI experience
     And the closing summary on stdout should name the Stripe Dashboard key entry as the human's remaining step
     And the closing summary on stdout should not enumerate per-check results as `[status] check-id` lines
     And the closing summary on stdout should not present the Saleor endpoint or SALEOR_TOKEN readiness check, which the store stage resolved, as a failure of the completed run
-
-  @logic
-  Scenario: Interactive start renders the proceed confirmation and decline from the message catalog
-    Given a fresh project directory with no real service credentials
-    And `jolly start` runs in an interactive terminal
-    When the user declines the proceed confirmation
-    Then the proceed confirmation should be the `start.proceed` message from `assets/messages/cli.json`
-    And the decline message should be the `start.declined` message from `assets/messages/cli.json`
 
   @logic
   Scenario: --yes runs jolly start with no prompt even on an interactive terminal
@@ -181,24 +126,6 @@ Feature: Human-facing interactive CLI experience
     And the closing summary should not carry the keep-building orientation naming `storefront/` and `recipe.yml`
 
   @logic
-  Scenario: Setup-stage progress shows each stage as its own live status, not one fixed spinner
-    Given a fresh empty project directory
-    When `jolly start` runs in an interactive terminal
-    Then the setup-stage progress on stderr should list every setup stage by name, each carrying its own status
-    And it should update a stage's status in place as the run reaches that stage, so each stage's progress is visible during the run rather than only after it ends
-    And the running stage's row should describe in plain language what that stage is doing
-    And the progress should redraw the same region in place rather than appending one line per update
-    And stdout should carry no progress or spinner text
-
-  @logic
-  Scenario: Interrupting the unattended stages leaves the terminal usable
-    Given a fresh empty project directory
-    And `jolly start` runs in an interactive terminal
-    When the user presses Ctrl-C while a setup stage is running
-    Then the terminal cursor should be visible again after Jolly exits
-    And the setup-stage progress rows should stay readable, with Jolly's closing line below them rather than drawn over them
-
-  @logic
   Scenario: Interrupting the unattended stages reports the interrupted stage honestly
     Given a fresh empty project directory
     And `jolly start` runs in an interactive terminal
@@ -207,19 +134,8 @@ Feature: Human-facing interactive CLI experience
     And the interactive output should state that setup was interrupted and did not complete
     And Jolly must not print a fabricated store URL or verification result
     And the exit code should be non-zero
-
-  @logic @property
-  Scenario: The interactive layer never pollutes machine output
-    Given a fresh empty project directory
-    When `jolly start --dry-run --json` runs in an interactive terminal
-    Then stdout should contain a single JSON envelope and nothing else
-    And no prompt or spinner text should appear on stdout
-
-  @logic
-  Scenario: An unsupported command fails clearly and names the supported surface
-    When the agent runs `jolly frobnicate --json`
-    Then the envelope status should be "error" with a stable `code`
-    And the error should name the supported commands help, login, logout, auth, init, start, create, storefront, recipe, stock, stripe, deploy, doctor, upgrade, skills, and completion
+    And the interrupt should reach the run as a signal rather than as terminal input, leaving the terminal usable afterward
+    And the output should name only the side-effecting stages that did not finish
 
   @logic
   Scenario: An unsupported flag fails clearly on the agent path, never silently ignored
@@ -238,12 +154,6 @@ Feature: Human-facing interactive CLI experience
     When the agent runs `jolly complete -- lo`
     Then stdout should list the candidate completions `login` and `logout`
 
-  @logic
-  Scenario: Bare `jolly completion` prints usage naming the supported shells
-    When the agent runs `jolly completion`
-    Then stdout should contain a usage line naming the shells bash, zsh, fish, and powershell
-    And the exit code should be 0
-
   @logic @exceptional-double
   Scenario: Interactive start signs the human in to Saleor inline when no auth is configured
     Given an interactive terminal with no JOLLY_SALEOR_CLOUD_TOKEN and no JOLLY_SALEOR_ACCESS_TOKEN set
@@ -252,6 +162,7 @@ Feature: Human-facing interactive CLI experience
     Then the interactive output should show the device user code and the verification URL before any setup stage runs
     And it should store the device-grant access token in .env as JOLLY_SALEOR_ACCESS_TOKEN
     And the run should continue past the auth stage in the same session
+    And the verification URL should be shown as a clickable terminal hyperlink, never a pasted-token prompt
 
   Rule: Typed arguments and shell completion
     - Argument parsing for every `jolly` invocation — agent and human alike — runs through a
@@ -282,13 +193,6 @@ Feature: Human-facing interactive CLI experience
       multi-stage progress display itself on stderr rather than take a redundant dependency. This is
       a sanctioned carve-out, not a forbidden hand-rolled duplicate of a capability Bombshell
       provides.
-
-  @logic @property
-  Scenario: Every Bombshell-capable CLI concern is served by Bombshell, with no redundant implementation
-    Given Jolly's production source for the published CLI
-    Then argument parsing is served by `@bomb.sh/args` as the only argument parser
-    And every interactive prompt, confirmation, and masked secret entry is served by `@clack/prompts` as the only terminal-prompt mechanism
-    And shell completion is served by `@bomb.sh/tab` as the only completion-script generator
 
   Rule: Interactive start runs end-to-end in one session, gathering human input up front
     - On an interactive terminal, `jolly start` gathers every human gate up front and then runs
@@ -374,35 +278,6 @@ Feature: Human-facing interactive CLI experience
     Then the interactive output should name the reason the Vercel sign-in did not complete
     And the interactive output should surface the captured Vercel CLI output for the human to read
 
-  @logic
-  Scenario: Interactive start signs in with the device grant inline, never a pasted token
-    Given a fresh project directory with no real service credentials
-    And `jolly start` runs in an interactive terminal
-    When the user starts interactive setup with no Cloud token configured
-    Then the interactive output should show the device user code and the auth.saleor.io verification URL with that code appended as its `user_code` query parameter
-    And the interactive output should not prompt the user to paste a token
-
-  @logic
-  Scenario: The Saleor sign-in URL is shown as a clickable terminal hyperlink
-    Given a fresh project directory with no real service credentials
-    And `jolly start` runs in an interactive terminal
-    When the user starts interactive setup with no Cloud token configured
-    Then the auth.saleor.io verification URL should be wrapped in an OSC 8 terminal hyperlink escape pointing at that URL
-
-  @logic
-  Scenario: The jolly login sign-in URL is shown as a clickable terminal hyperlink
-    Given an interactive terminal with no JOLLY_SALEOR_CLOUD_TOKEN set
-    And the Saleor auth host approves the device grant on the first poll
-    When the user runs `jolly login`
-    Then the auth.saleor.io verification URL should be wrapped in an OSC 8 terminal hyperlink escape pointing at that URL
-
-  @logic
-  Scenario: The running stage's plain-language description comes from the message catalog
-    Given a fresh empty project directory
-    When `jolly start` runs in an interactive terminal
-    Then the init stage's running description on stderr should be the `start.stage.init` message from `assets/messages/cli.json`
-    And the auth stage's running description on stderr should be the `start.stage.auth` message from `assets/messages/cli.json`
-
   Rule: The setup-stage progress survives a terminal narrower than its widest row
 
     - The in-place redraw moves the cursor up one line per stage and erases one
@@ -424,15 +299,7 @@ Feature: Human-facing interactive CLI experience
     Then each setup stage should appear exactly once in the progress region
     And no stage row should appear twice on screen
     And the progress should redraw the same region in place rather than appending one line per update
-
-  @logic
-  Scenario: A stage description too wide for the terminal is shortened rather than wrapped
-    Given a fresh empty project directory
-    And an interactive terminal 40 columns wide
-    When `jolly start` runs in an interactive terminal
-    And the run reaches the storefront stage
-    Then the storefront stage's row should occupy exactly one terminal line
-    And the row should still name the storefront stage
+    And a stage description too wide for the terminal should be shortened rather than wrapped onto a second line
 
   Rule: The unattended stages run with the terminal in cooked mode
 
@@ -446,14 +313,6 @@ Feature: Human-facing interactive CLI experience
       the CLI restores it explicitly is an implementation choice; either
       satisfies this contract, and a rebuild is free to change it.
 
-  @logic
-  Scenario: Ctrl-C reaches the unattended stages as a signal rather than as input
-    Given a fresh empty project directory
-    And `jolly start` runs in an interactive terminal
-    When the run reaches the first unattended setup stage
-    Then the terminal should be in cooked mode, so the driver turns Ctrl-C into a signal
-    And the run should carry no raw-mode terminal state left over from the prompts
-
   Rule: The interrupted close names the same stages the normal close names
 
     - Both closes answer one question, which setup stages did not finish, and
@@ -464,12 +323,3 @@ Feature: Human-facing interactive CLI experience
     - One question answered in one place. Where the side-effecting stage set
       is written more than once, the closes drift apart, and the interrupted
       close names preflight stages the normal close excludes.
-
-  @logic
-  Scenario: Interrupting the run names only the side-effecting stages that did not finish
-    Given a fresh empty project directory
-    And `jolly start` runs in an interactive terminal
-    When the user presses Ctrl-C while a setup stage is running
-    Then the interactive output should name the side-effecting stages that did not finish
-    And it should not name a preflight stage among the unfinished stages
-    And the stages it names should be the same set the normal close would name for that run

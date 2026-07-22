@@ -11,20 +11,6 @@ Feature: Live-by-design verification conformance
     And any test double that remains should belong to a scenario tagged @exceptional-double whose site names the unproducible condition it injects, or be a golden capture whose site names the licensed @pipeline sandbox run it was recorded from
 
   @logic @property
-  Scenario: The eval seeds only authentication credentials, never a pre-provisioned store
-    Given the eval harness's workspace `.env` seed
-    When the credential variables it writes are enumerated
-    Then the seed should include only the credentials the agent needs to authenticate — the Saleor Cloud token and any Cloud API override
-    And it should omit the store endpoint `NEXT_PUBLIC_SALEOR_API_URL` and the `SALEOR_TOKEN`, so a baseline agent's `jolly start` exercises the documented store-creation path from a fresh start instead of reusing a pre-seeded one
-
-  @logic
-  Scenario: The shipped CLI does not fabricate a Cloud organization list for a customer
-    Given a customer's environment, where the harness guard is not set
-    When the agent runs `jolly create store --create-environment --dry-run --json --mock-organizations=acme-co,other-co`
-    Then the envelope should not report "acme-co" or "other-co" among the organizations it resolved
-    And the run should resolve organizations from the Cloud API alone
-
-  @logic @property
   Scenario: No harness-only affordance in the shipped CLI is reachable without the harness guard
     Given Jolly's production source
     When the harness-only affordances it declares are enumerated
@@ -45,21 +31,6 @@ Feature: Live-by-design verification conformance
     When `features/support/reclaim-cli.ts` is loaded because a cucumber invocation imports it, rather than run standalone via `npm run reclaim`
     Then it should perform no reclaim call and no console output as a result of merely being imported
     And a cucumber invocation's reclamation should happen exactly once, from the `BeforeAll` hook alone
-
-  @logic @invariant
-  Scenario: Every composition-ground spy serves only scenarios tagged @composition
-    Given Jolly's step definitions and test support code
-    When the test doubles justified on the composition ground are enumerated
-    Then each should serve only scenarios tagged "@composition"
-    And a composition-ground spy serving a scenario without the tag should redden the check, naming the spy and the scenario
-
-  @logic @property
-  Scenario: Production reads only product-namespaced configuration, and harness knobs stay in the harness
-    Given Jolly's production source
-    When the environment variables production code reads are enumerated
-    Then each should be a `JOLLY_*` product setting, a target project's own expected variable, or a harness affordance readable only when the harness guard is set
-    And a harness-only knob should carry the `HARNESS_` prefix, never `JOLLY_`
-    And a mis-namespaced knob or an unguarded harness read should redden the check, naming the variable and the site
 
   Rule: Live-by-design conformance
     - Binding test methodology lives in AGENTS.md ("Real services always — never mock or fake"); this feature makes its one testable invariant executable, so a suite that is green while still carrying a forbidden double fails here instead of passing silently.

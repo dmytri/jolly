@@ -17,10 +17,13 @@ import { REPO_ROOT } from "../support/world.ts";
 import type { JollyWorld } from "../support/world.ts";
 import { normalizeSaleorUrl } from "../../src/lib/saleor-url.ts";
 import {
+  findCompletionCopy,
   findInlineProseLiterals,
+  findRiskContextProse,
   findThrowSiteProse,
   joinCliMessageKeys,
   type CatalogJoin,
+  type CompletionCopy,
   type InjectedSource,
   type ProseLiteral,
   type ThrowSiteProse,
@@ -519,6 +522,167 @@ Then(
     assert.ok(
       message.includes(host),
       `the refusal must name the refused host "${host}"; got: ${message}`,
+    );
+  },
+);
+
+// ─── The completion surface carries copy the shell shows the human ──────────
+
+When(
+  "the completion command descriptions and the `jolly completion --help` usage text are joined against the catalog entries",
+  function (this: JollyWorld) {
+    this.notes.completionCopy = findCompletionCopy();
+  },
+);
+
+Then(
+  "every description and usage sentence should resolve to a catalog entry",
+  function (this: JollyWorld) {
+    const copy = this.notes.completionCopy as CompletionCopy[];
+    assert.equal(
+      copy.length,
+      0,
+      `completion copy authored inline instead of resolving through the catalog — ` +
+        `the shell prints these beside the candidates it offers. Give each its own ` +
+        `entry in ${CLI_MESSAGES_PATH} and render it with cliMessage:\n${copy
+          .map((site) => `  - ${site.file}:${site.line} ${site.site}: ${JSON.stringify(site.text)}`)
+          .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "planting a prose literal as a completion command description should redden the check, naming the command it describes",
+  function () {
+    const planted: InjectedSource = {
+      file: "src/lib/.planted-completion-commands.ts",
+      text: [
+        "const COMMANDS: ReadonlyArray<readonly [string, string]> = [",
+        '  ["plantedcommand", "Run the planted command"],',
+        "];",
+        "export default COMMANDS;",
+      ].join("\n"),
+    };
+    const reported = findCompletionCopy([planted]).find(
+      (site) => site.file === planted.file,
+    );
+    assert.ok(
+      reported,
+      "a command description authored inline was not reported, so the shell would " +
+        "print copy the catalog never owned",
+    );
+    assert.ok(
+      reported.site.includes("plantedcommand"),
+      `the report must name the command it describes: ${reported.site}`,
+    );
+    assert.ok(
+      reported.text.includes("Run the planted command"),
+      `the report must carry the authored description: ${reported.text}`,
+    );
+  },
+);
+
+Then(
+  "the {string} Node version guard should be exempt, since it runs before the catalog is reachable",
+  function (this: JollyWorld, launcher: string) {
+    // The exemption does real work only while the guard's sentence is still
+    // authored inline there, so read the launcher and confirm it is.
+    const source = readFileSync(join(REPO_ROOT, launcher), "utf8");
+    assert.ok(
+      /requires Node\.js/.test(source),
+      `${launcher} must carry its Node version guard sentence inline for this ` +
+        `exemption to mean anything`,
+    );
+    const copy = this.notes.completionCopy as CompletionCopy[];
+    assert.equal(
+      copy.filter((site) => site.file === launcher).length,
+      0,
+      `${launcher} runs before dist/index.js loads, so it cannot reach the catalog ` +
+        `and its sentence stays inline; it must not be reported`,
+    );
+  },
+);
+
+// ─── Risk-context prose reaches the agent and the human alike ───────────────
+
+/** A risk context carrying its action as an inline clause. */
+const PLANTED_RISK_ACTION: InjectedSource = {
+  file: "src/.planted-risk-action.ts",
+  text: `export const planted = {
+  action: "Deploy the planted storefront to production",
+  target: "planted",
+  riskLevel: "medium",
+  categories: [],
+  reversible: false,
+  sideEffects: [],
+  dryRunAvailable: true,
+};
+`,
+};
+
+/** A risk context carrying an inline clause in its side-effect list. */
+const PLANTED_RISK_SIDE_EFFECT: InjectedSource = {
+  file: "src/.planted-risk-side-effect.ts",
+  text: `export const planted = {
+  action: "planted",
+  target: "planted",
+  riskLevel: "medium",
+  categories: [],
+  reversible: false,
+  sideEffects: ["Writes the planted key and channel into the project .env"],
+  dryRunAvailable: true,
+};
+`,
+};
+
+When(
+  "the `riskContext` action, target, and side-effect fields are joined against the catalog entries",
+  function (this: JollyWorld) {
+    this.notes.riskContextProse = findRiskContextProse();
+  },
+);
+
+Then("every authored clause should resolve to a catalog entry", function (this: JollyWorld) {
+  const clauses = this.notes.riskContextProse as ProseLiteral[];
+  assert.equal(
+    clauses.length,
+    0,
+    `risk-context clauses authored inline instead of resolving through the catalog — ` +
+      `each reaches the human in the plan preview and the agent in the envelope data. ` +
+      `Give each its own entry in ${CLI_MESSAGES_PATH} and render it with cliMessage:\n` +
+      `${reportLiterals(clauses)}`,
+  );
+});
+
+Then(
+  "planting a prose literal at a `riskContext` action should redden the check, naming its file and line",
+  function () {
+    const reported = findRiskContextProse([PLANTED_RISK_ACTION]).find(
+      (literal) =>
+        literal.file === PLANTED_RISK_ACTION.file && literal.field === "riskContext.action",
+    );
+    assert.ok(reported, "a clause authored at a riskContext action was not reported");
+    assert.ok(reported.line > 0, `the report must name the line: ${JSON.stringify(reported)}`);
+    assert.ok(
+      reported.text.includes("Deploy the planted storefront"),
+      `the report must carry the authored clause: ${reported.text}`,
+    );
+  },
+);
+
+Then(
+  "planting a prose literal in a `riskContext` side-effect entry should redden the check, naming its file and line",
+  function () {
+    const reported = findRiskContextProse([PLANTED_RISK_SIDE_EFFECT]).find(
+      (literal) =>
+        literal.file === PLANTED_RISK_SIDE_EFFECT.file &&
+        literal.field === "riskContext.sideEffects entry",
+    );
+    assert.ok(reported, "a clause authored in a riskContext side-effect entry was not reported");
+    assert.ok(reported.line > 0, `the report must name the line: ${JSON.stringify(reported)}`);
+    assert.ok(
+      reported.text.includes("Writes the planted key and channel"),
+      `the report must carry the authored clause: ${reported.text}`,
     );
   },
 );

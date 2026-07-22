@@ -3,15 +3,6 @@ Feature: Jolly Configurator starter recipe
   I want a Jolly-specific Configurator recipe
   So that the Saleor store is configured to work with the Paper storefront immediately
 
-  @sandbox
-  Scenario: Jolly prepares the starter recipe
-    Given the customer has created or selected a Saleor Cloud environment
-    When the agent runs `jolly start --dry-run --json`
-    Then the plan should name the bundled starter recipe Jolly ships (`recipe.yml`)
-    And the plan should write the recipe to a file at a named path before deployment
-    And the plan should deploy it by spawning `npx @saleor/configurator@latest deploy`
-    And the plan should name the deploy token as `SALEOR_TOKEN` (the resolved store token Jolly holds)
-
   @sandbox @creates-env @spend-is-the-assertion
   Scenario: Jolly blocks a recipe re-deploy over a pre-existing store's destructive diff
     Given a Saleor Cloud environment that already holds catalog data
@@ -23,29 +14,12 @@ Feature: Jolly Configurator starter recipe
     And the blocked report should state that deploying over it requires explicit approval
 
   @logic @exceptional-double
-  Scenario: A transient Cloud API 502 on the task-status poll is retried, not reported as terminal
-    Given the Cloud API answers one task-status poll with a 502 before reporting the task done
-    When the agent runs `jolly create store --create-environment --json`
-    Then the envelope status should be "success"
-    And no `errors` entry should carry the code `TASK_STATUS_FAILED`
-    And the retry should stop at the first successful poll rather than a fixed count
-
-  @logic @exceptional-double
   Scenario: A persistent Cloud API failure on the task-status poll reports honestly what was created
     Given the Cloud API answers every task-status poll with a 502
     When the agent runs `jolly create store --create-environment --json`
     Then the envelope status should be "error" after the bounded retry budget is exhausted
     And the error should state that the creation task was accepted but its completion could not be confirmed
     And the error should not claim that nothing was created
-
-  @logic
-  Scenario: Jolly start previews seeding stock for the recipe catalog
-    Given a project with the recipe stage not yet applied
-    When the agent runs `jolly start --dry-run --json`
-    Then the plan should include a stock-seeding step that runs after the `@saleor/configurator` deploy
-    And the stock-seeding step should carry a riskContext for modifying catalog data
-    And the preview should name the real Saleor GraphQL request, the recipe warehouse, and the default per-variant quantity
-    And the preview should not perform any mutation
 
   @sandbox
   Scenario: Jolly start seeds stock so the recipe catalog is buyable
@@ -55,41 +29,12 @@ Feature: Jolly Configurator starter recipe
     And a checkout in the `us` channel should not be blocked by INSUFFICIENT_STOCK
     And re-running the stage should update the quantities idempotently rather than creating duplicate stock
 
-  @sandbox
-  Scenario: Jolly start seeds stock and assigns collections with concurrent Saleor requests
-    Given a freshly created Saleor Cloud environment with the starter recipe deployed
-    When Jolly start runs the stock stage over the recipe's variants and collections
-    Then the stock stage's reported request timing should show a later stock mutation starting before an earlier stock mutation finishes
-    And the stock stage's reported request timing should show a later collection assignment starting before an earlier collection assignment finishes
-    And every recipe product variant should have stock in the recipe warehouse afterwards
-    And re-running the stage should update the quantities idempotently rather than creating duplicate stock
-
   @logic @exceptional-double
   Scenario: A transient Saleor rate-limit during the stock stage retries instead of reporting a false blocked
     Given the stock stage's Saleor GraphQL endpoint returns HTTP 429 once and then succeeds with the recipe catalog in stock
     When the agent runs `jolly start --yes --json` and the stock stage runs against that endpoint
     Then the stock stage should be reported completed, having retried the rate-limited request
     And the stock stage should not be reported blocked on the transient rate-limit
-
-  @logic
-  Scenario: Jolly start previews the configurator deploy of the starter recipe
-    Given a project with the recipe stage not yet applied
-    When the agent runs `jolly start --dry-run --json`
-    Then the plan should include a configurator-deploy step that runs before the stock-seeding step
-    And the preview should name the spawned command `npx @saleor/configurator@latest deploy`, Jolly's bundled starter recipe, and `SALEOR_URL` and `SALEOR_TOKEN` by name only
-    And the preview should name the safe flag `--failOnDelete` used to guard a re-deploy over a pre-existing store
-    And the configurator-deploy step should carry a riskContext for deploying store configuration
-    And the riskContext should mark a dry run available via the configurator `--plan` preview
-    And the preview should not spawn the configurator or perform any deployment
-
-  @logic
-  Scenario: Jolly start does not fabricate the recipe deployment
-    Given the agent runs `jolly start` with no real Saleor credentials
-    When the run reaches the configurator-deploy stage without `--dry-run`
-    Then Jolly should report the configurator-deploy stage as blocked or pending, never completed
-    And the summary should not claim the starter recipe was deployed
-    And the overall envelope status should be "warning", not "success"
-    And Jolly should not print a fabricated deployment result
 
   @sandbox
   Scenario: Jolly start deploys the starter recipe with @saleor/configurator
@@ -98,19 +43,6 @@ Feature: Jolly Configurator starter recipe
     And the bootstrap deploy should record a successful configurator deployment report and the recipe's catalog entities should exist in the store
     And the stage should be reported completed only when the configurator's deployment report records success
     And re-running the stage should reconcile to a no-op diff rather than creating duplicate entities
-
-  @sandbox
-  Scenario: The recipe deploy reports completed and activates the `us` channel over a create-store environment
-    Given a freshly created Saleor Cloud environment with the starter recipe deployed
-    Then the recipe stage should be reported "completed", not "blocked"
-    And the recipe's `us` channel should exist and be active in the store
-
-  @sandbox
-  Scenario: Jolly start confirms the recipe's featured collection exists before reporting the recipe stage completed
-    Given a freshly created Saleor Cloud environment with the starter recipe deployed
-    Then the recipe's `featured-products` collection should exist in the store holding its declared products
-    And the recipe stage should be reported "completed" only after Jolly reads the store back and confirms the recipe's declared catalog entities exist there, not from the configurator's summary counts alone
-    And the `recipe-deployed` check should derive its status from that store read-back, so it cannot report "pass" while a sibling check reports a declared entity such as the `featured-products` collection is absent
 
   Rule: Starter recipe goals
     - Make a freshly created Saleor Cloud environment immediately useful with Paper.

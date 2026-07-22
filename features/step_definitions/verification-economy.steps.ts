@@ -37,6 +37,7 @@ import {
   checkTierBudgets,
   fixtureTier,
   readTierBudgets,
+  operationalRecordPaths,
   readTierCommands,
   readTierWallClock,
   readWakeRecord,
@@ -53,11 +54,9 @@ import {
   type TierRun,
 } from "../support/wake.ts";
 import {
-  CONFIGURED_PARALLELISM,
   deriveWorkerCount,
   oomKillFindings,
   readPressureRecord,
-  readTierWorkerCeilings,
   workerRestoreFinding,
   type OomFinding,
   type PressureRecord,
@@ -1201,11 +1200,10 @@ Given(
     // last run on record and is not judged here: record PRESENCE is the
     // wall-clock-record scenario's job, with its own planted red; this
     // scenario judges the clocks the wake carries.
-    const commands = readTierCommands("RIGGING.md");
-    const paths = new Set<string>();
-    for (const command of commands) {
-      if (command.recordPath) paths.add(command.recordPath);
-    }
+    // Operational records only. The `coverage-*` commands write an instrumented
+    // record whose basename equals the operational one's, so collecting every
+    // tier command's record path judges c8 overhead as the tier's own clock.
+    const paths = operationalRecordPaths(readTierCommands("RIGGING.md"));
     const clocks: TierClock[] = [];
     for (const recordPath of paths) {
       const clock = readTierWallClock(join(REPO_ROOT, recordPath));

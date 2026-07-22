@@ -1,10 +1,9 @@
 // Local .env secret handling (AGENTS.md "Secret and Environment Handling").
 //
 // Pinned harness seam (see features/step_definitions/005-stripe-checkout-setup.steps.ts):
-//   writeEnvValues(projectDir, values, headerText?) — ensures .env is ignored by
-//     Git BEFORE writing, optionally prepends a managed header block (idempotent,
-//     see ensureEnvHeader), merges the given values into .env, and returns the
-//     full loaded post-update value map so the current command flow can use them.
+//   writeEnvValues(projectDir, values) — ensures .env is ignored by Git BEFORE
+//     writing, merges the given values into .env, and returns the full loaded
+//     post-update value map so the current command flow can use them.
 //   loadEnvValues(projectDir) — parses .env into a name → value record.
 //
 // The values handled here are secrets: they must never be logged or printed;
@@ -56,27 +55,6 @@ export function loadEnvValues(projectDir: string): Record<string, string> {
   return values;
 }
 
-/**
- * Prepend a managed header block to .env when it is not already present.
- * Idempotent: keyed off the header's first line as a sentinel — if that line
- * already appears in the file, this is a no-op, so it never duplicates the
- * block across repeated writes. When .env is absent, the block becomes the
- * file's opening lines. Header lines are comments (`#…`), so they pass through
- * ENV_LINE untouched on the subsequent read/merge. The caller supplies the
- * text so this module stays generic about what the header says.
- * @planks("Jolly should write the URL to .env as NEXT_PUBLIC_SALEOR_API_URL")
- * @planks("it should write SALEOR_URL and SALEOR_TOKEN to .env from the authenticated session")
- * @planks("`jolly start` should write that `NEXT_PUBLIC_SALEOR_API_URL` \(mirrored to `SALEOR_URL`) and the resolved `SALEOR_TOKEN` to `.env`")
- */
-export function ensureEnvHeader(projectDir: string, headerText: string): void {
-  const path = join(projectDir, ".env");
-  const sentinel = headerText.split("\n")[0];
-  const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
-  if (existing.split("\n").some((line) => line === sentinel)) return;
-  const block = headerText.endsWith("\n") ? headerText : `${headerText}\n`;
-  writeFileSync(path, existing.length > 0 ? `${block}${existing}` : block);
-}
-
 /** Make sure .gitignore exists and lists `.env` so secrets are never committed.
  * @planks("Jolly should write the URL to .env as NEXT_PUBLIC_SALEOR_API_URL")
  * @planks("it should write SALEOR_URL and SALEOR_TOKEN to .env from the authenticated session")
@@ -108,10 +86,8 @@ function ensureEnvIgnored(projectDir: string): void {
 export function writeEnvValues(
   projectDir: string,
   values: Record<string, string>,
-  headerText?: string,
 ): Record<string, string> {
   ensureEnvIgnored(projectDir);
-  if (headerText) ensureEnvHeader(projectDir, headerText);
   const path = join(projectDir, ".env");
   const lines = existsSync(path) ? readFileSync(path, "utf8").split("\n") : [];
   while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();

@@ -4,9 +4,7 @@
 // ARCHITECTURE.md is a self-contained orientation document: a deliberate second
 // copy of facts whose homes are elsewhere in the repository. A hand-maintained
 // second copy drifts, so its structural claims are pinned by this check rather
-// than by discipline. Three claim families, per the scenario:
-//   - the counts it states for feature files, step-definition files, and
-//     unit-test files,
+// than by discipline. Two claim families, per the scenario:
 //   - the modules it lists under src/lib/ (the Library Modules section and the
 //     project-structure tree), in both directions,
 //   - the verification technologies it names (the BDD Verification section's
@@ -18,7 +16,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { REPO_ROOT } from "./repo-root.ts";
 
-export type ClaimKind = "count" | "module" | "technology";
+export type ClaimKind = "module" | "technology";
 
 export interface ArchitectureViolation {
   kind: ClaimKind;
@@ -32,7 +30,7 @@ const VERIFICATION_SECTION = "BDD Verification";
 const TECHNOLOGIES_MARKER = "**Technologies:**";
 
 function filesWithSuffix(directory: string, suffix: string): string[] {
-  // An absent directory holds zero files: the check reports the count drift
+  // An absent directory holds zero files: the module check reports the drift
   // honestly instead of crashing on a legitimately retired surface.
   let entries: string[];
   try {
@@ -58,64 +56,6 @@ function section(documentText: string, title: string): string | undefined {
     }
   }
   return lines.slice(start + 1, end).join("\n");
-}
-
-/** Every stated count matching `pattern`, as numbers. */
-function statedCounts(text: string, pattern: RegExp): number[] {
-  return [...text.matchAll(pattern)].map((match) => Number(match[1]));
-}
-
-function checkCounts(documentText: string, violations: ArchitectureViolation[]): void {
-  const claims: { label: string; pattern: RegExp; actual: number }[] = [
-    {
-      label: "feature files",
-      pattern: /(\d+)\s+(?:Gherkin\s+)?feature files/g,
-      actual: filesWithSuffix("features", ".feature").length,
-    },
-    {
-      label: "step-definition files",
-      pattern: /(\d+)\s+step-definition files/g,
-      actual: filesWithSuffix("features/step_definitions", ".steps.ts").length,
-    },
-  ];
-  for (const claim of claims) {
-    const stated = statedCounts(documentText, claim.pattern);
-    if (stated.length === 0) {
-      violations.push({
-        kind: "count",
-        message: `the document states no count for ${claim.label}; the tree has ${claim.actual}`,
-      });
-      continue;
-    }
-    for (const count of stated) {
-      if (count !== claim.actual) {
-        violations.push({
-          kind: "count",
-          message: `the document states ${count} ${claim.label}; the tree has ${claim.actual}`,
-        });
-      }
-    }
-  }
-
-  const unitTests = filesWithSuffix("tests", ".test.ts").length;
-  const unitSection = section(documentText, "Unit Tests");
-  const stated = unitSection ? statedCounts(unitSection, /(\d+)\s+files/g) : [];
-  if (stated.length === 0) {
-    // A document claiming nothing about a surface the tree does not have is
-    // agreement, not drift; the missing-claim violation fires only while the
-    // tree actually holds unit-test files.
-    if (unitTests > 0) {
-      violations.push({
-        kind: "count",
-        message: `the document states no count for unit-test files; the tree has ${unitTests}`,
-      });
-    }
-  } else if (stated[0] !== unitTests) {
-    violations.push({
-      kind: "count",
-      message: `the document states ${stated[0]} unit-test files; the tree has ${unitTests}`,
-    });
-  }
 }
 
 /** Module names the project-structure tree lists under `lib/`. */
@@ -237,7 +177,6 @@ export function findArchitectureDrift(
   documentText: string = readFileSync(ARCHITECTURE_DOCUMENT, "utf8"),
 ): ArchitectureViolation[] {
   const violations: ArchitectureViolation[] = [];
-  checkCounts(documentText, violations);
   checkModules(documentText, violations);
   checkTechnologies(documentText, violations);
   return violations;

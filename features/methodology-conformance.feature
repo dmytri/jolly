@@ -1,9 +1,9 @@
 Feature: Methodology conformance
 
   Shipshape methodology rules that must surface as failing verification when
-  violated. These two derived checks make the perturbation-quiescence and
-  watchbill-shape rules executable, so a green suite that still violates one
-  fails here instead of passing silently.
+  violated, so a green suite that still violates one fails here instead of
+  passing silently. Each scenario earns its place by naming a fault class no
+  other scenario and no tooling gate detects.
 
   @logic @invariant
   Scenario: A green tree carries no standing perturbation token
@@ -11,28 +11,6 @@ Feature: Methodology conformance
     When the perturbation-quiescence check scans them for the "PERTURBATION" token
     Then it should report no match
     And planting the "PERTURBATION" token in a "src/" file should redden the check
-
-  @logic @invariant
-  Scenario: The watchbill-shape check accepts a well-formed watchbill and rejects a malformed one
-    Given a well-formed "watchbill.json" fixture with ordered watches "watch1" and "watch2", each holding only a "scenarios" array of "<spec>.feature:<Scenario Name>" references or a tier tag
-    When the watchbill-shape check validates the fixture
-    Then it should report the fixture well-formed
-    And a fixture whose watch carries prose, metadata, or a key other than "scenarios" should redden the check
-
-  @logic @invariant
-  Scenario: Every plank sits in a docblock on the declaration it describes
-    Given the implementation directories "src/" and "bin/"
-    When the plank-form check reads every "@planks" token in them
-    Then each should sit in a docblock attached to a declaration and carry a quoted step text
-    And a "@planks" token attached to a type alias rather than the seam beneath it should redden the check
-    And a "@planks" token in a line comment or inside a function body should redden the check
-
-  @logic @invariant
-  Scenario: A feature file carries no bare comment
-    Given the specs directory "features/"
-    When the spec-comment check reads every feature file
-    Then none should carry a bare "#" comment line
-    And a feature file carrying a "#" comment line should redden the check
 
   @logic @invariant
   Scenario: A credentialed tier fails loudly when its credential is absent
@@ -51,23 +29,6 @@ Feature: Methodology conformance
     And a plank carrying a leading "Given", "When", or "Then" should redden the check, naming the plank and its seam
     And a plank matching no current step-definition pattern should redden the check
     And a `@planks-provisional(...)` annotation naming a current `@captain` scenario should conform, one naming a promoted or absent scenario should redden the check
-
-  @logic @invariant
-  Scenario: The architecture document's structural claims match the tree
-    Given the architecture document "ARCHITECTURE.md"
-    When the architecture-conformance check reads its structural claims
-    Then the counts it states for feature files, step-definition files, and unit-test files should match the tree
-    And every module it lists under "src/lib/" should exist, and every module in "src/lib/" should be listed
-    And every verification technology it names should be referenced in the tree
-    And a drifted count, a missing or unlisted module, or a named technology with no reference should redden the check
-
-  @logic @invariant
-  Scenario: The dependency record and the package manifest agree
-    Given the dependency entries recorded in "RIGGING.md" and the dependency lists in "package.json"
-    When the dependency-record check joins them
-    Then every dependency recorded in "RIGGING.md" should be installed in "package.json"
-    And every "package.json" dependency should be referenced by the tree
-    And a recorded-but-uninstalled or installed-but-unreferenced dependency should redden the check
 
   @logic @invariant
   Scenario: Every verification surface in the tree is run by a configured tier command

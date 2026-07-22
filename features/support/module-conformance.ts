@@ -23,6 +23,7 @@
 // This file excludes itself from the seam scan so its own pattern literals are
 // never self-flagged.
 import { Node, Project, SyntaxKind } from "ts-morph";
+import { sharedProject } from "./ts-project.ts";
 import { join, relative } from "node:path";
 import { REPO_ROOT } from "./repo-root.ts";
 
@@ -50,13 +51,8 @@ const GLOBAL_FLAGS_DECL = "GLOBAL_BOOLEAN_FLAGS";
 // carries more (`dry-run`, `help`); these are the ones this scenario guards.
 const REQUIRED_GLOBAL_FLAGS = ["json", "quiet", "yes"];
 
-let cachedProject: Project | undefined;
-
 function project(): Project {
-  cachedProject ??= new Project({
-    tsConfigFilePath: join(REPO_ROOT, "tsconfig.json"),
-  });
-  return cachedProject;
+  return sharedProject();
 }
 
 function repoRelative(absolutePath: string): string {

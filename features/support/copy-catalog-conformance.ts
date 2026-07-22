@@ -34,6 +34,7 @@
 // This checker reads only the implementation directories (src/, bin/), so the
 // verification layer's own pattern literals are never self-flagged.
 import { Node, Project, SyntaxKind } from "ts-morph";
+import { sharedProject } from "./ts-project.ts";
 import { readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { REPO_ROOT } from "./repo-root.ts";
@@ -120,13 +121,8 @@ function inCatalogResolver(statement: Node, file: string): boolean {
     );
 }
 
-let cachedProject: Project | undefined;
-
 function project(): Project {
-  cachedProject ??= new Project({
-    tsConfigFilePath: join(REPO_ROOT, "tsconfig.json"),
-  });
-  return cachedProject;
+  return sharedProject();
 }
 
 function repoRelative(absolutePath: string): string {
@@ -570,4 +566,237 @@ function authoredSentence(node: Node, depth: number): Fragment | undefined {
     return initializer ? authoredSentence(initializer, depth + 1) : undefined;
   }
   return undefined;
+}
+
+// ─── The completion surface's copy ──────────────────────────────────────────
+//
+// Two sentences reach the human without touching the envelope prose surface or
+// a throw site, so neither existing checker sees them. `COMMANDS` in
+// `src/lib/completion.ts` pairs each command name with an English description
+// the shell prints beside the candidates it offers, and the
+// `jolly completion --help` usage text is written straight to stdout, reaching
+// no envelope field and no throw.
+//
+// The launcher `bin/jolly` is the one exempt site: it runs its Node version
+// guard before `dist/index.js` loads, so it cannot reach the catalog at all and
+// its sentence stays inline.
+
+/** The declaration pairing each completed command with its description. */
+const COMPLETION_COMMANDS = "COMMANDS";
+
+/** The launcher, which runs before the catalog is reachable. */
+const LAUNCHER_FILE = "bin/jolly";
+
+/** A sentence the completion surface writes without resolving through the catalog. */
+export interface CompletionCopy {
+  /** Repo-root-relative path of the file carrying the sentence. */
+  file: string;
+  /** 1-based line number of the sentence. */
+  line: number;
+  /** The site it sits on, such as `completion command "help"`. */
+  site: string;
+  /** The sentence as authored. */
+  text: string;
+}
+
+/** Whether a call writes directly to a standard stream. */
+function streamWrite(call: Node): boolean {
+  if (!Node.isCallExpression(call)) return false;
+  const expression = call.getExpression();
+  if (!Node.isPropertyAccessExpression(expression)) return false;
+  const target = expression.getExpression().getText();
+  const member = expression.getName();
+  if (target === "process.stdout" || target === "process.stderr") {
+    return member === "write";
+  }
+  if (target === "console") {
+    return member === "log" || member === "error" || member === "warn";
+  }
+  return false;
+}
+
+/**
+ * Every sentence the completion surface writes without resolving through the
+ * catalog: a command description authored as a literal, and a sentence written
+ * directly to a standard stream.
+ *
+ * Pass `injected` to plant a violation for a planted-red proof; the injected
+ * sources are virtual and are removed before returning.
+ */
+export function findCompletionCopy(injected: InjectedSource[] = []): CompletionCopy[] {
+  const found: CompletionCopy[] = [];
+  const added = injected.map((source) =>
+    project().createSourceFile(join(REPO_ROOT, source.file), source.text, {
+      overwrite: true,
+    }),
+  );
+  try {
+    for (const source of project().getSourceFiles()) {
+      const file = repoRelative(source.getFilePath());
+      if (!IMPLEMENTATION.some((dir) => file.startsWith(dir))) continue;
+      // The launcher cannot reach the catalog, so its sentence stays inline.
+      if (file === LAUNCHER_FILE) continue;
+
+      // The completion command descriptions: `[name, description]` tuples.
+      const commands = source.getVariableDeclaration(COMPLETION_COMMANDS)?.getInitializer();
+      const tuples = commands ? unwrapValue(commands) : undefined;
+      if (tuples && Node.isArrayLiteralExpression(tuples)) {
+        for (const element of tuples.getElements()) {
+          const tuple = unwrapValue(element);
+          if (!Node.isArrayLiteralExpression(tuple)) continue;
+          const [nameNode, descriptionNode] = tuple.getElements();
+          if (!nameNode || !descriptionNode) continue;
+          const name =
+            Node.isStringLiteral(nameNode) || Node.isNoSubstitutionTemplateLiteral(nameNode)
+              ? nameNode.getLiteralText()
+              : nameNode.getText();
+          const authored = authoredSentence(descriptionNode, 0);
+          if (!authored || !PROSE.test(authored.text)) continue;
+          found.push({
+            file,
+            line: authored.node.getStartLineNumber(),
+            site: `completion command "${name}"`,
+            text: authored.text,
+          });
+        }
+      }
+
+      // Sentences written straight to a standard stream.
+      for (const call of source.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+        if (!streamWrite(call)) continue;
+        const argument = call.getArguments()[0];
+        if (!argument) continue;
+        const authored = authoredSentence(argument, 0);
+        if (!authored || !PROSE.test(authored.text)) continue;
+        found.push({
+          file,
+          line: authored.node.getStartLineNumber(),
+          site: `${call.getExpression().getText()} argument`,
+          text: authored.text,
+        });
+      }
+    }
+  } finally {
+    for (const source of added) project().removeSourceFile(source);
+  }
+  return found;
+}
+
+/** Strip `as const` and parentheses so the underlying literal is reached. */
+function unwrapValue(node: Node): Node {
+  let current = node;
+  while (Node.isAsExpression(current) || Node.isParenthesizedExpression(current)) {
+    current = current.getExpression();
+  }
+  return current;
+}
+
+// ─── The risk-context prose fields ──────────────────────────────────────────
+//
+// Feature 021's `riskContext` carries three prose fields the envelope prose
+// checker does not reach: `action`, `target`, and each entry of `sideEffects`.
+// They are full English clauses, and they reach the human twice over: the
+// interactive plan preview renders `action` on stderr, and every field ships
+// inside the envelope `data` an agent reads.
+//
+// The literal is authored in the plan builder and in the risk-context helper,
+// not at the field the envelope carries, so the same one-hop-short follow that
+// hides throw-site prose hides these.
+
+/** The property names that make an object literal a risk context. */
+const RISK_CONTEXT_SIGNATURE = [
+  "action",
+  "target",
+  "riskLevel",
+  "categories",
+  "reversible",
+  "sideEffects",
+];
+
+/** The two scalar prose fields a risk context carries. */
+const RISK_CONTEXT_PROSE = ["action", "target"];
+
+/** The list-valued prose field a risk context carries. */
+const RISK_CONTEXT_SIDE_EFFECTS = "sideEffects";
+
+/**
+ * Whether an object literal is a risk context, read structurally: `RiskContext`
+ * values are authored as plain object literals in plan data, so the shape is
+ * what identifies them and a plant needs no import to be one.
+ */
+function isRiskContext(objectLiteral: Node): boolean {
+  if (!Node.isObjectLiteralExpression(objectLiteral)) return false;
+  const names = objectLiteral
+    .getProperties()
+    .filter(
+      (member) =>
+        Node.isPropertyAssignment(member) || Node.isShorthandPropertyAssignment(member),
+    )
+    .map((member) => propertyName(member));
+  return RISK_CONTEXT_SIGNATURE.every((key) => names.includes(key));
+}
+
+/**
+ * Every risk-context prose clause authored in the implementation instead of
+ * resolving through the catalog: the `action` and `target` fields, and each
+ * entry of `sideEffects`.
+ *
+ * Pass `injected` to plant a violation for a planted-red proof; the injected
+ * sources are virtual and are removed before returning.
+ */
+export function findRiskContextProse(injected: InjectedSource[] = []): ProseLiteral[] {
+  const found: ProseLiteral[] = [];
+  const added = injected.map((source) =>
+    project().createSourceFile(join(REPO_ROOT, source.file), source.text, {
+      overwrite: true,
+    }),
+  );
+  try {
+    const report = (fragment: Fragment, field: string): void => {
+      if (!PROSE.test(fragment.text)) return;
+      const site = repoRelative(fragment.node.getSourceFile().getFilePath());
+      if (!IMPLEMENTATION.some((dir) => site.startsWith(dir))) return;
+      found.push({
+        file: site,
+        line: fragment.node.getStartLineNumber(),
+        field,
+        text: fragment.text,
+      });
+    };
+
+    for (const source of project().getSourceFiles()) {
+      const file = repoRelative(source.getFilePath());
+      if (!IMPLEMENTATION.some((dir) => file.startsWith(dir))) continue;
+
+      for (const objectLiteral of source.getDescendantsOfKind(
+        SyntaxKind.ObjectLiteralExpression,
+      )) {
+        if (!isRiskContext(objectLiteral)) continue;
+        for (const member of objectLiteral.getProperties()) {
+          const name = propertyName(member);
+          if (!name) continue;
+          if (RISK_CONTEXT_PROSE.includes(name)) {
+            for (const fragment of memberFragments(member)) {
+              report(fragment, `riskContext.${name}`);
+            }
+            continue;
+          }
+          if (name !== RISK_CONTEXT_SIDE_EFFECTS) continue;
+          if (!Node.isPropertyAssignment(member)) continue;
+          const initializer = member.getInitializer();
+          if (!initializer) continue;
+          const list = unwrapValue(initializer);
+          if (!Node.isArrayLiteralExpression(list)) continue;
+          for (const entry of list.getElements()) {
+            for (const fragment of fragments(entry, AT_SURFACE)) {
+              report(fragment, "riskContext.sideEffects entry");
+            }
+          }
+        }
+      }
+    }
+  } finally {
+    for (const source of added) project().removeSourceFile(source);
+  }
+  return found;
 }

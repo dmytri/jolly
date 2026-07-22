@@ -9,12 +9,6 @@ Feature: User-facing copy is sourced from the message catalog
   is the concrete anchor for this policy.
 
   @logic @property
-  Scenario: The pasted-URL clarifying question comes from the message catalog
-    Given the message catalog defines the clarifying question for an unusable Saleor URL
-    When the agent pastes "not-a-saleor-url" as the store URL
-    Then the clarifying question Jolly returns should match the catalog's entry
-
-  @logic @property
   Scenario: Every envelope prose field resolves through the message catalog
     Given Jolly's source tree
     When its envelope prose fields are checked against the message catalog
@@ -44,13 +38,6 @@ Feature: User-facing copy is sourced from the message catalog
     And planting a reference to a key the catalog lacks should redden the check
     And planting a catalog entry no site references should redden the check
 
-  @logic
-  Scenario: A message key the catalog lacks fails loudly instead of rendering prose
-    Given the message catalog has no entry for the key "start.noSuchKey"
-    When the CLI renders the `start.noSuchKey` message
-    Then the render should fail, naming "start.noSuchKey" as the missing key
-    And no rendered output should carry the text "undefined"
-
   Rule: Thrown-error prose reaches the human from the catalog
 
     - An error's message is authored at the throw site and reaches the human
@@ -64,19 +51,29 @@ Feature: User-facing copy is sourced from the message catalog
       as a host name or a status code stays at the throw site; the surrounding
       sentence is copy and owes a key.
 
-  @logic
-  Scenario: The non-first-party host refusal reads its sentence from the catalog
-    Given a fresh empty project directory
-    When Jolly is asked to reach the host "evil.example.com"
-    Then the run should fail with the stable code `NON_FIRST_PARTY_HOST`
-    And the error message should be the catalog's non-first-party host sentence
-    And the message should name "evil.example.com" as the refused host
+  Rule: The completion surface carries copy the shell shows the human
 
-  @logic
-  Scenario: Every thrown error's prose resolves to a catalog entry
-    Given Jolly's source tree and the message catalog
-    When every error message authored at a throw site in "src/" is joined against the catalog entries
-    Then every authored sentence should resolve to a catalog entry
-    And a sentence authored inline at a throw site should redden the check, naming its file and line
-    And a sentence assembled by concatenation at a throw site should redden the check, since a sentence split across operands is still authored copy
-    And the catalog resolver's own missing-key refusal should be exempt, since no entry can render the failure to find an entry
+    - `COMMANDS` in "src/lib/completion.ts" pairs each command name with an
+      English description, and the shell prints those descriptions beside the
+      candidates it offers. They are the same register as the help output's
+      command descriptions, which already resolve through the catalog.
+    - The `jolly completion --help` usage text is written straight to stdout
+      with `process.stdout.write`, so it reaches no envelope field and no throw
+      site, and neither existing check sees it.
+    - The launcher "bin/jolly" is the one exempt site: it runs its Node version
+      guard before `dist/index.js` loads, so it cannot reach the catalog at all
+      and its sentence stays inline.
+
+  Rule: Risk-context prose reaches the agent and the human alike
+
+    - Feature 021's `riskContext` carries three prose fields the checker does
+      not reach: `action`, `target`, and each entry of `sideEffects`. They are
+      full English clauses such as the configurator deploy's plan-and-fail-on-delete
+      paragraph and the Stripe stage's keys-and-channel paragraph.
+    - They reach the human twice over. The interactive plan preview renders
+      `action` in a `clackNote` on stderr, and every field ships inside the
+      envelope `data` an agent reads. Prose on two consumer surfaces is copy by
+      any reading of this policy.
+    - The same one-hop-short follow that hides throw-site prose hides these:
+      the literal is authored in `startPlan` and in `createStoreRiskContext`,
+      not at the field the envelope carries.

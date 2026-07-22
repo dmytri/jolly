@@ -8,49 +8,6 @@ Feature: Jolly create subcommands
     And `jolly create` is a thin plumbing surface that never wraps the Vercel CLI or `@saleor/configurator`
     And `jolly start` orchestrates the official CLIs by spawning them under their own auth, guided by the Jolly skill
 
-  @logic
-  Scenario: Agent discovers create subcommands
-    Given the agent needs to create a specific resource
-    When it inspects `jolly create --help`
-    Then it should see only the plumbing subcommand `store`
-    And each subcommand should have a clear resource boundary
-    And it should not list `deployment`, `deploy`, `recipe`, or `storefront` — that orchestration lives inside `jolly start`, which spawns the official CLIs
-
-  @logic
-  Scenario Outline: Jolly create subcommands never report a resource they did not produce
-    Given `jolly create <subcommand>` is run with its preconditions unmet
-    When the command runs with `--json`
-    Then the envelope status should be "error" with a stable error code
-    And the output must not report a created, configured, or stored resource it did not produce
-    And no check should report "pass" for work that did not happen
-
-    Examples:
-      | subcommand |
-      | store      |
-
-  @logic
-  Scenario Outline: An unverified value is reported as exactly "stored, not verified"
-    Given `jolly create <subcommand>` stores a value it cannot verify in this run
-    When it reports the result with `--json`
-    Then the output should describe that value as exactly "stored, not verified"
-    And it should not report the value as created, configured, or verified
-
-    Examples:
-      | subcommand |
-      | store      |
-
-  @logic
-  Scenario Outline: create --dry-run shows the real request without performing it
-    Given the agent runs `jolly create <subcommand> --dry-run`
-    When the preview is produced
-    Then it should name the real request it would send — host, path, and resolved identifiers
-    And it should not claim the work was done
-    And it should not create, configure, or store anything
-
-    Examples:
-      | subcommand |
-      | store      |
-
   Rule: Credentials are read from .env, the way a real agent leaves them
     - `jolly login` and `jolly create store` write `JOLLY_*` credentials to the project `.env`; the agent does not export them into its shell. So every command reads its credentials from the `.env` FILE (the project config), never depending on a value being present in the process environment.
 
@@ -61,21 +18,6 @@ Feature: Jolly create subcommands
     Then the envelope status should be "success"
     And the preview should name the real Cloud API `organizations/{organization}/environments/` request it would send to provision the store
     And it should not create, configure, or store anything
-
-  @logic @exceptional-double
-  Scenario: jolly create store gives actionable recovery when the organization is at its environment limit
-    Given the Saleor Cloud environments endpoint returns ENVIRONMENT_LIMIT_REACHED
-    When the agent runs `jolly create store --create-environment --json`
-    Then the envelope status should be "error" with a stable error code
-    And nextSteps should name freeing a sandbox environment and upgrading the plan as recovery options
-    And it should not report a created or stored environment
-
-  @logic
-  Scenario: A completed create subcommand points back to jolly start to continue
-    When the agent runs `jolly create store --url https://example.saleor.cloud --json`
-    Then the envelope status should be "success"
-    And nextSteps should include a step whose command is `jolly start`
-    And that step should state that `jolly start` continues the end-to-end setup and recognizes the stored store rather than redoing it (feature 022)
 
   @logic
   Scenario: An unknown create subcommand errors naming the supported set

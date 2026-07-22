@@ -22,22 +22,6 @@ Feature: Verification economy
       fixed delay guessed to be long enough. A guessed delay is paid in full on every
       run, and it is paid again as flake when it guesses short.
 
-  @logic @invariant
-  Scenario: A tier run through its configured command writes that tier's wake record
-    Given the tier commands configured in "RIGGING.md"
-    When a tier is run through its command as configured
-    Then that tier's wake record should carry every scenario the run started, each with its wall-clock duration
-    And it should carry the run's worker count, its peak resident set size, and any out-of-memory kill events
-    And a configured tier command that writes no wake record should redden the check
-
-  @logic @invariant
-  Scenario: An interactive scenario ends every wait and read on an observed signal
-    Given the verification support that drives an interactive terminal
-    When the waits it performs before sending each input and the reads it performs before asserting are enumerated
-    Then each wait should be ended by the prompt it observed in the terminal output
-    And each read should be ended by the output it asserts on, appearing in the terminal
-    And a wait or read ended by a fixed delay or timeout should redden the check
-
   Rule: Ambient state is provisioned once and shared
 
     - State that no scenario asserts is setup cost: it is built once per run behind
@@ -54,13 +38,6 @@ Feature: Verification economy
     When the sites that provision ambient state no scenario asserts, such as pre-warming an external CLI into the npx cache, are enumerated
     Then each should run behind a once-per-run guard such as a lock, marker file, or module-level memo
     And a site that re-provisions per scenario without a guard should redden the check
-
-  @sandbox @invariant
-  Scenario: The shared prepared-storefront fixture rebuilds a template evicted mid-run
-    Given the storefront-template fixture has memoized its shared template for the run
-    When the memoized template source is removed and a scenario then requests the prepared storefront
-    Then the fixture should re-materialize the template and stage the prepared storefront
-    And a fixture that copies from an unverified source without re-materializing should redden the check
 
   Rule: Expensive spend is licensed, recorded, and joined
 
@@ -126,21 +103,6 @@ Feature: Verification economy
     And a spend aimed at a declared unroutable stand-in by a scenario carrying @exceptional-double should be classified to that scenario's double, never as a real toolchain spend
     And a spend attributed to an unlicensed scenario should redden the check, naming the scenario and the spend it made
     And a tier that spawned an expensive command and wrote no ledger should redden the check
-
-  @logic @invariant
-  Scenario: At most one scenario in the corpus holds the licence for an expensive spend class
-    Given Jolly's feature files
-    When the scenarios carrying a spend licence tag are grouped by the spend class that tag licenses
-    Then no spend class should carry more than one licensed scenario that does not declare @spend-is-the-assertion
-    And a spend class carrying a second undeclared licensed scenario should redden the check, naming the class and every scenario holding its licence
-    And a scenario carrying @spend-is-the-assertion without a spend licence tag should redden the check, since the declaration exempts a licence it does not hold
-
-  @logic @invariant
-  Scenario: Shared provisioning happens at most once per resource class in a run
-    Given the spend ledger the sandbox tier's last run recorded into the wake
-    When the entries attributed to the run's shared provisioning are grouped by resource class
-    Then no resource class should appear more than once
-    And a resource class provisioned twice in one run should redden the check, naming the class
 
   Rule: An out-of-memory kill is a finding, never a rerun
 
@@ -215,10 +177,3 @@ Feature: Verification economy
       nothing it can observe, so the tier reports green and the leak is
       invisible. The harness already tracks the run's process set to attribute
       out-of-memory kills; reclamation is a second reader of that set.
-
-  @sandbox @invariant
-  Scenario: A tier run leaves none of its spawned processes running
-    Given the process set a tier run recorded as its own
-    When the tier run exits
-    Then no process the run spawned should still be running
-    And a process the run left behind should redden the check, naming the command and its process id

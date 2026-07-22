@@ -21,7 +21,6 @@ import type { JollyWorld } from "../support/world.ts";
 
 // --- Background (capability statements) -------------------------------------
 
-Given("`jolly init` has completed", function () {});
 Given("a deployed storefront URL in .env", function () {});
 
 // --- Scenario: Agent has live store access from day one (@sandbox) ----------
@@ -33,7 +32,7 @@ Given("a deployed storefront URL in .env", function () {});
 // uses. MCP is refresh-on-401: it captures ${SALEOR_TOKEN} at spawn, so a
 // 401 means re-auth and reload the MCP server.
 
-Given("jolly init has completed", function (this: JollyWorld) {
+Given("`jolly init` has completed", function (this: JollyWorld) {
   // Run jolly init in the scenario's temp project so .mcp.json is produced from
   // the real (sandbox-provisioned) endpoint. init installs skills (network) and
   // merges .mcp.json; this only runs under the @sandbox gate.
@@ -68,7 +67,7 @@ Then(
 );
 
 Then(
-  /^the config should send the `Authorization: Bearer \$\{SALEOR_TOKEN\}` header$/,
+  /^the `\.mcp\.json` saleor-graphql entry should send the `Authorization: Bearer \$\{SALEOR_TOKEN\}` header$/,
   function (this: JollyWorld) {
     // The saleor-graphql entry must authenticate live access with the resolved
     // store token, referenced via env expansion (${SALEOR_TOKEN}) so the MCP

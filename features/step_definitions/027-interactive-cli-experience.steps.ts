@@ -2200,6 +2200,10 @@ When(
       // Accept every prompt, then send SIGINT when the stage is observed running.
       inputs: [...acceptEveryPrompt(sequence), "\x03"],
       waitFor: [...sequence, INTERRUPTED_STAGE_MARKER],
+      // Read the terminal's own mode at the moment the interrupt is fed: whether
+      // `\x03` reaches the run as SIGINT or as a stray input byte is a property of
+      // the line discipline, not of anything the CLI prints.
+      sampleTermiosAt: [INTERRUPTED_STAGE_MARKER],
       // The interrupt must make the CLI exit on its own; the read ends at EOF, so
       // a run that swallows SIGINT hits the ceiling and reds rather than passing.
       readUntil: "exit",
@@ -2216,6 +2220,7 @@ When(
       envelope: findEnvelope(run.output),
     };
     this.notes.interruptStillRunning = run.stillRunning;
+    this.notes.termiosAtInterrupt = run.termios;
 
     // The interrupt must actually have stopped the run, or this scenario is not
     // this scenario: a run that ignores SIGINT reaches its last stage and closes
@@ -2460,6 +2465,286 @@ Then("the exit code should be non-zero", function (this: JollyWorld) {
     `an interrupted setup must exit non-zero; got exit ${this.lastRun!.exitCode}`,
   );
 });
+
+// ─── The plan preview names the human's own remaining steps (feature 027) ──
+// The mechanical chain runs unattended once the human proceeds; the one step
+// Jolly cannot perform for them — pasting the Stripe keys and mapping the `us`
+// channel in the Saleor Dashboard — necessarily trails at the end, so the
+// preview must tell them that it is theirs.
+
+Then(
+  "the interactive output should name which remaining steps are the human's own",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.match(
+      out,
+      /stripe[^\n]*\b(key|keys)\b[^\n]*dashboard|dashboard[^\n]*stripe[^\n]*\b(key|keys)\b/i,
+      `the preview must name the Saleor Dashboard Stripe key entry as a step the ` +
+        `human performs; got:\n${out}`,
+    );
+    assert.match(
+      out,
+      /\b(you|your|yours|human|final|last|remaining|closing)\b/i,
+      `the preview must frame that step as the human's own remaining step; got:\n${out}`,
+    );
+  },
+);
+
+// The human close is prose, not the machine surface: feature 020's per-check
+// `[status] check-id` enumeration and `next:` command lines stay on the `--json`
+// path.
+Then(
+  "the run should close with a concise human summary rather than the machine check list",
+  function (this: JollyWorld) {
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.match(
+      out,
+      /previewed/i,
+      `the human close must state in prose that the plan was previewed; got:\n${out}`,
+    );
+    assert.match(
+      out,
+      /nothing was created|no files were (?:written|created)|no changes were made|created nothing/i,
+      `the human close must state in prose that nothing was created; got:\n${out}`,
+    );
+    const lines = out.split(/\r?\n/);
+    const checkLine = lines.find((line) => PER_CHECK_LINE.test(line));
+    assert.equal(
+      checkLine,
+      undefined,
+      `the human close must carry no per-check [status] check-id line; found:\n${checkLine}`,
+    );
+    const nextLine = lines.find((line) => /^\s*next:/i.test(line));
+    assert.equal(
+      nextLine,
+      undefined,
+      `the human close must carry no next: command line; found:\n${nextLine}`,
+    );
+  },
+);
+
+// ─── One organization resolves without a choice (feature 027 / 012) ────────
+// The multi-org half of this scenario has already run; the single-org half is a
+// second run of the same command whose only difference is the organizations the
+// token resolves, so it is driven here rather than asserted from the multi-org
+// run's output.
+
+Then(
+  "a token that can access exactly one organization should use it without presenting a choice",
+  { timeout: 160_000 },
+  function (this: JollyWorld) {
+    const soleOrg = "org-solo";
+    this.notes.mockOrgs = soleOrg;
+    this.notes.noMock = undefined;
+    assert.ok(
+      runInteractive(this, startArgvWithMock(this), acceptEveryPrompt),
+      "the single-organization interactive run must start",
+    );
+    const out = stripAnsi(this.lastRun!.stdout);
+    assert.doesNotMatch(
+      out,
+      /choose[^\n]*organization/i,
+      `a token resolving exactly one organization must present no choice; got:\n${out}`,
+    );
+    assert.ok(
+      namesTargetOrganization(out, soleOrg),
+      `the sole organization must be used and named as the target; got:\n${out}`,
+    );
+  },
+);
+
+// ─── Every stage description is catalog copy (feature 027) ─────────────────
+// The plain-language descriptions in the progress region are drawn from
+// `assets/messages/cli.json` by key, never an inline literal. Each stage the
+// region reports must carry the catalog's description for that stage.
+
+Then(
+  "each stage's plain-language description should be the one the message catalog declares for that stage",
+  function (this: JollyWorld) {
+    const stderr = normalizeCatalogText(this.lastRun!.stderr);
+    assert.ok(
+      stderr.length > 0,
+      "the setup-stage progress must have rendered on stderr for its descriptions to be read",
+    );
+    const rows = renderTerminal(this.lastRun!.stderr).filter((line) =>
+      STAGE_STATUS_MARKER.test(line),
+    );
+    const missing: string[] = [];
+    const reported: string[] = [];
+    for (const stage of allStages()) {
+      const named = rows.some((row) => new RegExp(`\\b${stage}\\b`, "i").test(row));
+      if (!named) continue;
+      reported.push(stage);
+      const description = normalizeCatalogText(
+        catalogMessage(`start.stage.${stage}`),
+      );
+      if (!stderr.includes(description)) missing.push(`${stage} ("${description}")`);
+    }
+    assert.ok(
+      reported.length > 0,
+      `the progress region must report at least one stage for its descriptions to be ` +
+        `read; rows were:\n${rows.join("\n")}`,
+    );
+    assert.deepEqual(
+      missing,
+      [],
+      `every reported stage's description must be its catalog message; these stages ` +
+        `render a description the catalog does not declare: ${missing.join(", ")}. ` +
+        `Progress region was:\n${rows.join("\n")}`,
+    );
+  },
+);
+
+// ─── The interrupt is a signal, and the terminal survives it (feature 027) ─
+// The prompts take the terminal into raw mode, which clears ISIG and so disables
+// the driver's signal characters. Once the prompts are answered the stages are
+// unattended and Ctrl-C is the only control the human has left, so the line
+// discipline must be back in cooked mode when the interrupt arrives — otherwise
+// it reaches the run as a stray input byte. Afterwards the human keeps the
+// terminal: the cursor the live progress region hid is visible again.
+
+Then(
+  "the interrupt should reach the run as a signal rather than as terminal input, leaving the terminal usable afterward",
+  function (this: JollyWorld) {
+    const mode = this.notes.termiosAtInterrupt as
+      | { isig: boolean; icanon: boolean; echo: boolean }
+      | undefined;
+    assert.ok(
+      mode,
+      "the terminal's mode was not sampled at the interrupt, so this step proves nothing",
+    );
+    assert.equal(
+      mode!.isig,
+      true,
+      "ISIG is clear on the terminal when the interrupt arrives, so the line " +
+        "discipline generates no SIGINT: the Ctrl-C reaches the run as a stray " +
+        "byte rather than as a signal, and the unattended stages are uninterruptible",
+    );
+    assert.deepEqual(
+      { icanon: mode!.icanon, echo: mode!.echo },
+      { icanon: true, echo: true },
+      "the prompts put the terminal into raw mode (ICANON and ECHO cleared) and it " +
+        "is still there when the interrupt arrives, so the prompts' terminal state " +
+        "outlived the prompts",
+    );
+    // Usable afterward: whatever the live progress region hid, it restored before
+    // exiting. The last cursor-visibility toggle is what the human is left with.
+    const raw = this.lastRun!.stdout;
+    const toggles = [...raw.matchAll(/\x1b\[\?25(l|h)/g)].map((m) => m[1]);
+    assert.ok(
+      toggles.includes("l"),
+      `the interrupted run must have hidden the cursor for its live progress region, ` +
+        `otherwise this step proves nothing; raw tail:\n${JSON.stringify(raw.slice(-2000))}`,
+    );
+    assert.equal(
+      toggles[toggles.length - 1],
+      "h",
+      `after an interrupt Jolly must leave the terminal usable, with its cursor ` +
+        `restored; the last cursor toggle the terminal saw was a hide. Raw tail:\n` +
+        `${JSON.stringify(raw.slice(-2000))}`,
+    );
+  },
+);
+
+Then(
+  "the output should name only the side-effecting stages that did not finish",
+  function (this: JollyWorld) {
+    const named = interruptNamedStages(this);
+    assert.ok(
+      named.length > 0,
+      "the interrupted close must name at least one unfinished stage: the run " +
+        `was stopped during "${INTERRUPTED_STAGE}", which never completed`,
+    );
+    const notSideEffecting = named.filter(
+      (stage) => !CLOSE_SIDE_EFFECTING_STAGES.includes(stage),
+    );
+    assert.deepEqual(
+      notSideEffecting,
+      [],
+      `the interrupted close must name only side-effecting stages; it named ` +
+        `${JSON.stringify(named)}, and ${JSON.stringify(notSideEffecting)} ` +
+        `${notSideEffecting.length === 1 ? "is" : "are"} not side-effecting`,
+    );
+    assert.ok(
+      named.includes(INTERRUPTED_STAGE),
+      `the stage the interrupt landed on ("${INTERRUPTED_STAGE}") did not ` +
+        `complete, so the close must name it; it named ${JSON.stringify(named)}`,
+    );
+  },
+);
+
+// ─── The sign-in URL is clickable, never a paste prompt (feature 027) ──────
+// OSC 8 escapes survive stripAnsi (which removes only CSI sequences), so the raw
+// output is inspected for the hyperlink.
+
+Then(
+  "the verification URL should be shown as a clickable terminal hyperlink, never a pasted-token prompt",
+  function (this: JollyWorld) {
+    const raw = this.lastRun!.stdout;
+    const out = stripAnsi(raw);
+    const code = out.match(DEVICE_USER_CODE_RE);
+    assert.ok(code, `interactive start must show the device user code; got:\n${out}`);
+    const url = `${DEVICE_VERIFICATION_URL}?user_code=${code![0]}`;
+    const escaped = url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // OSC 8 hyperlink open: ESC ] 8 ; <params> ; <URI> ST  (ST = BEL or ESC \).
+    assert.match(
+      raw,
+      new RegExp(`\\x1b\\]8;[^;]*;${escaped}(?:\\x07|\\x1b\\\\)`),
+      `the verification URL must be wrapped in an OSC 8 hyperlink pointing at ${url}; ` +
+        `got:\n${JSON.stringify(raw)}`,
+    );
+    assert.doesNotMatch(
+      out,
+      /paste[^\n]*token/i,
+      `the human signs in through the device grant, never a pasted-token prompt; got:\n${out}`,
+    );
+  },
+);
+
+// ─── A too-wide description is shortened, not wrapped (feature 027) ────────
+// The screen is replayed at the run's own width, so a row that wrapped for the
+// human wraps here too.
+
+Then(
+  "a stage description too wide for the terminal should be shortened rather than wrapped onto a second line",
+  function (this: JollyWorld) {
+    const columns = narrowColumns(this);
+    const screen = progressScreen(this);
+    const index = screen.findIndex(
+      (line) =>
+        new RegExp(`\\b${NARROW_STAGE}\\b`, "i").test(line) &&
+        STAGE_STATUS_MARKER.test(line),
+    );
+    assert.ok(
+      index >= 0,
+      `the progress region must show a "${NARROW_STAGE}" stage row; screen was:\n${screen.join("\n")}`,
+    );
+    const description = catalogMessage(NARROW_STAGE_KEY);
+    assert.ok(
+      description.length > columns,
+      `this step proves nothing unless the "${NARROW_STAGE}" description is too wide ` +
+        `for the terminal: it is ${description.length} columns against ${columns}`,
+    );
+    assert.ok(
+      screen[index]!.length <= columns,
+      `the "${NARROW_STAGE}" row must fit the ${columns}-column terminal; it ran to ` +
+        `${screen[index]!.length} columns: ${JSON.stringify(screen[index])}`,
+    );
+    // Shortened, not wrapped: the row's own text does not continue below it.
+    const tail = description.slice(Math.max(0, description.length - 12));
+    const next = screen[index + 1] ?? "";
+    assert.ok(
+      !next.includes(tail),
+      `the "${NARROW_STAGE}" description must be shortened rather than wrapped, but ` +
+        `its tail ${JSON.stringify(tail)} continues on the next line: ${JSON.stringify(next)}`,
+    );
+    // Shortening must not cost the stage its name.
+    assert.ok(
+      new RegExp(`\\b${NARROW_STAGE}\\b`, "i").test(screen[index]!),
+      `shortening must not cost the stage its name; row was: ${JSON.stringify(screen[index])}`,
+    );
+  },
+);
 
 Then(
   "the run should continue past the auth stage in the same session",

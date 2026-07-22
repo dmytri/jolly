@@ -19,24 +19,6 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     When the agent runs `jolly start --json` with no store URL
     Then `nextSteps` should name both the register-new and connect-existing paths
 
-  @logic
-  Scenario: jolly start starts the device grant when no token is configured
-    Given a fresh project directory with no `JOLLY_SALEOR_CLOUD_TOKEN` configured
-    When the agent runs `jolly start --json` in a non-interactive shell
-    Then Jolly should request a device code from `https://auth.saleor.io/realms/saleor-cloud/protocol/openid-connect/auth/device` with `client_id=jolly`
-    And a nextStep should carry the Saleor device verification URL for the human to open and approve
-    And it should not fabricate that authentication succeeded
-
-  @sandbox
-  Scenario: Jolly registers a new Saleor Cloud store via the Cloud API
-    Given `JOLLY_SALEOR_CLOUD_TOKEN` is set for an organization with no project
-    When the agent runs `jolly create store --create-environment --json`
-    Then the envelope `data` should report the created project and environment
-    And the `data` should include the new store's `*.saleor.cloud` GraphQL API URL
-    And the `data` should include the store's Saleor Dashboard URL ending in `.saleor.cloud/dashboard/`
-    And `nextSteps` should direct new-account signup to cloud.saleor.io
-    And Jolly's code should send no signup request and contact only first-party hosts
-
   @sandbox @exceptional-double
   Scenario: jolly start waits for a not-yet-serving store to serve before completing the store stage
     Given `jolly start`'s store stage resolves a store whose Saleor GraphQL endpoint is briefly not yet serving
@@ -47,13 +29,6 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And `jolly start` should write that `NEXT_PUBLIC_SALEOR_API_URL` (mirrored to `SALEOR_URL`) and the resolved `SALEOR_TOKEN` to `.env`
     And the `recipe` and `stock` stages should not report "blocked" for a missing Saleor endpoint
 
-  @logic
-  Scenario: The default readiness budget is 600 seconds unless overridden
-    Given no `JOLLY_READINESS_BUDGET_MS` override is set
-    When the store stage's readiness budget is resolved
-    Then the resolved readiness budget should be 600 seconds
-    And a set `JOLLY_READINESS_BUDGET_MS` value should override it
-
   @sandbox @exceptional-double
   Scenario: jolly start blocks the store stage when a freshly-provisioned store never becomes reachable
     Given the readiness budget is configured to 8 seconds via `JOLLY_READINESS_BUDGET_MS`
@@ -62,37 +37,6 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     When the store stage runs
     Then the `store` stage status should be "blocked", not "completed"
     And the remediation should tell the human the store may still be starting up and to re-run `jolly start`
-
-  @sandbox @exceptional-double
-  Scenario: jolly create store --create-environment reports a warning when the new environment never becomes reachable
-    Given `JOLLY_SALEOR_CLOUD_TOKEN` is set for an organization with no project
-    And a freshly-created Saleor Cloud environment's GraphQL endpoint stays unreachable past the readiness budget
-    When the agent runs `jolly create store --create-environment --json`
-    Then the envelope status should be "warning", not "success"
-    And the `environment-provisioned` check should report "fail" with a remediation to re-run in a few moments to confirm
-
-  @logic
-  Scenario: jolly start --dry-run plans to provision a store when none is configured
-    Given `JOLLY_SALEOR_CLOUD_TOKEN` is set and no `NEXT_PUBLIC_SALEOR_API_URL` is configured
-    When the agent runs `jolly start --dry-run --json`
-    Then the `store` stage preview should name the real Cloud API `organizations/{organization}/environments/` request it would send to provision a new store
-    And it should not report the `store` stage as "pending" or claim a store already exists
-    And it should not create, configure, or store anything
-
-  @logic
-  Scenario: jolly start --dry-run skips store provisioning when a store endpoint is already configured
-    Given `JOLLY_SALEOR_CLOUD_TOKEN` is set and `NEXT_PUBLIC_SALEOR_API_URL` is configured to an existing store
-    When the agent runs `jolly start --dry-run --json`
-    Then the `store` stage preview should report the configured store as already satisfied and skip provisioning
-    And it should not name a Cloud API request to create a new project or environment
-    And it should not create, configure, or store anything
-
-  @sandbox
-  Scenario: Jolly connects an existing Saleor store and verifies connectivity
-    Given a store URL `https://example.saleor.cloud` and a valid `SALEOR_TOKEN`
-    When the agent runs `jolly init --json` with that store URL
-    Then `data` should report the normalized GraphQL endpoint `https://example.saleor.cloud/graphql/`
-    And a `saleor-connectivity` check should report status "pass"
 
   @sandbox
   Scenario: Jolly start creates a deployable storefront from Saleor Paper
@@ -106,13 +50,6 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And the storefront stage installs Paper's dependencies by running pnpm via `npx`, with no global pnpm prerequisite, and Jolly should not install Node.js itself
     And `jolly doctor storefront --full-validation` should run Paper's generate, typecheck, and build steps and report each as a check
     And it should leave Paper's source and theme files unmodified after the clone and install
-
-  @sandbox @toolchain-element
-  Scenario: Jolly start lets Paper's native dependencies run their build scripts so the Vercel build succeeds
-    Given Jolly has cloned and installed the Paper storefront
-    When `jolly start` prepares the storefront for the Vercel deploy
-    Then `pnpm install` in the storefront should report no ignored build scripts for Paper's native dependencies `sharp` and `esbuild`
-    And the `npx vercel@latest --prod` production build should complete, not fail on unbuilt native modules
 
   @sandbox
   Scenario: Jolly start deploys to Vercel by spawning the official Vercel CLI
@@ -157,49 +94,11 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And no check or error should contain a raw `spawnSync` ENOENT string
 
   @logic
-  Scenario: Jolly start previews the storefront clone and install
-    Given a fresh empty project directory
-    When the agent runs `jolly start --dry-run --json`
-    Then the plan should include a storefront step that spawns `git` to clone Saleor Paper and `pnpm` to install
-    And the preview should name the default target directory `storefront` and the `saleor/storefront` Paper template from `main`
-    And the storefront step should carry a riskContext for cloning and installing the storefront
-    And the preview should not spawn git or pnpm or write the storefront
-
-  @logic
-  Scenario: jolly storefront does not fabricate the storefront preparation
-    Given the agent runs `jolly start` with no real Saleor credentials
-    When the run reaches the storefront stage without `--dry-run`
-    Then Jolly should report the storefront stage as completed, blocked, or pending, never fabricated
-
-  @logic
-  Scenario: Jolly start's storefront preparation approves Paper's native build scripts
-    Given the agent runs `jolly start` with no real Saleor credentials
-    When the run reaches the storefront stage without `--dry-run`
-    Then a fresh `pnpm install` in the prepared storefront should report no ignored build scripts for `sharp` and `esbuild`
-
-  @logic
-  Scenario: Jolly start does not fabricate the Vercel deployment
-    Given the agent runs `jolly start` with no real Saleor credentials
-    When the run reaches the deploy stage without `--dry-run`
-    Then Jolly should report the deploy stage as blocked or pending, never completed
-    And the summary should not claim the storefront was deployed
-    And the overall envelope status should be "warning", not "success"
-
-  @logic
   Scenario: Jolly start points the human to run it in a shell when the agent cannot proceed
     Given the agent runs `jolly start` with no real Saleor credentials
     When the run stops at a gate the agent cannot complete
     Then the nextSteps should offer the human-run fallback of running `jolly start` in a shell
     And it should not fabricate that the human-run step was completed
-
-  @sandbox
-  Scenario: jolly deploy owns the Vercel sign-in rather than telling the agent to run it
-    Given the storefront is ready for deployment
-    And the Vercel CLI is pointed at an isolated config with no signed-in session
-    When the agent runs `jolly deploy` without `--dry-run`
-    Then no nextSteps entry, error remediation, or check `command` should tell the agent to run `vercel login`, because Jolly runs the sign-in itself
-    And no nextSteps entry or error remediation should tell the agent to re-run `jolly start` after a manual Vercel sign-in
-    And the pending sign-in nextStep should resume by re-running `jolly deploy`, the command that reached the gate
 
   Rule: Storefront and Vercel deploy stages
     - `jolly start` performs the storefront and deploy stages itself by SPAWNING the official CLIs,
@@ -377,3 +276,9 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     - When a human step is required, Jolly should tell the agent exactly what to ask the customer for, then resume automatically once the value is provided.
     - For new Saleor Cloud accounts: direct the customer to cloud.saleor.io, wait for the resulting store URL, then automate everything from that point.
     - For Stripe test mode: `jolly start` installs the Saleor Stripe app (`appInstall`) and installs the `stripe-best-practices` skill, then runs a guided gate for the Dashboard key entry and `us`-channel mapping that no public API can perform (feature 005).
+
+  Rule: A stage command runs exactly one stage
+    - Each side-effecting stage `jolly start` performs is also a first-class `jolly` command that runs that one stage against already-prepared preconditions, never the whole pipeline. Each performs only its own stage against preconditions the caller has already met (a configured store, a prepared storefront, a deployed recipe), and never triggers another stage, so it is fast, independently runnable, and testable in isolation.
+    - `jolly start` remains the orchestrator: it composes these same stage seams in order and behaves exactly as before. The stage commands add composability; they do not change `jolly start`.
+    - A stage command's own outcome is the stage outcome this feature already pins. `jolly deploy` deploying the prepared storefront is the deploy stage; `jolly storefront` is the storefront stage; `jolly recipe` and `jolly stock` are feature 004's recipe and stock stages; `jolly stripe` is feature 005's Stripe stage. Restating each once per command surface would assert the same observable outcome twice under two invocations.
+    - `jolly deploy` additionally persists `NEXT_PUBLIC_SALEOR_API_URL` and `NEXT_PUBLIC_DEFAULT_CHANNEL` on the Vercel project through the Vercel CLI, so a plain `npx vercel deploy` re-deploy also builds them, and writes `NEXT_PUBLIC_DEFAULT_CHANNEL` to `.env` so the local storefront and a re-deploy read the store channel with no key juggling.

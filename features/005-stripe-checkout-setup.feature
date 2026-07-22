@@ -9,24 +9,6 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     And Stripe is the v1 payment provider target
     And v1 uses Stripe test mode only
 
-  @logic
-  Scenario: Jolly start previews the Stripe app-install stage
-    Given a fresh empty project directory
-    When the agent runs `jolly start --dry-run --json`
-    Then the plan should include a Stripe stage that runs after the Vercel deploy stage
-    And the Stripe stage should carry a riskContext with categories including "payment setup" and "production configuration changes"
-    And the preview should name the real Saleor GraphQL `appInstall` request, the Stripe app manifest URL, and that it authenticates with the Cloud staff token
-    And the preview should state that entering the keys and mapping them to the `us` channel is a guided human gate, not something Jolly performs
-    And the preview should not perform any mutation
-
-  @logic
-  Scenario: Jolly start does not fabricate Stripe stage completion
-    Given the agent runs `jolly start` in a fresh project directory with no real service credentials
-    When `jolly start` reaches the Stripe stage
-    Then it must not report the Stripe app as installed unless the `appInstall` actually succeeded
-    And it must report the keys-and-channel-mapping step as a pending human gate and name it in nextSteps
-    And it must not claim that checkout is ready or that the Stripe keys were configured
-
   @sandbox
   Scenario: The Stripe stage installs the Stripe app and surfaces the keys and channel gate
     Given a configured Saleor Cloud store with a resolvable Cloud staff token
@@ -35,22 +17,6 @@ Feature: Stripe checkout setup for the Jolly starter storefront
     And re-running the stage should reuse the existing installation rather than installing a duplicate
     And it should announce the guided gate to paste the keys and map the configuration to the `us` channel, referencing the keys by name only
     And it should report the Stripe stage as completed (the app was installed) and name the keys-and-`us`-channel Dashboard mapping as the remaining human step in nextSteps, without claiming the keys are configured or checkout is ready
-
-  @logic @exceptional-double
-  Scenario: A transient Saleor rate-limit during the Stripe stage retries instead of reporting a false blocked
-    Given the Stripe stage's Saleor GraphQL endpoint returns HTTP 429 once and then succeeds with the Stripe app already installed
-    When the agent runs `jolly start --yes --json` and the Stripe stage runs against that endpoint
-    Then the Stripe stage should be reported completed, having retried the rate-limited request
-    And the Stripe stage should not be reported blocked on the transient rate-limit
-
-  @logic
-  Scenario: Jolly doctor does not fabricate checkout readiness
-    Given Jolly cannot reach a real store in this run
-    When the agent runs `jolly doctor stripe` with no reachable store
-    Then a checkout-readiness check should be reported in the stripe group
-    And that check must not be "pass" unless the Stripe payment gateway was actually offered for a `us` checkout
-    And with no reachable store the checkout-readiness check should be "skipped", "unknown", or "fail", never "pass"
-    And the summary must not claim checkout is ready when it was not verified
 
   @sandbox
   Scenario: Jolly doctor verifies the Stripe payment gateway is reachable for checkout

@@ -20,6 +20,7 @@
 // sites. A name that cannot be resolved this way is a read the check cannot
 // classify, so it is reported rather than trusted.
 import { Node, Project, SyntaxKind } from "ts-morph";
+import { sharedProject } from "./ts-project.ts";
 import { join, relative } from "node:path";
 import { REPO_ROOT } from "./repo-root.ts";
 import type { InjectedSource, Violation } from "./module-conformance.ts";
@@ -47,13 +48,8 @@ const TARGET_PROJECT_VARS = new Set([
 
 const GUARD_VAR = "HARNESS_RUN_ID";
 
-let cachedProject: Project | undefined;
-
 function project(): Project {
-  cachedProject ??= new Project({
-    tsConfigFilePath: join(REPO_ROOT, "tsconfig.json"),
-  });
-  return cachedProject;
+  return sharedProject();
 }
 
 function repoRelative(absolutePath: string): string {

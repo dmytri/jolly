@@ -5,51 +5,34 @@
 // No explicit `paths`: cucumber's default is features/**/*.feature, and
 // leaving it unset lets `npx cucumber-js <file>[:line]` target a single
 // feature or scenario.
-// A run-wide id shared by every parallel worker. The main process sets it here
-// on config load and the worker child processes inherit it, keeping it via `??=`.
-// The @sandbox provisioner namespaces each worker's store by this run id plus the
-// worker id, so concurrent workers reclaim and tear down only their own
-// environment, never a sibling's live store (features/support/provision.ts).
+// A run-wide id. The main process sets it here on config load and any child
+// process inherits it, keeping it via `??=`. The @sandbox provisioner
+// namespaces its store by this run id, so a run reclaims and tears down only
+// its own environment, never a concurrent foreign agent's live store
+// (features/support/provision.ts).
 process.env.HARNESS_RUN_ID ??= `run-${Date.now().toString(36)}-${Math.random()
   .toString(36)
   .slice(2, 6)}`;
 
-// Yesterday's weather (feature verification-economy, pressure Rule): each
-// parallel tier's worker count derives from the pressure line its own wake
-// record carries. A record carrying a pressure signal — an out-of-memory kill,
-// or peak RSS at the machine's ceiling — backs the next run off below its
-// green worker count instead of rediscovering the crash at full price; a
-// record carrying none leaves the green count standing; no record leaves the
-// configured starting prior. The record paths are the same cwd-relative
-// message streams the tier commands in RIGGING.md write.
+// Yesterday's weather (feature verification-economy, pressure Rule): a tier
+// run records its own pressure — peak RSS, out-of-memory kills, wall clock —
+// into the wake, so the next run reads what the last one observed instead of
+// rediscovering a crash at full price. The record paths are the same
+// cwd-relative message streams the tier commands in RIGGING.md write.
 import {
   armPressureRecording,
   CONFIGURED_PARALLELISM,
-  declaredTierWorkers,
 } from "./features/support/pressure.ts";
 import { armRunEndRecording } from "./features/support/spend-ledger.ts";
 import { armEvalRunEndRecording } from "./features/support/eval-spend-ledger.ts";
 import { armProcessReclaimRecording } from "./features/support/process-reclaim.ts";
-const logicWorkers = declaredTierWorkers("logic");
-// Sandbox concurrency is the `workers-sandbox` value RIGGING.md declares, read
-// as configured rather than derived at run time. The heavy @sandbox toolchain
-// scenarios (deploy's real vercel build, storefront prepare) OOM this
-// resource-limited VM when they co-reside, and this box's capacity is an
-// operator fact that does not change between runs, so the count stays a plain
-// declared value in the rigging where it is legible (feature 028).
-const sandboxWorkers = declaredTierWorkers("sandbox");
-
 // Record this run's own pressure into the message stream its argv names (only
 // a tier-record run names one; focused runs, discovery, and worker children
 // record nothing). Armed here at config load so the machinery rides the run
 // config the tier command itself loads — a command that stopped loading it
 // stops recording, which is exactly what the pressure-record conformance
 // scenario reddens on.
-armPressureRecording({
-  ...CONFIGURED_PARALLELISM,
-  logic: logicWorkers,
-  sandbox: sandboxWorkers,
-});
+armPressureRecording({ ...CONFIGURED_PARALLELISM });
 
 // Run-scoped wake reading (feature verification-economy, "The wake is read
 // run-scoped"): a sandbox tier-record run marks its completion in the spend
@@ -85,26 +68,22 @@ const common = {
 export default { ...common, tags: "not @eval" };
 
 // Targeted profiles: `cucumber-js -p logic` / `-p sandbox` / `-p sandboxSerial` / `-p eval`.
-// The logic tier is pure local behavior with no shared external state, so it runs
-// in parallel for fast status/worklist feedback. The sandbox tier gives EACH
-// worker its own isolated jolly-cannon-fodder environment, namespaced by run id +
-// worker id (features/support/provision.ts, features/support/sandbox.ts). Isolation
-// removes cross-worker COLLISION, but does not remove concurrent LOAD. The binding
-// cause is LOCAL, per AGENTS.md "Sandbox harness mechanics": this test VM is
-// resource-limited, and a full toolchain chain (`git clone` Paper, `pnpm install`
-// a whole Next.js app, `@saleor/configurator` deploy, `npx vercel` deploy, node)
-// saturates the VM's CPU, memory, and network; two at once is where the "unable
-// to connect" errors come from. So the tier serializes the LICENSED spends, per
-// feature verification-economy's licence Rule and feature 028: the full-pipeline
-// proofs (@pipeline) and the env-creating scenarios (@creates-env, which need a
-// slot the parallel phase's isolated envs would consume) run SERIAL — only one
-// toolchain fits the VM, and the lever for pipeline parallelism is a bigger
-// test-runner VM. Everything else is a light query/check that runs in parallel
-// across the isolated worker envs.
-export const logic = { ...common, tags: "@logic", parallel: logicWorkers };
-export const sandbox = { ...common, tags: "@sandbox and not @pipeline and not @creates-env", parallel: sandboxWorkers };
+// NO PROFILE SETS `parallel`: cucumber is serial by default, and nothing here
+// runs in parallel. This VM is resource-limited, and a full toolchain chain
+// (`git clone` Paper, `pnpm install` a whole Next.js app, `@saleor/configurator`
+// deploy, `npx vercel` deploy, node) saturates its CPU, memory, and network;
+// two at once is where the "unable to connect" errors came from. The lever for
+// pipeline parallelism is a bigger test-runner VM, not a worker count here.
+//
+// The @sandbox tier is split across TWO profiles for ORDER, not concurrency:
+// `sandboxSerial` runs the licensed @pipeline and @creates-env scenarios FIRST,
+// building the shared state that the `sandbox` leg's derivative satisfied-state
+// scenarios then assert against, so a broken creation or chain seam reds before
+// anything spends against it (RIGGING.md `## Tiers`, `order`).
+export const logic = { ...common, tags: "@logic" };
+export const sandbox = { ...common, tags: "@sandbox and not @pipeline and not @creates-env" };
 // Serial by licence (one toolchain fits the VM), never derived from weather.
-export const sandboxSerial = { ...common, tags: "@sandbox and (@pipeline or @creates-env)", parallel: 1 };
+export const sandboxSerial = { ...common, tags: "@sandbox and (@pipeline or @creates-env)" };
 
 // The eval profile runs ONLY the opt-in @eval tier (feature 025). `eval` is a
 // reserved identifier, so it is exported under that name via an alias.

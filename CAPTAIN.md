@@ -8,8 +8,46 @@ Binding behaviour lives in `.feature` specs and referenced `assets/**`. History 
 
 # DECK STATE
 
-**HEAD = `40f1436`, tree clean. The simplification voyage is COMMITTED.** dk ruled harbour next
-(2026-07-22). Entered harbour on a clean tree.
+**HEAD = `90b1285`. Harbour COMPLETE. A post-harbour voyage is IN FLIGHT, uncommitted.**
+
+Harbour done: 3 skeletons promoted (stage-surface-consistency, completion copy, riskContext prose),
+1 condemned and removed (the `.env` `SALEOR_ENV_HEADER`, dk 2026-07-22 — no scenario ever pinned it;
+`ensureEnvHeader` went with it). Full regression 3078s/3640s, all four tiers. pi-coding-agent
+0.80.10 -> 0.81.1.
+
+**In flight, NOT committed** (Boatswain refused custody once already, correctly):
+- Both first-party perturbations PLANTED and DISCHARGED. `assertFirstPartyUrl` (cloud-api) and
+  `assertFirstParty` (device-grant) audited by Crew and consolidated. `rg PERTURBATION src bin`
+  reports none.
+- Budget-check defect FIXED by QM in `wake.ts` (`operationalRecordPaths`): the check keyed on
+  BASENAME, so `instrumented/logic.ndjson` resolved to tier `logic` and its c8-inflated 662.1s was
+  judged as the tier's own clock. Operational is 491.8s against a 650 ceiling. **`budget-logic` was
+  NOT moved** — ratcheting to absorb c8 overhead would bake instrumentation into a production
+  ceiling.
+- 8 provisional planks liquidated to real `@planks` by Crew; `STAGE_SURFACE` added to `src/index.ts`.
+- **`assets/messages/cli.json` 362 -> 413 entries** (Captain, this session): 17 completion clauses +
+  34 riskContext entries, wording VERBATIM. Template-literal fragments merged into ONE entry with a
+  `{name}` placeholder per the feature's interpolation Rule; repeated clauses (`login` action,
+  the whole `skip store provisioning` group) carry one entry referenced from every site.
+  Watchbill carries the two catalog targets PLUS `Every referenced message key resolves and every
+  catalog entry is referenced` — that third one is the guard against an unreferenced entry of mine.
+
+## Open, dk's to rule
+
+- **`AGENTS.md` "Boatswain" section is STALE against upstream doctrine**: it instructs Boatswain to
+  remove unreachable production code; the current Articles defer that to harbour and forbid it.
+  Boatswain followed the Articles and reported it. Captain may not edit `AGENTS.md` for spec work
+  without dk's word.
+- **`AGENTS.md` `## Jolly` section** written by `mergeAgentsMd` is the sibling of the condemned
+  `.env` header and is still uncovered copy. dk ruled on `.env` ONLY; this was deliberately not
+  extended.
+- **`src/index.ts:5854` `SIDE_EFFECTING_STAGES`** is a FIFTH stage site. The stage-surface scenario
+  names four, and scenario text is law, so the checker reads four. Carried, unrouted.
+- **`bin/` has no coverage at all** — spawned as a separate process, so harbour triage is blind there.
+- **Unpinned boundary**: `src/lib` modules import only the sinks `messages.ts` and `hosts.ts`, never
+  each other. Holds today by accident, enforced by nothing.
+- 30 orphaned step definitions stand (`RIGGING.md` records 1175/30). `command-custody-hook.steps.ts`
+  is dead in full, 127 lines, its feature removed this voyage.
 
 Shipped in `40f1436`: the 16-removal simplification, five re-derived budgets, three harness defects
 engineered out, and ONE production line — `runStartCore` no longer reports `success` while carrying
@@ -96,9 +134,57 @@ implementation defect against existing spec.
 eval's only failure mode. `pi -p` BUFFERS and prints only the final answer, so a timeout kill leaves
 `agent.stdout.txt` EMPTY by construction. To see the turns: snapshot
 `/tmp/jolly-cannon-fodder-run-*/session/*.jsonl` out of the run root DURING the run.
-**Also: the persisted `.env` is UNSCRUBBED except for `HARNESS_OPENROUTER_API_KEY`** — it writes live
-`JOLLY_SALEOR_CLOUD_TOKEN` and `SALEOR_TOKEN` in plaintext. Captain printed it into a session
-transcript on 2026-07-21; dk was told to consider that token disclosed. **Still owed: rotation.**
+The persisted `.env` is UNSCRUBBED except for `HARNESS_OPENROUTER_API_KEY` — it writes live
+`JOLLY_SALEOR_CLOUD_TOKEN` and `SALEOR_TOKEN` in plaintext. **RULED CLOSED, dk 2026-07-22: "I don't
+care about these environments or tokens, it's all cannon fodder."** The `.env` org is a dedicated
+disposable test org, so Saleor token exposure there is not a security item and no rotation is owed.
+DO NOT RAISE IT AGAIN. The rule that still binds is the namespace boundary, not the tokens:
+`jolly-cannon-fodder-` is the only protection, never widen it. `HARNESS_OPENROUTER_API_KEY` is a
+different matter — it is a real paid credential and stays scrubbed.
+
+---
+
+# THE GREAT SIMPLIFICATION — dk ruled 2026-07-22, EXECUTED IN ONE PASS
+
+**262 -> 186 scenarios (-29%). 32 -> 27 feature files. Method corpus 54 -> 31.** gplint clean.
+Derived from a four-way parallel audit of every scenario in the corpus; each cut named the fault
+class it surrendered before it was taken.
+
+**Five feature files retired**, each with its one surviving clause rescued:
+- `029-composable-stage-commands` -> its 5 stage scenarios re-asserted stage outcomes already
+  pinned in 002/004/005. Kept "composes the stage seams in order" + the Rule, both now in 002.
+- `003-saleor-source-repositories` -> 3 dry-run plan facts already asserted elsewhere. **Its
+  research notes are NOT lost: they are `assets/research/saleor-sources.md`.**
+- `019-iteration-phase` -> doctor/upgrade covered by 014/017. Kept the `.mcp.json` mcp-graphql
+  assertion, now in 007.
+- `010-agent-decided-approval-model` -> its single scenario WAS 021's gate scenario.
+- `028-sandbox-worker-isolation` -> guarded worker-id collisions impossible at 1 worker. Kept the
+  "cucumber.js worker count equals the rigging's declared count" clause, folded into
+  methodology-conformance's tier-command scenario.
+
+**027 went 35 -> 22**: nine scenarios were read-only observations of the SAME happy-path PTY
+transcript and three were satellites of the one Ctrl-C session. Their assertions were folded into
+the host scenarios, not dropped. This is the 569s cost centre; ~12 real PTY spawns gone.
+
+**ALL PARALLELISM IS NOW GONE.** `workers-logic` 2 -> 1 joins `workers-sandbox: 1`; `lanes` and the
+pressure auto-tuner were already retired. The premise that justified logic parallelism ("light
+enough never to exhaust this box") was refuted twice by the kernel on 2026-07-22.
+
+**STANDING FIX, not yet done**: `features/support/plank-conformance.ts` and
+`features/support/composition-lane-conformance.ts` each spawn a full nested
+`cucumber-js -p all --dry-run` with the SAME command and tags, differing only in `--format`. That is
+the OOM cause. Share one cached dry-run. QM's, and it does not require losing either guard.
+
+**Judgment calls made, so a later role does not relitigate them:**
+- KEPT `verification-economy:A step that runs pinned at its declared read ceiling` despite looking
+  like a duplicate of the observed-signal scenario. Different faults: one proves the wait's FORM,
+  the other proves it FIRED. A read that times out at its ceiling looks green while asserting nothing.
+- SPLIT the architecture check: dropped the file-COUNTS clause, kept the module listing. The counts
+  reddened twice in one day from routine file additions; a check that cries wolf on routine work
+  trains its reader to ignore it.
+
+**QM inherits a large orphan sweep**: 76 scenarios were removed or merged, so many step definitions
+are now unused. That is expected work, not a fault.
 
 ---
 

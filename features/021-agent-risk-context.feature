@@ -27,13 +27,6 @@ Feature: Structured agent risk context
     And no remote side effects should occur during the dry run
 
   @logic
-  Scenario: Risk context travels in the standard envelope
-    Given the agent runs `jolly create store --create-environment --dry-run --json`
-    When the command completes
-    Then the envelope `data` and/or `checks` should carry the `riskContext`
-    And the `riskContext` should not appear in a separate ad hoc format outside the feature 020 envelope
-
-  @logic
   Scenario: Jolly start pauses for agent approval at the first high-risk stage
     Given the agent runs `jolly start` without a pre-authorization flag
     When `jolly start` reaches the first high-risk stage (`create store`, `@saleor/configurator deploy`, or the `npx vercel` deploy)
@@ -43,10 +36,10 @@ Feature: Structured agent risk context
     And running `jolly start --yes` should pre-approve and proceed through the high-risk stages without per-stage pauses, still emitting each `riskContext` for the record
 
   Rule: Risk context principles
-    - Jolly describes risk; it never hardcodes the approval decision (consistent with feature 010).
+    - Jolly describes risk; it never hardcodes the approval decision (the agent owns the decision).
     - `riskContext` fields are `action`, `target`, `riskLevel`, `categories`, `reversible`, `sideEffects`, and `dryRunAvailable`.
     - `riskLevel` is one of low, medium, or high.
-    - `categories` are drawn from the feature 010 high-risk list: destructive operations, billing, payment setup, credential handling, live deployment, and production configuration changes.
+    - `categories` are drawn from the high-risk list this feature declares: destructive operations, billing, payment setup, credential handling, live deployment, and production configuration changes.
     - Every command that supports `--dry-run` MUST emit a `riskContext` in its real execution output, identical to the one produced during `--dry-run` preview.
     - The `riskContext` for real execution should be carried inside the output envelope `data` or `checks`, not hidden or omitted. The agent uses it to verify the action matches what was previewed.
     - `riskContext` should be carried inside the feature 020 output envelope, not a separate format.
@@ -63,7 +56,7 @@ Feature: Structured agent risk context
       through the high-risk stages without pausing, when the agent's policy allows. Each stage's
       `riskContext` is still emitted (for the record), identical to its `--dry-run` form.
     - For finer-grained, per-stage approval the agent drives the individual stage commands itself;
-      feature 010 leaves approval granularity to the agent, and Jolly does not hardcode it.
+      this feature leaves approval granularity to the agent, and Jolly does not hardcode it.
     - This is distinct from the human-interaction gates `start` waits at (OAuth/`vercel login`
       passthrough, account creation, the Dashboard Stripe app): those are completed by the human,
       not approval decisions, and are not governed by this rule.

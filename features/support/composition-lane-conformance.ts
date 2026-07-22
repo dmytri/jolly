@@ -21,6 +21,7 @@
 // This file excludes itself from the scan so its own literals are never
 // self-flagged.
 import { Node, Project, SyntaxKind } from "ts-morph";
+import { sharedProject } from "./ts-project.ts";
 import { spawnSync } from "node:child_process";
 import { join, relative } from "node:path";
 import { REPO_ROOT } from "./repo-root.ts";
@@ -33,13 +34,8 @@ const COMPOSITION_GROUND = /\bcomposition\b|\bwiring\b|call order|launch order|s
 const ANNOTATION = /@exceptional-double:?\s*(.*)$/;
 const STEP_REGISTRARS = new Set(["Given", "When", "Then"]);
 
-let cachedProject: Project | undefined;
-
 function project(): Project {
-  cachedProject ??= new Project({
-    tsConfigFilePath: join(REPO_ROOT, "tsconfig.json"),
-  });
-  return cachedProject;
+  return sharedProject();
 }
 
 function repoRelative(absolutePath: string): string {

@@ -562,15 +562,16 @@ function skillInstalledOnDisk(skill: SkillSpec): boolean {
 /**
  * @planks("^the agent runs `jolly (?!(?:start|doctor|upgrade) --json`)(login|init|start|doctor|upgrade|skills|create store) (--json|--quiet|--yes)`$")
  * @planks("the output should include a risk context with action {string}")
+ * @planks("the `riskContext` action, target, and side-effect fields are joined against the catalog entries")
  */
 function loginRiskContext(dryRunAvailable = true): RiskContext {
   return {
-    action: "login",
+    action: cliMessage("riskContext.action.login"),
     target: cloudApiBase(),
     riskLevel: "medium",
     categories: ["credential handling"],
     reversible: true,
-    sideEffects: ["Writes JOLLY_SALEOR_CLOUD_TOKEN to .env when verification permits"],
+    sideEffects: [cliMessage("riskContext.sideEffect.login.token")],
     dryRunAvailable,
   };
 }
@@ -698,7 +699,7 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
 
   if (verificationFailure) {
     // Unreachable / 5xx / timeout: store token, warn "stored, not verified".
-    writeEnvValues(projectDir(), { JOLLY_SALEOR_CLOUD_TOKEN: token }, SALEOR_ENV_HEADER);
+    writeEnvValues(projectDir(), { JOLLY_SALEOR_CLOUD_TOKEN: token });
     // A manual CLOUD token is the agent-facing store token (CLOUD wins), so
     // project it into SALEOR_TOKEN; it is long-lived, so no refresh rewrite.
     projectSaleorAgentEnv();
@@ -732,7 +733,7 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
   const orgName = resolveOrgName(orgs ?? []);
   const values: Record<string, string> = { JOLLY_SALEOR_CLOUD_TOKEN: token };
   if (orgName) values["JOLLY_SALEOR_ORGANIZATION"] = orgName;
-  writeEnvValues(projectDir(), values, SALEOR_ENV_HEADER);
+  writeEnvValues(projectDir(), values);
   projectSaleorAgentEnv();
 
   return envelope({
@@ -797,7 +798,7 @@ async function interactiveDeviceGrantSignIn(): Promise<void> {
   writeEnvValues(projectDir(), {
     JOLLY_SALEOR_ACCESS_TOKEN: tokens.accessToken,
     JOLLY_SALEOR_REFRESH_TOKEN: tokens.refreshToken,
-  }, SALEOR_ENV_HEADER);
+  });
   process.env["JOLLY_SALEOR_ACCESS_TOKEN"] = tokens.accessToken;
   process.env["JOLLY_SALEOR_REFRESH_TOKEN"] = tokens.refreshToken;
   projectSaleorAgentEnv();
@@ -980,7 +981,7 @@ async function deviceGrantLoginAgent(
     writeEnvValues(projectDir(), {
       JOLLY_SALEOR_ACCESS_TOKEN: outcome.tokens.accessToken,
       JOLLY_SALEOR_REFRESH_TOKEN: outcome.tokens.refreshToken,
-    }, SALEOR_ENV_HEADER);
+    });
     process.env["JOLLY_SALEOR_ACCESS_TOKEN"] = outcome.tokens.accessToken;
     process.env["JOLLY_SALEOR_REFRESH_TOKEN"] = outcome.tokens.refreshToken;
     // Project the fresh access token into the agent-facing SALEOR_TOKEN.
@@ -1208,17 +1209,18 @@ function commandAuthStatus(_args: ParsedArgs): Envelope {
  * @planks("the agent runs `jolly create store --create-environment --dry-run --json`")
  * @planks("the agent runs `jolly create store --url https:\/\/example.saleor.cloud --json`")
  * @planks("the agent runs `jolly create store --create-environment --json`")
+ * @planks("the `riskContext` action, target, and side-effect fields are joined against the catalog entries")
  */
 function createStoreRiskContext(target: unknown, dryRunAvailable = true): RiskContext {
   return {
-    action: "create store",
+    action: cliMessage("riskContext.action.createStore"),
     target,
     riskLevel: "medium",
     categories: ["billing", "production configuration changes"],
     reversible: false,
     sideEffects: [
-      "Creates a Saleor Cloud project and/or environment",
-      "Writes NEXT_PUBLIC_SALEOR_API_URL + SALEOR_URL/SALEOR_TOKEN to .env",
+      cliMessage("riskContext.sideEffect.createStore.project"),
+      cliMessage("riskContext.sideEffect.createStore.env"),
     ],
     dryRunAvailable,
   };
@@ -1289,6 +1291,7 @@ async function inferStoreLocation(
  * @planks(`each should carry at least one `nextSteps` entry naming what to do next`)
  * @planks("the agent runs `jolly create store --create-environment --dry-run --json --mock-organizations=acme-co,other-co`")
  * @planks("the run should resolve organizations from the Cloud API alone")
+ * @planks("the `riskContext` action, target, and side-effect fields are joined against the catalog entries")
  */
 async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
   const command = "create store";
@@ -1386,13 +1389,16 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
           existingEndpoint,
           requestedEndpoint: normalized.endpoint,
           riskContext: {
-            action: "overwrite Saleor endpoint",
-            target: "NEXT_PUBLIC_SALEOR_API_URL in .env",
+            action: cliMessage("riskContext.action.overwriteEndpoint"),
+            target: cliMessage("riskContext.target.overwriteEndpoint"),
             riskLevel: "medium",
             categories: ["destructive operations", "production configuration changes"],
             reversible: false,
             sideEffects: [
-              `Replaces the existing endpoint "${existingEndpoint}" with "${normalized.endpoint}"`,
+              cliMessage("riskContext.sideEffect.overwriteEndpoint.replace", {
+                existingEndpoint,
+                newEndpoint: normalized.endpoint,
+              }),
             ],
             dryRunAvailable: true,
           },
@@ -1420,7 +1426,6 @@ async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
     writeEnvValues(
       projectDir(),
       { NEXT_PUBLIC_SALEOR_API_URL: normalized.endpoint },
-      SALEOR_ENV_HEADER,
     );
     // Project the agent-facing store surface (SALEOR_URL + the resolved
     // SALEOR_TOKEN) now that the endpoint is known.
@@ -1820,7 +1825,7 @@ async function provisionStore(
   const saleorToken = resolveSaleorToken(loadEnvValues(projectDir()));
   if (saleorToken) values["SALEOR_TOKEN"] = saleorToken;
 
-  writeEnvValues(projectDir(), values, SALEOR_ENV_HEADER);
+  writeEnvValues(projectDir(), values);
   // Make the new endpoint/token visible to later in-process reads (the
   // downstream recipe/stock/deploy stages of the same `jolly start` run).
   for (const [k, v] of Object.entries(values)) process.env[k] = v;
@@ -2292,30 +2297,6 @@ function cloudPlatformToken(values: Record<string, string>): string | undefined 
   return staff !== "" ? staff : undefined;
 }
 
-// The managed header block Jolly prepends to .env on its first write (login /
-// provision / refresh / CI). It documents the agent-facing surface (SALEOR_URL /
-// SALEOR_TOKEN, read by @saleor/configurator and curl) and the JOLLY_* internal
-// auth layer SALEOR_TOKEN is projected from. ensureEnvHeader keys idempotently
-// off the first line, so repeated writes never duplicate it.
-const SALEOR_ENV_HEADER = `# ==== Jolly / Saleor environment ====
-# Managed by Jolly. SALEOR_URL / SALEOR_TOKEN are the agent-facing surface that
-# @saleor/configurator (auto-loads .env/.env.local) and curl read. The JOLLY_*
-# vars are Jolly's internal auth layer and the source SALEOR_TOKEN is projected from.
-#
-# SALEOR_URL    Store GraphQL endpoint (same value as NEXT_PUBLIC_SALEOR_API_URL).
-# SALEOR_TOKEN  Store access token, sent "Authorization: Bearer <token>" (never an
-#               "App" scheme). SHORT-LIVED (~5 min) in the normal flow. Refresh it
-#               with \`jolly doctor saleor\` (or re-run \`jolly login\`); Jolly rewrites
-#               this line on every refresh. If a request 401s, re-auth and reload
-#               the MCP server (it captured SALEOR_TOKEN at spawn).
-# NEXT_PUBLIC_SALEOR_API_URL  Storefront (Paper) config; keep. Mirrors SALEOR_URL.
-#
-# JOLLY_SALEOR_ACCESS_TOKEN   Internal: staff-superuser JWT, ~5 min, Bearer. Refreshed automatically.
-# JOLLY_SALEOR_REFRESH_TOKEN  Internal: mints a fresh access token (rotated each refresh).
-# JOLLY_SALEOR_CLOUD_TOKEN    Internal: CI/dev MANUAL long-lived staff token, sent "Token"
-#                             to the Saleor Cloud platform API only. When set, it is SALEOR_TOKEN.
-# ====================================`;
-
 /**
  * The agent-facing store token (`SALEOR_TOKEN`) source. CLOUD wins: a CI/dev
  * MANUAL long-lived staff token (`JOLLY_SALEOR_CLOUD_TOKEN`) takes precedence so
@@ -2364,7 +2345,7 @@ function projectSaleorAgentEnv(extra?: Record<string, string>): void {
   const token = resolveSaleorToken(values);
   if (token) out["SALEOR_TOKEN"] = token;
   if (Object.keys(out).length === 0) return;
-  writeEnvValues(projectDir(), out, SALEOR_ENV_HEADER);
+  writeEnvValues(projectDir(), out);
   for (const [k, v] of Object.entries(out)) process.env[k] = v;
 }
 
@@ -2392,7 +2373,7 @@ async function resolvePlatformToken(
         writeEnvValues(projectDir(), {
           JOLLY_SALEOR_ACCESS_TOKEN: fresh.accessToken,
           JOLLY_SALEOR_REFRESH_TOKEN: fresh.refreshToken,
-        }, SALEOR_ENV_HEADER);
+        });
         process.env["JOLLY_SALEOR_ACCESS_TOKEN"] = fresh.accessToken;
         process.env["JOLLY_SALEOR_REFRESH_TOKEN"] = fresh.refreshToken;
         access = fresh.accessToken;
@@ -2448,7 +2429,6 @@ async function ensureFreshStoreAuth(): Promise<void> {
         JOLLY_SALEOR_ACCESS_TOKEN: fresh.accessToken,
         JOLLY_SALEOR_REFRESH_TOKEN: fresh.refreshToken,
       },
-      SALEOR_ENV_HEADER,
     );
     process.env["JOLLY_SALEOR_ACCESS_TOKEN"] = fresh.accessToken;
     process.env["JOLLY_SALEOR_REFRESH_TOKEN"] = fresh.refreshToken;
@@ -3067,6 +3047,7 @@ function createStoreGateTarget(): string {
 /**
  * @planks("the agent runs `jolly start --dry-run --json`")
  * @planks("the data should include a per-stage plan of intended effects: directories created, files written, network hosts contacted, and repositories cloned")
+ * @planks("the `riskContext` action, target, and side-effect fields are joined against the catalog entries")
  */
 function startPlan(): PlanStage[] {
   return [
@@ -3079,12 +3060,12 @@ function startPlan(): PlanStage[] {
         repositoriesCloned: [],
       },
       riskContext: {
-        action: "init",
-        target: "local project (skills, .mcp.json, AGENTS.md)",
+        action: cliMessage("riskContext.action.init"),
+        target: cliMessage("riskContext.target.init"),
         riskLevel: "low",
         categories: [],
         reversible: true,
-        sideEffects: ["Installs skills, writes .mcp.json and AGENTS.md"],
+        sideEffects: [cliMessage("riskContext.sideEffect.init.writes")],
         dryRunAvailable: true,
       },
     },
@@ -3097,12 +3078,12 @@ function startPlan(): PlanStage[] {
         repositoriesCloned: [],
       },
       riskContext: {
-        action: "login",
+        action: cliMessage("riskContext.action.login"),
         target: cloudApiBase(),
         riskLevel: "medium",
         categories: ["credential handling"],
         reversible: true,
-        sideEffects: ["Acquires and stores a Saleor Cloud token in .env"],
+        sideEffects: [cliMessage("riskContext.sideEffect.login.acquire")],
         dryRunAvailable: true,
       },
     },
@@ -3125,14 +3106,14 @@ function startPlan(): PlanStage[] {
         repositoriesCloned: ["saleor/storefront"],
       },
       riskContext: {
-        action: "spawn git clone + pnpm install",
-        target: "saleor/storefront (Paper) from the `main` branch → storefront/",
+        action: cliMessage("riskContext.action.storefront"),
+        target: cliMessage("riskContext.target.storefront"),
         riskLevel: "low",
         categories: [],
         reversible: true,
         sideEffects: [
-          "Spawns `git` to clone the Saleor Paper storefront from the `main` branch into storefront/, strips the upstream `.git` history, and `git init`s a fresh repository",
-          "Spawns `pnpm install` to install storefront dependencies",
+          cliMessage("riskContext.sideEffect.storefront.clone"),
+          cliMessage("riskContext.sideEffect.storefront.install"),
         ],
         dryRunAvailable: true,
       },
@@ -3146,15 +3127,14 @@ function startPlan(): PlanStage[] {
         repositoriesCloned: [],
       },
       riskContext: {
-        action: "spawn @saleor/configurator deploy",
-        target:
-          "Saleor Cloud store configuration (config-as-code) from Jolly's bundled starter recipe assets/skills/jolly/recipe.yml, deployed to the store at SALEOR_URL with SALEOR_TOKEN",
+        action: cliMessage("riskContext.action.recipe"),
+        target: cliMessage("riskContext.target.recipe"),
         riskLevel: "high",
         categories: ["production configuration changes"],
         reversible: false,
         sideEffects: [
-          "Spawns `npx @saleor/configurator@latest deploy --config <bundled assets/skills/jolly/recipe.yml> --url <SALEOR_URL> --token <SALEOR_TOKEN>` to apply the starter recipe to the store (store URL and token referenced by name only; values never printed)",
-          "A `--plan` preview shows the configurator diff without applying changes; a re-deploy over a pre-existing store passes `--failOnDelete` to block a destructive apply (the bootstrap deploy of the store Jolly just provisioned replaces Saleor's stock defaults)",
+          cliMessage("riskContext.sideEffect.recipe.deploy"),
+          cliMessage("riskContext.sideEffect.recipe.plan"),
         ],
         dryRunAvailable: true,
       },
@@ -3168,16 +3148,12 @@ function startPlan(): PlanStage[] {
         repositoriesCloned: [],
       },
       riskContext: {
-        action:
-          "seed recipe stock via Saleor GraphQL productVariantStocksCreate",
-        target:
-          "Port Royal Warehouse (recipe warehouse) stock for every recipe product variant",
+        action: cliMessage("riskContext.action.stock"),
+        target: cliMessage("riskContext.target.stock"),
         riskLevel: "high",
         categories: ["production configuration changes"],
         reversible: false,
-        sideEffects: [
-          "Sends Saleor GraphQL productVariantStocksCreate for each recipe variant, setting a default quantity of 100 in Port Royal Warehouse (configurator cannot set stock); updates in place when a stock entry already exists",
-        ],
+        sideEffects: [cliMessage("riskContext.sideEffect.stock.seed")],
         dryRunAvailable: true,
       },
     },
@@ -3190,14 +3166,14 @@ function startPlan(): PlanStage[] {
         repositoriesCloned: [],
       },
       riskContext: {
-        action: "spawn npx vercel deploy",
-        target: "Vercel production deployment of storefront/",
+        action: cliMessage("riskContext.action.deploy"),
+        target: cliMessage("riskContext.target.deploy"),
         riskLevel: "high",
         categories: ["live deployment"],
         reversible: true,
         sideEffects: [
-          "Spawns `npx vercel` (and `npx vercel --prod`) under the Vercel CLI's OWN `vercel login` session to deploy storefront/, passes the storefront build env vars as `--build-env` flags on the deploy, and surfaces Vercel Deployment Protection",
-          "Jolly holds no Vercel token (there is no JOLLY_VERCEL_TOKEN) and its own code sends no request to the Vercel API — Vercel is reached only by the spawned Vercel CLI under its own auth",
+          cliMessage("riskContext.sideEffect.deploy.vercel"),
+          cliMessage("riskContext.sideEffect.deploy.noToken"),
         ],
         dryRunAvailable: true,
       },
@@ -3211,15 +3187,18 @@ function startPlan(): PlanStage[] {
         repositoriesCloned: [],
       },
       riskContext: {
-        action:
-          "install the Saleor Stripe app via Saleor GraphQL appInstall, authenticating with the Cloud staff token",
-        target: `Saleor store apps (manifest ${STRIPE_APP_MANIFEST_URL})`,
+        action: cliMessage("riskContext.action.stripe"),
+        target: cliMessage("riskContext.target.stripe", {
+          manifestUrl: STRIPE_APP_MANIFEST_URL,
+        }),
         riskLevel: "high",
         categories: ["payment setup", "production configuration changes"],
         reversible: true,
         sideEffects: [
-          `Sends Saleor GraphQL appInstall with the Stripe app manifest (${STRIPE_APP_MANIFEST_URL}) and permissions [HANDLE_PAYMENTS], authenticated with the Cloud staff token (JOLLY_SALEOR_CLOUD_TOKEN — an app token cannot call appInstall); reuses an already-installed Stripe app rather than installing a duplicate; reversible via app uninstall`,
-          "Entering the publishable + restricted keys and mapping the configuration to the `us` channel is a guided human gate Jolly does NOT perform (no stable public API); Jolly only installs the app and then announces the manual keys + channel step",
+          cliMessage("riskContext.sideEffect.stripe.appInstall", {
+            manifestUrl: STRIPE_APP_MANIFEST_URL,
+          }),
+          cliMessage("riskContext.sideEffect.stripe.humanGate"),
         ],
         dryRunAvailable: true,
       },
@@ -3227,7 +3206,30 @@ function startPlan(): PlanStage[] {
   ];
 }
 
-/** The ordered high-risk stages `jolly start` runs itself and gates on. */
+/**
+ * The one declared setup-stage surface: each stage name paired with the facets
+ * it carries. Every site that names stages — the stage runners, the stage
+ * descriptions, the high-risk gate, and the side-effecting close list — derives
+ * its set from the stages declared for that site's facet. Every stage takes a
+ * description; only the stages `jolly start` runs itself take a runner; `init`
+ * and `auth` are progress rows rather than side-effecting work.
+ * @planks("the stage surface Jolly declares, naming each stage with the facets it carries")
+ */
+export const STAGE_SURFACE = {
+  init: ["description"],
+  auth: ["description"],
+  store: ["runner", "description", "highRisk", "sideEffecting"],
+  storefront: ["runner", "description", "sideEffecting"],
+  recipe: ["runner", "description", "highRisk", "sideEffecting"],
+  stock: ["runner", "description", "sideEffecting"],
+  deploy: ["runner", "description", "highRisk", "sideEffecting"],
+  stripe: ["runner", "description", "sideEffecting"],
+} as const;
+
+/**
+ * The ordered high-risk stages `jolly start` runs itself and gates on.
+ * @planks("the stage runners, the stage descriptions, the high-risk gate, and the side-effecting close list are each read")
+ */
 const HIGH_RISK_STAGES = ["store", "recipe", "deploy"] as const;
 
 // The store URLs derived from an already-configured GraphQL endpoint, so a
@@ -3253,6 +3255,7 @@ function storeDataFromEndpoint(
 /**
  * @planks("the agent runs `jolly start --dry-run --json`")
  * @planks("the output envelope data should mark the run as a dry run")
+ * @planks("the `riskContext` action, target, and side-effect fields are joined against the catalog entries")
  */
 function commandStartDryRun(): Envelope {
   const command = "start";
@@ -3274,13 +3277,13 @@ function commandStartDryRun(): Envelope {
         repositoriesCloned: [],
       };
       store.riskContext = {
-        action: "skip store provisioning",
-        target: `already-configured store ${storeEndpoint}`,
+        action: cliMessage("riskContext.action.skipStore"),
+        target: cliMessage("riskContext.target.skipStore", { storeEndpoint }),
         riskLevel: "low",
         categories: [],
         reversible: true,
         sideEffects: [
-          `A store endpoint is already configured (NEXT_PUBLIC_SALEOR_API_URL=${storeEndpoint}); the store stage is already satisfied and provisioning is skipped`,
+          cliMessage("riskContext.sideEffect.skipStore.satisfied", { storeEndpoint }),
         ],
         dryRunAvailable: true,
       };
@@ -5043,6 +5046,9 @@ function osc8Hyperlink(url: string): string {
 // Plain-language descriptions shown beside the CURRENTLY-RUNNING stage so the
 // progress says what it is doing (not a bare stage name), especially for the slow
 // store/recipe/deploy stages (feature 027).
+/**
+ * @planks("the stage runners, the stage descriptions, the high-risk gate, and the side-effecting close list are each read")
+ */
 const STAGE_DESCRIPTIONS: Record<string, string> = {
   init: cliMessage("start.stage.init"),
   auth: cliMessage("start.stage.auth"),
@@ -5290,7 +5296,6 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
         writeEnvValues(
           projectDir(),
           { NEXT_PUBLIC_SALEOR_API_URL: reuseEndpoint },
-          SALEOR_ENV_HEADER,
         );
         // The store endpoint is now known: project the agent-facing surface.
         projectSaleorAgentEnv({ SALEOR_URL: reuseEndpoint });
@@ -5493,6 +5498,9 @@ async function commandStart(args: ParsedArgs): Promise<Envelope> {
  */
 export type StageRunner = (checks: Check[], args: ParsedArgs) => Promise<StageOutcome>;
 
+/**
+ * @planks("the stage runners, the stage descriptions, the high-risk gate, and the side-effecting close list are each read")
+ */
 const DEFAULT_STAGE_RUNNERS: Record<string, StageRunner> = {
   store: (checks, args) => {
     const nameOpt = args.options["name"];
@@ -5531,6 +5539,7 @@ const DEFAULT_STAGE_RUNNERS: Record<string, StageRunner> = {
  * @planks("each stage should report its own honest status, never a fabricated completion")
  * @planks("the store, recipe, and deploy stages should each emit their feature 021 `riskContext`")
  * @planks("the closing summary on stdout should name the storefront stage as failed")
+ * @planks("the `riskContext` action, target, and side-effect fields are joined against the catalog entries")
  */
 export async function runStartCore(
   args: ParsedArgs,
@@ -5645,7 +5654,7 @@ export async function runStartCore(
         writeEnvValues(projectDir(), {
           JOLLY_SALEOR_ACCESS_TOKEN: outcome.tokens.accessToken,
           JOLLY_SALEOR_REFRESH_TOKEN: outcome.tokens.refreshToken,
-        }, SALEOR_ENV_HEADER);
+        });
         // Mirror into process.env so the downstream store/recipe/deploy stages
         // of THIS run read the fresh session (matching the interactive path).
         process.env["JOLLY_SALEOR_ACCESS_TOKEN"] = outcome.tokens.accessToken;
@@ -5707,13 +5716,13 @@ export async function runStartCore(
         status = "blocked";
       }
       stageRiskContext = {
-        action: "skip store provisioning",
-        target: `already-configured store ${storeEndpoint}`,
+        action: cliMessage("riskContext.action.skipStore"),
+        target: cliMessage("riskContext.target.skipStore", { storeEndpoint }),
         riskLevel: "low",
         categories: [],
         reversible: true,
         sideEffects: [
-          `A store endpoint is already configured (NEXT_PUBLIC_SALEOR_API_URL=${storeEndpoint}); the store stage is already satisfied and provisioning is skipped`,
+          cliMessage("riskContext.sideEffect.skipStore.satisfied", { storeEndpoint }),
         ],
         dryRunAvailable: true,
       };

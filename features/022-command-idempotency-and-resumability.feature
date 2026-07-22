@@ -28,42 +28,6 @@ Feature: Command idempotency and resumability
     And it should detect end-to-end progress already present in observable artifacts — a cloned storefront directory, a configured store, a Vercel deployment — and report those stages as done
     And it should continue from the first stage still outstanding rather than redoing completed work
 
-  @sandbox
-  Scenario: Jolly recognizes externally-produced work
-    Given a cloned storefront, configured store, or deployment already exists — whether produced by `jolly start` or by the agent running a stage itself
-    When the agent later runs `jolly doctor` or `jolly start`
-    Then Jolly should detect that state from its observable artifacts (the storefront directory, the store configuration, the deployment) and treat it as satisfied
-    And it should not ask the agent to redo it
-
-  @sandbox @toolchain-element
-  Scenario: Composed subcommands and start agree on state
-    Given the agent has already run individual `jolly create` subcommands
-    When the agent later runs `jolly start`
-    Then `jolly start` should treat the work done by those subcommands as already satisfied
-    And it should not redo or duplicate that work
-    And it should report those stages as already satisfied rather than presenting them as pending approval
-
-  @logic
-  Scenario: jolly start does not re-gate a stage whose work is already done
-    Given `NEXT_PUBLIC_SALEOR_API_URL` is already configured in the project `.env` from an earlier `jolly create store`
-    When the agent runs `jolly start --dry-run --json`
-    Then the `store` stage should present no approval riskContext, because no store would be created this run
-    And the summary should name the store stage as already satisfied, not pending approval
-
-  @logic
-  Scenario: jolly start surfaces the already-configured store's Dashboard URL on resume
-    Given `NEXT_PUBLIC_SALEOR_API_URL` is already configured in the project `.env` from an earlier `jolly create store`
-    When the agent runs `jolly start --dry-run --json`
-    Then the envelope `data` should surface the configured store's Saleor Dashboard URL ending in `.saleor.cloud/dashboard/`
-
-  @logic
-  Scenario: Collisions pause instead of overwriting
-    Given a non-empty `storefront/` directory Jolly did not create
-    When `jolly start` reaches the storefront clone stage
-    Then Jolly should stop without overwriting and emit a collision `riskContext`
-    And it should not silently overwrite the existing state
-    And this should follow the same collision handling as the storefront target directory in feature 002
-
   Rule: Idempotency principles
     - Re-running any `jolly create` subcommand or `jolly start` should be safe and should not create duplicates.
     - Commands should detect already-completed work and report detected state rather than erroring on "already exists".

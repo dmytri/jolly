@@ -13,6 +13,7 @@
 // derives from. Where no such declaration exists, that absence is itself the
 // violation, because four hand-maintained copies cannot be joined to anything.
 import { Node, Project, SyntaxKind } from "ts-morph";
+import { sharedProject } from "./ts-project.ts";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { REPO_ROOT } from "./repo-root.ts";
@@ -41,13 +42,8 @@ export interface SurfaceViolation {
   message: string;
 }
 
-let cachedProject: Project | undefined;
-
 function project(): Project {
-  cachedProject ??= new Project({
-    tsConfigFilePath: join(REPO_ROOT, "tsconfig.json"),
-  });
-  return cachedProject;
+  return sharedProject();
 }
 
 function sourceFile(relativePath: string) {

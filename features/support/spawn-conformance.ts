@@ -17,6 +17,7 @@
 // (`cp.spawn(...)`). A property call on any OTHER object (e.g. `lineRe.exec`,
 // a RegExp) is not a process spawn and is ignored.
 import { Node, Project, SyntaxKind } from "ts-morph";
+import { sharedProject } from "./ts-project.ts";
 import { join, relative } from "node:path";
 import { REPO_ROOT } from "./repo-root.ts";
 import type { InjectedSource, Violation } from "./module-conformance.ts";
@@ -39,13 +40,8 @@ export const ALLOWED_NPX_PACKAGES = [
 /** The implementation directories (RIGGING.md `## Directories`) this scans. */
 const IMPLEMENTATION_DIRS = ["src/", "bin/"];
 
-let cachedProject: Project | undefined;
-
 function project(): Project {
-  cachedProject ??= new Project({
-    tsConfigFilePath: join(REPO_ROOT, "tsconfig.json"),
-  });
-  return cachedProject;
+  return sharedProject();
 }
 
 function repoRelative(absolutePath: string): string {

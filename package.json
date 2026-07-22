@@ -29,12 +29,14 @@
     "test:logic": "cucumber-js -p logic",
     "test:sandbox": "cucumber-js -p sandbox",
     "test:eval": "cucumber-js -p eval",
+    "test:all": "npm run test:logic && npm run test:sandbox:serial && npm run test:sandbox && npm run test:eval",
+    "test:sandbox:serial": "cucumber-js -p sandboxSerial",
     "reclaim": "node features/support/reclaim-cli.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@cucumber/cucumber": "^13.2.0",
-    "@earendil-works/pi-coding-agent": "^0.80.10",
+    "@earendil-works/pi-coding-agent": "^0.81.1",
     "@types/node": "^26.1.1",
     "c8": "^12.0.0",
     "esbuild": "^0.28.1",

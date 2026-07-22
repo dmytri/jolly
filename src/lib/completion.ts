@@ -6,30 +6,32 @@
 // `--json` envelope: their stdout is a shell script / candidate list consumed by
 // the shell, never a JSON envelope.
 import t from "@bomb.sh/tab";
+import { cliMessage } from "./messages.ts";
 
 // The top-level command surface offered for completion: every top-level command
 // a user may invoke, the feature 029 stage commands included (feature
 // command-surface-consistency).
 /**
  * @planks("the script should reference the supported commands help, login, logout, auth, init, start, create, storefront, recipe, stock, stripe, deploy, doctor, upgrade, skills, and completion")
+ * @planks("the completion command descriptions and the `jolly completion --help` usage text are joined against the catalog entries")
  */
 const COMMANDS: ReadonlyArray<readonly [string, string]> = [
-  ["help", "List the Jolly commands"],
-  ["login", "Authenticate to Saleor Cloud"],
-  ["logout", "Remove the stored Saleor Cloud token"],
-  ["auth", "Inspect authentication status"],
-  ["init", "Set up the local project (skills, .mcp.json, AGENTS.md)"],
-  ["start", "Run the guided end-to-end setup"],
-  ["create", "Create a store"],
-  ["storefront", "Run the storefront stage"],
-  ["recipe", "Run the recipe stage"],
-  ["stock", "Run the stock stage"],
-  ["stripe", "Run the stripe stage"],
-  ["deploy", "Run the deploy stage"],
-  ["doctor", "Diagnose the project setup"],
-  ["upgrade", "Upgrade Jolly and the installed skills"],
-  ["skills", "Install the Jolly and Saleor agent-skills"],
-  ["completion", "Print a shell completion script"],
+  ["help", cliMessage("completion.command.help")],
+  ["login", cliMessage("completion.command.login")],
+  ["logout", cliMessage("completion.command.logout")],
+  ["auth", cliMessage("completion.command.auth")],
+  ["init", cliMessage("completion.command.init")],
+  ["start", cliMessage("completion.command.start")],
+  ["create", cliMessage("completion.command.create")],
+  ["storefront", cliMessage("completion.command.storefront")],
+  ["recipe", cliMessage("completion.command.recipe")],
+  ["stock", cliMessage("completion.command.stock")],
+  ["stripe", cliMessage("completion.command.stripe")],
+  ["deploy", cliMessage("completion.command.deploy")],
+  ["doctor", cliMessage("completion.command.doctor")],
+  ["upgrade", cliMessage("completion.command.upgrade")],
+  ["skills", cliMessage("completion.command.skills")],
+  ["completion", cliMessage("completion.command.completion")],
 ];
 
 let registered = false;
@@ -52,6 +54,7 @@ function register(): void {
  * @planks("the script should reference the supported commands help, login, logout, auth, init, start, create, storefront, recipe, stock, stripe, deploy, doctor, upgrade, skills, and completion")
  * @planks("the agent runs `jolly complete -- lo`")
  * @planks("stdout should list the candidate completions `login` and `logout`")
+ * @planks("the completion command descriptions and the `jolly completion --help` usage text are joined against the catalog entries")
  */
 export function runCompletion(argv: string[]): number {
   register();
@@ -59,10 +62,7 @@ export function runCompletion(argv: string[]): number {
 
   if (command === "completion") {
     if (rest.length === 0 || rest[0] === "--help" || rest[0] === "-h") {
-      process.stdout.write(
-        "Usage: jolly completion <bash|zsh|fish|powershell> [--help]\n" +
-          "Prints a shell completion script for the `jolly` command to source.\n",
-      );
+      process.stdout.write(cliMessage("completion.usage"));
       return 0;
     }
     // @bomb.sh/tab generates the shell-specific completion script; it delegates

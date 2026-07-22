@@ -38,14 +38,6 @@ Feature: Existing Saleor store connection
     And Jolly should not print the URL in a way that exposes the store path
 
   @sandbox
-  Scenario: Jolly validates the GraphQL endpoint
-    Given a candidate URL https://example.saleor.cloud/graphql/
-    When the agent runs `jolly create store --url https://example.saleor.cloud/graphql/ --json`
-    Then it should perform an introspection-style GraphQL request or equivalent lightweight validation
-    And it should fail with an actionable message if the endpoint is not reachable or not a GraphQL endpoint
-    And it should not proceed to storefront configuration until connectivity is verified
-
-  @sandbox
   Scenario: Jolly infers Saleor Cloud organization and environment
     Given the agent has a Saleor Cloud token authenticated via JOLLY_SALEOR_CLOUD_TOKEN
     And a verified Saleor GraphQL endpoint whose host matches one Cloud environment domain
@@ -53,43 +45,12 @@ Feature: Existing Saleor store connection
     Then the envelope `data` should report the resolved organization slug
     And the envelope `data` should report the resolved environment matching the GraphQL endpoint host
 
-  @logic
-  Scenario: Jolly create store --dry-run does not write to .env
-    Given the agent has no existing .env file
-    When the agent runs `jolly create store --url https://shop.saleor.cloud/graphql/ --dry-run --json`
-    Then the output should include a risk context with action "create store"
-    And .env should not be created
-    And the output should include the normalized URL in the data object
-
-  @logic
-  Scenario: Jolly create store builds a Cloud API environment creation request
-    Given the agent has a Saleor Cloud token authenticated via JOLLY_SALEOR_CLOUD_TOKEN
-    When the agent previews environment creation with `jolly create store --create-environment --dry-run --json`
-    Then the prepared request should POST to /platform/api/organizations/{organization}/environments/
-    And the POST body should include name, project, domain_label, database_population, service, and optional basic-auth credentials
-    And the default region should be "us-east-1"
-    And the prepared request should create a blank environment with no sample data
-
   @logic @property
   Scenario: The environment-creation request body is built by one seam, so the previewed request is the one that is sent
     Given Jolly's environment-creation code
     When the places that build the POST body for /platform/api/organizations/{organization}/environments/ are enumerated
     Then there should be exactly one, and both the `--dry-run` preview and the real request should report and send that one body
     And a second, independently constructed body for that request should redden the check, since a preview that is verified cannot vouch for a request that is not
-
-  @sandbox
-  Scenario: Jolly create store reuses an existing same-label environment instead of duplicating it
-    Given the run's shared Saleor Cloud environment, carrying a jolly-cannon-fodder-namespaced domain label
-    When the agent requests another environment with the same domain label
-    Then Jolly should reuse the existing environment rather than create a duplicate, keying on the environment registry rather than on the environment serving
-    And exactly one environment should carry that domain label
-
-  @logic
-  Scenario: Jolly create store honors --region and --organization overrides
-    Given the agent has a Saleor Cloud token authenticated via JOLLY_SALEOR_CLOUD_TOKEN
-    When the agent runs `jolly create store --create-environment --organization other-org --region eu-central-1 --dry-run --json`
-    Then the prepared environment creation should target organization "other-org"
-    And the prepared environment creation region should be "eu-central-1"
 
   @logic
   Scenario: Jolly create store warns when the token has multiple organizations

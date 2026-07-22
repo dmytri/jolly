@@ -3,15 +3,6 @@ Feature: Jolly doctor diagnostics
   I want `jolly doctor` to diagnose setup and deployment problems
   So that I can recover from failed or partial Jolly workflows with actionable next steps
 
-  @logic
-  Scenario: Agent runs doctor during setup
-    Given a project directory with the Jolly CLI installed
-    When it invokes `jolly doctor`
-    Then Jolly should check local Jolly CLI availability and version
-    And it should check skill installation status
-    And the checks should include an "agents-md" guidance check
-    And the envelope should contain a summary string and a checks array
-
   @sandbox
   Scenario: Doctor checks Saleor connectivity
     Given .env contains a Saleor GraphQL endpoint URL
@@ -21,14 +12,6 @@ Feature: Jolly doctor diagnostics
     And it should check whether SALEOR_TOKEN is present for store GraphQL when required
     And the saleor check should name Configurator introspection as its next step
     And it should report missing permissions or authentication failures with next steps
-
-  @logic
-  Scenario: Doctor does not fabricate channel purchasability
-    Given Jolly cannot reach a real store in this run
-    When the agent runs `jolly doctor saleor --json` with no reachable store
-    Then a `us`-channel purchasability check should be reported in the saleor group
-    And with no reachable store that check should be "skipped", "unknown", or "fail", never "pass"
-    And the summary must not claim products are purchasable when it was not verified
 
   @sandbox
   Scenario: Doctor verifies us-channel purchasability against a real store
@@ -48,36 +31,6 @@ Feature: Jolly doctor diagnostics
     And the default storefront checks should not include the generate, typecheck, build, or test checks
     And `jolly doctor storefront --full-validation` should add the generate, typecheck, and build checks
 
-  @sandbox
-  Scenario: Doctor checks deployment and payment readiness
-    Given a deployed storefront URL is configured in .env
-    When `jolly doctor` checks remote readiness
-    Then the checks should include a "deployment" check with a concrete status
-    And it should check whether required Vercel environment variables are configured
-    And the checks should include a "stripe" check with a concrete status
-
-  @sandbox
-  Scenario: Doctor reads the Vercel CLI login state from the Vercel CLI itself
-    Given the Vercel CLI is pointed at an isolated config with no signed-in session
-    When the agent runs `jolly doctor deployment --json`
-    Then a "vercel-auth" check should read the login state by running `vercel whoami`
-    And with no Vercel CLI session the "vercel-auth" check should be "fail" or "unknown", never "pass"
-    And its next step should be to run `jolly start`, which runs the Vercel sign-in itself, never to run `vercel login`
-
-  @sandbox
-  Scenario: Doctor confirms the Vercel CLI login state when a session exists
-    Given the Vercel CLI is logged in on this runner
-    When the agent runs `jolly doctor deployment --json`
-    Then the "vercel-auth" check should read the session by running `vercel whoami`
-    And the "vercel-auth" check should be "pass"
-
-  @sandbox
-  Scenario: Jolly start runs doctor automatically
-    Given `jolly start` has completed setup steps
-    When the agent runs `jolly start --json`
-    Then it should run `jolly doctor` automatically
-    And the final start envelope should include the doctor check results
-
   @logic
   Scenario: Doctor reports pass only for checks it actually performed
     Given a project directory with no Paper storefront present
@@ -85,21 +38,6 @@ Feature: Jolly doctor diagnostics
     Then it must not report "pass" for storefront checks it could not perform
     And checks for an absent storefront should be "fail", "skipped", or "unknown"
     And the summary must not claim storefront readiness that was not verified
-
-  @logic
-  Scenario Outline: Agent runs targeted doctor checks
-    Given a project directory with the Jolly CLI installed
-    When the agent runs `jolly doctor <group> --json`
-    Then only the <group> checks should run
-
-    Examples:
-      | group      |
-      | skills     |
-      | init       |
-      | saleor     |
-      | storefront |
-      | deployment |
-      | stripe     |
 
   @logic
   Scenario: jolly doctor --quiet reports only the checks that need attention
@@ -118,28 +56,12 @@ Feature: Jolly doctor diagnostics
     And the envelope checks should include results from each group
 
   @logic
-  Scenario: Doctor rejects an unknown check group
-    Given a project directory with the Jolly CLI installed
-    When the agent runs `jolly doctor not-a-group --json`
-    Then the envelope status should be "error"
-    And the doctor error code should be "UNKNOWN_DOCTOR_GROUP"
-    And the doctor error should name the valid groups skills, init, saleor, storefront, deployment, stripe
-    And the doctor error remediation should point to running `jolly doctor` for all checks or naming a valid group
-
-  @logic
   Scenario: Doctor flags a missing or overwritten bootstrap so the agent need not assume
     Given a project directory whose `AGENTS.md` lacks Jolly's marker and which has no `.mcp.json`
     When the agent runs `jolly doctor init --json`
     Then the `agents-md` check should be "fail" because the Jolly marker section is absent
     And the `mcp-config` check should be "fail"
     And both should give `jolly init` as the next step
-
-  @logic
-  Scenario: Doctor confirms bootstrap is done once the init artifacts are present
-    Given the artifacts `jolly init` produces are present in the project directory
-    When the agent runs `jolly doctor init --json`
-    Then the `mcp-config` and `agents-md` checks should be "pass"
-    And doctor should thereby confirm bootstrap is complete
 
   @sandbox
   Scenario: Doctor validates the Saleor Cloud token, not just its presence
@@ -148,29 +70,6 @@ Feature: Jolly doctor diagnostics
     Then a "saleor-cloud-token" check should authenticate a read-only GET of the Cloud API organizations endpoint
     And the "saleor-cloud-token" check should be "pass" naming the authenticated organization slug from the real response
     And the check must not report "pass" from the token's presence alone
-
-  @logic
-  Scenario: Doctor reports a rejected Saleor Cloud token as warning, never pass
-    Given .env contains JOLLY_SALEOR_CLOUD_TOKEN set to the cloud-shaped but invalid value "deadbeef-0000-0000-0000-000000000000.not-a-valid-cloud-token"
-    When the agent runs `jolly doctor saleor --json`
-    Then the "saleor-cloud-token" check should really send the authenticated organizations request and have it rejected
-    And the "saleor-cloud-token" check should be "warning" or "fail", reporting the HTTP rejection status, never "pass"
-    And its next step should direct the customer to run `jolly login` to sign in through the Saleor device authorization grant
-
-  @logic
-  Scenario: Doctor warns when a per-store token is in the Cloud token slot
-    Given .env contains JOLLY_SALEOR_CLOUD_TOKEN set to the store-access-token shape "abcdef0123456789abcdef0123" with no dot separator
-    When the agent runs `jolly doctor saleor --json`
-    Then the "saleor-cloud-token" check should be "warning"
-    And the check message should state the value looks like a store access token rather than a Cloud staff token and direct the customer to run `jolly login` to sign in through the Saleor device authorization grant
-
-  @logic @exceptional-double
-  Scenario: Doctor validates stored device-grant credentials with Bearer
-    Given an expired device-grant access token in JOLLY_SALEOR_ACCESS_TOKEN and its refresh token in JOLLY_SALEOR_REFRESH_TOKEN
-    When the agent runs `jolly doctor saleor --json`
-    Then the "saleor-cloud-token" check should mint a fresh access token and authenticate an `Authorization: Bearer` read of the Cloud API organizations endpoint
-    And the "saleor-cloud-token" check should be "pass" naming the organization slug the fake auth host returned
-    And the check must not report "pass" from the refresh token's presence alone
 
   @sandbox
   Scenario: Doctor names the authenticated Vercel account

@@ -20,6 +20,7 @@
 // This file excludes itself from the scan so its own literals are never
 // self-flagged.
 import { Node, Project, SyntaxKind } from "ts-morph";
+import { sharedProject } from "./ts-project.ts";
 import { join, relative } from "node:path";
 import { REPO_ROOT } from "./repo-root.ts";
 import type { InjectedSource, Violation } from "./module-conformance.ts";
@@ -30,13 +31,8 @@ const AFFORDANCE_PREFIX = "mock-";
 const HARNESS_REFERENCE = /harness/i;
 const CHECKER_FILE = "features/support/harness-affordance-conformance.ts";
 
-let cachedProject: Project | undefined;
-
 function project(): Project {
-  cachedProject ??= new Project({
-    tsConfigFilePath: join(REPO_ROOT, "tsconfig.json"),
-  });
-  return cachedProject;
+  return sharedProject();
 }
 
 function repoRelative(absolutePath: string): string {

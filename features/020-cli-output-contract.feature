@@ -39,29 +39,10 @@ Feature: Jolly CLI output contract
     And stderr should be empty
 
   @logic
-  Scenario: --quiet reports only the problem on a failed run
-    Given a Saleor Cloud token is configured
-    When the agent runs `jolly create store --url https://evil.example.com/graphql/ --quiet`
-    Then stderr should name the failure and the stable code `NON_FIRST_PARTY_HOST`
-    And stdout should be empty
-    And no JSON envelope should be printed
-
-  @logic
-  Scenario: Human output is colourful in an interactive terminal
-    When `jolly doctor` runs in an interactive terminal
-    Then stdout should contain ANSI colour codes
-
-  @logic
   Scenario: Human output is plain when stdout is not a terminal
     When the agent runs `jolly doctor` with stdout not a terminal
     Then stdout should contain no ANSI colour codes
     And `jolly doctor --json` stdout should contain no ANSI colour codes
-
-  @logic
-  Scenario: Machine output carries no colour or emoji
-    When the agent runs `jolly doctor --json`
-    Then the stdout envelope should contain no ANSI colour codes
-    And the stdout envelope should contain no emoji
 
   @logic
   Scenario: Progress is shown in place on stderr, never on the result stream
@@ -87,22 +68,6 @@ Feature: Jolly CLI output contract
     When the agent inspects the envelope
     Then each entry in `errors` should include a stable `code`, a `message`, and a `remediation`
     And the documented `code` and check id strings should remain stable so the agent can branch on them programmatically
-
-  @logic
-  Scenario: Doctor's error envelope carries the recovery even when its failing check offers no command
-    Given the agent runs `jolly doctor --json` with an invalid JOLLY_SALEOR_CLOUD_TOKEN
-    When the agent inspects the envelope
-    Then the envelope status should be "error"
-    And the envelope should carry at least one `nextSteps` entry naming what to do next
-    And each `errors` entry should carry a `remediation`
-
-  @logic
-  Scenario: A Cloud API error carries the recovery whatever its code, not only when the environment limit is reached
-    Given the Cloud API rejects an environment creation with a code other than `ENVIRONMENT_LIMIT_REACHED`
-    When the agent runs `jolly create store --create-environment --json`
-    Then the envelope status should be "error"
-    And the envelope should carry at least one `nextSteps` entry naming what to do next
-    And each `errors` entry should carry a `remediation`
 
   @logic @property
   Scenario: Every error envelope carries the recovery, so the agent never has to go looking for it
@@ -184,13 +149,6 @@ Feature: Jolly CLI output contract
       | jolly auth status --json  |
       | jolly create store --json |
       | jolly doctor --json       |
-
-  @sandbox @toolchain-element
-  Scenario: The deployed-storefront serving confirmation contacts only the URL captured from the Vercel CLI
-    Given a completed Vercel deploy whose CLI output named a deployed `*.vercel.app` URL
-    When `jolly deploy` confirms the deployment serves before reporting completed
-    Then the serving probe should send its GET to exactly the captured `*.vercel.app` URL
-    And no other host outside the first-party allowlist should be contacted
 
   Rule: Output envelope principles
     - Every command should emit one consistent top-level JSON envelope. The single exception

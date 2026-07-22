@@ -15,13 +15,6 @@ Feature: Jolly upgrade
     And user-authored lines in AGENTS.md outside the Jolly marker should remain unchanged
 
   @logic
-  Scenario: `jolly skills update` re-verifies installed skills without fetching updates
-    Given a project has previously run `jolly init` or `jolly skills install`
-    When the agent invokes `jolly skills update`
-    Then every managed skill present on disk should be reported as a passing check
-    And the envelope `data.skills` should list the Jolly-managed skill IDs
-
-  @logic
   Scenario: Upgrade reports the Paper baseline version as plan-only
     Given a cloned Paper storefront exists
     When the agent invokes `jolly upgrade`

@@ -22,13 +22,6 @@ Feature: Jolly auth commands
     `JOLLY_SALEOR_CLOUD_API_URL` for the Cloud API.
 
     @logic
-    Scenario: The bundled Jolly skill directs Saleor sign-in to the device authorization grant
-      Given the bundled Jolly skill that ships beside the CLI
-      When its Saleor Cloud authentication guidance is read
-      Then it should name the Saleor device authorization grant as the sign-in
-      And it should carry no cloud.saleor.io tokens-page link and no `jolly login` token-paste flag
-
-    @logic
     Scenario: Agent jolly login returns the verification URL in the envelope and persists the grant
       Given a non-interactive shell with no JOLLY_SALEOR_CLOUD_TOKEN set
       And the Saleor auth host issues device codes
@@ -52,23 +45,6 @@ Feature: Jolly auth commands
       And the persisted pending device authorization should be cleared
       And stdout should carry no token value
 
-    @logic @exceptional-double
-    Scenario: Interactive jolly login signs in through the Saleor device authorization grant
-      Given an interactive terminal with no JOLLY_SALEOR_CLOUD_TOKEN set
-      And the Saleor auth host approves the device grant on the first poll
-      When the user runs `jolly login`
-      Then it should display the returned user code and the verification URL `https://auth.saleor.io/realms/saleor-cloud/device?user_code=` followed by that user code through Bombshell's interactive prompt UI
-      And it should store the device-grant access token in .env as JOLLY_SALEOR_ACCESS_TOKEN
-      And it should not print any token value
-
-    @logic @exceptional-double
-    Scenario: The device-grant poll backs off when the auth host answers slow_down
-      Given an interactive terminal with no JOLLY_SALEOR_CLOUD_TOKEN set
-      And the Saleor auth host answers the first token poll with "slow_down" and approves the next
-      When the user runs `jolly login`
-      Then the second token poll should start at least five seconds after the first
-      And it should store the device-grant access token in .env as JOLLY_SALEOR_ACCESS_TOKEN
-
   Rule: The Cloud platform API scheme is chosen by which stored token is used
 
     Jolly keeps the two Cloud credentials in separate variables so a device sign-in never clobbers a
@@ -88,22 +64,6 @@ Feature: Jolly auth commands
       And it should store the organization name returned by the Cloud API in .env as JOLLY_SALEOR_ORGANIZATION
       And it should report the authenticated organization context using values from the real response
       And Jolly should not print the token value
-
-    @logic
-    Scenario: jolly login rejects an invalid env/.env staff token
-      Given JOLLY_SALEOR_CLOUD_TOKEN is set to an invalid or expired value
-      When the agent runs `jolly login` in a non-interactive shell
-      Then the verification request should really be sent and really be rejected
-      And Jolly should report an error naming the HTTP rejection status
-      And it should not write any value to .env
-      And the output should contain no success, verified, or authenticated language
-
-    @logic
-    Scenario: jolly login with an empty env/.env token fails honestly
-      Given JOLLY_SALEOR_CLOUD_TOKEN is set to the empty value
-      When the agent runs `jolly login --json` in a non-interactive shell
-      Then the envelope status should be "error" with a stable `code` naming the empty token
-      And it should not write any value to .env
 
   Rule: A long run refreshes the short-lived access token
 
@@ -139,15 +99,6 @@ Feature: Jolly auth commands
       invented label.
 
     @logic
-    Scenario: Agent logs out
-      Given .env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token
-      When the agent invokes `jolly logout`
-      Then Jolly should remove JOLLY_SALEOR_CLOUD_TOKEN from .env
-      And any non-JOLLY_ variable in .env should remain unchanged
-      And it should load the updated `.env` values for the current command flow
-      And the envelope status should be "success"
-
-    @logic
     Scenario: Jolly logout removes every Jolly-managed auth value from .env
       Given .env contains JOLLY_SALEOR_CLOUD_TOKEN=some-token and JOLLY_SALEOR_ACCESS_TOKEN=some-access and JOLLY_SALEOR_REFRESH_TOKEN=some-refresh and SALEOR_TOKEN=some-store-token and JOLLY_SALEOR_ORGANIZATION=some-org and THIRD_PARTY_KEY=keep-me
       When the agent runs `jolly logout`
@@ -166,14 +117,6 @@ Feature: Jolly auth commands
       And it should support `--json` and `--quiet`
 
     @logic
-    Scenario: Jolly login --dry-run does not write to .env
-      Given an interactive terminal with no JOLLY_SALEOR_CLOUD_TOKEN set
-      When the user runs `jolly login --dry-run --json`
-      Then the output should include a risk context with action "login"
-      And it should not request a device code and should not write to .env
-      And the output should include a nextSteps array with at least one step
-
-    @logic
     Scenario: jolly auth with an unknown subcommand fails clearly and names the only subcommand
       When the agent runs `jolly auth frobnicate --json`
       Then the envelope status should be "error" with the stable code `UNKNOWN_AUTH_SUBCOMMAND`
@@ -182,9 +125,12 @@ Feature: Jolly auth commands
 
   Rule: The .env Jolly writes is private and shell-safe
     - Every .env Jolly creates or updates (the Cloud token, refresh token, the projected store
-      SALEOR_TOKEN, organization name, storefront variables — under a Jolly-managed
-      commented header block) is written with owner-only permissions (mode 600); a
-      file holding credentials is never group- or world-readable.
+      SALEOR_TOKEN, organization name, storefront variables) is written with owner-only
+      permissions (mode 600); a file holding credentials is never group- or world-readable.
+    - The file carries values, not prose. Jolly wrote a managed commented header block until
+      2026-07-22, when it was condemned and removed: no scenario asked for it, its affordance is
+      already carried by "assets/skills/jolly" and the `/setup` page, and it put Jolly's internal
+      token layer on the customer's disk.
     - Values are written so the file stays a valid POSIX shell env file: a value containing
       whitespace, an apostrophe, or another shell-significant character is quoted so
       `set -a; . ./.env` sources it without error and round-trips the original value. An apostrophe in

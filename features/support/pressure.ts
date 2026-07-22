@@ -107,8 +107,8 @@ export function pressureSignal(record: PressureRecord): boolean {
  */
 export const CONFIGURED_PARALLELISM: Record<string, number> = {
   default: 1,
-  logic: 2,
-  sandbox: 2,
+  logic: 1,
+  sandbox: 1,
   sandboxSerial: 1,
   eval: 1,
   all: 1,

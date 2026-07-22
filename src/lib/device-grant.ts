@@ -41,7 +41,13 @@ export class DeviceGrantError extends Error {
   }
 }
 
-/** Refuse — before any fetch — to contact a non-first-party host.
+/**
+ * Pre-flight first-party host guard (feature 020 Rule "First-party hosts only").
+ * Refuses — before any fetch — to turn a device-grant or refresh-grant URL into
+ * an outbound request when its host is not first-party. The
+ * `JOLLY_SALEOR_AUTH_URL` override is the injection point this guards. Throws
+ * DeviceGrantError with the stable code NON_FIRST_PARTY_HOST, naming the refused
+ * host. Reuses the canonical allowlist in hosts.ts.
  * @planks("^they should be exactly cloud\.saleor\.io, auth\.saleor\.io, the customer's `\*\.saleor\.cloud` domains, and github\.com, plus any `JOLLY_SALEOR_CLOUD_API_URL` or `JOLLY_SALEOR_AUTH_URL` override$")
  */
 function assertFirstParty(url: string): void {

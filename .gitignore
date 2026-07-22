@@ -15,3 +15,5 @@ skills-lock.json
 
 # c8 coverage output (transient verification artifact)
 coverage/
+report.html
+report.json
