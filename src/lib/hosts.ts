@@ -47,7 +47,6 @@ function overrideHost(envVar: string): string | undefined {
  *
  * @planks("^they should be exactly cloud\.saleor\.io, auth\.saleor\.io, the customer's `\*\.saleor\.cloud` domains, and github\.com, plus any `JOLLY_SALEOR_CLOUD_API_URL` or `JOLLY_SALEOR_AUTH_URL` override$")
  * @planks("^the agent runs `jolly create store --url https:\/\/evil\.example\.com\/graphql\/ --json`$")
- * @planks("^the agent runs `jolly create store --url https:\/\/evil\.example\.com\/graphql\/ --quiet`$")
  */
 export function isFirstPartyHost(host: string): boolean {
   if (FIRST_PARTY_HOSTS.includes(host)) return true;

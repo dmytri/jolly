@@ -35,27 +35,6 @@ function errorCommandSet(run: CliResult): string[] | undefined {
   return match[1]!.split(/,\s*/).map((c) => c.trim()).filter(Boolean);
 }
 
-Then(
-  "the command set `jolly --help` advertises should equal the set the unknown-command error names",
-  function (this: JollyWorld) {
-    const runs = [this.previousRun, this.lastRun].filter(Boolean) as CliResult[];
-    let helpSet: string[] | undefined;
-    let errorSet: string[] | undefined;
-    for (const run of runs) {
-      helpSet ??= helpCommandSet(run);
-      errorSet ??= errorCommandSet(run);
-    }
-    assert.ok(helpSet, "`jolly --help` must advertise a command set in `data.commands`");
-    assert.ok(errorSet, "the unknown-command error must name a command set in its remediation");
-    assert.deepEqual(
-      [...helpSet].sort(),
-      [...errorSet].sort(),
-      `the command set advertised by \`jolly --help\` (${JSON.stringify([...helpSet].sort())}) ` +
-        `must equal the set the unknown-command error names (${JSON.stringify([...errorSet].sort())})`,
-    );
-  },
-);
-
 // ─── Every command site derives from one declared command surface ───────────
 //
 // The four sites a command name is written in today (completion registration,

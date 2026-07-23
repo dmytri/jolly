@@ -46,22 +46,6 @@ Given(
     this.notes.recipeAssetPath = path;
   },
 );
-
-Given(
-  // A plain Cucumber Expression treats `/` as alternation, so the asset path must
-  // be matched as an anchored regex with the slashes and dot escaped.
-  /^the shipped recipe asset assets\/skills\/jolly\/recipe\.yml$/,
-  function (this: JollyWorld) {
-    this.notes.recipeAssetPath = join(
-      REPO_ROOT,
-      "assets",
-      "skills",
-      "jolly",
-      "recipe.yml",
-    );
-  },
-);
-
 When(
   /^the cloud-api module derives the recipe identifiers from (?:that asset|it)$/,
   function (this: JollyWorld) {
@@ -99,22 +83,6 @@ Then(
     );
   },
 );
-
-Then(
-  "the product slugs it uses should include {string} and {string}",
-  function (this: JollyWorld, first: string, second: string) {
-    const slugs = identifiers(this).productSlugs;
-    assert.ok(
-      slugs.includes(first),
-      `derived product slugs should include "${first}"; got ${JSON.stringify(slugs)}`,
-    );
-    assert.ok(
-      slugs.includes(second),
-      `derived product slugs should include "${second}"; got ${JSON.stringify(slugs)}`,
-    );
-  },
-);
-
 Then(
   "the {string} collection it assigns should contain {string}",
   function (this: JollyWorld, collectionSlug: string, member: string) {

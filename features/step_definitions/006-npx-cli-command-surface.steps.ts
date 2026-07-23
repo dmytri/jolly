@@ -238,112 +238,12 @@ Then(
 // `start.stripeFinal` message — proving the installed CLI resolved the catalog
 // from its own package. Credentials genuinely unset so the dry-run walk-through
 // reaches no real account; skip when no PTY is available.
-
-When(
-  "the installed `jolly start --dry-run` runs through the published launcher in an interactive terminal, accepting every default",
-  { timeout: 240_000 },
-  function (this: JollyWorld) {
-    assert.ok(ptyAvailable(), "the PTY driver must be available");
-    const { installedBin } = packAndInstallJolly(this);
-
-    // Build the child env from scratch with the runtime credentials genuinely
-    // unset (real absence); keep TERM so the prompt renderer draws its UI.
-    const env: Record<string, string> = {};
-    for (const [k, v] of Object.entries({ ...process.env, ...absentCredentialsEnv() })) {
-      if (v !== undefined) env[k] = v;
-    }
-    if (!env.TERM) env.TERM = "xterm-256color";
-
-    // Run the installed bin itself (its `#!/usr/bin/env node` shebang) — the
-    // published launcher — under the PTY, pressing Enter at each prompt as it is
-    // observed.
-    const argv = ["start", "--dry-run"];
-    const sequence = startPromptSequence({ argv, cwd: this.projectDir });
-    const run = runUnderPty({
-      runtime: installedBin,
-      argv,
-      cwd: this.projectDir,
-      env,
-      inputs: acceptEveryPrompt(sequence),
-      waitFor: sequence,
-      readUntil: "exit",
-      timeoutMs: 150_000,
-    });
-    this.previousRun = this.lastRun;
-    this.lastRun = {
-      args: ["start", "--dry-run"],
-      cwd: this.projectDir,
-      exitCode: run.exitCode,
-      stdout: run.output,
-      stderr: "",
-      envelope: findEnvelope(run.output),
-    };
-  },
-);
-
 // --- Scenario: Agent starts the guided setup flow --------------------------
-
-Given(
-  "the customer wants the end-to-end guided Saleor storefront setup",
-  function () {
-    // Framing; the guided command is invoked in the When.
-  },
-);
-
 When("the agent runs `jolly start --json`", function (this: JollyWorld) {
   // `jolly start` is the primary guided command. Run with the credentials unset
   // so the bootstrap cannot reach a real account; the temp project is isolated.
   this.runCli(["start", "--json"], { env: absentCredentialsEnv() });
 });
-
-Then(
-  "`jolly start` should bootstrap setup \\(install the Jolly skill and Saleor skills, scaffold, run doctor) and run the ordered mechanical setup stages",
-  function (this: JollyWorld) {
-    const data = this.envelope.data as {
-      bootstrap?: { doctorRan?: unknown };
-      playbook?: unknown;
-    };
-    // Bootstrap evidence: a bootstrap record (skills/scaffold/doctor) and an
-    // ordered playbook (in data and/or nextSteps) for the agent to execute.
-    assert.ok(data.bootstrap, "start must report a bootstrap record");
-    assert.equal(data.bootstrap.doctorRan, true, "start must run doctor during bootstrap");
-    const playbook = Array.isArray(data.playbook) ? data.playbook : [];
-    assert.ok(playbook.length > 0, "start must emit an ordered playbook");
-    assert.ok(this.envelope.nextSteps.length > 0, "start must emit nextSteps for the agent");
-  },
-);
-
-Then(
-  "it should spawn the official CLIs \\(Vercel CLI, `@saleor\\/configurator`, `git`, `pnpm`) under their own auth while using Jolly's thin helpers for plumbing",
-  function (this: JollyWorld) {
-    // The playbook directs the agent to the official CLIs; Jolly itself never
-    // shells out to them. Assert the playbook references the agent-run tooling.
-    const data = this.envelope.data as { playbook?: unknown };
-    const playbook = (Array.isArray(data.playbook) ? data.playbook : []).join(" ").toLowerCase();
-    const stepText = this.envelope.nextSteps
-      .map((s) => `${s.description ?? ""} ${s.command ?? ""}`)
-      .join(" ")
-      .toLowerCase();
-    const haystack = `${playbook} ${stepText}`;
-    assert.ok(/vercel/.test(haystack), "playbook should reference the Vercel CLI");
-    assert.ok(/configurator/.test(haystack), "playbook should reference @saleor/configurator");
-    assert.ok(/git/.test(haystack), "playbook should reference git");
-  },
-);
-
-Then(
-  "with `--json` the output should be the machine-readable envelope on stdout \\(feature 020)",
-  function (this: JollyWorld) {
-    // The When ran `jolly start --json`: with --json the output is the machine
-    // envelope on stdout (feature 020's agent opt-in to machine output).
-    const run = this.lastRun!;
-    assert.ok(
-      run.envelope,
-      "`jolly start --json` must carry the machine-readable envelope on stdout",
-    );
-  },
-);
-
 // --- Scenario Outline: every subcommand prints usage on --help -------------
 // `--help` is how an agent learns a command's flags without guessing. Every
 // command and subcommand must print a usage summary naming itself and its
@@ -523,38 +423,6 @@ When(
     });
   },
 );
-
-Then("the flag should be accepted, not rejected as unknown", function (this: JollyWorld) {
-  const run = this.lastRun!;
-  const text = (run.stdout + " " + run.stderr).toLowerCase();
-  assert.ok(
-    !/unknown option|unknown argument|unrecognized option|unknown command/.test(text),
-    `global flag must be accepted, not rejected as unknown; got exit ${run.exitCode}:\n${run.stdout}\n${run.stderr}`,
-  );
-  // A rejected flag aborts with an "unknown option" error (ruled out above).
-  // Under the feature 020 contract only --json emits the machine envelope
-  // (--quiet is silent/stderr, --yes is human), so envelope presence proves the
-  // flag parsed for --json; the next scenario step re-checks --json emission.
-  if (run.args.includes("--json")) {
-    assert.ok(
-      run.envelope,
-      `--json must run the command to its envelope, proving the flag parsed; got exit ${run.exitCode}`,
-    );
-  }
-});
-
-Then(
-  /^`jolly (.+) --json` should emit the output envelope on stdout per feature 020$/,
-  function (this: JollyWorld, command: string) {
-    this.runCli([...command.split(" "), "--json"], { env: absentCredentialsEnv() });
-    const envelope = this.envelope; // validated against the feature 020 shape
-    assert.ok(
-      typeof envelope.command === "string" && envelope.command.length > 0,
-      "the --json envelope must name the command",
-    );
-  },
-);
-
 // --- @property: the global output flags live at the single parser seam ------
 // Structural conformance in the family of module-boundary-conformance and
 // single-creation-seam: one owned ts-morph checker
@@ -564,47 +432,6 @@ Then(
 // src/index.ts — never a per-command parser that omits or overrides them. The
 // scenario names the source, runs the checker, and asserts no per-command
 // divergence. Drop a flag from GLOBAL_BOOLEAN_FLAGS and the checker reds.
-
-Given(
-  "the Jolly CLI source at {string}",
-  function (this: JollyWorld, sourcePath: string) {
-    assert.ok(
-      existsSync(join(REPO_ROOT, sourcePath)),
-      `the Jolly CLI source ${sourcePath} must exist to check`,
-    );
-    this.notes.cliSourcePath = sourcePath;
-  },
-);
-
-When(
-  "the verifier checks the command surface for the global output flags",
-  function (this: JollyWorld) {
-    this.notes.globalFlagViolations = findGlobalOutputFlagViolations();
-  },
-);
-
-Then(
-  "every command should accept {string}, {string}, and {string} through the one Bombshell parser, with no per-command divergence",
-  function (this: JollyWorld, json: string, quiet: string, yes: string) {
-    // The Then names the flags it guards; assert the checker covers exactly them
-    // so the prose and the structural check cannot drift apart.
-    assert.deepEqual(
-      [json, quiet, yes],
-      ["--json", "--quiet", "--yes"],
-      "this scenario guards the --json, --quiet, and --yes global output flags",
-    );
-    const violations = this.notes.globalFlagViolations as Violation[];
-    assert.equal(
-      violations.length,
-      0,
-      `the global output flags must be declared once at the single Bombshell parser seam, ` +
-        `with no per-command divergence:\n${violations
-          .map((violation) => `  - ${violation.message}`)
-          .join("\n")}`,
-    );
-  },
-);
-
 // --- Scenario: The launcher fails clearly on an unsupported Node version ----
 // bin/jolly's guard reads process.versions.node. A Node older than the minimum
 // cannot be produced on demand here (only the current Node exists), so drive the
@@ -742,76 +569,6 @@ function catalogMessage(key: string): string {
 }
 
 const CLI_ENTRY = join(REPO_ROOT, "src", "index.ts");
-
-When(
-  /^the CLI renders the `([\w.]+)` message with organization "([^"]+)"$/,
-  { timeout: 160_000 },
-  function (this: JollyWorld, key: string, organization: string) {
-    // The catalog template for this key must carry the {organization}
-    // placeholder, so a rendered run naming the organization proves the renderer
-    // substituted it — not a coincidental literal that already reads the org.
-    const template = catalogMessage(key);
-    assert.ok(
-      template.includes("{organization}"),
-      `the "${key}" catalog template must carry a {organization} placeholder to substitute; got: ${template}`,
-    );
-    assert.ok(ptyAvailable(), "the PTY driver must be available to drive the interactive render");
-    // Real render seam: drive `jolly start --dry-run` interactively with two
-    // organizations the named one first, so the org select defaults to it and
-    // Enter resolves it; the CLI then renders `start.usingOrg` for that org on
-    // stderr. --mock-environments= keeps the env picker from making a real
-    // network call that would desync the scripted input. Credentials genuinely
-    // unset so the dry-run preview reaches no real account.
-    const env: Record<string, string> = {};
-    for (const [k, v] of Object.entries({ ...process.env, ...absentCredentialsEnv() })) {
-      if (v !== undefined) env[k] = v;
-    }
-    if (!env.TERM) env.TERM = "xterm-256color";
-    const argv = [
-      "start",
-      "--dry-run",
-      // @exceptional-double: a Cloud token resolving more than one organization
-      // cannot be produced on demand from the single-org test account; the
-      // deterministic org list is injected to drive the org-announce render.
-      `--mock-organizations=${organization},other-co`,
-      "--mock-environments=",
-    ];
-    const sequence = startPromptSequence({ argv, cwd: this.projectDir });
-    const run = runUnderPty({
-      runtime: process.env.HARNESS_CLI_RUNTIME ?? "node",
-      argv: [CLI_ENTRY, ...argv],
-      cwd: this.projectDir,
-      env,
-      inputs: acceptEveryPrompt(sequence),
-      waitFor: sequence,
-      readUntil: "exit",
-      timeoutMs: 150_000,
-    });
-    // The org announce renders on stderr; runUnderPty's combined output carries
-    // it. Strip ANSI so the rendered copy reads as plain text.
-    this.notes.renderedMessage = run.output.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
-    return undefined;
-  },
-);
-
-Then("the rendered text should contain {string}", function (this: JollyWorld, expected: string) {
-  const out = String(this.notes.renderedMessage);
-  assert.ok(out.includes(expected), `rendered text must contain "${expected}"; got:\n${out}`);
-  return undefined;
-});
-
-Then(
-  "the rendered text should carry no {string} placeholder token",
-  function (this: JollyWorld, token: string) {
-      const out = String(this.notes.renderedMessage);
-    assert.ok(
-      !out.includes(token),
-      `rendered text must carry no "${token}" placeholder token; got:\n${out}`,
-    );
-    return undefined;
-  },
-);
-
 // ─── @property: no interactive copy bypasses the message catalog ────────────
 // Conformance scan, in the family of feature 026/027's source-property checks.
 // Every human-facing string the interactive layer renders comes from the catalog
@@ -1019,53 +776,6 @@ function scanInteractiveSeams(): SeamScan {
   return { violations, cliMessageKeys };
 }
 
-Given(
-  "the interactive render seams: the clack intro, prompts, notes and outro, the per-stage progress descriptions, and the start-close summary lines",
-  function () {
-    // Framing; the published CLI source is scanned in the When.
-  },
-);
-
-When(
-  "each seam's human-facing message text is examined in the source",
-  async function (this: JollyWorld) {
-    const scan = await scanInteractiveSeams();
-    this.notes.seamViolations = scan.violations;
-    this.notes.seamCliMessageKeys = scan.cliMessageKeys;
-  },
-);
-
-Then(
-  /^every human-facing message should be sourced from `assets\/messages\/cli\.json` by key$/,
-  function (this: JollyWorld) {
-    const keys = (this.notes.seamCliMessageKeys as string[]) ?? [];
-    assert.ok(
-      keys.length > 0,
-      "the interactive render seams must source copy from the catalog via cliMessage(key)",
-    );
-    const catalog = readCatalog();
-    const missing = [...new Set(keys)].filter((k) => !(k in catalog));
-    assert.deepEqual(
-      missing,
-      [],
-      `every cliMessage key the seams use must exist in the catalog; missing: ${missing.join(", ")}`,
-    );
-  },
-);
-
-Then(
-  "no interactive render seam should emit an inline human-facing string literal",
-  function (this: JollyWorld) {
-    const violations = (this.notes.seamViolations as string[]) ?? [];
-    assert.deepEqual(
-      violations,
-      [],
-      `interactive render seams must source human copy from the catalog by key, ` +
-        `never an inline literal; found:\n${violations.join("\n")}`,
-    );
-  },
-);
-
 // @logic "Jolly quiets npm install-time warnings for the npx tools it spawns":
 // main() defaults NPM_CONFIG_LOGLEVEL to "error" when the caller set none, so
 // every `npx` Jolly spawns with `{ ...process.env }` inherits the quiet level
@@ -1102,89 +812,10 @@ function observeEffectiveLoglevel(preset?: string): string {
   return match[1]!;
 }
 
-Given("the environment sets no NPM_CONFIG_LOGLEVEL value", function (this: JollyWorld) {
-  assert.equal(
-    process.env["NPM_CONFIG_LOGLEVEL"] ?? "",
-    "",
-    "precondition: the harness process itself must carry no NPM_CONFIG_LOGLEVEL",
-  );
-  assert.equal(process.env["npm_config_loglevel"] ?? "", "");
-});
-
-When("the agent runs a Jolly command", function (this: JollyWorld) {
-  this.notes.effectiveLoglevel = observeEffectiveLoglevel();
-});
-
-Then(
-  "Jolly should default NPM_CONFIG_LOGLEVEL to error so spawned npx tools suppress warn-level notices such as EBADENGINE",
-  function (this: JollyWorld) {
-    assert.equal(
-      this.notes.effectiveLoglevel,
-      "error",
-      "with no caller value, Jolly must default NPM_CONFIG_LOGLEVEL to error for spawned npx tools",
-    );
-  },
-);
-
-Then(
-  "a NPM_CONFIG_LOGLEVEL value the caller already set should be preserved unchanged",
-  function (this: JollyWorld) {
-    assert.equal(
-      observeEffectiveLoglevel("warn"),
-      "warn",
-      "a caller-set NPM_CONFIG_LOGLEVEL must be preserved, never overridden",
-    );
-  },
-);
-
 // --- Scenario: the published manifest ships the launcher and the Node floor --
 // @logic @contract: attests the shipped manifest's mechanical shape — the `bin`
 // entry that makes `npx @dk/jolly` resolve the `jolly` launcher, and the
 // `engines.node` floor the documentation promises.
-
-Given("the package manifest {string}", function (this: JollyWorld, manifestFile: string) {
-  const path = join(REPO_ROOT, manifestFile);
-  assert.ok(existsSync(path), `${manifestFile} must exist at the project root`);
-  this.notes.manifestText = readFileSync(path, "utf8");
-});
-
-When("its published fields are read", function (this: JollyWorld) {
-  this.notes.manifest = JSON.parse(String(this.notes.manifestText));
-});
-
-Then("the `bin` entry should ship the `jolly` launcher", function (this: JollyWorld) {
-  const manifest = this.notes.manifest as {
-    bin?: Record<string, string>;
-    files?: string[];
-  };
-  const launcher = manifest.bin?.["jolly"];
-  assert.ok(
-    launcher,
-    `the manifest must map the \`jolly\` bin name to the launcher; got bin=${JSON.stringify(manifest.bin)}`,
-  );
-  assert.ok(
-    existsSync(join(REPO_ROOT, launcher!)),
-    `the \`jolly\` bin entry points at "${launcher}", which does not exist`,
-  );
-  const files = manifest.files ?? [];
-  assert.ok(
-    files.some((entry) => launcher!.startsWith(entry.replace(/\/$/, "") + "/") || entry === launcher),
-    `the published files allowlist must ship the launcher "${launcher}"; got files=${JSON.stringify(files)}`,
-  );
-});
-
-Then(
-  "`engines.node` should declare the documented Node.js floor {string}",
-  function (this: JollyWorld, floor: string) {
-    const manifest = this.notes.manifest as { engines?: Record<string, string> };
-    assert.equal(
-      manifest.engines?.["node"],
-      floor,
-      `engines.node must declare the documented floor ${floor}`,
-    );
-  },
-);
-
 // --- @property: Jolly's code spawns only the delegated official tools --------
 // Structural conformance in the family of module-boundary-conformance and the
 // first-party request guard: one owned ts-morph checker

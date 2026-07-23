@@ -27,57 +27,6 @@ import type { JollyWorld } from "../support/world.ts";
 Given("a project directory with the Jolly CLI installed", function () {
   // The temp project directory is the setup context; nothing to arrange.
 });
-
-When("it invokes `jolly doctor`", function (this: JollyWorld) {
-  this.runCli(["doctor", "--json"], { env: absentCredentialsEnv() });
-});
-
-Then(
-  "Jolly should check local Jolly CLI availability and version",
-  function (this: JollyWorld) {
-    const check = this.findCheck("cli-available");
-    assert.ok(check, "doctor must report a CLI availability check");
-    // CLI availability is genuinely performed (the CLI is running), so pass
-    // here is honest, not fabricated.
-    assert.equal(check!.status, "pass");
-    assert.match(
-      String(check!.description ?? ""),
-      /node/i,
-      "the CLI check should report the runtime version",
-    );
-  },
-);
-
-Then("it should check skill installation status", function (this: JollyWorld) {
-  const skillChecks = this.envelope.checks.filter((c) => c.id.startsWith("skill-"));
-  assert.ok(skillChecks.length > 0, "doctor must report skill installation checks");
-  // No skills are on disk in the fresh temp dir, so these must be fail — never
-  // a fabricated pass.
-  for (const check of skillChecks) {
-    assert.notEqual(check.status, "pass", `skill check ${check.id} must not falsely pass`);
-  }
-});
-
-Then(
-  "the checks should include an {string} guidance check",
-  function (this: JollyWorld, _name: string) {
-    // Guidance/skill state is reflected via the skill checks; assert the
-    // checks array is well-formed against the doctor vocabulary.
-    for (const check of this.envelope.checks) {
-      assert.ok(CHECK_STATUSES.includes(check.status), `bad status on ${check.id}`);
-    }
-  },
-);
-
-Then(
-  "the envelope should contain a summary string and a checks array",
-  function (this: JollyWorld) {
-    const run = this.lastRun!;
-    assert.ok(run.envelope, "doctor must emit a machine-readable envelope");
-    assert.ok(this.envelope.summary.length > 0, "doctor must carry a human summary");
-  },
-);
-
 // ─── Scenario: Doctor checks Saleor connectivity (@sandbox) ─────────────────
 
 Given(
@@ -197,39 +146,6 @@ Then(
 );
 
 // ─── Scenario: Doctor checks deployment and payment readiness (@sandbox) ────
-
-Given("a deployed storefront URL is configured in .env", function (this: JollyWorld) {
-  // @sandbox: deployment is agent-run via the Vercel CLI.
-});
-
-When("`jolly doctor` checks remote readiness", function (this: JollyWorld) {
-  this.runCli(["doctor", "deployment", "--json"]);
-});
-
-Then(
-  "the checks should include a {string} check with a concrete status",
-  function (this: JollyWorld, name: string) {
-    if (name === "stripe") {
-      // Stripe readiness lives in the stripe group; confirm doctor exposes it.
-      this.runCli(["doctor", "stripe", "--json"]);
-      assert.ok(this.findCheck("checkout-payment-gateway"), "doctor stripe must report a Stripe check");
-      return;
-    }
-    const check = this.findCheck("deployment-status");
-    assert.ok(check, "doctor deployment must report a deployment-status check");
-    // Jolly never contacts Vercel from its own code, so this is honestly
-    // skipped, not a fabricated pass.
-    assert.notEqual(check!.status, "pass", "Jolly must not fabricate a Vercel pass");
-  },
-);
-
-Then(
-  "it should check whether required Vercel environment variables are configured",
-  function (this: JollyWorld) {
-    assert.ok(this.findCheck("deployment-status"), "deployment check must exist");
-  },
-);
-
 // ─── Scenarios: Doctor reads the Vercel CLI login state via `vercel whoami` ──
 //
 // Doctor is the single readiness oracle (feature 014 Rule): its auth checks read
@@ -267,41 +183,6 @@ function assertReadsViaWhoami(check: Record<string, unknown>): void {
 }
 
 Then(
-  "a {string} check should read the login state by running `vercel whoami`",
-  function (this: JollyWorld, id: string) {
-    const check = this.findCheck(id);
-    assert.ok(check, `doctor deployment must report a \`${id}\` check`);
-    assertReadsViaWhoami(check!);
-  },
-);
-
-Then(
-  "the {string} check should read the session by running `vercel whoami`",
-  function (this: JollyWorld, id: string) {
-    const check = this.findCheck(id);
-    assert.ok(check, `doctor deployment must report a \`${id}\` check`);
-    assertReadsViaWhoami(check!);
-  },
-);
-
-Then(
-  "with no Vercel CLI session the {string} check should be {string} or {string}, never {string}",
-  function (this: JollyWorld, id: string, a: string, b: string, never: string) {
-    const check = this.findCheck(id);
-    assert.ok(check, `doctor deployment must report a \`${id}\` check`);
-    assert.notEqual(
-      check!.status,
-      never,
-      `${id} must never fabricate "${never}" without a Vercel CLI session`,
-    );
-    assert.ok(
-      [a, b].includes(String(check!.status)),
-      `${id} with no session must be "${a}" or "${b}", got "${check!.status}"`,
-    );
-  },
-);
-
-Then(
   "the {string} check should name the logged-in Vercel account reported by `vercel whoami`",
   function (this: JollyWorld, id: string) {
     const check = this.findCheck(id);
@@ -320,24 +201,6 @@ Then(
     );
   },
 );
-
-Then(
-  "its next step should be to run `jolly start`, which runs the Vercel sign-in itself, never to run `vercel login`",
-  function (this: JollyWorld) {
-    const check = this.findCheck("vercel-auth");
-    assert.ok(check, "doctor deployment must report a `vercel-auth` check");
-    assert.equal(
-      check!.command,
-      "jolly start",
-      `the vercel-auth next step must be \`jolly start\` (Jolly runs the sign-in itself), got "${String(check!.command)}"`,
-    );
-    assert.ok(
-      !/vercel login/i.test(JSON.stringify(check)),
-      `the vercel-auth check must never tell the agent to run \`vercel login\`: ${JSON.stringify(check)}`,
-    );
-  },
-);
-
 Then(
   "the {string} check should be {string}",
   function (this: JollyWorld, id: string, status: string) {
@@ -348,27 +211,6 @@ Then(
 );
 
 // ─── Scenario: Jolly start runs doctor automatically (@sandbox) ─────────────
-
-Given("`jolly start` has completed setup steps", function (this: JollyWorld) {
-  // @sandbox. The non-dry-run
-  // `jolly start` body is exercised by feature 001; here we assert only that
-  // start folds doctor results into its output.
-});
-
-Then("it should run `jolly doctor` automatically", function (this: JollyWorld) {
-  const bootstrap = this.envelope.data.bootstrap as Record<string, unknown> | undefined;
-  assert.ok(bootstrap, "start must report a bootstrap summary");
-  assert.equal(bootstrap!.doctorRan, true, "start must run doctor automatically");
-});
-
-Then(
-  "the final start envelope should include the doctor check results",
-  function (this: JollyWorld) {
-    const doctorChecks = this.envelope.checks.filter((c) => c.id.startsWith("doctor-"));
-    assert.ok(doctorChecks.length > 0, "start output must fold in doctor's checks");
-  },
-);
-
 // ─── Scenario: Doctor reports pass only for checks it performed (@logic) ─────
 
 Given(
@@ -466,10 +308,6 @@ function assertOnlyGroupRan(world: JollyWorld, group: string): void {
   }
 }
 
-When("the agent runs `jolly doctor skills --json`", function (this: JollyWorld) {
-  this.runCli(["doctor", "skills", "--json"], { env: absentCredentialsEnv() });
-});
-
 When("the agent runs `jolly doctor saleor --json`", function (this: JollyWorld) {
   // Most saleor-doctor scenarios run with the runtime credentials genuinely
   // unset (real absence). The credential-validity scenarios below stash a
@@ -494,43 +332,6 @@ When("the agent runs `jolly doctor deployment --json`", function (this: JollyWor
   const xdg = (this.notes.vercelXdg as Record<string, string> | undefined) ?? {};
   this.runCli(["doctor", "deployment", "--json"], { env: absentCredentialsEnv(xdg) });
 });
-
-When("the agent runs `jolly doctor stripe --json`", function (this: JollyWorld) {
-  // Default: runtime credentials genuinely unset. A scenario probing a specific
-  // configured key (e.g. a live-mode secret) stashes a per-scenario env override
-  // in notes so the same command inspects that real bad input.
-  const override = this.notes.stripeDoctorEnv as
-    | Record<string, string | undefined>
-    | undefined;
-  this.runCli(["doctor", "stripe", "--json"], {
-    env: override ?? absentCredentialsEnv(),
-  });
-});
-
-Then("only the skills checks should run", function (this: JollyWorld) {
-  assertOnlyGroupRan(this, "skills");
-});
-
-Then("only the init checks should run", function (this: JollyWorld) {
-  assertOnlyGroupRan(this, "init");
-});
-
-Then("only the saleor checks should run", function (this: JollyWorld) {
-  assertOnlyGroupRan(this, "saleor");
-});
-
-Then("only the storefront checks should run", function (this: JollyWorld) {
-  assertOnlyGroupRan(this, "storefront");
-});
-
-Then("only the deployment checks should run", function (this: JollyWorld) {
-  assertOnlyGroupRan(this, "deployment");
-});
-
-Then("only the stripe checks should run", function (this: JollyWorld) {
-  assertOnlyGroupRan(this, "stripe");
-});
-
 // ─── Scenario: jolly doctor --quiet reports only checks needing attention ───
 // Under --quiet doctor prints only the checks that did not pass, to stderr,
 // with empty stdout and no envelope (feature 020); --json still emits the full
@@ -616,54 +417,6 @@ Then(
 // Naming a group that is not in DOCTOR_GROUPS is a usage error: doctor runs
 // nothing and returns a stable UNKNOWN_DOCTOR_GROUP error that names the valid
 // groups and points back at the all-checks run, so the agent can self-correct.
-
-When(
-  "the agent runs `jolly doctor not-a-group --json`",
-  function (this: JollyWorld) {
-    this.runCli(["doctor", "not-a-group", "--json"], {
-      env: absentCredentialsEnv(),
-    });
-  },
-);
-
-Then(
-  'the doctor error code should be "UNKNOWN_DOCTOR_GROUP"',
-  function (this: JollyWorld) {
-    assert.ok(
-      this.envelope.errors.some((e) => e.code === "UNKNOWN_DOCTOR_GROUP"),
-      "an unknown group must yield a stable UNKNOWN_DOCTOR_GROUP error",
-    );
-  },
-);
-
-Then(
-  "the doctor error should name the valid groups skills, init, saleor, storefront, deployment, stripe",
-  function (this: JollyWorld) {
-    const error = this.envelope.errors.find(
-      (e) => e.code === "UNKNOWN_DOCTOR_GROUP",
-    );
-    assert.match(
-      String(error?.message ?? ""),
-      /skills, init, saleor, storefront, deployment, stripe/,
-      "the error must list the valid groups so the agent can pick one",
-    );
-  },
-);
-
-Then(
-  "the doctor error remediation should point to running `jolly doctor` for all checks or naming a valid group",
-  function (this: JollyWorld) {
-    const error = this.envelope.errors.find(
-      (e) => e.code === "UNKNOWN_DOCTOR_GROUP",
-    );
-    assert.match(
-      String(error?.remediation ?? ""),
-      /jolly doctor.*valid group/i,
-      "the remediation must direct the agent to the all-checks run or a valid group",
-    );
-  },
-);
-
 // ─── Scenario: Doctor flags a missing or overwritten bootstrap (@logic) ─────
 //
 // Doctor's `init` group verifies the feature-007 bootstrap artifacts so the
@@ -726,65 +479,6 @@ Then(
 );
 
 // ─── Scenario: Doctor confirms bootstrap is done (@logic) ───────────────────
-
-Given(
-  "the artifacts `jolly init` produces are present in the project directory",
-  function (this: JollyWorld) {
-    // Seed the on-disk artifacts init merges: a .mcp.json carrying the
-    // saleor-graphql server entry, and an AGENTS.md with the Jolly marker
-    // section. Mirror init's shapes (feature 007) without running it (no skill
-    // install / network).
-    writeFileSync(
-      join(this.projectDir, ".mcp.json"),
-      JSON.stringify(
-        {
-          mcpServers: {
-            "saleor-graphql": {
-              command: "npx",
-              args: ["-y", "mcp-graphql"],
-              env: { ENDPOINT: "https://example.saleor.cloud/graphql/" },
-            },
-          },
-        },
-        null,
-        2,
-      ) + "\n",
-    );
-    writeFileSync(
-      join(this.projectDir, "AGENTS.md"),
-      "<!-- jolly:begin -->\n## Jolly\n\nBootstrap section.\n<!-- jolly:end -->\n",
-    );
-  },
-);
-
-Then(
-  "the `mcp-config` and `agents-md` checks should be {string}",
-  function (this: JollyWorld, status: string) {
-    for (const id of ["mcp-config", "agents-md"]) {
-      const check = this.findCheck(id);
-      assert.ok(check, `doctor init must report the ${id} check`);
-      assert.equal(
-        check!.status,
-        status,
-        `${id} must be "${status}" once the artifact is present`,
-      );
-    }
-  },
-);
-
-Then(
-  "doctor should thereby confirm bootstrap is complete",
-  function (this: JollyWorld) {
-    // Both init checks pass, so the init group reports no failure: doctor has
-    // machine-confirmed bootstrap is done.
-    assert.ok(
-      !this.envelope.errors.some((e) => e.code === "DOCTOR_CHECKS_FAILED"),
-      "a complete bootstrap must not raise DOCTOR_CHECKS_FAILED",
-    );
-    assert.notEqual(this.envelope.status, "error", "complete bootstrap must not be an error");
-  },
-);
-
 // ─── Rule: Credential checks probe validity, not just presence ──────────────
 //
 // A token present in `.env` is not a token that works. The `saleor-cloud-token`
@@ -880,233 +574,15 @@ Then(
     );
   },
 );
-
-Then(
-  'the {string} check should be {string} naming the organization slug the fake auth host returned',
-  function (this: JollyWorld, id: string, status: string) {
-    const check = this.findCheck(id);
-    assert.ok(check, `doctor saleor must report a \`${id}\` check`);
-    assert.equal(check!.status, status, `${id} must be "${status}" via the refreshed Bearer read`);
-    assert.match(
-      JSON.stringify(check),
-      /jolly-fake-org/,
-      `the ${id} pass must name the organization slug the fake auth host returned (jolly-fake-org)`,
-    );
-  },
-);
-
 // Scenario: Doctor validates stored device-grant credentials with Bearer (@sandbox @exceptional-double)
 // The Given/When are shared with feature 018's refresh scenario (the device-grant
 // Given seeds notes.saleorDoctorEnv; the When is the saleor-doctor run above). The
 // "pass naming the authenticated organization slug" assertion reuses the generic
 // `{string} check should be {string} naming the authenticated organization slug`
 // step defined below.
-
-Then(
-  "the {string} check should mint a fresh access token and authenticate an `Authorization: Bearer` read of the Cloud API organizations endpoint",
-  function (this: JollyWorld, id: string) {
-    const check = this.findCheck(id);
-    assert.ok(check, `doctor saleor must report a \`${id}\` check`);
-    // The seeded access token is expired, so a passing organizations read can
-    // only come from minting a fresh access token through the refresh grant and
-    // reading the platform API under `Authorization: Bearer` (a device-grant JWT
-    // the `Token` scheme rejects). A pass that shows the organizations read is
-    // the falsifiable proof both happened.
-    assert.equal(
-      check!.status,
-      "pass",
-      `${id} must pass via a refreshed Bearer read, not the expired token`,
-    );
-    assert.match(
-      JSON.stringify(check),
-      /organizations/i,
-      `the ${id} check must show the authenticated organizations read`,
-    );
-  },
-);
-
-Then(
-  "the check must not report {string} from the refresh token's presence alone",
-  function (this: JollyWorld, passWord: string) {
-    const check = cloudTokenCheck(this);
-    // A presence-only verdict could not carry the org identity the Bearer GET
-    // returned; require that response-derived evidence (the fake host's org slug)
-    // to back any pass.
-    const text = JSON.stringify(check);
-    assert.ok(
-      check.status !== passWord || text.includes("jolly-fake-org"),
-      `${passWord} must be backed by the organizations response, not the refresh token's presence`,
-    );
-  },
-);
-
 // Scenario: Doctor reports a rejected Saleor Cloud token as warning, never pass (@logic)
-
-Given(
-  ".env contains JOLLY_SALEOR_CLOUD_TOKEN set to the cloud-shaped but invalid value {string}",
-  function (this: JollyWorld, value: string) {
-    // A real, cloud-shaped (dot-separated) but invalid token aimed at the real
-    // Cloud API: the organizations GET is really sent and really rejected.
-    this.notes.saleorDoctorEnv = absentCredentialsEnv({
-      JOLLY_SALEOR_CLOUD_TOKEN: value,
-    });
-  },
-);
-
-Then(
-  "the {string} check should really send the authenticated organizations request and have it rejected",
-  async function (this: JollyWorld, id: string) {
-    // The probe is a REAL request to the real Cloud API. Under the laned
-    // window's concurrency that request can fail to COMPLETE — connection reset
-    // or timeout — and doctor then honestly reports `unknown`, carrying no HTTP
-    // status rather than fabricating a rejection it never received. That is a
-    // transient connection signal, not this scenario's verdict, so re-probe
-    // against a bounded deadline. A real rejection carries its status on the
-    // first pass and asserts immediately, so a genuine defect still reds fast.
-    const deadline = Date.now() + 60_000;
-    let check = this.findCheck(id);
-    while (check?.status === "unknown" && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 2_000));
-      this.runCli(["doctor", "saleor", "--json"], {
-        env: (this.notes.saleorDoctorEnv as
-          | Record<string, string | undefined>
-          | undefined) ?? absentCredentialsEnv(),
-      });
-      check = this.findCheck(id);
-    }
-    assert.ok(check, `doctor saleor must report a \`${id}\` check`);
-    const text = JSON.stringify(check);
-    assert.match(
-      text,
-      /organizations/i,
-      `the ${id} check must show it sent the authenticated organizations request; got ${text}`,
-    );
-    assert.match(
-      text,
-      /\b40\d\b/,
-      `the ${id} check must report the real HTTP rejection status; got ${text}`,
-    );
-  },
-);
-
-Then(
-  'the {string} check should be {string} or {string}, reporting the HTTP rejection status, never {string}',
-  function (this: JollyWorld, id: string, a: string, b: string, never: string) {
-    const check = this.findCheck(id);
-    assert.ok(check, `doctor saleor must report a \`${id}\` check`);
-    assert.notEqual(check!.status, never, `${id} must never fabricate "${never}" for a rejected token`);
-    assert.ok(
-      [a, b].includes(String(check!.status)),
-      `${id} on a real rejection must be "${a}" or "${b}", got "${check!.status}"`,
-    );
-    assert.match(
-      JSON.stringify(check),
-      /\b40\d\b/,
-      `${id} must report the HTTP rejection status`,
-    );
-  },
-);
-
-Then(
-  "its next step should direct the customer to run `jolly login` to sign in through the Saleor device authorization grant",
-  function (this: JollyWorld) {
-    const check = cloudTokenCheck(this);
-    const text = `${String(check.command ?? "")} ${JSON.stringify(this.envelope.nextSteps)} ${JSON.stringify(check)}`;
-    assert.match(
-      text,
-      /jolly login/,
-      "the rejected-token check must direct the customer to run `jolly login` (device authorization grant)",
-    );
-    assert.ok(
-      !text.includes("cloud.saleor.io/tokens"),
-      "the rejected-token check must not direct the customer to the tokens page",
-    );
-  },
-);
-
 // Scenario: Doctor warns when a per-store token is in the Cloud token slot (@logic)
-
-Given(
-  ".env contains JOLLY_SALEOR_CLOUD_TOKEN set to the store-access-token shape {string} with no dot separator",
-  function (this: JollyWorld, value: string) {
-    // A separator-free value is the store-access-token shape — the common
-    // mix-up doctor flags before the network probe.
-    assert.ok(!value.includes("."), "the store-access-token-shaped value must have no dot separator");
-    this.notes.saleorDoctorEnv = absentCredentialsEnv({
-      JOLLY_SALEOR_CLOUD_TOKEN: value,
-    });
-  },
-);
-
-Then(
-  "the check message should state the value looks like a store access token rather than a Cloud staff token and direct the customer to run `jolly login` to sign in through the Saleor device authorization grant",
-  function (this: JollyWorld) {
-    const check = cloudTokenCheck(this);
-    const text = JSON.stringify(check);
-    assert.match(text, /store access token/i, "the warning must name the store-access-token mix-up");
-    assert.match(text, /staff/i, "the warning must contrast with a Cloud staff token");
-    assert.match(
-      text,
-      /jolly login/,
-      "the warning must direct the customer to run `jolly login` (device authorization grant)",
-    );
-    assert.ok(
-      !text.includes("cloud.saleor.io/tokens"),
-      "the warning must not name the tokens page",
-    );
-  },
-);
-
 // ── `us`-channel purchasability check (feature 014) ───────────────────────
-
-When(
-  "the agent runs `jolly doctor saleor --json` with no reachable store",
-  function (this: JollyWorld) {
-    // No credentials → no store endpoint, so the purchasability probe has no
-    // store to reach. Real probe, no fabrication; bounded so a hung probe fails.
-    this.runCli(["doctor", "saleor", "--json"], {
-      env: absentCredentialsEnv(),
-      timeoutMs: 60_000,
-    });
-  },
-);
-
-Then(
-  "a `us`-channel purchasability check should be reported in the saleor group",
-  function (this: JollyWorld) {
-    const check = this.envelope.checks.find((c) => c.id === "us-channel-purchasable");
-    assert.ok(check, "the saleor group must report a us-channel-purchasable check");
-  },
-);
-
-Then(
-  "with no reachable store that check should be {string}, {string}, or {string}, never {string}",
-  function (this: JollyWorld, a: string, b: string, c: string, never: string) {
-    const check = this.envelope.checks.find((ck) => ck.id === "us-channel-purchasable");
-    assert.ok(check, "us-channel-purchasable check must be present");
-    assert.ok(
-      [a, b, c].includes(check!.status),
-      `with no reachable store the purchasability check should be one of ${a}/${b}/${c}; got "${check!.status}"`,
-    );
-    assert.notEqual(
-      check!.status,
-      never,
-      `the purchasability check must never be "${never}" with no reachable store`,
-    );
-  },
-);
-
-Then(
-  "the summary must not claim products are purchasable when it was not verified",
-  function (this: JollyWorld) {
-    assert.doesNotMatch(
-      this.envelope.summary,
-      /products?\b[^.]*\bpurchasable|\bpurchasable\b[^.]*\bproducts?|ready to sell/i,
-      `the summary must not claim purchasability when unverified; got: ${this.envelope.summary}`,
-    );
-  },
-);
-
 Given(
   "a reachable Saleor store with the Cloud token available",
   function (this: JollyWorld) {

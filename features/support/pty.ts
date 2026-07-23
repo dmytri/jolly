@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 
 const DRIVER = join(dirname(fileURLToPath(import.meta.url)), "pty-driver.py");
 
-export interface PtyRunResult {
+interface PtyRunResult {
   exitCode: number;
   /** Everything written to the terminal (prompt + output), verbatim. */
   output: string;
@@ -38,7 +38,7 @@ export interface PtyRunResult {
   stderr?: string;
 }
 
-export interface PtyRunOptions {
+interface PtyRunOptions {
   runtime: string;
   /** Args after the runtime: the CLI entry path plus flags. */
   argv: string[];

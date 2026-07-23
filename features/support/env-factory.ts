@@ -35,13 +35,13 @@ export type CliRunner = (
 ) => Promise<CliResult>;
 
 /** Actively free one org sandbox slot by deleting prior-run leftovers. */
-export interface ReclaimContext {
+interface ReclaimContext {
   token: string;
   runNamespace: string;
   spareNames: ReadonlySet<string>;
 }
 
-export interface CreateEnvironmentOptions {
+interface CreateEnvironmentOptions {
   /** `--name` value for the created environment. */
   name?: string;
   /** `--domain-label` value for the created environment. */
@@ -70,7 +70,7 @@ function buildArgs(opts: CreateEnvironmentOptions): string[] {
 }
 
 /** True when the result carries an ENVIRONMENT_LIMIT_REACHED error. */
-export function atEnvironmentLimit(result: CliResult): boolean {
+function atEnvironmentLimit(result: CliResult): boolean {
   const envelope = result.envelope;
   return (
     !!envelope &&
@@ -93,7 +93,7 @@ const TRANSIENT_FAULT =
   /HTTP 50[234]|Bad Gateway|Service Unavailable|Gateway Time-?out|network error|unable to connect|fetch failed|ECONNRESET|ETIMEDOUT|socket hang up|EAI_AGAIN/i;
 
 /** True when the result failed on a transient upstream fault. */
-export function transientCreateFault(result: CliResult): boolean {
+function transientCreateFault(result: CliResult): boolean {
   const envelope = result.envelope;
   return (
     !!envelope &&

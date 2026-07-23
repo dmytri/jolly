@@ -57,7 +57,7 @@ import { SHARED_DEPLOY_MARKER_FILENAME } from "./deployed-storefront.ts";
 import { loadEnvValues } from "../../src/lib/env-file.ts";
 import { probeEndpointConnectivity } from "../../src/lib/cloud-api.ts";
 
-export type ProvisionOutcome = { status: "ready" };
+type ProvisionOutcome = { status: "ready" };
 
 /** Filesystem paths every worker of a run agrees on (the run id is shared): a
  * lock so exactly one worker provisions, and a state file the winner writes with
@@ -230,7 +230,7 @@ export async function reclaimStaleResources(
   return leftovers;
 }
 
-export interface UnreclaimedLeftover {
+interface UnreclaimedLeftover {
   identity: string;
   message: string;
 }
@@ -265,7 +265,7 @@ export function unreclaimedLeftovers(
  * store as a leftover, and every invocation pays a fresh multi-minute
  * environment creation — the exact cost this marker exists to save.
  */
-export const SHARED_STORE_MARKER_FILENAME =
+const SHARED_STORE_MARKER_FILENAME =
   "jolly-cannon-fodder-shared-store-marker.json";
 
 /** The persistent cross-invocation marker recording the last known-good

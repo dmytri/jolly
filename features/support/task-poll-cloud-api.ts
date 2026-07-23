@@ -33,7 +33,7 @@ import { REPO_ROOT } from "./repo-root.ts";
 import type { JollyWorld } from "./world.ts";
 
 /** How the harness answers the task-status poll. */
-export type TaskPollMode = "one-502-then-done" | "always-502";
+type TaskPollMode = "one-502-then-done" | "always-502";
 
 export interface TaskPollHarness {
   /** The Cloud API base to point Jolly at (JOLLY_SALEOR_CLOUD_API_URL). */

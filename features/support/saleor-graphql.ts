@@ -4,7 +4,7 @@
 // made through this helper must create only namespaced resources and
 // register their teardown (feature 023, harmless by design).
 
-export interface GraphqlResult {
+interface GraphqlResult {
   data?: Record<string, unknown>;
   errors?: Array<{ message: string }>;
 }

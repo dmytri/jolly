@@ -65,7 +65,7 @@ import type { CliResult } from "./world.ts";
  * that seeded stock for the recipe variants. Two separate real runs against the
  * SAME shared store, captured as separate results so consumers read the right
  * run's evidence. Same return contract the former separate-store fixture had. */
-export interface RecipeOnSharedFixture {
+interface RecipeOnSharedFixture {
   endpoint: string;
   token: string;
   recipeResult: CliResult;

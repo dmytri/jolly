@@ -25,7 +25,7 @@ import { totalmem } from "node:os";
 import { join } from "node:path";
 import { REPO_ROOT } from "./repo-root.ts";
 
-export interface OomKillEvent {
+interface OomKillEvent {
   /** The killed process id, when the kernel line carries one. */
   pid?: number;
   /** The killed process name, when the kernel line carries one. */
@@ -90,7 +90,7 @@ export function readPressureRecord(recordPath: string): PressureRecord | undefin
 
 /** True when the record carries a pressure signal: an out-of-memory kill, or a
  * peak resident set size at the run's memory ceiling. */
-export function pressureSignal(record: PressureRecord): boolean {
+function pressureSignal(record: PressureRecord): boolean {
   return (
     record.oomKills.length > 0 ||
     record.peakRssBytes >= record.memoryCeilingBytes * AT_CEILING_FRACTION
@@ -123,7 +123,7 @@ const WORKER_CEILING_LINE = /^- workers-([a-z-]+): (\d+)/;
  * legible, rather than pinned as a prior in the runner configuration where it
  * reads as an ordinary starting value.
  */
-export function readTierWorkerCeilings(riggingFile = "RIGGING.md"): Record<string, number> {
+function readTierWorkerCeilings(riggingFile = "RIGGING.md"): Record<string, number> {
   const text = readFileSync(join(REPO_ROOT, riggingFile), "utf8");
   const ceilings: Record<string, number> = {};
   let inTiers = false;
@@ -141,72 +141,8 @@ export function readTierWorkerCeilings(riggingFile = "RIGGING.md"): Record<strin
 }
 
 /** The worker ceiling the rigging declares for a tier, when it declares one. */
-export function tierWorkerCeiling(tier: string, riggingFile = "RIGGING.md"): number | undefined {
+function tierWorkerCeiling(tier: string, riggingFile = "RIGGING.md"): number | undefined {
   return readTierWorkerCeilings(riggingFile)[tier];
-}
-
-/**
- * The worker count a tier's run profile runs at: the plain value the rigging
- * declares under `## Tiers`, read as configured. This box's capacity is an
- * operator fact that does not change between runs, so the count is declared
- * rather than derived at run time; deriving it builds an auto-tuner that
- * computes the declared value and adds its own failure modes to guard. The one
- * seam the runner configuration and the feature 028 profile check both read,
- * so the profile cannot carry a count the rigging did not declare.
- */
-export function declaredTierWorkers(
-  tier: string,
-  riggingFile = "RIGGING.md",
-): number {
-  const declared = tierWorkerCeiling(tier, riggingFile);
-  return declared ?? CONFIGURED_PARALLELISM[tier] ?? 1;
-}
-
-/** A run profile whose worker count differs from the count the rigging declares. */
-export interface WorkerCountFinding {
-  profile: string;
-  profileWorkers: number;
-  declaredWorkers: number;
-  message: string;
-}
-
-/**
- * The finding a profile carrying a worker count other than the declared one
- * produces, naming the profile and both counts. Pure over its inputs, so the
- * planted red judges the same code path the real assertion does.
- */
-export function workerCountFinding(
-  profile: string,
-  profileWorkers: number,
-  declaredWorkers: number,
-): WorkerCountFinding | undefined {
-  if (profileWorkers === declaredWorkers) return undefined;
-  return {
-    profile,
-    profileWorkers,
-    declaredWorkers,
-    message:
-      `run profile "${profile}" runs ${profileWorkers} worker(s); RIGGING.md ` +
-      `declares ${declaredWorkers} for that tier`,
-  };
-}
-
-/**
- * A profile's worker count: yesterday's weather for that tier, restored toward
- * its configured parallelism, bounded above by the ceiling the rigging declares
- * for it. The one seam the runner configuration and the 028 profile check both
- * read, so the profile cannot carry a count the rigging did not license.
- */
-export function deriveTierWorkers(
-  tier: string,
-  recordPath: string,
-  riggingFile = "RIGGING.md",
-): number {
-  return deriveWorkerCount(
-    recordPath,
-    CONFIGURED_PARALLELISM[tier] ?? 1,
-    tierWorkerCeiling(tier, riggingFile),
-  );
 }
 
 /**
@@ -250,7 +186,7 @@ function effectiveParallelism(configuredWorkers: number, ceilingWorkers?: number
 
 /** A derived worker count held below the configured parallelism by a record
  * that carries no pressure signal: the recovery gap, named. */
-export interface WorkerRestoreFinding {
+interface WorkerRestoreFinding {
   recordedWorkers: number;
   derivedWorkers: number;
   configuredWorkers: number;

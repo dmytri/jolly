@@ -30,7 +30,7 @@ export interface LeftoverProcess {
  * the root itself: the processes a run spawned that outlive it. Read from
  * /proc, so it observes the real process table rather than a tracked guess.
  */
-export function leftoverDescendants(rootPid: number): LeftoverProcess[] {
+function leftoverDescendants(rootPid: number): LeftoverProcess[] {
   const parents = new Map<number, number>();
   const comms = new Map<number, string>();
   for (const entry of readdirSync("/proc")) {
@@ -71,7 +71,7 @@ export function leftoverDescendants(rootPid: number): LeftoverProcess[] {
 }
 
 /** Append the run's leftover-process record to its tier message stream. */
-export function recordLeftoverProcesses(
+function recordLeftoverProcesses(
   recordPath: string,
   leftovers: LeftoverProcess[],
 ): void {

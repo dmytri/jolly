@@ -88,7 +88,7 @@ export function templateIsComplete(dir: string): boolean {
  * state file. Memoized per worker. LAZY: only the deploy consumers call this (via
  * materializePreparedStorefront), so a run that never deploys never pays the build.
  */
-export function ensurePreparedStorefront(): Promise<string> {
+function ensurePreparedStorefront(): Promise<string> {
   ensuring ??= coordinatePreparedStorefront();
   return ensuring;
 }

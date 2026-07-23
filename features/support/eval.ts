@@ -71,7 +71,7 @@ const PI_BIN = join(REPO_ROOT, "node_modules", ".bin", "pi");
  * (the string the homepage copy box hands a customer's agent). `jolly.cool/setup`
  * is served — via a Vercel rewrite — from `assets/homepage/setup.md`.
  */
-export const PUBLISHED_SETUP_URL = "https://jolly.cool/setup";
+const PUBLISHED_SETUP_URL = "https://jolly.cool/setup";
 
 /** The local source the live URL is published from (Vercel rewrite target). */
 const LOCAL_SETUP_MD = join(REPO_ROOT, "assets", "homepage", "setup.md");
@@ -87,12 +87,12 @@ const DEFAULT_SKILL_IDS = [
   "stripe-best-practices",
 ];
 
-export function evalModel(): string {
+function evalModel(): string {
   const m = process.env.HARNESS_EVAL_MODEL;
   return m && m.trim() !== "" ? m.trim() : "deepseek/deepseek-v4-flash";
 }
 
-export function evalProvider(): string {
+function evalProvider(): string {
   const p = process.env.HARNESS_EVAL_PROVIDER;
   return p && p.trim() !== "" ? p.trim() : "openrouter";
 }
@@ -849,7 +849,7 @@ export function runBaselineAgent(ctx: EvalContext, task: string): AgentRun {
  * jolly.cool. Unset (default) → the canonical scenario keeps verifying the real
  * published entry point, unchanged.
  */
-export function evalSetupLocal(): boolean {
+function evalSetupLocal(): boolean {
   const raw = process.env.HARNESS_EVAL_SETUP_LOCAL;
   return raw !== undefined && raw.trim() !== "" && raw.trim() !== "0";
 }
@@ -945,7 +945,7 @@ function waitForPortFile(portFile: string): number {
 }
 
 /** The opt-in transcript directory, or undefined when the knob is unset. */
-export function evalTranscriptDir(): string | undefined {
+function evalTranscriptDir(): string | undefined {
   const raw = process.env.HARNESS_EVAL_TRANSCRIPT_DIR;
   return raw && raw.trim() !== "" ? raw.trim() : undefined;
 }
@@ -1199,7 +1199,7 @@ export function totalTokens(invocations: ModelInvocation[]): number {
 }
 
 /** A ceiling the run crossed, and the turn at which it crossed it. */
-export interface BudgetBreach {
+interface BudgetBreach {
   /** Which ceiling was crossed. */
   budget: "turns" | "tokens";
   /** The turn at which the running total crossed the ceiling. */

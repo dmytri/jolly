@@ -21,12 +21,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import { REPO_ROOT } from "./repo-root.ts";
-
-export interface DependencyViolation {
-  kind: "recorded-uninstalled" | "installed-unreferenced";
-  message: string;
-}
-
 /** `## Dependencies` list keys that are section metadata, not package names. */
 const META_KEYS = new Set(["policy", "dependency-audit"]);
 /** A RIGGING.md list-item line: `- <key>: <value...>`. */
@@ -179,7 +173,7 @@ export function referenceCorpus(manifestText: string): CorpusFile[] {
 }
 
 /** The tsconfig `compilerOptions.types` list, or undefined when unset. */
-export function tsconfigTypes(): string[] | undefined {
+function tsconfigTypes(): string[] | undefined {
   try {
     const parsed = JSON.parse(
       readFileSync(join(REPO_ROOT, "tsconfig.json"), "utf8"),
@@ -198,7 +192,7 @@ const escapeRegExp = (text: string): string =>
  * a delimited token in any corpus file; a `@types/X` package is referenced
  * when tsconfig's `types` consumes X (or `types` is unset, which consumes all).
  */
-export function isReferenced(
+function isReferenced(
   name: string,
   corpus: CorpusFile[],
   types: string[] | undefined,
@@ -212,42 +206,4 @@ export function isReferenced(
     "m",
   );
   return corpus.some((entry) => token.test(entry.text));
-}
-
-export interface DependencyJoinInput {
-  riggingText: string;
-  manifestText: string;
-  /** Override the corpus for a planted-red proof; default reads the tree. */
-  corpus?: CorpusFile[];
-  /** Override the tsconfig `types` list for a planted-red proof. */
-  types?: string[] | undefined;
-  /** Set when `types` is passed explicitly (undefined is a meaningful value). */
-  typesProvided?: boolean;
-}
-
-/** The join: recorded-but-uninstalled and installed-but-unreferenced. */
-export function findDependencyRecordViolations(
-  input: DependencyJoinInput,
-): DependencyViolation[] {
-  const violations: DependencyViolation[] = [];
-  const recorded = parseRecordedDependencies(input.riggingText);
-  const installed = manifestDependencyNames(input.manifestText);
-  const installedSet = new Set(installed);
-  for (const name of recorded) {
-    if (installedSet.has(name)) continue;
-    violations.push({
-      kind: "recorded-uninstalled",
-      message: `RIGGING.md records the dependency "${name}", which package.json does not install`,
-    });
-  }
-  const corpus = input.corpus ?? referenceCorpus(input.manifestText);
-  const types = input.typesProvided ? input.types : tsconfigTypes();
-  for (const name of installed) {
-    if (isReferenced(name, corpus, types)) continue;
-    violations.push({
-      kind: "installed-unreferenced",
-      message: `package.json installs the dependency "${name}", which nothing in the tree references`,
-    });
-  }
-  return violations;
 }

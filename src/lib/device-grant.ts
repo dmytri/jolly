@@ -29,7 +29,7 @@ const DEVICE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:device_code";
 
 /**
  * @planks("^the agent runs `jolly (?!(?:start|doctor|upgrade) --json`)(login|init|start|doctor|upgrade|skills|create store) (--json|--quiet|--yes)`$")
- * @planks("the user runs `jolly login`")
+ * @planks("the agent runs `jolly login`")
  * @planks("the agent runs `jolly doctor saleor --json`")
  */
 export class DeviceGrantError extends Error {
@@ -84,8 +84,8 @@ export interface DeviceAuthorization {
 /**
  * Start the grant: request a device code with client_id=jolly.
  * @planks("^the agent runs `jolly (?!(?:start|doctor|upgrade) --json`)(login|init|start|doctor|upgrade|skills|create store) (--json|--quiet|--yes)`$")
- * @planks("the user runs `jolly login`")
- * @planks("the agent runs `jolly start --json` in a non-interactive shell")
+ * @planks("the agent runs `jolly login`")
+ * @planks("the agent runs `jolly login` in a non-interactive shell")
  */
 export async function requestDeviceCode(): Promise<DeviceAuthorization> {
   const url = deviceAuthUrl();
@@ -201,7 +201,7 @@ const sleep = (ms: number): Promise<void> =>
  * `authorization_pending` until the device code expires. Returns the access and
  * refresh tokens once the grant completes.
  * @planks("^the agent runs `jolly (?!(?:start|doctor|upgrade) --json`)(login|init|start|doctor|upgrade|skills|create store) (--json|--quiet|--yes)`$")
- * @planks("the user runs `jolly login`")
+ * @planks("the agent runs `jolly login`")
  */
 export async function pollForDeviceTokens(
   auth: DeviceAuthorization,

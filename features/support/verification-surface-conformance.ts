@@ -121,7 +121,7 @@ export function enumerateTestSurfaces(specsDir: string): TestSurface[] {
 }
 
 /** Whether one configured command runs the surface, per its runner mechanism. */
-export function commandReaches(
+function commandReaches(
   surface: TestSurface,
   command: ConfiguredCommand,
 ): boolean {

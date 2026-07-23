@@ -35,7 +35,7 @@ import { REPO_ROOT } from "./repo-root.ts";
 export const DECLARED_SURFACE = "STAGE_SURFACE";
 
 /** The facets a stage may carry, one per site. */
-export type StageFacet = "runner" | "description" | "highRisk" | "sideEffecting";
+type StageFacet = "runner" | "description" | "highRisk" | "sideEffecting";
 
 /** The surface: each stage name mapped to the facets it carries. */
 export type StageSurface = Record<string, StageFacet[]>;
@@ -200,7 +200,7 @@ export function stageSites(): StageSite[] {
 }
 
 /** The stages the surface declares as carrying a given facet. */
-export function stagesForFacet(surface: StageSurface, facet: StageFacet): string[] {
+function stagesForFacet(surface: StageSurface, facet: StageFacet): string[] {
   return Object.keys(surface).filter((stage) => surface[stage]?.includes(facet));
 }
 

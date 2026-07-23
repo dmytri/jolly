@@ -145,7 +145,7 @@ function markerText(array: Node): string {
  * (a preview that creates nothing) and an array whose site carries an
  * `env-factory-exception:` marker (a loopback fake) are not real creations.
  */
-export function findCreationSeamViolations(): Violation[] {
+function findCreationSeamViolations(): Violation[] {
   const violations: Violation[] = [];
   for (const source of project().getSourceFiles()) {
     const file = repoRelative(source.getFilePath());
@@ -182,7 +182,7 @@ export function findCreationSeamViolations(): Violation[] {
  * creations. `project add` is the discriminator, so the sibling `vercel project
  * remove` and `vercel whoami` spawns are not flagged.
  */
-export function findVercelProjectSeamViolations(): Violation[] {
+function findVercelProjectSeamViolations(): Violation[] {
   const violations: Violation[] = [];
   for (const source of project().getSourceFiles()) {
     const file = repoRelative(source.getFilePath());
@@ -217,7 +217,7 @@ export function findVercelProjectSeamViolations(): Violation[] {
   return violations;
 }
 
-export interface SeamLocation {
+interface SeamLocation {
   file: string;
   line: number;
   seamKey: string;
@@ -268,7 +268,7 @@ function enclosingSeam(array: Node): { key: string; label: string } {
  * every located spawn shares one enclosing seam, the resource is created at a
  * single seam.
  */
-export function locateProductionSpawnSeams(literals: string[]): SeamLocation[] {
+function locateProductionSpawnSeams(literals: string[]): SeamLocation[] {
   const locations: SeamLocation[] = [];
   for (const source of project().getSourceFiles()) {
     const file = repoRelative(source.getFilePath());
@@ -315,7 +315,7 @@ export function locateProductionSpawnSeams(literals: string[]): SeamLocation[] {
  * production resource declares the spawn literals that locate it, and its seam
  * is the single enclosing function those spawns share.
  */
-export interface DeclaredCreationSeam {
+interface DeclaredCreationSeam {
   resource: string;
   scope: "verification" | "production";
   /** The declared file seam, for a verification-layer resource. */
@@ -324,35 +324,8 @@ export interface DeclaredCreationSeam {
   literals?: string[];
 }
 
-/**
- * Every CLI-spawned external resource and the single seam its creation lives
- * in. One structural fact, applied uniformly, so a new resource adds a seam
- * declaration here rather than a scenario to the spec.
- */
-export const DECLARED_CREATION_SEAMS: DeclaredCreationSeam[] = [
-  { resource: "Saleor environment", scope: "verification", file: ENV_FACTORY },
-  { resource: "Vercel project", scope: "verification", file: SANDBOX_SEAM },
-  {
-    resource: "Vercel deployment",
-    scope: "production",
-    literals: ["deploy", "--prod"],
-  },
-  {
-    // Feature 004 pins the spawned form as `npx @saleor/configurator@latest
-    // deploy`, so the locator matches that exact spawn element.
-    resource: "starter-recipe deploy",
-    scope: "production",
-    literals: ["@saleor/configurator@latest", "deploy"],
-  },
-  {
-    resource: "Paper storefront clone",
-    scope: "production",
-    literals: ["clone", "https://github.com/saleor/storefront.git"],
-  },
-];
-
 /** A real creation spawn sitting outside the single seam declared for its resource. */
-export interface CreationSeamFinding {
+interface CreationSeamFinding {
   resource: string;
   /** The spawn's site, `<file>:<line>`. */
   site: string;
@@ -368,7 +341,7 @@ export interface CreationSeamFinding {
  * of it is named against the seam it belongs in. Pure over its input, so the
  * planted red judges the same code path the real assertion does.
  */
-export function judgeProductionSeam(
+function judgeProductionSeam(
   resource: string,
   locations: SeamLocation[],
 ): CreationSeamFinding[] {
@@ -406,38 +379,6 @@ export function judgeProductionSeam(
         `${location.seamLabel}, outside the single seam ${home.label} the ` +
         `resource's other spawns share`,
     }));
-}
-
-/**
- * Every real creation spawn that falls outside the single seam declared for
- * the resource it creates, across the verification layer and production source.
- */
-export function findCreationSeamFindings(): CreationSeamFinding[] {
-  const findings: CreationSeamFinding[] = [];
-  for (const declared of DECLARED_CREATION_SEAMS) {
-    if (declared.scope === "verification") {
-      const violations =
-        declared.file === ENV_FACTORY
-          ? findCreationSeamViolations()
-          : findVercelProjectSeamViolations();
-      for (const violation of violations) {
-        findings.push({
-          resource: declared.resource,
-          site: `${violation.file}:${violation.line}`,
-          seam: declared.file!,
-          message: violation.message,
-        });
-      }
-      continue;
-    }
-    findings.push(
-      ...judgeProductionSeam(
-        declared.resource,
-        locateProductionSpawnSeams(declared.literals!),
-      ),
-    );
-  }
-  return findings;
 }
 
 export function findGlobalOutputFlagViolations(): Violation[] {

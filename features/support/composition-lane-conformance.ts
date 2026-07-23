@@ -42,7 +42,7 @@ function repoRelative(absolutePath: string): string {
   return relative(REPO_ROOT, absolutePath).split("\\").join("/");
 }
 
-export interface SpyPattern {
+interface SpyPattern {
   kind: "string" | "regex";
   source: string;
   flags?: string;
@@ -218,7 +218,7 @@ const escapeRegExp = (text: string): string =>
 
 /** Whether a pickle step text binds the pattern. Cucumber-expression
  * parameters are matched loosely; a literal pattern matches by equality. */
-export function patternMatchesStep(pattern: SpyPattern, stepText: string): boolean {
+function patternMatchesStep(pattern: SpyPattern, stepText: string): boolean {
   if (pattern.kind === "regex") {
     try {
       return new RegExp(pattern.source, pattern.flags).test(stepText);

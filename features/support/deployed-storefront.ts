@@ -60,7 +60,7 @@ export const SHARED_DEPLOY_MARKER_FILENAME =
  * registers its removal, and Vercel leftover cleanup is per-created-project
  * registration, never a prefix sweep.
  */
-export const SHARED_DEPLOY_PROJECT = "jolly-cannon-fodder-shared-deploy";
+const SHARED_DEPLOY_PROJECT = "jolly-cannon-fodder-shared-deploy";
 
 export interface SharedDeployment {
   /** The Vercel project the deployment lives on. */
@@ -77,7 +77,7 @@ function markerPath(): string {
   return join(tmpdir(), SHARED_DEPLOY_MARKER_FILENAME);
 }
 
-export function readSharedDeployMarker(): SharedDeployment | undefined {
+function readSharedDeployMarker(): SharedDeployment | undefined {
   try {
     const marker = JSON.parse(readFileSync(markerPath(), "utf8")) as SharedDeployment;
     return typeof marker.project === "string" &&

@@ -23,8 +23,7 @@ function catalogPath(): string {
 }
 
 /**
- * @planks('^the CLI renders the `([\w.]+)` message with organization "([^"]+)"$')
- * @planks('^the CLI renders the `([\w.]+)` message$')
+ * @planks("every referenced key should resolve to a catalog entry")
  */
 export function cliMessage(
   key: string,

@@ -15,7 +15,7 @@ export const CHECK_STATUSES = [
   "skipped",
   "unknown",
 ] as const;
-export const RISK_LEVELS = ["low", "medium", "high"] as const;
+const RISK_LEVELS = ["low", "medium", "high"] as const;
 // Feature 010 high-risk category list, reused verbatim by feature 021.
 export const RISK_CATEGORIES = [
   "destructive operations",
@@ -58,7 +58,7 @@ export interface RiskContext {
  * the machine-readable envelope; this finds the envelope without pinning
  * where in the output it appears.
  */
-export function extractJsonObjects(text: string): unknown[] {
+function extractJsonObjects(text: string): unknown[] {
   const objects: unknown[] = [];
   let depth = 0;
   let start = -1;
@@ -112,7 +112,7 @@ export function findEnvelope(stdout: string): Envelope | undefined {
 const CAMEL_CASE = /^[a-z][a-zA-Z0-9]*$/;
 
 /** Assert the contract keys of an object are camelCase (feature 020). */
-export function assertCamelCaseKeys(
+function assertCamelCaseKeys(
   obj: Record<string, unknown>,
   context: string,
 ): void {
@@ -178,7 +178,7 @@ export function assertEnvelopeShape(value: unknown): asserts value is Envelope {
 }
 
 /** Assert one checks[] entry: stable id plus the doctor status vocabulary. */
-export function assertCheckShape(value: unknown): asserts value is Check {
+function assertCheckShape(value: unknown): asserts value is Check {
   assert.ok(
     typeof value === "object" && value !== null,
     "checks entries must be objects",

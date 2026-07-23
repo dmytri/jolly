@@ -371,7 +371,7 @@ export function findInlineProseLiterals(
 // entry no site references is dead copy that drifts unread.
 
 /** A `cliMessage` key reference in the implementation. */
-export interface KeyReference {
+interface KeyReference {
   /** Repo-root-relative path of the referencing site. */
   file: string;
   /** 1-based line number of the reference. */

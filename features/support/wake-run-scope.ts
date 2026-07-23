@@ -176,7 +176,7 @@ export const WAKE_READERS = [
   "worker-count prior",
 ] as const;
 
-export type SelectedRecord = "completed" | "partial" | "none";
+type SelectedRecord = "completed" | "partial" | "none";
 
 export interface ReaderSelection {
   reader: string;
@@ -280,7 +280,7 @@ export function enumerateWakeReaderSelections(
   return selections;
 }
 
-export interface RunScopeViolation {
+interface RunScopeViolation {
   reader: string;
   message: string;
 }

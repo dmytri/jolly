@@ -23,7 +23,7 @@
 export const STAND_IN_TOKEN = "saleor-token-stand-in";
 
 /** The runtime credentials Jolly reads; unset together to produce real absence. */
-export const CREDENTIAL_VARS = [
+const CREDENTIAL_VARS = [
   "JOLLY_SALEOR_CLOUD_TOKEN",
   "SALEOR_TOKEN",
   "JOLLY_SALEOR_CLOUD_API_URL",

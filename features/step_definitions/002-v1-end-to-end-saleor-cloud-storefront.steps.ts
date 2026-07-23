@@ -127,27 +127,6 @@ Then(
 // features 018/012/024. Here it is asserted only at the Jolly surface: `jolly
 // create store` carries the right riskContext and provisions an environment. The
 // account-signup steps stay narrative no-ops.
-
-Given("`JOLLY_SALEOR_CLOUD_TOKEN` is set for an organization with no project", function (this: JollyWorld) {
-  this.notes.registerBranch = true;
-});
-
-Given(
-  "a freshly-created Saleor Cloud environment's GraphQL endpoint stays unreachable past the readiness budget",
-  async function (this: JollyWorld) {
-    // @exceptional-double: a real freshly-created environment cold-starts and
-    // then serves; it cannot be held unreachable on demand. The cold-store
-    // loopback Cloud API drives the REAL create-environment path to
-    // environmentCreated = true and hands back a namespaced endpoint that never
-    // answers a live GraphQL probe, so provisionStore's readiness gate runs out
-    // its budget and reports the environment provisioned-but-unreachable. The
-    // double is justified where it is defined (features/support/cold-store-cloud-api.ts);
-    // the sibling real path (a genuine auto-provision that cold-starts then
-    // serves) keeps normal-path real coverage.
-    this.notes.coldEnvHarness = await startColdStoreCloudApi(this);
-  },
-);
-
 When("the agent runs `jolly create store --create-environment --json`", { timeout: 900_000 }, async function (this: JollyWorld) {
   // These scenarios share this exact step text:
   //   - 002 "register a new store" (@sandbox): a Jolly-observable PREVIEW of the
@@ -260,132 +239,11 @@ When("the agent runs `jolly create store --create-environment --json`", { timeou
   }
   this.runCli(["create", "store", "--create-environment", "--dry-run", "--json"]);
 });
-
-Then("the envelope `data` should report the created project and environment", function (this: JollyWorld) {
-  // create store targets the Cloud API; the dry-run reveals the resolved
-  // request against cloud.saleor.io (the first-party Cloud host).
-  const [risk] = findRiskContexts(this.envelope);
-  assert.ok(risk, "create store must carry a riskContext describing the Cloud API action");
-});
-
-Then(
-  "the `data` should include the new store's `*.saleor.cloud` GraphQL API URL",
-  function (this: JollyWorld) {
-    // The create-store preview must surface the *.saleor.cloud GraphQL endpoint
-    // the store it provisions will be reachable at — a first-party host, never a
-    // non-saleor.cloud one. (Real provisioning + the .env write is pinned in
-    // feature 012; here Jolly's observable surface must name the projected URL.)
-    const blob = JSON.stringify(this.envelope.data ?? {});
-    assert.ok(
-      /https:\/\/[a-z0-9.-]+\.saleor\.cloud\/graphql\//i.test(blob),
-      `create store data must include the new store's *.saleor.cloud GraphQL API URL: ${blob}`,
-    );
-  },
-);
-
-Then(
-  "the `data` should include the store's Saleor Dashboard URL ending in `.saleor.cloud\\/dashboard\\/`",
-  function (this: JollyWorld) {
-    // The same preview must surface the store's Dashboard URL so the agent can
-    // hand it to the human — a *.saleor.cloud/dashboard/ first-party URL.
-    const blob = JSON.stringify(this.envelope.data ?? {});
-    assert.ok(
-      /https:\/\/[a-z0-9.-]+\.saleor\.cloud\/dashboard\//i.test(blob),
-      `create store data must include the store's Saleor Dashboard URL ending in .saleor.cloud/dashboard/: ${blob}`,
-    );
-  },
-);
-
-Then(
-  'the envelope status should be "warning", not "success"',
-  function (this: JollyWorld) {
-    // provisionStore's readiness gate timed out against the never-serving endpoint
-    // (readinessTimedOut = true), so create store reports a warning, not success:
-    // the environment record exists but its store has not yet answered a probe.
-    assert.equal(
-      this.envelope.status,
-      "warning",
-      `create store --create-environment must report "warning" when the new ` +
-        `environment never becomes reachable; got "${this.envelope.status}"`,
-    );
-  },
-);
-
-Then(
-  'the `environment-provisioned` check should report "fail" with a remediation to re-run in a few moments to confirm',
-  function (this: JollyWorld) {
-    const check = this.envelope.checks.find((c) => c.id === "environment-provisioned");
-    assert.ok(
-      check,
-      `the envelope must carry an environment-provisioned check: ${JSON.stringify(this.envelope.checks)}`,
-    );
-    assert.equal(
-      check!.status,
-      "fail",
-      `environment-provisioned must report "fail" when the endpoint never becomes ` +
-        `reachable within the readiness budget; got "${check!.status}"`,
-    );
-    assert.match(
-      String(check!.remediation ?? ""),
-      /re-run in a few moments to confirm/i,
-      `environment-provisioned must carry a remediation telling the human to re-run ` +
-        `in a few moments to confirm: ${JSON.stringify(check)}`,
-    );
-  },
-);
-
-Then(
-  "`nextSteps` should direct new-account signup to cloud.saleor.io",
-  function () {
-    // The signup direction is skill copy / feature 018 login guidance — narrative.
-  },
-);
-
-Then(
-  "Jolly's code should send no signup request and contact only first-party hosts",
-  function () {
-    // Jolly never automates browser signup — a boundary, not a runtime assertion.
-  },
-);
-
 // --- Scenario: Agent connects an existing Saleor store (@sandbox) -----------
 //
 // URL normalization, introspection validation, org/env inference, and
 // SALEOR_TOKEN projection are pinned in features 012/018. Asserted only at the
 // Jolly surface here.
-
-Given("a store URL `https:\\/\\/example.saleor.cloud` and a valid `SALEOR_TOKEN`", function (this: JollyWorld) {
-  this.notes.connectBranch = true;
-});
-
-When("the agent runs `jolly init --json` with that store URL", function (this: JollyWorld) {
-  // Jolly-observable: doctor's saleor group reports connectivity readiness for
-  // an existing store (endpoint + SALEOR_TOKEN presence + live check under creds).
-  this.runCli(["doctor", "saleor", "--json"]);
-});
-
-Then(
-  "`data` should report the normalized GraphQL endpoint `https:\\/\\/example.saleor.cloud\\/graphql\\/`",
-  function (this: JollyWorld) {
-    // Jolly-observable: doctor's saleor group reports an endpoint check plus a
-    // SALEOR_TOKEN readiness check for the normalized GraphQL endpoint.
-    const endpoint = this.findCheck("saleor-endpoint");
-    assert.ok(endpoint, "doctor saleor must report an endpoint/connectivity check");
-    const saleorToken = this.findCheck("saleor-token");
-    assert.ok(saleorToken, "doctor saleor must report a SALEOR_TOKEN readiness check");
-  },
-);
-
-Then(
-  "a `saleor-connectivity` check should report status {string}",
-  function (this: JollyWorld, status: string) {
-    // Jolly-observable: doctor reports a Saleor endpoint/connectivity check.
-    const check = this.findCheck("saleor-endpoint");
-    assert.ok(check, "doctor saleor must report an endpoint/connectivity check");
-    assert.equal(check!.status, status, `the connectivity check should report status "${status}"`);
-  },
-);
-
 // --- Scenario: Jolly start creates a deployable storefront from Saleor Paper (@sandbox)
 //
 // `jolly start` spawns `git` (clone Paper, strip .git, fresh init) and `pnpm`
@@ -675,153 +533,9 @@ function noCredsStartEnv(): Record<string, string | undefined> {
 }
 
 // --- Scenario: Jolly start previews the storefront clone and install --------
-
-Then(
-  "the plan should include a storefront step that spawns `git` to clone Saleor Paper and `pnpm` to install",
-  function (this: JollyWorld) {
-    const stage = planStage(this, "storefront");
-    const blob = JSON.stringify(stage).toLowerCase();
-    assert.ok(blob.includes("git"), "the storefront preview must name the spawned `git` clone");
-    assert.ok(blob.includes("pnpm"), "the storefront preview must name the spawned `pnpm` install");
-    this.notes.storefrontStage = stage;
-  },
-);
-
-Then(
-  "the preview should name the default target directory `storefront` and the `saleor\\/storefront` Paper template from `main`",
-  function (this: JollyWorld) {
-    const blob = JSON.stringify(this.notes.storefrontStage as StartPlanStage);
-    assert.ok(blob.includes("storefront"), "the preview must name the default target directory `storefront`");
-    assert.ok(
-      blob.includes("saleor/storefront"),
-      "the preview must name the `saleor/storefront` Paper template",
-    );
-    assert.ok(
-      /\bmain\b/.test(blob),
-      "the preview must name the `main` branch the Paper template is cloned from",
-    );
-  },
-);
-
-Then(
-  "the storefront step should carry a riskContext for cloning and installing the storefront",
-  function (this: JollyWorld) {
-    const stage = this.notes.storefrontStage as StartPlanStage;
-    assert.ok(stage.riskContext, "the storefront stage must carry a riskContext");
-    assertRiskContextShape(stage.riskContext);
-    assert.ok(
-      findRiskContexts(this.envelope).length > 0,
-      "riskContexts must live inside the envelope",
-    );
-  },
-);
-
-Then("the preview should not spawn git or pnpm or write the storefront", function (this: JollyWorld) {
-  assertPreviewPerformedNothing(this);
-});
-
 // --- Scenario: Jolly start does not fabricate the storefront preparation ----
-
-When(
-  "the run reaches the storefront stage without `--dry-run`",
-  function (this: JollyWorld) {
-    this.runCli(["storefront", "--yes", "--json"], { env: noCredsStartEnv(), timeoutMs: 240_000 });
-  },
-);
-
-Then(
-  "Jolly should report the storefront stage as completed, blocked, or pending, never fabricated",
-  function (this: JollyWorld) {
-    const storefront = realRunStages(this).find((s) => s.stage === "storefront");
-    assert.ok(storefront, "the orchestrated stages must include the storefront stage");
-    assert.ok(
-      ["completed", "blocked", "pending"].includes(storefront!.status),
-      `the storefront stage must be completed/blocked/pending, got "${storefront!.status}"`,
-    );
-    // No fabrication: the storefront scaffold needs no Saleor credential, so it
-    // can genuinely complete via a REAL `git clone` + `pnpm install`. A
-    // `completed` here must therefore be backed by the real cloned Paper
-    // storefront on disk (storefront/package.json), never a fabricated status.
-    if (storefront!.status === "completed") {
-      assert.ok(
-        existsSync(join(this.lastRun!.cwd, "storefront", "package.json")),
-        "a `completed` storefront stage must be backed by a real cloned storefront " +
-          "(storefront/package.json), never fabricated",
-      );
-    }
-  },
-);
-
 // --- Scenario: Jolly start's storefront preparation approves native builds --
-
-Then(
-  "a fresh `pnpm install` in the prepared storefront should report no ignored build scripts for `sharp` and `esbuild`",
-  { timeout: 300_000 },
-  function (this: JollyWorld) {
-    // The When ran a real no-creds `jolly start --yes` — its storefront stage
-    // does credential-independent local work (git clone + pnpm install), which
-    // produces the prepared storefront/ this step exercises.
-    const dir = join(this.lastRun!.cwd, "storefront");
-    assert.ok(
-      existsSync(join(dir, "package.json")),
-      "the Paper storefront must be cloned and installed by the storefront stage",
-    );
-    // Re-run the install (idempotent) and capture pnpm's ignored-build-scripts
-    // report. After Jolly's preparation, neither sharp nor esbuild may appear
-    // among the build scripts pnpm ignored.
-    const result = spawnSync("npx", ["pnpm", "install"], {
-      cwd: dir,
-      encoding: "utf8",
-      timeout: 240_000,
-    });
-    const output = (result.stdout ?? "") + (result.stderr ?? "");
-    const ignoredMatch = /ignored build scripts?[:\s]*([^\n]*)/i.exec(output);
-    const ignored = ignoredMatch?.[1] ?? "";
-    assert.ok(
-      !/\bsharp\b/i.test(ignored),
-      `pnpm must not ignore sharp's build script; ignored build scripts: "${ignored}"`,
-    );
-    assert.ok(
-      !/\besbuild\b/i.test(ignored),
-      `pnpm must not ignore esbuild's build script; ignored build scripts: "${ignored}"`,
-    );
-  },
-);
-
 // --- Scenario: Jolly start does not fabricate the Vercel deployment ---------
-
-When(
-  "the run reaches the deploy stage without `--dry-run`",
-  function (this: JollyWorld) {
-    this.runCli(["deploy", "--yes", "--json"], { env: noCredsStartEnv(), timeoutMs: 240_000 });
-  },
-);
-
-Then(
-  "Jolly should report the deploy stage as blocked or pending, never completed",
-  function (this: JollyWorld) {
-    const deploy = realRunStages(this).find((s) => s.stage === "deploy");
-    assert.ok(deploy, "the orchestrated stages must include the deploy stage");
-    assert.ok(
-      deploy!.status === "blocked" || deploy!.status === "pending",
-      `the deploy stage must be blocked or pending with no creds, got "${deploy!.status}"`,
-    );
-    assert.notEqual(
-      deploy!.status,
-      "completed",
-      "the deploy stage must never be completed without a real, successful Vercel deploy",
-    );
-  },
-);
-
-Then("the summary should not claim the storefront was deployed", function (this: JollyWorld) {
-  const summary = String(this.envelope.summary ?? "").toLowerCase();
-  assert.ok(
-    !/deployed|is live|store is live|storefront is live|live store/.test(summary),
-    `the summary must not claim the storefront was deployed: "${this.envelope.summary}"`,
-  );
-});
-
 // --- Scenario: Jolly start points the human to run it in a shell ------------
 
 When("the run stops at a gate the agent cannot complete", function (this: JollyWorld) {
@@ -915,30 +629,6 @@ Given(
     isolatedVercelXdg(this);
   },
 );
-
-When(
-  "`jolly start` reaches the deploy stage without `--dry-run`",
-  { timeout: 900_000 },
-  async function (this: JollyWorld) {
-    await registerSaleorEnvTeardown(this);
-    const xdg = (this.notes.vercelXdg as Record<string, string>) ?? {};
-    // A real end-to-end run: the Cloud token drives store auto-provisioning, the
-    // storefront stage clones+installs Paper, and the run reaches the deploy
-    // stage. The namespaced store/project names make every created resource
-    // jolly-cannon-fodder cannon fodder. The isolated XDG dirs ensure the deploy stage
-    // finds no Vercel session.
-    this.runCli(["start", "--yes", "--json"], {
-      env: absentCredentialsEnv({
-        JOLLY_SALEOR_CLOUD_TOKEN: process.env["JOLLY_SALEOR_CLOUD_TOKEN"],
-        JOLLY_STORE_NAME: this.namespace,
-        JOLLY_VERCEL_PROJECT: workerNamespace(),
-        ...xdg,
-      }),
-      timeoutMs: 840_000,
-    });
-  },
-);
-
 // --- Scenario: Jolly start spawns the Vercel sign-in itself (@sandbox) -------
 
 // The agent run surfaces the Vercel device URL in the result ENVELOPE (a
@@ -977,16 +667,6 @@ Then(
       // eslint-disable-next-line no-control-regex
       !/\x1b\]8;;/.test(this.lastRun!.stdout),
       `the agent (--json) stdout must carry no OSC 8 hyperlink escape:\n${JSON.stringify(this.lastRun!.stdout)}`,
-    );
-  },
-);
-
-Then(
-  "a nextStep should carry the Vercel sign-in URL for the human to open and approve",
-  function (this: JollyWorld) {
-    assert.ok(
-      vercelSignInUrlInNextSteps(this),
-      `a nextStep must carry the Vercel sign-in URL; got: ${JSON.stringify(this.envelope.nextSteps)}`,
     );
   },
 );
@@ -1123,95 +803,6 @@ Then(
 
 // --- Scenario: Jolly start owns the Vercel sign-in rather than telling the
 //     agent to run it (@sandbox) ----------------------------------------------
-
-Then(
-  "no nextSteps entry, error remediation, or check `command` should tell the agent to run `vercel login`, because Jolly runs the sign-in itself",
-  function (this: JollyWorld) {
-    const hits: string[] = [];
-    for (const step of this.envelope.nextSteps) {
-      if (/vercel login/i.test(`${step.description ?? ""} ${step.command ?? ""}`)) {
-        hits.push(`nextStep: ${JSON.stringify(step)}`);
-      }
-    }
-    for (const check of this.envelope.checks) {
-      if (/vercel login/i.test(`${check.command ?? ""} ${check.remediation ?? ""}`)) {
-        hits.push(`check ${check.id}: ${JSON.stringify(check)}`);
-      }
-    }
-    for (const err of this.envelope.errors) {
-      if (/vercel login/i.test(String(err.remediation ?? ""))) {
-        hits.push(`error: ${JSON.stringify(err)}`);
-      }
-    }
-    assert.equal(
-      hits.length,
-      0,
-      `nothing may tell the agent to run \`vercel login\`; Jolly runs the sign-in itself: ${hits.join("; ")}`,
-    );
-  },
-);
-
-Then(
-  "no nextSteps entry or error remediation should tell the agent to re-run `jolly start` after a manual Vercel sign-in",
-  function (this: JollyWorld) {
-    // Jolly owns the sign-in, so it must not instruct the agent to sign in to
-    // Vercel manually and then re-run `jolly start`. (A nextStep naming `jolly
-    // start` for other reasons is fine — the forbidden thing is the "sign in,
-    // then re-run" instruction.)
-    const hits: string[] = [];
-    const scan = (text: string, where: string) => {
-      const low = text.toLowerCase();
-      if (
-        low.includes("jolly start") &&
-        /vercel|sign[- ]?in|log[- ]?in|login/.test(low) &&
-        /after|then re-?run|once you|once signed|manual/.test(low)
-      ) {
-        hits.push(`${where}: ${text}`);
-      }
-    };
-    for (const step of this.envelope.nextSteps) {
-      scan(`${step.description ?? ""} ${step.command ?? ""}`, "nextStep");
-    }
-    for (const check of this.envelope.checks) {
-      scan(String(check.remediation ?? ""), `check ${check.id}`);
-    }
-    for (const err of this.envelope.errors) {
-      scan(String(err.remediation ?? ""), "error");
-    }
-    assert.equal(
-      hits.length,
-      0,
-      `must not tell the agent to re-run \`jolly start\` after a manual Vercel sign-in: ${hits.join("; ")}`,
-    );
-  },
-);
-
-Then(
-  "the pending sign-in nextStep should resume by re-running `jolly deploy`, the command that reached the gate",
-  function (this: JollyWorld) {
-    // `jolly deploy` reached the gate, so its pending Vercel sign-in nextStep must
-    // resume by re-running `jolly deploy` — the command the agent ran — never
-    // `jolly start`.
-    const steps = (this.envelope.nextSteps ?? []) as Array<Record<string, unknown>>;
-    const signIn = steps.find((s) =>
-      /https:\/\/vercel\.com\/oauth\/device/i.test(`${String(s.url ?? "")} ${String(s.description ?? "")}`),
-    );
-    assert.ok(
-      signIn,
-      `the deploy run must surface a pending Vercel sign-in nextStep; got: ${JSON.stringify(this.envelope.nextSteps)}`,
-    );
-    const resume = `${String(signIn!.command ?? "")} ${String(signIn!.description ?? "")}`;
-    assert.ok(
-      /jolly deploy/.test(resume),
-      `the pending sign-in nextStep must resume by re-running \`jolly deploy\`: ${JSON.stringify(signIn)}`,
-    );
-    assert.ok(
-      !/jolly start/.test(resume),
-      `the pending sign-in nextStep must resume the command that reached the gate (\`jolly deploy\`), not \`jolly start\`: ${JSON.stringify(signIn)}`,
-    );
-  },
-);
-
 // --- Scenario: The deployed storefront serves the Saleor catalog and a working cart (@sandbox) ---
 //
 // Live operational-readiness acceptance for the DEPLOYED storefront. The Given
@@ -1428,43 +1019,6 @@ function startStage(world: JollyWorld, name: string): StartStage | undefined {
 // token as a fatal error and never fabricates success. The runtime credentials
 // are genuinely unset (absentCredentialsEnv), and the child is a non-TTY
 // subprocess (the agent-driven case).
-
-Given(
-  "a fresh project directory with no `JOLLY_SALEOR_CLOUD_TOKEN` configured",
-  function (this: JollyWorld) {
-    this.notes.startEnv = absentCredentialsEnv();
-  },
-);
-
-When(
-  "the agent runs `jolly start --json` in a non-interactive shell",
-  function (this: JollyWorld) {
-    // runCli spawns a non-TTY subprocess (the agent-driven case): no token from
-    // any source, so the auth stage must report a token is needed and point to
-    // the token flag — never a browser OAuth gate, never a fabricated success.
-    this.runCli(["start", "--json"], {
-      env: (this.notes.startEnv as Record<string, string | undefined>) ?? absentCredentialsEnv(),
-      timeoutMs: 240_000,
-    });
-  },
-);
-
-Then(
-  "it should not fabricate that authentication succeeded",
-  function (this: JollyWorld) {
-    const auth = startStage(this, "auth");
-    assert.notEqual(
-      auth!.status,
-      "completed",
-      "the auth stage must not fabricate a completed status without a token",
-    );
-    const text = (this.envelope.summary + " " + JSON.stringify(this.envelope.data)).toLowerCase();
-    for (const claim of ["authentication succeeded", "authenticated as", "logged in", "token verified"]) {
-      assert.ok(!text.includes(claim), `must not fabricate authentication success ("${claim}")`);
-    }
-  },
-);
-
 // --- Scenario: jolly start starts the device grant when no token is configured ---
 //
 // With no JOLLY_SALEOR_CLOUD_TOKEN, `jolly start --json` starts the Saleor
@@ -1482,27 +1036,6 @@ Then(
 // real Cloud token (present under the @sandbox gate) is used as-is; a @logic
 // dry-run performs no network, so a real-format stand-in suffices when no real
 // token is configured. NEXT_PUBLIC_SALEOR_API_URL stays unset ("no store URL").
-
-Given(
-  "`JOLLY_SALEOR_CLOUD_TOKEN` is set and no `NEXT_PUBLIC_SALEOR_API_URL` is configured",
-  function (this: JollyWorld) {
-    const cloudToken = process.env["JOLLY_SALEOR_CLOUD_TOKEN"] ?? STAND_IN_TOKEN;
-    // Surface the per-run `jolly-cannon-fodder-<run>` namespace through the SAME store-name
-    // configuration affordance a customer uses (feature 002 Rule), so the store
-    // `jolly start` auto-provisions is `jolly-cannon-fodder` cannon fodder the teardown
-    // above reclaims. Production bakes in no test knowledge; the harness just sets
-    // the configured name, exactly as it passes `--name` to `jolly create store`.
-    this.notes.startEnv = absentCredentialsEnv({
-      JOLLY_SALEOR_CLOUD_TOKEN: cloudToken,
-      JOLLY_STORE_NAME: this.namespace,
-      // Namespace the Vercel project per worker, so a deploy is jolly-cannon-fodder
-      // cannon fodder the teardown reclaims and no two workers share a project
-      // (harmless-by-design + per-worker isolation).
-      JOLLY_VERCEL_PROJECT: workerNamespace(),
-    });
-  },
-);
-
 // --- Shared Given: a prepared storefront directory with malformed package.json ---
 //     (feature 020: unexpected-error envelope) --------------------------------
 //
@@ -1564,34 +1097,8 @@ async function registerAutoProvisionTeardown(world: JollyWorld): Promise<void> {
   });
 }
 
-When(
-  "the agent runs `jolly start --yes --json`",
-  { timeout: 900_000 },
-  async function (this: JollyWorld) {
-    await registerAutoProvisionTeardown(this);
-    this.runCli(["start", "--yes", "--json"], {
-      env: (this.notes.startEnv as Record<string, string | undefined>) ?? undefined,
-      timeoutMs: 840_000,
-    });
-  },
-);
-
 // --- Scenario: jolly start auto-provisions a new store when none configured --
 //     (@sandbox) -------------------------------------------------------------
-
-Then(
-  'the `store` stage status should be "completed", not "pending"',
-  function (this: JollyWorld) {
-    const store = startStage(this, "store");
-    assert.ok(store, "the orchestrated stages must include the store stage");
-    assert.equal(
-      store!.status,
-      "completed",
-      `the store stage must auto-provision and report completed; got "${store!.status}"`,
-    );
-  },
-);
-
 Then(
   "the envelope `data` should include the store's `*.saleor.cloud` GraphQL API URL and its Saleor Dashboard URL ending in `.saleor.cloud\\/dashboard\\/`",
   function (this: JollyWorld) {
@@ -1647,38 +1154,6 @@ Then(
 );
 
 // --- Scenario: jolly start --dry-run plans to provision a store (@logic) -----
-
-Then(
-  "the `store` stage preview should name the real Cloud API `organizations\\/\\{organization\\}\\/environments\\/` request it would send to provision a new store",
-  function (this: JollyWorld) {
-    const plan = (this.envelope.data.plan ?? []) as Array<{ stage?: string; riskContext?: { target?: unknown } }>;
-    const store = plan.find((s) => s.stage === "store");
-    assert.ok(store, "the start --dry-run plan must include the store stage");
-    const blob = JSON.stringify(store);
-    assert.ok(
-      /organizations\/\{organization\}\/environments\//.test(blob),
-      `the store stage preview must name the real Cloud API organizations/{organization}/environments/ request: ${blob}`,
-    );
-  },
-);
-
-Then(
-  'it should not report the `store` stage as "pending" or claim a store already exists',
-  function (this: JollyWorld) {
-    // A dry-run plan stage carries no execution status, so it is never "pending";
-    // and the preview must not claim a store is already configured.
-    const plan = (this.envelope.data.plan ?? []) as Array<{ stage?: string; status?: string }>;
-    const store = plan.find((s) => s.stage === "store");
-    assert.ok(store, "the plan must include the store stage");
-    assert.notEqual(store!.status, "pending", "the dry-run store stage must not be reported pending");
-    const summary = String(this.envelope.summary ?? "").toLowerCase();
-    assert.ok(
-      !/store (already )?(exists|configured|is configured)/.test(summary),
-      `the preview must not claim a store already exists: "${this.envelope.summary}"`,
-    );
-  },
-);
-
 // --- Scenario: jolly start --dry-run skips store provisioning when a store ----
 //     endpoint is already configured (@logic) ----------------------------------
 //
@@ -1690,52 +1165,6 @@ Then(
 // so a real-format stand-in store URL suffices; supplied via notes.startEnv so the
 // shared `jolly start --dry-run --json` When reads it (no .env is written, so the
 // shared "create nothing" assertion still holds).
-
-Given(
-  "`JOLLY_SALEOR_CLOUD_TOKEN` is set and `NEXT_PUBLIC_SALEOR_API_URL` is configured to an existing store",
-  function (this: JollyWorld) {
-    this.notes.startEnv = absentCredentialsEnv({
-      JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN,
-      NEXT_PUBLIC_SALEOR_API_URL: "https://existing-store.saleor.cloud/graphql/",
-    });
-  },
-);
-
-Then(
-  "the `store` stage preview should report the configured store as already satisfied and skip provisioning",
-  function (this: JollyWorld) {
-    const plan = (this.envelope.data.plan ?? []) as Array<{ stage?: string; status?: string }>;
-    const store = plan.find((s) => s.stage === "store");
-    assert.ok(store, "the start --dry-run plan must include the store stage");
-    const blob = JSON.stringify(store).toLowerCase();
-    assert.ok(
-      /already (satisfied|configured)|already (have|set)|configured store|store .*(already|configured)|satisfied/.test(
-        blob,
-      ),
-      `the store stage preview must report the configured store as already satisfied: ${blob}`,
-    );
-    assert.ok(
-      /skip|skipped|skipping|no provision|not provision|already/.test(blob),
-      `the store stage preview must indicate it skips provisioning: ${blob}`,
-    );
-  },
-);
-
-Then(
-  "it should not name a Cloud API request to create a new project or environment",
-  function (this: JollyWorld) {
-    const plan = (this.envelope.data.plan ?? []) as Array<{ stage?: string }>;
-    const store = plan.find((s) => s.stage === "store");
-    const blob = JSON.stringify(store ?? {});
-    assert.ok(
-      !/organizations\/\{organization\}\/environments\//.test(blob) &&
-        !/create (a )?(new )?(project|environment)/i.test(blob) &&
-        !/environments\/"?\s*[,}]/.test(blob),
-      `with a store already configured, the store stage must name no Cloud API create request: ${blob}`,
-    );
-  },
-);
-
 // ─── Scenario: Jolly start lets Paper's native dependencies run their build
 //     scripts so the Vercel build succeeds (@sandbox) ─────────────────────────
 //
@@ -1752,101 +1181,6 @@ Then(
 // mutated. The production build (final Then) is the same `pnpm build` the Vercel
 // deploy runs; running it directly verifies the build completes without unbuilt
 // native modules, harmlessly (no live deployment is published).
-
-Given(
-  "Jolly has cloned and installed the Paper storefront",
-  { timeout: 600_000 },
-  function (this: JollyWorld) {
-    // Real clone + install via `jolly start`'s storefront stage (credential-
-    // independent — see the no-fabrication scenario above, which confirms
-    // storefront/package.json after a no-creds `jolly start --yes`). Skip — the
-    // premise is not producible — if the storefront was not prepared (e.g. git or
-    // pnpm unavailable in this environment).
-    this.runCli(["start", "--yes", "--json"], {
-      env: absentCredentialsEnv(),
-      timeoutMs: 540_000,
-    });
-    const storefrontDir = join(this.lastRun!.cwd, "storefront");
-    assert.ok(
-      existsSync(join(storefrontDir, "package.json")),
-      "the Paper storefront must be cloned and installed by the storefront stage",
-    );
-    this.notes.storefrontDir = storefrontDir;
-  },
-);
-
-When(
-  "`jolly start` prepares the storefront for the Vercel deploy",
-  function (this: JollyWorld) {
-    // The storefront preparation already ran in the Given (the `jolly start`
-    // storefront stage). The assertions below inspect its result.
-  },
-);
-
-Then(
-  "`pnpm install` in the storefront should report no ignored build scripts for Paper's native dependencies `sharp` and `esbuild`",
-  { timeout: 300_000 },
-  function (this: JollyWorld) {
-    const dir = String(this.notes.storefrontDir);
-    // Re-run the install (idempotent) and capture pnpm's ignored-build-scripts
-    // report. After Jolly's preparation, neither sharp nor esbuild may appear
-    // among the build scripts pnpm ignored.
-    const result = spawnSync("npx", ["pnpm", "install"], {
-      cwd: dir,
-      encoding: "utf8",
-      timeout: 240_000,
-    });
-    const output = (result.stdout ?? "") + (result.stderr ?? "");
-    const ignoredMatch = /ignored build scripts?[:\s]*([^\n]*)/i.exec(output);
-    const ignored = ignoredMatch?.[1] ?? "";
-    assert.ok(
-      !/\bsharp\b/i.test(ignored),
-      `pnpm must not ignore sharp's build script; ignored build scripts: "${ignored}"`,
-    );
-    assert.ok(
-      !/\besbuild\b/i.test(ignored),
-      `pnpm must not ignore esbuild's build script; ignored build scripts: "${ignored}"`,
-    );
-  },
-);
-
-Then(
-  "the `npx vercel@latest --prod` production build should complete, not fail on unbuilt native modules",
-  { timeout: 900_000 },
-  function (this: JollyWorld) {
-    const dir = String(this.notes.storefrontDir);
-    // Run the same production build the Vercel deploy runs (Paper's `pnpm build`),
-    // directly and harmlessly (no live deployment published). The build inherits
-    // the process environment, so the @sandbox NEXT_PUBLIC_SALEOR_API_URL drives
-    // Paper's codegen. An unbuilt sharp/esbuild native module fails this build;
-    // its success is the falsifiable observable that the native build scripts ran.
-    // Paper's build collects the `[channel]` route's page data, which needs a
-    // configured storefront channel ("[Channels] No channels configured. Set
-    // NEXT_PUBLIC_DEFAULT_CHANNEL or STOREFRONT_CHANNELS"). The real Vercel deploy
-    // gets this from the project env Jolly configures; the direct build here
-    // mirrors it with the recipe's `us` channel (assets/skills/jolly/recipe.yml),
-    // so the build reaches the native-module compilation under test.
-    const result = spawnSync("npx", ["pnpm", "build"], {
-      cwd: dir,
-      encoding: "utf8",
-      timeout: 840_000,
-      env: { ...process.env, NEXT_PUBLIC_DEFAULT_CHANNEL: "us" },
-    });
-    const output = (result.stdout ?? "") + (result.stderr ?? "");
-    assert.equal(
-      result.status,
-      0,
-      `the production build must complete; exit ${result.status}.\n${output}`,
-    );
-    assert.ok(
-      !/(could not load|cannot find|failed to load|invalid ELF|prebuilt binaries|install.*sharp|sharp.*install|esbuild.*install)/i.test(
-        output,
-      ),
-      `the production build must not fail on unbuilt native modules:\n${output}`,
-    );
-  },
-);
-
 // ─── pnpm prerequisite reported as a clean check (feature 002) ──────────────
 // Real absence by construction: a sanitized bin dir holds symlinks to the tools
 // `jolly doctor` legitimately uses (node, npx, git) but NOT pnpm, set as the
@@ -2407,120 +1741,6 @@ Given(
     });
   },
 );
-
-When(
-  "the run executes the store, recipe, and storefront stages",
-  { timeout: 900_000 },
-  async function (this: JollyWorld) {
-    // Real end-to-end run: reclaim capacity, register teardown of the created
-    // environment + Vercel project, then run a full `jolly start --yes` and read
-    // its reported stage timing.
-    await reclaimLeftoverEnvironments(makeNamespace(this.runId));
-    await registerAutoProvisionTeardown(this);
-    this.runCli(["start", "--yes", "--json"], {
-      env: (this.notes.startEnv as Record<string, string | undefined>) ?? undefined,
-      timeoutMs: 840_000,
-    });
-  },
-);
-
-Then(
-  "the run's reported stage timing should show the storefront preparation starting before the store stage finishes",
-  function (this: JollyWorld) {
-    const store = timedStage(this, "store");
-    const storefront = timedStage(this, "storefront");
-    assert.ok(
-      storefront.startedAt! < store.finishedAt!,
-      `the reported stage timing must show the storefront preparation starting before the store ` +
-        `stage finishes (concurrent): storefront.startedAt=${storefront.startedAt} must be < ` +
-        `store.finishedAt=${store.finishedAt}`,
-    );
-  },
-);
-
-Then(
-  "the run's reported stage timing should show the deploy stage starting only after the storefront preparation finishes",
-  function (this: JollyWorld) {
-    const storefront = timedStage(this, "storefront");
-    const deploy = timedStage(this, "deploy");
-    assert.ok(
-      deploy.startedAt! >= storefront.finishedAt!,
-      `the reported stage timing must show the deploy stage starting only after the storefront ` +
-        `preparation finishes: deploy.startedAt=${deploy.startedAt} must be >= ` +
-        `storefront.finishedAt=${storefront.finishedAt}`,
-    );
-  },
-);
-
-Then(
-  "each stage should report its own honest status, never a fabricated completion",
-  function (this: JollyWorld) {
-    const VALID = [
-      "completed",
-      "awaiting-approval",
-      "blocked",
-      "pending",
-      "skipped",
-      "error",
-    ];
-    const stages = (this.envelope.data.stages ?? []) as TimedStage[];
-    assert.ok(stages.length > 0, "the run must report its own stages");
-    for (const stage of stages) {
-      assert.ok(
-        VALID.includes(stage.status),
-        `stage "${stage.stage}" must report a real status from the honest vocabulary, got "${stage.status}"`,
-      );
-    }
-    // No fabricated completion: a `completed` stage must be backed by the real
-    // artifact only its real execution produces.
-    const cwd = this.lastRun!.cwd;
-    const byName = (name: string) => stages.find((s) => s.stage === name);
-    if (byName("store")?.status === "completed") {
-      const endpoint = loadEnvValues(cwd)["NEXT_PUBLIC_SALEOR_API_URL"];
-      assert.ok(
-        endpoint && /\.saleor\.cloud\/graphql\//i.test(endpoint),
-        `a \`completed\` store stage must be backed by a real provisioned store endpoint in .env, got "${endpoint}"`,
-      );
-    }
-    if (byName("storefront")?.status === "completed") {
-      assert.ok(
-        existsSync(join(cwd, "storefront", "package.json")),
-        "a `completed` storefront stage must be backed by a real cloned storefront (storefront/package.json)",
-      );
-    }
-    if (byName("deploy")?.status === "completed") {
-      assert.ok(
-        /https:\/\/[a-z0-9-]+\.vercel\.app/i.test(JSON.stringify(this.envelope)),
-        "a `completed` deploy stage must be backed by a real captured *.vercel.app deploy URL",
-      );
-    }
-  },
-);
-
-Then(
-  "the store, recipe, and deploy stages should each emit their feature 021 `riskContext`",
-  function (this: JollyWorld) {
-    const stages = (this.envelope.data.stages ?? []) as TimedStage[];
-    for (const name of ["store", "recipe", "deploy"]) {
-      const stage = stages.find((s) => s.stage === name);
-      assert.ok(
-        stage,
-        `the run's reported stages must include the "${name}" stage: ${JSON.stringify(stages)}`,
-      );
-      assert.ok(
-        stage!.riskContext,
-        `the "${name}" stage must emit its feature 021 riskContext: ${JSON.stringify(stage)}`,
-      );
-      assertRiskContextShape(stage!.riskContext);
-    }
-    assert.ok(
-      findRiskContexts(this.envelope).length > 0,
-      "the stage riskContexts must live inside the envelope (feature 021)",
-    );
-  },
-);
-
-
 // ─── Scenario: Jolly start launches the storefront preparation concurrently
 //     with the store stage (@logic @composition) ─────────────────────────────
 //
@@ -2659,47 +1879,3 @@ Then(
 // JOLLY_READINESS_BUDGET_MS. The @sandbox never-serves scenario drives that
 // override down to 8 seconds so a real run can prove the blocked path in
 // seconds, which only works because the override is honoured.
-
-Given("no `JOLLY_READINESS_BUDGET_MS` override is set", function (this: JollyWorld) {
-  const previous = process.env["JOLLY_READINESS_BUDGET_MS"];
-  this.cleanup.register("restore JOLLY_READINESS_BUDGET_MS", () => {
-    if (previous === undefined) delete process.env["JOLLY_READINESS_BUDGET_MS"];
-    else process.env["JOLLY_READINESS_BUDGET_MS"] = previous;
-  });
-  delete process.env["JOLLY_READINESS_BUDGET_MS"];
-});
-
-When("the store stage's readiness budget is resolved", async function (this: JollyWorld) {
-  // JOLLY_NO_MAIN keeps the dynamic import from executing the CLI against
-  // cucumber's argv.
-  const previousNoMain = process.env["JOLLY_NO_MAIN"];
-  process.env["JOLLY_NO_MAIN"] = "1";
-  try {
-    const { resolveReadinessBudgetMs } = await import("../../src/index.ts");
-    this.notes.defaultReadinessBudgetMs = resolveReadinessBudgetMs();
-    process.env["JOLLY_READINESS_BUDGET_MS"] = "8000";
-    this.notes.overriddenReadinessBudgetMs = resolveReadinessBudgetMs();
-    delete process.env["JOLLY_READINESS_BUDGET_MS"];
-  } finally {
-    if (previousNoMain === undefined) delete process.env["JOLLY_NO_MAIN"];
-    else process.env["JOLLY_NO_MAIN"] = previousNoMain;
-  }
-});
-
-Then("the resolved readiness budget should be {float} seconds", function (this: JollyWorld, seconds: number) {
-  assert.equal(
-    this.notes.defaultReadinessBudgetMs,
-    seconds * 1000,
-    `the default readiness budget must be ${seconds} seconds; resolved ` +
-      `${String(this.notes.defaultReadinessBudgetMs)}ms`,
-  );
-});
-
-Then("a set `JOLLY_READINESS_BUDGET_MS` value should override it", function (this: JollyWorld) {
-  assert.equal(
-    this.notes.overriddenReadinessBudgetMs,
-    8000,
-    `a set JOLLY_READINESS_BUDGET_MS must override the default; resolved ` +
-      `${String(this.notes.overriddenReadinessBudgetMs)}ms`,
-  );
-});

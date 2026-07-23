@@ -68,42 +68,7 @@ Then(
 );
 
 // ─── no existing .env (018 dry-run, 012 dry-run) ──────────────────────────
-
-Given("the agent has no existing .env file", function (this: JollyWorld) {
-  // The scenario's temp project starts empty; assert no .env is present so a
-  // later ".env should not be created" check is meaningful.
-  const path = join(this.projectDir, ".env");
-  assert.ok(!existsSync(path), "the scenario must start with no .env file");
-});
-
 // ─── Saleor Cloud token Given (012 mode-1 Background-style + 024 Background) ─
-
-Given(
-  "Jolly has a Saleor Cloud token authenticated via JOLLY_SALEOR_CLOUD_TOKEN",
-  function (this: JollyWorld) {
-    // Capability statement; @logic scenarios run with the runtime credentials
-    // unset (or a stand-in token against a loopback fixture) and @sandbox
-    // scenarios run with the real runtime token. Nothing to do here.
-  },
-);
-
-Given(
-  /^Jolly has an authenticated Saleor Cloud session — a device-grant credential \(feature 018\) or JOLLY_SALEOR_CLOUD_TOKEN$/,
-  function (this: JollyWorld) {
-    // Capability statement (024 Background): each scenario supplies the actual
-    // session — the @logic dry-run runs with the workflow tokens unset, the
-    // @sandbox run with the real runtime JOLLY_SALEOR_CLOUD_TOKEN.
-  },
-);
-
-Given(
-  "Jolly has a Saleor GraphQL instance URL",
-  function (this: JollyWorld) {
-    // Capability statement; the instance URL is supplied per-scenario via a
-    // real-format URL / loopback fixture or the provisioned sandbox endpoint.
-  },
-);
-
 Given(
   "the agent has a Saleor Cloud token authenticated via JOLLY_SALEOR_CLOUD_TOKEN",
   function (this: JollyWorld) {
@@ -112,30 +77,7 @@ Given(
 );
 
 // ─── risk-context-in-envelope assertion (018, 012, 024) ───────────────────
-
-Then(
-  "the output should include a risk context with action {string}",
-  function (this: JollyWorld, action: string) {
-    const contexts = findRiskContexts(this.envelope);
-    assert.ok(
-      contexts.length > 0,
-      "expected a riskContext carried inside the envelope",
-    );
-    const actions = contexts.map((c) => (c as { action?: unknown }).action);
-    assert.ok(
-      actions.includes(action),
-      `expected a riskContext with action "${action}", got ${JSON.stringify(actions)}`,
-    );
-  },
-);
-
 // ─── .env-not-created assertion (018, 012) ────────────────────────────────
-
-Then(".env should not be created", function (this: JollyWorld) {
-  const path = join(this.lastRun!.cwd, ".env");
-  assert.ok(!existsSync(path), ".env must not be created by a --dry-run");
-});
-
 // ─── envelope status assertion (018) ──────────────────────────────────────
 
 Then(

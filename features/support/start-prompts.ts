@@ -52,7 +52,7 @@ function catalogMarker(name: keyof typeof MARKERS): string {
   return marker;
 }
 
-export interface StartRunShape {
+interface StartRunShape {
   /** The argv the run is driven with, `start` first. */
   argv: string[];
   /** The project directory whose `.env` decides whether a store is configured. */

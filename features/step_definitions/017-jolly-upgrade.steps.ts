@@ -73,11 +73,6 @@ Given(
 When("the agent invokes `jolly upgrade`", function (this: JollyWorld) {
   this.runCli(["upgrade", "--json"], { env: absentCredentialsEnv() });
 });
-
-When("the agent invokes `jolly skills update`", function (this: JollyWorld) {
-  this.runCli(["skills", "update", "--json"], { env: absentCredentialsEnv() });
-});
-
 // ─── Then: managed-skill re-verify (upgrade + skills update) ─────────────────
 
 Then(
@@ -111,22 +106,6 @@ Then(
     }
   },
 );
-
-Then(
-  "the envelope `data.skills` should list the Jolly-managed skill IDs",
-  function (this: JollyWorld) {
-    const data = this.envelope.data as { skills?: unknown };
-    assert.ok(
-      Array.isArray(data.skills),
-      "skills update must list the managed skill IDs it re-verified",
-    );
-    const skills = data.skills as string[];
-    for (const id of DEFAULT_SKILL_IDS) {
-      assert.ok(skills.includes(id), `data.skills must include "${id}"`);
-    }
-  },
-);
-
 // "user-authored lines in AGENTS.md outside the Jolly marker should remain
 // unchanged" is defined in 007-jolly-init-agent-setup.steps.ts (shared); not
 // duplicated here.

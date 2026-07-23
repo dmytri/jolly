@@ -16,14 +16,12 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { REPO_ROOT } from "./repo-root.ts";
 
-export type ClaimKind = "module" | "technology";
+type ClaimKind = "module" | "technology";
 
-export interface ArchitectureViolation {
+interface ArchitectureViolation {
   kind: ClaimKind;
   message: string;
 }
-
-export const ARCHITECTURE_DOCUMENT = join(REPO_ROOT, "ARCHITECTURE.md");
 
 const MODULES_SECTION = "Library Modules";
 const VERIFICATION_SECTION = "BDD Verification";
@@ -111,7 +109,7 @@ function checkModules(documentText: string, violations: ArchitectureViolation[])
 }
 
 /** The technology names on the verification section's Technologies line. */
-export function namedVerificationTechnologies(documentText: string): string[] {
+function namedVerificationTechnologies(documentText: string): string[] {
   const sectionBody = section(documentText, VERIFICATION_SECTION);
   if (sectionBody === undefined) return [];
   const line = sectionBody
@@ -166,18 +164,4 @@ function checkTechnologies(
       });
     }
   }
-}
-
-/**
- * Every structural claim in the architecture document that drifts from the
- * tree. Pass `documentText` to check a planted variant for a planted-red
- * proof; the default is the document on disk.
- */
-export function findArchitectureDrift(
-  documentText: string = readFileSync(ARCHITECTURE_DOCUMENT, "utf8"),
-): ArchitectureViolation[] {
-  const violations: ArchitectureViolation[] = [];
-  checkModules(documentText, violations);
-  checkTechnologies(documentText, violations);
-  return violations;
 }

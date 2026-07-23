@@ -598,27 +598,12 @@ Given(
   { timeout: AGENT_STEP_TIMEOUT_MS },
   completeSetupRun,
 );
-
-When(
-  "the agent completes the setup task",
-  { timeout: AGENT_STEP_TIMEOUT_MS },
-  completeSetupRun,
-);
-
 // ─── Affordance efficiency: what succeeding COST ────────────────────────────
 //
 // Succeeding is the floor; how much the agent had to spend to succeed is what
 // says whether Jolly's setup copy and CLI output are any good. The ceilings are
 // generous — they redden on an agent that has lost the thread, not on ordinary
 // live variance.
-
-Given(
-  "a turn budget of {int} model invocations and a token budget of {int} tokens for the baseline agent",
-  function (this: JollyWorld, turnBudget: number, tokenBudget: number) {
-    this.notes[TURN_BUDGET] = turnBudget;
-    this.notes[TOKEN_BUDGET] = tokenBudget;
-  },
-);
 
 /** The run's invocations, which every budget assertion reads. */
 function invocationsOf(world: JollyWorld): ModelInvocation[] {
@@ -639,91 +624,6 @@ function budgetReport(invocations: ModelInvocation[]): string {
     )
     .join("\n");
 }
-
-Then(
-  "the model invocations it made should be within the turn budget",
-  function (this: JollyWorld) {
-    const invocations = invocationsOf(this);
-    const budget = this.notes[TURN_BUDGET] as number;
-    const breach = findBudgetBreach(invocations, budget, Number.POSITIVE_INFINITY);
-    this.attach(
-      `${invocations.length} model invocations against a ceiling of ${budget}.`,
-      "text/plain",
-    );
-    assert.ok(
-      !breach,
-      `the agent crossed its turn ceiling of ${budget} at turn ${breach?.turn}: it made ` +
-        `${invocations.length} model invocations. An agent that grinds through many turns is ` +
-        `flailing against Jolly output that failed to tell it what it needed.\n${budgetReport(invocations)}`,
-    );
-  },
-);
-
-Then(
-  "the tokens it consumed, prompt and completion summed across every invocation, should be within the token budget",
-  function (this: JollyWorld) {
-    const invocations = invocationsOf(this);
-    const budget = this.notes[TOKEN_BUDGET] as number;
-    const spent = totalTokens(invocations);
-    const breach = findBudgetBreach(invocations, Number.POSITIVE_INFINITY, budget);
-    this.attach(`${spent} tokens against a ceiling of ${budget}.`, "text/plain");
-    assert.ok(
-      !breach,
-      `the agent crossed its token ceiling of ${budget} at turn ${breach?.turn}, where the run had ` +
-        `spent ${breach?.spent} tokens; it spent ${spent} in total. The turn names where the agent ` +
-        `started to flail, and against which piece of Jolly's output.\n${budgetReport(invocations)}`,
-    );
-  },
-);
-
-Then(
-  "a run that exceeds either budget should redden, naming the turn at which it crossed the ceiling",
-  function (this: JollyWorld) {
-    const invocations = invocationsOf(this);
-
-    // A turn ceiling one below what this run actually spent: the breach is the
-    // last turn it made, which is the turn that crossed.
-    const lastTurn = invocations.length - 1;
-    const overTurns = findBudgetBreach(
-      invocations,
-      invocations.length - 1,
-      Number.POSITIVE_INFINITY,
-    );
-    assert.ok(overTurns, "a run over its turn ceiling must redden rather than pass");
-    assert.equal(overTurns.budget, "turns");
-    assert.equal(
-      overTurns.turn,
-      lastTurn,
-      `a run over its turn ceiling must name the turn at which it crossed (${lastTurn}); it named ${overTurns.turn}`,
-    );
-
-    // A token ceiling one below the run's very first turn: the breach is turn 0.
-    const first = invocations[0]!;
-    const overTokens = findBudgetBreach(
-      invocations,
-      Number.POSITIVE_INFINITY,
-      first.promptTokens + first.completionTokens - 1,
-    );
-    assert.ok(overTokens, "a run over its token ceiling must redden rather than pass");
-    assert.equal(overTokens.budget, "tokens");
-    assert.equal(
-      overTokens.turn,
-      0,
-      `a run over its token ceiling at its first turn must name turn 0; it named ${overTokens.turn}`,
-    );
-
-    // The ceilings this scenario declared leave the detector quiet, so the
-    // planted ceilings above are what reddened it.
-    assert.ok(
-      !findBudgetBreach(
-        invocations,
-        this.notes[TURN_BUDGET] as number,
-        this.notes[TOKEN_BUDGET] as number,
-      ),
-      "the declared ceilings must leave the detector quiet, or the planted breach proves nothing",
-    );
-  },
-);
 
 When("the run's affordance map is read", function (this: JollyWorld) {
   this.notes[MAP] = buildAffordanceMap(
@@ -815,78 +715,6 @@ Then(
       () => buildAffordanceMap([], trace(this)),
       /recorded no usage/,
       "a run whose agent recorded no usage must redden, not report a cost of zero",
-    );
-  },
-);
-
-When(
-  "the Jolly commands it invoked are read from the CLI trace in turn order",
-  function (this: JollyWorld) {
-    this.notes[WASTED] = findWastedHelpTurns(trace(this));
-  },
-);
-
-Then(
-  "no `--help` invocation should follow a Jolly command that reported an error",
-  function (this: JollyWorld) {
-    const wasted = this.notes[WASTED] as WastedTurn[];
-    assert.equal(
-      wasted.length,
-      0,
-      `turns spent reaching for \`--help\` to recover from a Jolly error:\n${wasted
-        .map(
-          (turn) =>
-            `  - \`${turn.command}\` errored ("${turn.summary}"` +
-            `${turn.errorCodes.length > 0 ? `, codes: ${turn.errorCodes.join(", ")}` : ""}), ` +
-            `then \`${turn.help}\` ran; its envelope ` +
-            `${turn.carriedNextSteps ? "carried" : "failed to carry"} nextSteps and ` +
-            `${turn.carriedRemediation ? "carried" : "failed to carry"} remediation`,
-        )
-        .join("\n")}`,
-    );
-  },
-);
-
-Then(
-  "a `--help` invocation following an error should be reported as a wasted turn, naming the command whose envelope failed to carry its nextSteps and remediation",
-  function (this: JollyWorld) {
-    // A Jolly command that errored with an envelope carrying neither the
-    // nextSteps nor the remediation the recovery needs, followed by the `--help`
-    // the agent reached for instead: the shape this check exists to name.
-    const errored: TraceRecord = {
-      tool: "jolly",
-      argv: ["create", "store"],
-      exit: 1,
-      stdout: JSON.stringify({
-        command: "create store",
-        status: "error",
-        summary: "The Cloud token has access to no organizations.",
-        data: {},
-        checks: [],
-        nextSteps: [],
-        errors: [{ code: "NO_ORGANIZATIONS", message: "No organizations are accessible." }],
-      }),
-      stderr: "",
-    };
-    const help: TraceRecord = {
-      tool: "jolly",
-      argv: ["create", "store", "--help"],
-      exit: 0,
-      stdout: "",
-      stderr: "",
-    };
-    const wasted = findWastedHelpTurns([errored, help]);
-    assert.equal(wasted.length, 1, "the `--help` recovery turn was not reported as wasted");
-    assert.equal(wasted[0]!.command, "jolly create store");
-    assert.equal(
-      wasted[0]!.carriedNextSteps,
-      false,
-      "the wasted turn must name that the erroring envelope failed to carry its nextSteps",
-    );
-    assert.equal(
-      wasted[0]!.carriedRemediation,
-      false,
-      "the wasted turn must name that the erroring envelope failed to carry its remediation",
     );
   },
 );

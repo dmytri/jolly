@@ -87,6 +87,14 @@ Feature: Existing Saleor store connection
     Then the envelope status should be "error" with the stable code `ENVIRONMENT_LIMIT_REACHED`
     And the message should guide the customer to delete an unused environment or upgrade the plan
 
+  @captain @sandbox
+  Scenario: Jolly provisions a blank environment with no sample data
+    Given the agent has a Saleor Cloud token authenticated via JOLLY_SALEOR_CLOUD_TOKEN
+    When the agent runs `jolly create store --create-environment --json` namespaced with the run's jolly-cannon-fodder identifier
+    Then the environment-creation request should send `database_population` as null, the Saleor Cloud blank template
+    And the created store should hold no sample products or sample configuration
+    And teardown should delete the created environment right after the scenario
+
   Rule: Environment creation against in-use organizations
     - `jolly create store --create-environment` must work against organizations that already
       have projects and environments; it never requires an empty organization.

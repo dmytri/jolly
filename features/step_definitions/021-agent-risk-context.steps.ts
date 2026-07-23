@@ -180,34 +180,6 @@ Then(
 // --- Scenario: Risk context travels in the standard envelope ---------------
 
 // `When the command completes` is defined in 020's steps.
-
-Then(
-  "the envelope `data` and\\/or `checks` should carry the `riskContext`",
-  function (this: JollyWorld) {
-    // findRiskContexts only looks inside envelope.data and envelope.checks.
-    const contexts = findRiskContexts(this.envelope);
-    assert.ok(
-      contexts.length > 0,
-      "riskContext must be carried inside the envelope data and/or checks",
-    );
-  },
-);
-
-Then(
-  "the `riskContext` should not appear in a separate ad hoc format outside the feature {int} envelope",
-  function (this: JollyWorld, _feature: number) {
-    // The only JSON object on stdout is the envelope itself; the riskContext
-    // lives inside it, never as a sibling top-level object.
-    const trimmed = this.lastRun!.stdout.trim();
-    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
-    assert.ok("command" in parsed, "the sole stdout object must be the envelope");
-    assert.ok(
-      !("riskContext" in parsed),
-      "riskContext must not be a sibling of the envelope; it lives inside data/checks",
-    );
-  },
-);
-
 // --- Scenario: High-risk categories are surfaced explicitly ----------------
 
 // --- Scenario: Jolly start pauses for agent approval before each high-risk stage (@logic)

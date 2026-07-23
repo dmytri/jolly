@@ -193,8 +193,6 @@ const KNOWN_FLAGS = new Set<string>([
  * @planks("the agent runs `jolly doctor --json`")
  * @planks("the agent runs `jolly doctor`")
  * @planks("the agent runs `jolly start --dry-run --quiet`")
- * @planks("^the agent runs `jolly create store --url https:\/\/evil\.example\.com\/graphql\/ --quiet`$")
- * @planks("`jolly doctor` runs in an interactive terminal")
  * @planks("the agent runs `jolly doctor` with stdout not a terminal")
  * @planks("the agent runs `jolly login --json` with an invalid JOLLY_SALEOR_CLOUD_TOKEN")
  */
@@ -282,7 +280,6 @@ function envelope(
 /**
  * @planks("the envelope status should be {string} with the stable code `NON_FIRST_PARTY_HOST`")
  * @planks("each entry in `errors` should include a stable `code`, a `message`, and a `remediation`")
- * @planks(`the envelope status should be "error" with a stable `code` naming the empty token`)
  */
 function errorEnvelope(
   command: string,
@@ -343,8 +340,7 @@ const SGR = {
 } as const;
 
 /**
- * @planks("the stdout envelope should contain no emoji")
- * @planks("stdout should contain ANSI colour codes")
+ * @planks-provisional("features/020-cli-output-contract.feature:Human terminal output carries colour and a restrained status glyph per check")
  */
 function statusEmoji(status: EnvelopeStatus): string {
   if (status === "success") return "✅";
@@ -353,8 +349,7 @@ function statusEmoji(status: EnvelopeStatus): string {
 }
 
 /**
- * @planks("the stdout envelope should contain no emoji")
- * @planks("each check should appear in a `checks` array")
+ * @planks-provisional("features/020-cli-output-contract.feature:Human terminal output carries colour and a restrained status glyph per check")
  */
 function checkEmoji(status: CheckStatus): string {
   switch (status) {
@@ -372,8 +367,7 @@ function checkEmoji(status: CheckStatus): string {
 }
 
 /**
- * @planks("stdout should contain ANSI colour codes")
- * @planks("stdout should contain no ANSI colour codes")
+ * @planks-provisional("features/020-cli-output-contract.feature:Human terminal output carries colour and a restrained status glyph per check")
  */
 function statusColour(status: EnvelopeStatus): string {
   if (status === "success") return SGR.green;
@@ -382,8 +376,7 @@ function statusColour(status: EnvelopeStatus): string {
 }
 
 /**
- * @planks("stdout should contain ANSI colour codes")
- * @planks("stdout should contain no ANSI colour codes")
+ * @planks-provisional("features/020-cli-output-contract.feature:Human terminal output carries colour and a restrained status glyph per check")
  */
 function checkColour(status: CheckStatus): string {
   switch (status) {
@@ -407,7 +400,6 @@ function checkColour(status: CheckStatus): string {
  *
  * @planks("stdout should contain human-readable check results")
  * @planks("stdout should not contain a JSON envelope")
- * @planks("stdout should contain ANSI colour codes")
  * @planks("stdout should contain no ANSI colour codes")
  */
 function renderHuman(env: Envelope, colour: boolean): string {
@@ -460,7 +452,6 @@ function renderHuman(env: Envelope, colour: boolean): string {
  * @planks("stdout should not contain a JSON envelope")
  * @planks("stdout should be empty")
  * @planks("stderr should be empty")
- * @planks("stderr should name the failure and the stable code `NON_FIRST_PARTY_HOST`")
  * @planks("no human text, nor any field of the envelope when one is emitted, should contain the secret value")
  */
 function emit(env: Envelope, args: ParsedArgs): number {
@@ -528,8 +519,7 @@ const DEFAULT_SKILLS: SkillSpec[] = [
 // Universal project-local skill location `npx skills add` (no --agent) writes
 // to, read by all supported agents (feature 007).
 /**
- * @planks("each installed skill should land under `.agents\/skills\/<id>\/`")
- * @planks("it should install the Jolly skill and the Saleor agent-skills via `npx skills add <ref>`")
+ * @planks("^the Jolly skill should be installed under `\.agents\/skills\/jolly\/` from the bundled copy$")
  */
 function agentsSkillsBaseDir(): string {
   return join(projectDir(), ".agents", "skills");
@@ -537,15 +527,14 @@ function agentsSkillsBaseDir(): string {
 
 // Legacy per-agent location, kept so already-seeded workspaces still verify.
 /**
- * @planks("each installed skill should land under `.agents\/skills\/<id>\/`")
+ * @planks("it installs the default skill set with no network")
  */
 function skillsBaseDir(): string {
   return join(projectDir(), ".claude", "skills");
 }
 
 /**
- * @planks("it should install the Jolly skill and the Saleor agent-skills via `npx skills add <ref>`")
- * @planks("it should fall back to a Git-based install only for a skill not available via `npx skills add`")
+ * @planks("it installs the default skill set with no network")
  */
 function skillInstalledOnDisk(skill: SkillSpec): boolean {
   // A skill is present when its directory (or SKILL.md) exists under either the
@@ -561,8 +550,6 @@ function skillInstalledOnDisk(skill: SkillSpec): boolean {
 
 /**
  * @planks("^the agent runs `jolly (?!(?:start|doctor|upgrade) --json`)(login|init|start|doctor|upgrade|skills|create store) (--json|--quiet|--yes)`$")
- * @planks("the output should include a risk context with action {string}")
- * @planks("the `riskContext` action, target, and side-effect fields are joined against the catalog entries")
  */
 function loginRiskContext(dryRunAvailable = true): RiskContext {
   return {
@@ -580,9 +567,7 @@ function loginRiskContext(dryRunAvailable = true): RiskContext {
 /**
  * @planks("^the agent runs `jolly (?!(?:start|doctor|upgrade) --json`)(login|init|start|doctor|upgrade|skills|create store) (--json|--quiet|--yes)`$")
  * @planks("the agent runs `jolly login` in a non-interactive shell")
- * @planks("the agent runs `jolly login --json` in a non-interactive shell")
- * @planks("the user runs `jolly login`")
- * @planks("the user runs `jolly login --dry-run --json`")
+ * @planks("the agent runs `jolly login`")
  */
 async function commandLogin(args: ParsedArgs): Promise<Envelope> {
   const command = "login";
@@ -778,9 +763,8 @@ async function commandLogin(args: ParsedArgs): Promise<Envelope> {
 // and project the agent-facing SALEOR_TOKEN so .env never holds a stale store
 // token after a sign-in.
 /**
- * @planks("the user runs `jolly login`")
+ * @planks("the agent runs `jolly login`")
  * @planks("`jolly start` runs in an interactive terminal")
- * @planks("it should display the returned user code and the verification URL `https:\/\/auth.saleor.io\/realms\/saleor-cloud\/device?user_code=` followed by that user code through Bombshell's interactive prompt UI")
  * @planks("the interactive output should show the device user code and the verification URL before any setup stage runs")
  * @planks("it should store the device-grant access token in .env as JOLLY_SALEOR_ACCESS_TOKEN")
  * @planks("it should store the device-grant refresh token in .env as JOLLY_SALEOR_REFRESH_TOKEN")
@@ -807,7 +791,7 @@ async function interactiveDeviceGrantSignIn(): Promise<void> {
 // Interactive `jolly login`: the shared device-grant sign-in, closed with the
 // login success envelope.
 /**
- * @planks("the user runs `jolly login`")
+ * @planks("the agent runs `jolly login`")
  */
 async function deviceGrantLogin(command: string): Promise<Envelope> {
   await interactiveDeviceGrantSignIn();
@@ -830,7 +814,6 @@ async function deviceGrantLogin(command: string): Promise<Envelope> {
 const AGENT_RESUME_POLL_DEFAULT_SECONDS = 12;
 /**
  * @planks("^the agent runs `jolly (?!(?:start|doctor|upgrade) --json`)(login|init|start|doctor|upgrade|skills|create store) (--json|--quiet|--yes)`$")
- * @planks("each should be a `JOLLY_*` product setting, a target project's own expected variable, or a harness affordance readable only when the harness guard is set")
  */
 function agentResumePollSeconds(): number {
   const override = harnessGuardActive()
@@ -1034,9 +1017,7 @@ const MANAGED_AUTH_VARS = [
 ];
 
 /**
- * @planks("the agent invokes `jolly logout`")
  * @planks("the agent runs `jolly logout`")
- * @planks("Jolly should remove JOLLY_SALEOR_CLOUD_TOKEN from .env")
  * @planks("Jolly should remove JOLLY_SALEOR_CLOUD_TOKEN, JOLLY_SALEOR_ACCESS_TOKEN, JOLLY_SALEOR_REFRESH_TOKEN, SALEOR_TOKEN, and JOLLY_SALEOR_ORGANIZATION from .env")
  */
 function commandLogout(_args: ParsedArgs): Envelope {
@@ -1207,9 +1188,7 @@ function commandAuthStatus(_args: ParsedArgs): Envelope {
 
 /**
  * @planks("the agent runs `jolly create store --create-environment --dry-run --json`")
- * @planks("the agent runs `jolly create store --url https:\/\/example.saleor.cloud --json`")
  * @planks("the agent runs `jolly create store --create-environment --json`")
- * @planks("the `riskContext` action, target, and side-effect fields are joined against the catalog entries")
  */
 function createStoreRiskContext(target: unknown, dryRunAvailable = true): RiskContext {
   return {
@@ -1279,19 +1258,11 @@ async function inferStoreLocation(
  * @planks("the agent runs `jolly create store --url https:\/\/my-shop.saleor.cloud\/dashboard\/ --json`")
  * @planks("the agent runs `jolly create store --url https:\/\/my-shop.saleor.cloud --json`")
  * @planks("the agent runs `jolly create store --url https:\/\/my-shop.saleor.cloud\/graphql\/ --json`")
- * @planks("the agent runs `jolly create store --url https:\/\/shop.saleor.cloud\/graphql\/ --dry-run --json`")
  * @planks("the agent runs `jolly create store --create-environment --dry-run --json`")
- * @planks("the agent previews environment creation with `jolly create store --create-environment --dry-run --json`")
- * @planks("the agent runs `jolly create store --create-environment --organization other-org --region eu-central-1 --dry-run --json`")
  * @planks("the Cloud token can access organizations {string} and {string}")
  * @planks("the agent runs `jolly create store --create-environment` without `--organization`")
  * @planks("^the agent runs `jolly create store --url https:\/\/evil\.example\.com\/graphql\/ --json`$")
- * @planks("`jolly start` reaches the storefront clone stage")
- * @planks(`the `environment-provisioned` check should report "fail" with a remediation to re-run in a few moments to confirm`)
  * @planks(`each should carry at least one `nextSteps` entry naming what to do next`)
- * @planks("the agent runs `jolly create store --create-environment --dry-run --json --mock-organizations=acme-co,other-co`")
- * @planks("the run should resolve organizations from the Cloud API alone")
- * @planks("the `riskContext` action, target, and side-effect fields are joined against the catalog entries")
  */
 async function commandCreateStore(args: ParsedArgs): Promise<Envelope> {
   const command = "create store";
@@ -1723,7 +1694,7 @@ function readPositiveIntEnvMs(name: string, fallback: number): number {
  * Resolve the store stage's readiness budget in milliseconds: 600 seconds by
  * default, overridable via `JOLLY_READINESS_BUDGET_MS`.
  *
- * @planks("the store stage's readiness budget is resolved")
+ * @planks("the readiness budget is configured to {float} seconds via `JOLLY_READINESS_BUDGET_MS`")
  */
 export function resolveReadinessBudgetMs(): number {
   return readPositiveIntEnvMs("JOLLY_READINESS_BUDGET_MS", 600_000);
@@ -1877,10 +1848,9 @@ async function provisionStore(
  * failing, so the environment may well exist. That branch carries the thrown
  * error's own text (interpolated DATA per the copy-catalog rule) as the
  * summary instead of claiming nothing was created.
- * @planks("the Saleor Cloud environments endpoint returns ENVIRONMENT_LIMIT_REACHED")
+ * @planks("the envelope status should be {string} with the stable code `ENVIRONMENT_LIMIT_REACHED`")
  * @planks("the agent runs `jolly create store --create-environment --json`")
- * @planks("the Cloud API rejects an environment creation with a code other than `ENVIRONMENT_LIMIT_REACHED`")
- * @planks("the envelope should carry at least one `nextSteps` entry naming what to do next")
+ * @planks("each should carry at least one `nextSteps` entry naming what to do next")
  * @planks("the error should not claim that nothing was created")
  */
 function cloudErrorEnvelope(command: string, err: unknown, riskContext: RiskContext): Envelope {
@@ -1924,7 +1894,7 @@ function cloudErrorEnvelope(command: string, err: unknown, riskContext: RiskCont
 const CREATE_SUBCOMMANDS = ["store"] as const;
 
 /**
- * @planks("it inspects `jolly create --help`")
+ * @planks("`jolly create --help` should list only the subcommand `store`")
  */
 function commandCreateHelp(): Envelope {
   const command = "create --help";
@@ -1951,8 +1921,7 @@ function commandCreateHelp(): Envelope {
 }
 
 /**
- * @planks("it inspects `jolly create --help`")
- * @planks("`jolly create {word}` is run with its preconditions unmet")
+ * @planks("the agent runs `jolly create frobnicate --json`")
  * @planks(`each should carry at least one `nextSteps` entry naming what to do next`)
  */
 async function commandCreate(args: ParsedArgs): Promise<Envelope> {
@@ -2009,7 +1978,6 @@ function bundledJollySkillPath(): string {
 
 /**
  * @planks("the agent invokes `jolly init`")
- * @planks("it installs the default skill set")
  * @planks("it installs the default skill set with no network")
  */
 function installSkill(skill: SkillSpec): { installed: boolean; stderr?: string } {
@@ -2034,9 +2002,7 @@ function installSkill(skill: SkillSpec): { installed: boolean; stderr?: string }
  * whole default set installs in parallel. Each returned promise resolves when
  * its own `npx skills add` exits, so a later skill's install begins before an
  * earlier one finishes. On-disk verification remains the contract.
- * @planks("the skill installs should run concurrently, a later skill's install beginning before an earlier skill's install finishes")
- * @planks("every default skill should still land under `.agents\/skills\/<id>\/`")
- * @planks("the skills lock\/metadata file should record every installed skill id without corruption")
+ * @planks("Jolly should install or check the full default skill set via `npx skills add`")
  */
 function installSkillAsync(skill: SkillSpec): Promise<void> {
   const source = skill.id === "jolly" ? bundledJollySkillPath() : skill.ref;
@@ -2144,7 +2110,6 @@ function detectAgent(): string | null {
 /**
  * @planks("the agent invokes `jolly init`")
  * @planks("the agent invokes `jolly init` in the same directory again")
- * @planks("the agent invokes `jolly init` in a temp project directory")
  * @planks(`each should carry at least one `nextSteps` entry naming what to do next`)
  */
 function commandInit(_args: ParsedArgs): Envelope {
@@ -2407,7 +2372,7 @@ async function resolvePlatformToken(
  * long-lived staff (CLOUD) token needs no refresh and a run with no stored
  * refresh token is left untouched, so the stage still reports any auth failure
  * honestly rather than this masking it.
- * @planks("the run reaches the configurator-deploy stage without `--dry-run`")
+ * @planks("it should mint a fresh access token through the refresh grant at `https:\/\/auth.saleor.io\/realms\/saleor-cloud\/protocol\/openid-connect\/token`")
  */
 async function ensureFreshStoreAuth(): Promise<void> {
   const values = loadEnvValues(projectDir());
@@ -2441,13 +2406,11 @@ async function ensureFreshStoreAuth(): Promise<void> {
 }
 
 /**
- * @planks("it invokes `jolly doctor`")
- * @planks("the agent runs `jolly doctor skills --json`")
+ * @planks("the agent runs `jolly doctor`")
  * @planks("the agent runs `jolly doctor init --json`")
  * @planks("the agent runs `jolly doctor saleor --json`")
  * @planks("the agent runs `jolly doctor storefront --json`")
  * @planks("the agent runs `jolly doctor deployment --json`")
- * @planks("the agent runs `jolly doctor stripe --json`")
  * @planks("the agent runs `jolly doctor --json` with no group argument")
  * @planks(`each should carry at least one `nextSteps` entry naming what to do next`)
  * @planks("the refusal should name the non-first-party host evil.example.com")
@@ -2876,10 +2839,7 @@ async function commandDoctor(args: ParsedArgs): Promise<Envelope> {
 // ─── skills (feature 006/001) ─────────────────────────────────────────────
 
 /**
- * @planks("the agent invokes `jolly skills install`")
- * @planks("the agent invokes `jolly skills update`")
- * @planks("Jolly installs the default skill set via `npx skills add`")
- * @planks("the skill installs should run concurrently, a later skill's install beginning before an earlier skill's install finishes")
+ * @planks("Jolly should install or check the full default skill set via `npx skills add`")
  * @planks(`each should carry at least one `nextSteps` entry naming what to do next`)
  */
 async function commandSkills(args: ParsedArgs): Promise<Envelope> {
@@ -3038,7 +2998,7 @@ interface PlanStage {
 
 /** The fixed create-store gate target, built once so the dry-run plan and the
  * real run's awaiting-approval stage carry a deep-equal riskContext.
- * @planks("the `store` stage preview should name the real Cloud API `organizations\/\{organization\}\/environments\/` request it would send to provision a new store")
+ * @planks("the preview should name the real Cloud API `organizations\/\{organization\}\/environments\/` request it would send to provision the store")
  */
 function createStoreGateTarget(): string {
   return `${cloudApiBase()}/organizations/{organization}/environments/`;
@@ -3047,7 +3007,6 @@ function createStoreGateTarget(): string {
 /**
  * @planks("the agent runs `jolly start --dry-run --json`")
  * @planks("the data should include a per-stage plan of intended effects: directories created, files written, network hosts contacted, and repositories cloned")
- * @planks("the `riskContext` action, target, and side-effect fields are joined against the catalog entries")
  */
 function startPlan(): PlanStage[] {
   return [
@@ -3240,7 +3199,7 @@ const HIGH_RISK_STAGES = ["store", "recipe", "deploy"] as const;
 // without it a resumed run leaves the agent unable to produce the link. Returns
 // undefined for a malformed endpoint rather than throwing.
 /**
- * @planks("the envelope `data` should surface the configured store's Saleor Dashboard URL ending in `.saleor.cloud\/dashboard\/`")
+ * @planks("the envelope `data` should report the created store's Saleor Dashboard URL ending in `.saleor.cloud\/dashboard\/`")
  */
 function storeDataFromEndpoint(
   endpoint: string,
@@ -3255,7 +3214,6 @@ function storeDataFromEndpoint(
 /**
  * @planks("the agent runs `jolly start --dry-run --json`")
  * @planks("the output envelope data should mark the run as a dry run")
- * @planks("the `riskContext` action, target, and side-effect fields are joined against the catalog entries")
  */
 function commandStartDryRun(): Envelope {
   const command = "start";
@@ -3349,7 +3307,7 @@ interface StartStage {
  * environment) — with a sensible default otherwise. This same affordance is the
  * single hook the test harness uses to make provisioned stores `jolly-cannon-fodder`
  * cannon fodder; Jolly bakes no test knowledge into production.
- * @planks("the `store` stage preview should report the configured store as already satisfied and skip provisioning")
+ * @planks("`jolly start` auto-provisions a new Saleor Cloud store")
  */
 function configuredStoreName(override?: {
   name?: string;
@@ -3540,7 +3498,6 @@ function bundledRecipePath(): string {
  * fabricated deploy.
  * @planks("the agent runs `jolly start --dry-run --json`")
  * @planks("the agent runs `jolly recipe --yes --json` to apply the starter recipe to Saleor Cloud")
- * @planks("the run reaches the configurator-deploy stage without `--dry-run`")
  * @planks("`jolly start` runs to completion in an interactive terminal")
  * @planks("the blocked report should name the destructive diff the configurator observed, including a deletion it would make")
  */
@@ -3831,7 +3788,6 @@ async function runRecipeStage(
  * completion) when the assignment fails. A no-op `completed` when the recipe
  * declares no collections.
  * @planks("Jolly should spawn `npx @saleor\/configurator@latest deploy` of its bundled starter recipe against the store, never reimplementing it against raw APIs")
- * @planks("the recipe's `featured-products` collection should exist in the store holding its declared products")
  */
 async function assignRecipeCollections(
   endpoint: string,
@@ -3926,11 +3882,7 @@ function readConfiguratorReportStatus(reportPath: string): string | undefined {
  * unroutable base) resolves quickly to `blocked` rather than throwing.
  * @planks("the agent runs `jolly start --dry-run --json`")
  * @planks("Jolly start completes the recipe stage")
- * @planks("the plan should include a stock-seeding step that runs after the `@saleor\/configurator` deploy")
  * @planks("every recipe product variant should have stock in the recipe warehouse")
- * @planks("Jolly start runs the stock stage over the recipe's variants and collections")
- * @planks("the stock stage's reported request timing should show a later stock mutation starting before an earlier stock mutation finishes")
- * @planks("the stock stage's reported request timing should show a later collection assignment starting before an earlier collection assignment finishes")
  */
 async function runStockStage(checks: Check[]): Promise<StageOutcome> {
   // Refresh the short-lived access token before the seeding mutations spend it,
@@ -4084,7 +4036,6 @@ function stripeKeysChannelGateStep(): NextStep {
  * @planks("`jolly start` prepares the storefront project by spawning `git` and `pnpm`")
  * @planks("it should clone Saleor's official `saleor\/storefront` Paper template from `main` by spawning `git`, remove the upstream `.git` history, and initialize a fresh repository")
  * @planks("it should install Paper's dependencies by spawning `pnpm`")
- * @planks("`jolly start` prepares the storefront for the Vercel deploy")
  */
 async function runStorefrontStage(checks: Check[]): Promise<StageStatus> {
   const dir = join(projectDir(), "storefront");
@@ -4225,7 +4176,7 @@ async function runStorefrontStage(checks: Check[]): Promise<StageStatus> {
  */
 /**
  * The Vercel device-authorization URL the CLI prints when it signs in, or undefined.
- * @planks("the run reaches the deploy stage without `--dry-run`")
+ * @planks("Jolly should itself spawn `npx vercel@latest login` and surface its device-authorization URL before attempting any deploy")
  */
 function extractDeviceUrl(text: string): string | undefined {
   const m = text.match(/https:\/\/vercel\.com\/oauth\/device\?[^\s]+/i);
@@ -4241,7 +4192,6 @@ function extractDeviceUrl(text: string): string | undefined {
  * moment that marker appears, killing the probe so nothing is left polling.
  * Jolly reads no Vercel token; it only asks the CLI under its own auth.
  * @planks("`jolly start` deploys to Vercel")
- * @planks("the run reaches the deploy stage without `--dry-run`")
  */
 async function probeVercelSession(): Promise<{ signedIn: boolean; account: string }> {
   return new Promise((resolve) => {
@@ -4311,7 +4261,7 @@ const VERCEL_SIGNIN_POLL_INTERVAL_MS = 1_000;
 // the human approves (the bug the old kill-after-capture version had). Returns
 // the captured device URL, or undefined. Jolly holds no Vercel token.
 /**
- * @planks("the run reaches the deploy stage without `--dry-run`")
+ * @planks("Jolly should itself spawn `npx vercel@latest login` and surface its device-authorization URL before attempting any deploy")
  */
 async function spawnVercelSignIn(): Promise<{ deviceUrl?: string; logPath?: string }> {
   const logPath = join(tmpdir(), `jolly-vercel-login-${process.pid}-${Date.now()}.log`);
@@ -4399,7 +4349,7 @@ function loadPendingVercelUrl(): string | undefined {
 }
 
 /**
- * @planks("the run reaches the deploy stage without `--dry-run`")
+ * @planks('the nextStep should instruct the human to open the URL, approve it, reply "done", and re-run `jolly deploy` to continue, the same pause-and-resume contract as the Saleor sign-in gate')
  */
 function savePendingVercel(deviceUrl: string): void {
   try {
@@ -4423,9 +4373,8 @@ function clearPendingVercel(): void {
 // The nextStep that hands the human the clickable Vercel verification URL and
 // tells the agent to re-run once approved (feature 002).
 /**
- * @planks("the run reaches the deploy stage without `--dry-run`")
  * @planks("the agent runs `jolly deploy` without `--dry-run`")
- * @planks("the pending sign-in nextStep should resume by re-running `jolly deploy`, the command that reached the gate")
+ * @planks('the nextStep should instruct the human to open the URL, approve it, reply "done", and re-run `jolly deploy` to continue, the same pause-and-resume contract as the Saleor sign-in gate')
  * @planks('the nextStep should instruct the human to open the URL, approve it, reply "done", and re-run `jolly deploy` to continue, the same pause-and-resume contract as the Saleor sign-in gate')
  */
 function vercelSignInNextStep(deviceUrl: string, resumeCommand: string): NextStep {
@@ -4509,7 +4458,6 @@ type VercelSignInOutcome =
  * @planks("the run should still be waiting for that sign-in to be approved, not continuing signed-out")
  * @planks("the interactive output should name the reason the Vercel sign-in did not complete")
  * @planks("the interactive output should surface the captured Vercel CLI output for the human to read")
- * @planks("the interactive output should say Jolly will run the Vercel sign-in with the human up front, before the unattended stages")
  */
 async function runInteractiveVercelSignIn(): Promise<VercelSignInOutcome> {
   // Do NOT hand the terminal to `vercel login` (the old `stdio: "inherit"`
@@ -4600,10 +4548,8 @@ function tailVercelSignInLog(logPath: string, lines = 6): string {
 
 /**
  * @planks("`jolly start` deploys to Vercel")
- * @planks("the run reaches the deploy stage without `--dry-run`")
- * @planks(`the `deploy` stage should report "completed" with the deployed `*.vercel.app` URL captured from the Vercel CLI's output`)
- * @planks("it should persist `NEXT_PUBLIC_SALEOR_API_URL` and `NEXT_PUBLIC_DEFAULT_CHANNEL` on the Vercel project through the Vercel CLI, so a plain `npx vercel deploy` re-deploy also builds them")
- * @planks("it should write `NEXT_PUBLIC_DEFAULT_CHANNEL` to `.env`, so the local storefront and a re-deploy read the store channel with no key juggling")
+ * @planks("the envelope `data` should report the deployed storefront URL captured from the Vercel CLI's deploy output, not a fabricated or guessed value")
+ * @planks("it should configure the required environment variables on the Vercel project through the Vercel CLI")
  * @planks("`jolly start` runs to completion in an interactive terminal")
  * @planks("each should reach the network only through a seam that applies the first-party host predicate before sending")
  */
@@ -4964,7 +4910,6 @@ const DEFAULT_ENV_NAME = "jolly-store";
 /**
  * @planks("the user presses Enter at every prompt")
  * @planks("`jolly start --dry-run --yes` runs in an interactive terminal and receives no input")
- * @planks("`jolly start --dry-run --json` runs in an interactive terminal")
  */
 function shouldRunInteractive(args: ParsedArgs): boolean {
   return Boolean(
@@ -5031,7 +4976,7 @@ async function resolveInteractiveEnvironments(
 // clickable link (feature 027). The visible text is the URL itself; the string
 // terminator is BEL. Terminals without OSC 8 support show the visible text.
 /**
- * @planks("the auth.saleor.io verification URL should be wrapped in an OSC 8 terminal hyperlink escape pointing at that URL")
+ * @planks("the verification URL should be shown as a clickable terminal hyperlink, never a pasted-token prompt")
  */
 function osc8Hyperlink(url: string): string {
   return `\x1b]8;;${url}\x07${url}\x1b]8;;\x07`;
@@ -5061,16 +5006,10 @@ const STAGE_DESCRIPTIONS: Record<string, string> = {
 };
 
 /**
- * @planks("the setup-stage progress on stderr should list every setup stage by name, each carrying its own status")
- * @planks("it should update a stage's status in place as the run reaches that stage, so each stage's progress is visible during the run rather than only after it ends")
- * @planks("the running stage's row should describe in plain language what that stage is doing")
  * @planks("the progress should redraw the same region in place rather than appending one line per update")
  * @planks("the interactive output should name the setup stage that was interrupted")
- * @planks("the setup-stage progress rows should stay readable, with Jolly's closing line below them rather than drawn over them")
  * @planks("each setup stage should appear exactly once in the progress region")
  * @planks("no stage row should appear twice on screen")
- * @planks("the storefront stage's row should occupy exactly one terminal line")
- * @planks("the row should still name the storefront stage")
  */
 function stageProgress(
   stageNames: string[],
@@ -5201,7 +5140,6 @@ function stageProgress(
  * @planks("`jolly start` runs in an interactive terminal")
  * @planks("the user presses Enter at every prompt")
  * @planks("the user presses Ctrl-C while a setup stage is running")
- * @planks("the terminal cursor should be visible again after Jolly exits")
  * @planks("the interactive output should state that setup was interrupted and did not complete")
  * @planks("the exit code should be non-zero")
  */
@@ -5476,8 +5414,7 @@ async function runInteractiveStart(args: ParsedArgs): Promise<Envelope> {
 
 /**
  * @planks("the agent runs `jolly start --json` with no store URL")
- * @planks("the agent runs `jolly start --json` in a non-interactive shell")
- * @planks("`jolly start --yes` runs its orchestration")
+ * @planks("running `jolly start --yes` should pre-approve and proceed through the high-risk stages without per-stage pauses, still emitting each `riskContext` for the record")
  * @planks("the agent runs `jolly start --dry-run --json`")
  * @planks("`jolly start --dry-run` runs in an interactive terminal with no flag beyond `--dry-run`")
  * @planks("`jolly start --dry-run` runs in an interactive terminal")
@@ -5525,21 +5462,18 @@ const DEFAULT_STAGE_RUNNERS: Record<string, StageRunner> = {
  * actually performed, and carry the per-stage plan of intended effects.
  *
  * @planks("the agent runs `jolly start --json` with no store URL")
- * @planks("the agent runs `jolly start --json` in a non-interactive shell")
- * @planks("`jolly start --yes` runs its orchestration")
+ * @planks("running `jolly start --yes` should pre-approve and proceed through the high-risk stages without per-stage pauses, still emitting each `riskContext` for the record")
  * @planks("the agent runs `jolly start --dry-run --json`")
  * @planks("it should perform and report only the stages it actually completed \(the local bootstrap — skills, scaffold, doctor)")
  * @planks("the data should include a per-stage plan of intended effects: directories created, files written, network hosts contacted, and repositories cloned")
  * @planks("the agent runs `jolly start` again")
  * @planks("the run should report only outcomes it actually achieved, stopping honestly at any remaining human gate without fabricating success")
- * @planks("the run executes the store, recipe, and storefront stages")
+ * @planks("the composition of the store, recipe, and storefront stages is observed")
  * @planks(`the `store` stage should report "completed" only once the endpoint answers a live GraphQL probe`)
- * @planks("the run's reported stage timing should show the storefront preparation starting before the store stage finishes")
- * @planks("the run's reported stage timing should show the deploy stage starting only after the storefront preparation finishes")
- * @planks("each stage should report its own honest status, never a fabricated completion")
- * @planks("the store, recipe, and deploy stages should each emit their feature 021 `riskContext`")
+ * @planks("the storefront preparation should be launched before the store stage completes")
+ * @planks("the deploy stage should be launched only after both the storefront preparation and the recipe stage complete")
+ * @planks("each side-effecting stage in the plan should carry a feature {int} riskContext")
  * @planks("the closing summary on stdout should name the storefront stage as failed")
- * @planks("the `riskContext` action, target, and side-effect fields are joined against the catalog entries")
  */
 export async function runStartCore(
   args: ParsedArgs,
@@ -6140,23 +6074,10 @@ function commandUsage(args: ParsedArgs): Envelope {
 // {stage, status} the command ran. `jolly start` still composes these same seams
 // in order and is unchanged.
 /**
- * @planks("the agent runs `jolly deploy --yes --json`")
- * @planks("the agent runs `jolly storefront --yes --json`")
  * @planks("the agent runs `jolly recipe --yes --json` to apply the starter recipe to Saleor Cloud")
- * @planks("the agent runs `jolly stripe --yes --json`")
- * @planks(`the `storefront` stage should report "completed", backed by a real cloned Paper storefront with installed dependencies on disk`)
- * @planks('that run should report the `recipe` stage "completed", having deployed the bundled starter recipe through `@saleor\/configurator`')
- * @planks(`that run should report the `stock` stage "completed", having seeded stock for the recipe variants through Saleor GraphQL`)
- * @planks("the stock stage's reported request timing should show a later stock mutation starting before an earlier stock mutation finishes")
- * @planks("the stock stage's reported request timing should show a later collection assignment starting before an earlier collection assignment finishes")
- * @planks(`the `stripe` stage should report "completed" or "blocked" honestly, having attempted the Saleor app install for the Stripe payment app`)
- * @planks("it should not provision a store, clone the storefront, or run any other stage")
- * @planks("it should not provision a store, deploy, or run any other stage")
- * @planks("that run should not have provisioned a store, prepared the storefront, or deployed")
- * @planks("it should not deploy or run any other stage")
  * @planks("the agent runs `jolly deploy` without `--dry-run`")
  * @planks("Jolly should itself spawn `npx vercel@latest login` and surface its device-authorization URL before attempting any deploy")
- * @planks("the pending sign-in nextStep should resume by re-running `jolly deploy`, the command that reached the gate")
+ * @planks('the nextStep should instruct the human to open the URL, approve it, reply "done", and re-run `jolly deploy` to continue, the same pause-and-resume contract as the Saleor sign-in gate')
  * @planks(`each should carry at least one `nextSteps` entry naming what to do next`)
  */
 async function commandStage(
@@ -6215,8 +6136,6 @@ async function commandStage(
  * routing, the unknown-command error that names the supported surface, and the
  * unknown auth-subcommand error.
  *
- * @planks("the agent runs `jolly frobnicate --json`")
- * @planks("the error should name the supported commands help, login, logout, auth, init, start, create, storefront, recipe, stock, stripe, deploy, doctor, upgrade, skills, and completion")
  * @planks("the agent runs `jolly completion bash`")
  * @planks("the agent runs `jolly auth frobnicate --json`")
  * @planks(`the envelope status should be "error" with the stable code `UNKNOWN_AUTH_SUBCOMMAND``)
@@ -6327,7 +6246,6 @@ async function dispatch(args: ParsedArgs): Promise<Envelope> {
 
 /**
  * @planks("the agent runs `jolly start --frobnicate --json`")
- * @planks("Jolly should default NPM_CONFIG_LOGLEVEL to error so spawned npx tools suppress warn-level notices such as EBADENGINE")
  * @planks("stdout should carry the JSON envelope rather than a raw stack trace")
  * @planks(`each should carry at least one `nextSteps` entry naming what to do next`)
  */

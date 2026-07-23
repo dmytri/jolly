@@ -272,7 +272,7 @@ export function enumerateProductionEnvReads(
   return reads;
 }
 
-export type EnvViolationKind =
+type EnvViolationKind =
   | "unresolved-dynamic"
   | "mis-namespaced"
   | "unguarded-harness"

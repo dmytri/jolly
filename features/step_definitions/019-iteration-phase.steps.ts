@@ -20,9 +20,6 @@ import { saleorGraphql } from "../support/saleor-graphql.ts";
 import type { JollyWorld } from "../support/world.ts";
 
 // --- Background (capability statements) -------------------------------------
-
-Given("a deployed storefront URL in .env", function () {});
-
 // --- Scenario: Agent has live store access from day one (@sandbox) ----------
 //
 // Jolly-observable contributions: jolly init writes an .mcp.json mcp-graphql
@@ -88,24 +85,6 @@ Then(
     this.notes.storeToken = storeToken;
   },
 );
-
-Then(
-  /^the `\.mcp\.json` saleor-graphql entry should target the customer's Saleor GraphQL endpoint with the `\$\{SALEOR_TOKEN\}` Bearer header$/,
-  { timeout: 30_000 },
-  async function (this: JollyWorld) {
-    // Read-only live verification through the configured endpoint + SALEOR_TOKEN.
-    const endpoint = String(this.notes.mcpEndpoint ?? process.env["NEXT_PUBLIC_SALEOR_API_URL"]);
-    const token = this.notes.storeToken as string | undefined;
-    const result = await saleorGraphql(
-      endpoint,
-      token,
-      `query { shop { name } channels { slug } products(first: 1) { totalCount } }`,
-    );
-    assert.ok(!result.errors || result.errors.length === 0, `live query errored: ${JSON.stringify(result.errors)}`);
-    assert.ok(result.data && "shop" in result.data, "the live store should answer a read-only query");
-  },
-);
-
 Then(
   /^because the MCP server captures `SALEOR_TOKEN` at spawn, recovery from a `401` is to refresh the token and reload the MCP server$/,
   function (this: JollyWorld) {
@@ -135,92 +114,7 @@ Then(
 );
 
 // --- Scenario: Agent runs ongoing health checks (@logic) --------------------
-
-Given("the storefront has been deployed", function (this: JollyWorld) {
-  this.notes.deployed = true;
-});
-
 // `When the agent runs \`jolly doctor --json\`` is defined in
 // 020-cli-output-contract.steps.ts (identical body: runCli doctor with
 // credentials unset). Reused here — not duplicated, to avoid an ambiguous match.
-
-Then("`jolly doctor` should make no local or remote changes", function (this: JollyWorld) {
-  // No .env should be created by a read-only doctor run in a fresh temp project.
-  assert.ok(this.lastRun, "doctor must have run");
-  assert.ok(!existsSync(join(this.projectDir, ".env")), "doctor must not write .env (no side effects)");
-  // The envelope is well-formed (validates shape).
-  assert.ok(this.envelope.command.startsWith("doctor"));
-});
-
-Then(
-  "jolly doctor should detect configuration drift, missing env vars, and connectivity problems",
-  function (this: JollyWorld) {
-    // With the credentials unset, doctor reports fail/unknown checks for
-    // missing/unverifiable config rather than fabricating pass.
-    assert.ok(this.envelope.checks.length > 0, "doctor must report checks");
-    const hasDiagnostic = this.envelope.checks.some(
-      (c) => c.status === "fail" || c.status === "unknown" || c.status === "warning",
-    );
-    assert.ok(hasDiagnostic, "doctor must surface missing/unverifiable configuration");
-  },
-);
-
-Then("it should report actionable next steps for any issues found", function (this: JollyWorld) {
-  const actionable = this.envelope.checks.filter((c) => c.status === "fail" || c.status === "warning");
-  for (const check of actionable) {
-    const hasGuidance = "command" in check || this.envelope.nextSteps.length > 0;
-    assert.ok(hasGuidance, `actionable check ${check.id} should carry guidance`);
-  }
-});
-
-Then("it should support --json for structured output the agent can parse", function (this: JollyWorld) {
-  const trimmed = this.lastRun!.stdout.trim();
-  let parsed: unknown;
-  assert.doesNotThrow(() => {
-    parsed = JSON.parse(trimmed);
-  }, "--json doctor output must be exactly one JSON object");
-  assert.ok(parsed && typeof parsed === "object" && "checks" in (parsed as object));
-});
-
 // --- Scenario: Agent upgrades Jolly-managed assets (@logic) -----------------
-
-Given("skills or agent guidance may become outdated over time", function (this: JollyWorld) {
-  this.notes.upgradeContext = true;
-});
-
-When("the agent runs `jolly upgrade --json`", function (this: JollyWorld) {
-  this.runCli(["upgrade", "--json"], { env: absentCredentialsEnv() });
-});
-
-Then(
-  "the envelope should report the updated skills and guidance",
-  function (this: JollyWorld) {
-    assert.ok(this.envelope.command.startsWith("upgrade"));
-    const data = this.envelope.data as { skillsChecked?: unknown };
-    assert.ok(Array.isArray(data.skillsChecked), "upgrade must report the managed skills it checked");
-  },
-);
-
-Then("Jolly should report what changed and what the agent should review", function (this: JollyWorld) {
-  // upgrade enumerates checks and (when applicable) nextSteps to review.
-  assert.ok(this.envelope.checks.length > 0, "upgrade must report per-asset checks");
-  assert.ok(Array.isArray(this.envelope.nextSteps), "upgrade must carry a nextSteps channel");
-});
-
-Then(
-  "Jolly should not automatically apply Paper storefront migrations in v1",
-  function (this: JollyWorld) {
-    const data = this.envelope.data as { paperAutoApply?: unknown };
-    assert.equal(data.paperAutoApply, false, "Paper migrations must not be auto-applied in v1");
-  },
-);
-
-Then(
-  "it should generate an upgrade plan for Paper changes and present it to the agent",
-  function (this: JollyWorld) {
-    // Plan-only: a paper-baseline check is present (skipped when no Paper repo,
-    // unknown/plan when present). The channel for the plan exists either way.
-    const paperCheck = this.findCheck("paper-baseline");
-    assert.ok(paperCheck, "upgrade must report a paper-baseline (plan-only) check");
-  },
-);

@@ -13,7 +13,7 @@ import { cliMessage } from "./messages.ts";
 // command-surface-consistency).
 /**
  * @planks("the script should reference the supported commands help, login, logout, auth, init, start, create, storefront, recipe, stock, stripe, deploy, doctor, upgrade, skills, and completion")
- * @planks("the completion command descriptions and the `jolly completion --help` usage text are joined against the catalog entries")
+ * @planks("every `cliMessage` key referenced in {string} and {string} is joined against the catalog entries")
  */
 const COMMANDS: ReadonlyArray<readonly [string, string]> = [
   ["help", cliMessage("completion.command.help")],
@@ -54,7 +54,7 @@ function register(): void {
  * @planks("the script should reference the supported commands help, login, logout, auth, init, start, create, storefront, recipe, stock, stripe, deploy, doctor, upgrade, skills, and completion")
  * @planks("the agent runs `jolly complete -- lo`")
  * @planks("stdout should list the candidate completions `login` and `logout`")
- * @planks("the completion command descriptions and the `jolly completion --help` usage text are joined against the catalog entries")
+ * @planks("every `cliMessage` key referenced in {string} and {string} is joined against the catalog entries")
  */
 export function runCompletion(argv: string[]): number {
   register();

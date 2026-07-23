@@ -36,7 +36,7 @@ const DEFAULT_CLOUD_API_BASE = "https://cloud.saleor.io/platform/api";
  * host is not first-party (the customer-supplied `--url` is the injection point
  * this guards). Throws CloudApiError with the stable code NON_FIRST_PARTY_HOST,
  * naming the refused host. Reuses the canonical allowlist in hosts.ts.
- * @planks("the agent runs `jolly doctor saleor --json` with no reachable store")
+ * @planks("the agent runs `jolly doctor saleor --json`")
  * @planks("it should validate GraphQL connectivity")
  */
 function assertFirstPartyUrl(url: string): void {
@@ -295,7 +295,7 @@ export async function listProjectServices(
  * service in the default region, then any sandbox service, then the first
  * listed; fall back to the spec's "saleor" default when discovery yields
  * nothing.
- * @planks("the POST body should include name, project, domain_label, database_population, service, and optional basic-auth credentials")
+ * @planks("^there should be exactly one, and both the `--dry-run` preview and the real request should report and send that one body$")
  */
 export function pickService(
   services: CloudService[],
@@ -335,9 +335,8 @@ export interface EnvironmentCreationBody {
  * is null: the Saleor Cloud "blank" template (feature 012 Rule "Created
  * environments are provisioned blank").
  * @planks("^there should be exactly one, and both the `--dry-run` preview and the real request should report and send that one body$")
- * @planks("the POST body should include name, project, domain_label, database_population, service, and optional basic-auth credentials")
- * @planks("the prepared request should create a blank environment with no sample data")
- * @planks("the default region should be {string}")
+ * @planks("it should create an environment via POST \/platform\/api\/organizations\/\{organization}\/environments\/")
+ * @planks-provisional("features/012-existing-saleor-store-connection.feature:Jolly provisions a blank environment with no sample data")
  */
 export function environmentCreationBody(opts: {
   name: string;
@@ -484,8 +483,6 @@ function taskStatusUrl(taskId: string): string {
  * @planks("Jolly should poll GET \/platform\/api\/service\/task-status\/\{task_id} until status is {string}")
  * @planks("the environment creation should return a task_id for async job polling")
  * @planks("each should reach the network only through a seam that applies the first-party host predicate before sending")
- * @planks("no `errors` entry should carry the code `TASK_STATUS_FAILED`")
- * @planks("the retry should stop at the first successful poll rather than a fixed count")
  * @planks("the envelope status should be {string} after the bounded retry budget is exhausted")
  * @planks("the error should state that the creation task was accepted but its completion could not be confirmed")
  */
@@ -842,8 +839,7 @@ const RECIPE_REQUEST_CONCURRENCY = 8;
  * start and finish time so the caller can report the request timing. The first
  * poolful of requests start together and overlap, the observable seam the
  * concurrency scenario asserts against.
- * @planks("Jolly start runs the stock stage over the recipe's variants and collections")
- * @planks("the stock stage's reported request timing should show a later stock mutation starting before an earlier stock mutation finishes")
+ * @planks-provisional("features/004-jolly-configurator-starter-recipe.feature:Jolly start runs the stock and collection requests concurrently")
  */
 async function runRecordedConcurrent<T>(
   items: readonly T[],
@@ -1013,8 +1009,6 @@ async function setVariantStock(
  * fabricated completion) instead of claiming success.
  * @planks("Jolly start completes the recipe stage")
  * @planks("every recipe product variant should have stock in the recipe warehouse")
- * @planks("Jolly start runs the stock stage over the recipe's variants and collections")
- * @planks("the stock stage's reported request timing should show a later stock mutation starting before an earlier stock mutation finishes")
  */
 export async function seedRecipeStock(
   graphqlUrl: string,
@@ -1061,7 +1055,7 @@ export async function seedRecipeStock(
  * the channel as published so the storefront renders it. Only invoked when the
  * store read-back shows the slug missing, so it never duplicates an existing
  * collection. Throws COLLECTION_CREATE_FAILED on a payload error.
- * @planks("the recipe's `featured-products` collection should exist in the store holding its declared products")
+ * @planks("the bootstrap deploy should record a successful configurator deployment report and the recipe's catalog entities should exist in the store")
  */
 async function createRecipeCollection(
   graphqlUrl: string,
@@ -1152,7 +1146,7 @@ async function createRecipeCollection(
  * Returns how many products were assigned; throws COLLECTION_ASSIGN_FAILED on a
  * payload error so the caller reports the stage honestly instead of a fabricated
  * completion.
- * @planks("the recipe's `featured-products` collection should exist in the store holding its declared products")
+ * @planks("the bootstrap deploy should record a successful configurator deployment report and the recipe's catalog entities should exist in the store")
  */
 export async function assignCollectionProducts(
   graphqlUrl: string,
@@ -1222,8 +1216,7 @@ export async function assignCollectionProducts(
 /** Add one product to a collection via `collectionAddProducts`; idempotent, a
  * member already present is a no-op. Throws COLLECTION_ASSIGN_FAILED on a payload
  * error so the caller reports the stage honestly.
- * @planks("the recipe's `featured-products` collection should exist in the store holding its declared products")
- * @planks("the stock stage's reported request timing should show a later collection assignment starting before an earlier collection assignment finishes")
+ * @planks("the bootstrap deploy should record a successful configurator deployment report and the recipe's catalog entities should exist in the store")
  */
 async function addProductToCollection(
   graphqlUrl: string,
@@ -1267,8 +1260,7 @@ async function addProductToCollection(
  * collection and product ids by slug and re-adds members idempotently; a
  * collection or product the store does not hold contributes no request. Returns
  * how many memberships were re-asserted plus each request's timing interval.
- * @planks("Jolly start runs the stock stage over the recipe's variants and collections")
- * @planks("the stock stage's reported request timing should show a later collection assignment starting before an earlier collection assignment finishes")
+ * @planks("the bootstrap deploy should record a successful configurator deployment report and the recipe's catalog entities should exist in the store")
  */
 export async function assignRecipeCollectionsConcurrent(
   graphqlUrl: string,
@@ -1472,7 +1464,6 @@ export type CheckoutProbeOutcome =
  * (feature 020 Rule "First-party hosts only") before sending, so every live
  * store probe refuses a non-first-party endpoint unsent. Returns the parsed
  * body or throws.
- * @planks("a checkout-readiness check should be reported in the stripe group")
  * @planks("each should reach the network only through a seam that applies the first-party host predicate before sending")
  * @planks("no request should be sent to evil.example.com")
  */

@@ -36,7 +36,7 @@ export interface ScenarioCost {
   durationNs: number;
 }
 
-export interface WakeRecord {
+interface WakeRecord {
   /** Every scenario that ran, with the wall-clock cost it recorded. */
   scenarios: ScenarioCost[];
   /** Scenarios the run started that carry no wall-clock duration. */
@@ -150,7 +150,7 @@ export function readTierCommands(riggingFile: string): TierCommand[] {
 const INSTRUMENTED_DIRECTORY = "instrumented";
 
 /** Whether a wake record path is an instrumented run's record. */
-export function isInstrumentedRecord(recordPath: string): boolean {
+function isInstrumentedRecord(recordPath: string): boolean {
   return recordPath.split("/").includes(INSTRUMENTED_DIRECTORY);
 }
 
@@ -178,7 +178,7 @@ export function withoutRecordWrite(command: TierCommand): TierCommand {
   };
 }
 
-export interface FixtureTier {
+interface FixtureTier {
   /** The scratch project the tier command runs in. */
   dir: string;
   /** The scenarios the fixture tier runs. */
@@ -400,7 +400,7 @@ export function readTierWallClock(recordPath: string): TierClock | undefined {
  * the record file's last write. Undefined while the record is absent or
  * carries no completed run.
  */
-export interface RecordRunWindow {
+interface RecordRunWindow {
   startMs: number;
   endMs: number;
 }
@@ -416,7 +416,7 @@ export function recordRunWindow(
 
 /** One profile leg of the sandbox tier's last sweep: the leg's latest
  * completed record, as the run window a run-scoped ledger reader joins on. */
-export interface SweepLegWindow {
+interface SweepLegWindow {
   /** The kebab-case leg name, such as `sandbox` or `sandbox-serial`. */
   tier: string;
   recordPath: string;
@@ -462,7 +462,7 @@ export function sweepLegWindows(
   return [...legs.values()];
 }
 
-export interface BudgetViolation {
+interface BudgetViolation {
   tier: string;
   budgetSeconds: number;
   recordedSeconds: number;
@@ -474,14 +474,14 @@ export interface BudgetViolation {
  * wall clock to compare against a budget. Omitting it would read exactly like
  * fitting the budget, so it is carried as its own verdict instead.
  */
-export interface IncompleteLane {
+interface IncompleteLane {
   tier: string;
   recordPath: string;
   message: string;
 }
 
 /** A lane the wake carries: a completed run's clock, or one still incomplete. */
-export type TierLane = TierClock | { tier: string; recordPath: string; incomplete: true };
+type TierLane = TierClock | { tier: string; recordPath: string; incomplete: true };
 
 const isIncomplete = (
   lane: TierLane,

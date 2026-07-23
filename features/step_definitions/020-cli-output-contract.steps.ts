@@ -311,50 +311,9 @@ Then("stderr should be empty", function (this: JollyWorld) {
 // --- Scenario: --quiet reports only the problem on a failed run ------------
 // A refused non-first-party `--url` fails pre-flight; under --quiet the failure
 // and its stable code go to stderr only, with no stdout and no envelope.
-
-When(
-  /^the agent runs `jolly create store --url https:\/\/evil\.example\.com\/graphql\/ --quiet`$/,
-  function (this: JollyWorld) {
-    const env = (this.notes.urlGuardEnv as Record<string, string | undefined>)
-      ?? absentCredentialsEnv();
-    this.runCli(
-      ["create", "store", "--url", "https://evil.example.com/graphql/", "--quiet"],
-      { env },
-    );
-  },
-);
-
-Then(
-  "stderr should name the failure and the stable code `NON_FIRST_PARTY_HOST`",
-  function (this: JollyWorld) {
-    const stderr = this.lastRun!.stderr;
-    assert.ok(
-      stderr.includes("NON_FIRST_PARTY_HOST"),
-      `--quiet must print the stable code NON_FIRST_PARTY_HOST to stderr; got:\n${stderr}`,
-    );
-    assert.ok(
-      stderr.includes("evil.example.com"),
-      `--quiet must name the refused host on stderr; got:\n${stderr}`,
-    );
-  },
-);
-
 // --- Scenario: Human output is colourful in a terminal and plain when not --
 // Colour appears only in human terminal output: present when stdout is a real
 // terminal, absent when stdout is a pipe and under --json.
-
-When("`jolly doctor` runs in an interactive terminal", function (this: JollyWorld) {
-  assert.ok(runOnTerminal(this, ["doctor"]), "the interactive terminal run must start");
-});
-
-Then("stdout should contain ANSI colour codes", function (this: JollyWorld) {
-  assert.match(
-    this.lastRun!.stdout,
-    ANSI_COLOUR,
-    `human terminal output must carry ANSI colour; got:\n${this.lastRun!.stdout}`,
-  );
-});
-
 When(
   "the agent runs `jolly doctor` with stdout not a terminal",
   function (this: JollyWorld) {
@@ -383,31 +342,6 @@ Then(
 );
 
 // --- Scenario: Machine output carries no colour or emoji -------------------
-
-Then(
-  "the stdout envelope should contain no ANSI colour codes",
-  function (this: JollyWorld) {
-    assert.ok(this.lastRun!.envelope, "expected a --json envelope on stdout");
-    assert.doesNotMatch(
-      this.lastRun!.stdout,
-      ANSI_COLOUR,
-      `--json stdout must carry no ANSI colour; got:\n${this.lastRun!.stdout}`,
-    );
-  },
-);
-
-Then(
-  "the stdout envelope should contain no emoji",
-  function (this: JollyWorld) {
-    assert.ok(this.lastRun!.envelope, "expected a --json envelope on stdout");
-    assert.doesNotMatch(
-      this.lastRun!.stdout,
-      EMOJI,
-      `--json stdout must carry no emoji; got:\n${this.lastRun!.stdout}`,
-    );
-  },
-);
-
 // --- Scenario: Progress is shown in place on stderr, never on the result stream ---
 //
 // The output contract (Rule "Output envelope principles"): the result goes to
@@ -756,37 +690,6 @@ Then(
 // The envelope still owes the agent its recovery, so this drives a real doctor
 // run whose token is present-but-invalid (really rejected by the Cloud API) and
 // asserts the recovery on the envelope it actually emitted.
-
-Given(
-  "the agent runs `jolly doctor --json` with an invalid JOLLY_SALEOR_CLOUD_TOKEN",
-  function (this: JollyWorld) {
-    const token = `invalid-${this.namespace}-token`;
-    this.trackSecret(token);
-    this.runCli(["doctor", "--json"], {
-      env: absentCredentialsEnv({ JOLLY_SALEOR_CLOUD_TOKEN: token }),
-    });
-  },
-);
-
-Then(
-  "the envelope should carry at least one `nextSteps` entry naming what to do next",
-  function (this: JollyWorld) {
-    const steps = this.envelope.nextSteps;
-    assert.ok(Array.isArray(steps), "envelope must carry a nextSteps channel");
-    assert.ok(
-      steps.length > 0,
-      "an error envelope must carry at least one nextSteps entry",
-    );
-    for (const step of steps) {
-      const description = String(step.description ?? "");
-      assert.ok(
-        description.trim().length > 0,
-        `nextSteps entry must name what to do next: ${JSON.stringify(step)}`,
-      );
-    }
-  },
-);
-
 // --- Scenario: A Cloud API error carries the recovery whatever its code -----
 //
 // A non-limit rejection of an environment creation is an ordinary failure the
@@ -795,14 +698,6 @@ Then(
 // Cloud API rejects as invalid. The rejection is real, it names a code other
 // than ENVIRONMENT_LIMIT_REACHED, and it creates nothing — no double, and no
 // dependence on what happens to be standing in the org.
-
-Given(
-  "the Cloud API rejects an environment creation with a code other than `ENVIRONMENT_LIMIT_REACHED`",
-  function (this: JollyWorld) {
-    this.notes.rejectedDomainLabel = `Invalid Label ${this.namespace}!!`;
-  },
-);
-
 // --- Scenario: Every error envelope carries the recovery --------------------
 //
 // An error envelope carries its own recovery: at least one `nextSteps` entry,
@@ -1461,129 +1356,6 @@ Then(
 // the project links the shared Vercel project, so `jolly deploy` takes its
 // real reuse path — capture the READY production URL from `vercel list`,
 // probe it, report `deployed-storefront-serving` — with no fresh deploy spent.
-
-Given(
-  "a completed Vercel deploy whose CLI output named a deployed `*.vercel.app` URL",
-  { timeout: 900_000 },
-  async function (this: JollyWorld) {
-    const endpoint = process.env["NEXT_PUBLIC_SALEOR_API_URL"];
-    const token = process.env["SALEOR_TOKEN"];
-    assert.ok(
-      endpoint && token,
-      "the @sandbox Before hook must have provisioned the shared store (NEXT_PUBLIC_SALEOR_API_URL + SALEOR_TOKEN)",
-    );
-    writeEnvValues(this.projectDir, {
-      NEXT_PUBLIC_SALEOR_API_URL: endpoint!,
-      SALEOR_URL: endpoint!,
-      SALEOR_TOKEN: token!,
-      NEXT_PUBLIC_DEFAULT_CHANNEL: "us",
-    });
-    await materializePreparedStorefront(join(this.projectDir, "storefront"));
-    const deployment = await ensureSharedDeployment();
-    linkStorefrontToSharedProject(join(this.projectDir, "storefront"), deployment.project);
-    this.notes.servingDeployment = deployment;
-  },
-);
-
-When(
-  "`jolly deploy` confirms the deployment serves before reporting completed",
-  { timeout: 600_000 },
-  function (this: JollyWorld) {
-    this.runCli(["deploy", "--yes", "--json"], { timeoutMs: 540_000 });
-  },
-);
-
-Then(
-  "the serving probe should send its GET to exactly the captured `*.vercel.app` URL",
-  { timeout: 120_000 },
-  async function (this: JollyWorld) {
-    const check = this.findCheck("deployed-storefront-serving");
-    assert.ok(
-      check,
-      `the deploy must report its serving confirmation (deployed-storefront-serving); got checks ${JSON.stringify(
-        this.envelope.checks.map((c) => c.id),
-      )}`,
-    );
-    assert.equal(
-      check!.status,
-      "pass",
-      `the serving confirmation must have verified the live deployment: ${JSON.stringify(check)}`,
-    );
-    // The probe's destination is the URL the completed stage captured from the
-    // Vercel CLI and reports in its own reply. The stage outcome carries it in
-    // the reply's stage data; read it from wherever the envelope shape put it.
-    const captured =
-      String((this.envelope.data as Record<string, unknown>)["deploymentUrl"] ?? "") ||
-      (JSON.stringify(this.envelope).match(
-        /https:\/\/[a-z0-9.-]+\.vercel\.app[^"\\\s]*/i,
-      )?.[0] ??
-        "");
-    assert.match(
-      captured,
-      /^https:\/\/[a-z0-9.-]+\.vercel\.app/i,
-      `the reply must carry the captured *.vercel.app deployment URL; got "${captured}" in ${JSON.stringify(this.envelope)}`,
-    );
-    assert.ok(
-      String(check!.description ?? "").includes(captured),
-      `the serving confirmation must name exactly the captured URL it probed; check=${JSON.stringify(
-        check,
-      )} captured=${captured}`,
-    );
-    // The claim is real: the named URL is a live deployment answering a GET
-    // from this test process too.
-    const response = await fetch(captured, { method: "GET", redirect: "follow" });
-    assert.ok(
-      response.status < 400,
-      `the captured URL the probe verified must really serve; GET ${captured} answered ${response.status}`,
-    );
-  },
-);
-
-Then(
-  "no other host outside the first-party allowlist should be contacted",
-  function (this: JollyWorld) {
-    // Structural discharge over the tree that just ran: every network request
-    // site in Jolly's own code consults the first-party predicate (or the
-    // captured-URL gate at the serving-probe seams) before sending, so no send
-    // to a host outside the allowlist can exist in the run.
-    const violations = findUnguardedRequestSites("src/");
-    assert.equal(
-      violations.length,
-      0,
-      `request sites that could contact a host outside the allowlist:\n${violations
-        .map((violation) => `  - ${violation.message}`)
-        .join("\n")}`,
-    );
-    // And the behavioural reply names no non-first-party destination beyond
-    // the captured *.vercel.app deployment surface.
-    const captured =
-      String((this.envelope.data as Record<string, unknown>)["deploymentUrl"] ?? "") ||
-      (JSON.stringify(this.envelope).match(
-        /https:\/\/[a-z0-9.-]+\.vercel\.app[^"\\\s]*/i,
-      )?.[0] ??
-        "");
-    const capturedHost = captured ? new URL(captured).hostname : "";
-    for (const match of JSON.stringify(this.envelope).matchAll(
-      /https?:\/\/([a-z0-9.-]+)/gi,
-    )) {
-      const host = match[1]!;
-      const allowed =
-        host === capturedHost ||
-        host.endsWith(".vercel.app") ||
-        host === "vercel.com" ||
-        host === "saleor.cloud" ||
-        host.endsWith(".saleor.cloud") ||
-        host === "cloud.saleor.io" ||
-        host === "auth.saleor.io" ||
-        host === "github.com";
-      assert.ok(
-        allowed,
-        `the deploy reply names the host "${host}", outside the first-party allowlist and the captured deployment surface`,
-      );
-    }
-  },
-);
-
 // --- Scenario: No envelope reports overall success while carrying a failed check
 //
 // The envelope's `status` is the claim an agent reads first; a `checks` entry

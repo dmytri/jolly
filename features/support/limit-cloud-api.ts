@@ -16,7 +16,7 @@
 import { createServer, type Server } from "node:http";
 import type { JollyWorld } from "./world.ts";
 
-export interface LimitHarness {
+interface LimitHarness {
   server: Server;
   baseUrl: string;
   /** Writes (POST/PUT/DELETE) the run issued; only the env-create POST is expected. */

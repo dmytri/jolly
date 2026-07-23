@@ -108,9 +108,6 @@ function failureReasons(core: CloseEnvelope): string[] {
 }
 
 /**
- * @planks("the human result on stdout should state in prose that the plan was previewed and nothing was created")
- * @planks("the human result on stdout should carry no per-check `[status] check-id` enumeration line")
- * @planks("the human result on stdout should carry no `next:` command line")
  * @planks("the closing summary on stdout should name the store's Saleor Dashboard URL")
  * @planks("the closing summary on stdout should name the deployed storefront URL")
  * @planks("the closing summary on stdout should name the Stripe Dashboard key entry as the human's remaining step")

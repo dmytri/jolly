@@ -44,6 +44,13 @@ Feature: Jolly CLI output contract
     Then stdout should contain no ANSI colour codes
     And `jolly doctor --json` stdout should contain no ANSI colour codes
 
+  @captain @logic
+  Scenario: Human terminal output carries colour and a restrained status glyph per check
+    When the agent runs `jolly doctor` in an interactive terminal
+    Then stdout should carry ANSI colour codes distinguishing pass, warning, and fail results
+    And each check result should carry a restrained status glyph for its pass, warning, fail, or skipped state
+    And the same run under `--json` should carry neither colour nor glyph
+
   @logic
   Scenario: Progress is shown in place on stderr, never on the result stream
     Given a fresh empty project directory

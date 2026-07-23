@@ -143,7 +143,7 @@ export function persistedAgentRuns(transcriptDir: string): string[] {
   return readdirSync(transcriptDir);
 }
 
-export interface ScenarioSummary {
+interface ScenarioSummary {
   /** The cucumber scenario summary line, such as `2 scenarios (2 failed)`. */
   line: string;
   total: number;

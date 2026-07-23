@@ -19,7 +19,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { extname, join } from "node:path";
 import { REPO_ROOT } from "./repo-root.ts";
 
-export interface PlankViolation {
+interface PlankViolation {
   file: string;
   line: number;
   message: string;
@@ -145,83 +145,6 @@ function provisionalRefOf(line: string): string | undefined {
   return match ? match[2] : undefined;
 }
 
-/**
- * Plank-form violations across the implementation directories: every `@planks`
- * token must sit in a docblock attached to a seam declaration and name a
- * Given/When/Then step. A token in a line comment, a token inside a function
- * body, and a docblock attached to a type alias or interface are each reported.
- */
-export function findPlankFormViolations(
-  dirs: string[],
-  injected: InjectedSource[] = [],
-): PlankViolation[] {
-  const violations: PlankViolation[] = [];
-  for (const [file, { source, text }] of implementationProject(dirs, injected)) {
-    if (!text.includes(PLANK_TOKEN)) continue;
-
-    // Every plank token in a docblock, mapped to the declaration that docblock
-    // is attached to.
-    const inDocblock = new Set<number>();
-    for (const doc of source.getDescendantsOfKind(SyntaxKind.JSDoc)) {
-      const docText = doc.getText();
-      if (!docText.includes(PLANK_TOKEN)) continue;
-      const parent = doc.getParent();
-      const firstLine = doc.getStartLineNumber();
-      docText.split("\n").forEach((docLine, offset) => {
-        if (!docLine.includes(PLANK_TOKEN)) return;
-        const line = firstLine + offset;
-        inDocblock.add(line);
-        if (!parent || !isSeamDeclaration(parent)) {
-          violations.push({
-            file,
-            line,
-            message:
-              `${file}:${line} plank sits on a ${parent ? declarationLabel(parent) : "detached docblock"}, ` +
-              `not on a seam declaration — hoist it to the declaration whose behaviour the step requires`,
-          });
-        }
-        if (docLine.includes(PROVISIONAL_TOKEN)) {
-          // A provisional plank names a scenario reference, not a step: the
-          // docblock-on-a-seam placement rules above still apply, and the
-          // reference must be quoted, but no step keyword is owed.
-          if (provisionalRefOf(docLine) === undefined) {
-            violations.push({
-              file,
-              line,
-              message: `${file}:${line} provisional plank carries no quoted scenario reference in \`@planks-provisional("...")\` form`,
-            });
-          }
-          return;
-        }
-        if (stepTextOf(docLine) === undefined) {
-          violations.push({
-            file,
-            line,
-            message: `${file}:${line} plank carries no quoted step text in \`@planks("...")\` form`,
-            });
-          return;
-        }
-      });
-    }
-
-    // Every plank token the docblock reader could not see: a line comment, a
-    // block comment inside a function body, or a bare token in code.
-    text.split("\n").forEach((lineText, index) => {
-      const line = index + 1;
-      if (!lineText.includes(PLANK_TOKEN)) return;
-      if (inDocblock.has(line)) return;
-      violations.push({
-        file,
-        line,
-        message:
-          `${file}:${line} plank token sits outside a docblock on a declaration, ` +
-          `so no docblock reader can inventory it — hoist it to the seam's docblock`,
-      });
-    });
-  }
-  return violations;
-}
-
 /** Every well-formed plank in the implementation directories. */
 export function collectPlanks(
   dirs: string[],
@@ -298,7 +221,7 @@ export function findUnpatternedPlanks(planks: Plank[], patterns: Iterable<string
   return planks.filter((plank) => !patternSet.has(plank.step));
 }
 
-export interface ProvisionalPlank {
+interface ProvisionalPlank {
   file: string;
   line: number;
   /** The `<spec>.feature:<Scenario Name>` reference inside the annotation. */

@@ -1,18 +1,18 @@
-// Feature methodology-conformance — six derived checks that make Shipshape
+// Feature methodology-conformance — derived checks that make Shipshape
 // methodology rules executable (@logic @invariant):
 //   - a green tree carries no standing perturbation token in src/ or bin/,
-//   - the watchbill-shape check accepts a well-formed watchbill and rejects a
-//     malformed one,
-//   - every plank sits in a docblock on the declaration it describes,
-//   - no feature file carries a bare `#` comment line,
-//   - every plank names a step that still exists in a feature, and
-//   - a credentialed tier fails loudly when its credential is absent.
+//   - a credentialed tier fails loudly when its credential is absent,
+//   - every plank names a current step-definition pattern, and a
+//     `@planks-provisional(...)` annotation liquidates itself at promotion,
+//   - no dead verification-support artifact accumulates: no orphaned
+//     step-definition pattern and no unreferenced features/support/ export, and
+//   - every verification surface in the tree is run by a configured tier command.
 // All are verification support; each is proven honest by a planted red inside
 // its own scenario. The plank checks read the TypeScript AST, so they see what
-// the text-search plank inventory cannot: plank FORM.
+// the text-search plank inventory cannot.
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { REPO_ROOT, type JollyWorld } from "../support/world.ts";
@@ -26,11 +26,7 @@ import {
 } from "../support/tier-credential.ts";
 import type { TierCommand } from "../support/wake.ts";
 import {
-  findBareComments,
   scanForToken,
-  validateWatchbillShape,
-  type CommentLine,
-  type ShapeResult,
   type TokenMatch,
 } from "../support/methodology-conformance.ts";
 import {
@@ -38,19 +34,12 @@ import {
   collectPlanks,
   collectProvisionalPlanks,
   collectStepUsagePatterns,
-  findPlankFormViolations,
   findProvisionalPlankViolations,
   findUnpatternedPlanks,
   parseScenarioIndex,
   type InjectedSource,
   type Plank,
-  type PlankViolation,
 } from "../support/plank-conformance.ts";
-import {
-  findDependencyRecordViolations,
-  referenceCorpus,
-  type DependencyViolation,
-} from "../support/dependency-record-conformance.ts";
 import {
   enumerateTestSurfaces,
   findUnreachedSurfaces,
@@ -60,10 +49,15 @@ import {
   type TestSurface,
 } from "../support/verification-surface-conformance.ts";
 import {
-  findArchitectureDrift,
-  type ArchitectureViolation,
-  type ClaimKind,
-} from "../support/architecture-conformance.ts";
+  collectStepUsageEntries,
+  collectSupportExports,
+  findOrphanPatterns,
+  findUnreferencedExports,
+  type OrphanPattern,
+  type StepUsageEntry,
+  type SupportExport,
+  type UnreferencedExport,
+} from "../support/dead-artifact-conformance.ts";
 
 /** The implementation directories from RIGGING.md. */
 const IMPLEMENTATION_DIRS = ["src/", "bin/"];
@@ -115,200 +109,6 @@ Then(
   },
 );
 
-Given(
-  "a well-formed {string} fixture with ordered watches {string} and {string}, each holding only a {string} array of {string} references or a tier tag",
-  function (
-    this: JollyWorld,
-    _fileName: string,
-    firstWatch: string,
-    secondWatch: string,
-    scenariosKey: string,
-    _referenceForm: string,
-  ) {
-    this.notes.watchbillFixture = {
-      [firstWatch]: {
-        [scenariosKey]: [
-          "features/methodology-conformance.feature:A green tree carries no standing perturbation token",
-        ],
-      },
-      [secondWatch]: {
-        [scenariosKey]: ["@logic"],
-      },
-    };
-  },
-);
-
-When("the watchbill-shape check validates the fixture", function (this: JollyWorld) {
-  this.notes.watchbillResult = validateWatchbillShape(this.notes.watchbillFixture);
-});
-
-Then("it should report the fixture well-formed", function (this: JollyWorld) {
-  const result = this.notes.watchbillResult as ShapeResult;
-  assert.equal(
-    result.valid,
-    true,
-    `expected the fixture well-formed, got errors:\n${result.errors.join("\n")}`,
-  );
-});
-
-Then(
-  "a fixture whose watch carries prose, metadata, or a key other than {string} should redden the check",
-  function (this: JollyWorld, scenariosKey: string) {
-    const malformed: Array<[string, unknown]> = [
-      [
-        "extra key alongside scenarios",
-        { watch1: { [scenariosKey]: ["features/x.feature:Y"], note: "do this first" } },
-      ],
-      [
-        "prose key at watch level",
-        { watch1: { [scenariosKey]: ["features/x.feature:Y"] }, comment: "prose" },
-      ],
-      [
-        "metadata object as a scenario entry",
-        { watch1: { [scenariosKey]: [{ ref: "features/x.feature:Y" }] } },
-      ],
-      [
-        "free-form scenario entry",
-        { watch1: { [scenariosKey]: ["do the thing"] } },
-      ],
-      [
-        "unordered watch name",
-        { watch2: { [scenariosKey]: ["features/x.feature:Y"] } },
-      ],
-    ];
-    for (const [label, fixture] of malformed) {
-      const result = validateWatchbillShape(fixture);
-      assert.equal(
-        result.valid,
-        false,
-        `expected malformed fixture rejected (${label}): ${JSON.stringify(fixture)}`,
-      );
-    }
-  },
-);
-
-When(
-  "the plank-form check reads every {string} token in them",
-  function (this: JollyWorld, token: string) {
-    this.notes.plankToken = token;
-    this.notes.plankFormViolations = findPlankFormViolations(
-      this.notes.implDirs as string[],
-    );
-  },
-);
-
-Then(
-  "each should sit in a docblock attached to a declaration and carry a quoted step text",
-  function (this: JollyWorld) {
-    const violations = this.notes.plankFormViolations as PlankViolation[];
-    assert.equal(
-      violations.length,
-      0,
-      `malformed planks:\n${violations.map((violation) => `  - ${violation.message}`).join("\n")}`,
-    );
-  },
-);
-
-/** A plank the text-search inventory reports as present, in each malformed form. */
-function plantedMalformedPlank(kind: string): InjectedSource {
-  const step = 'When the agent runs `jolly doctor`';
-  const bodies: Record<string, string> = {
-    "type alias": [
-      `/** @planks("${step}") */`,
-      "type DoctorReport = { ok: boolean };",
-      "export function runDoctor(): DoctorReport {",
-      "  return { ok: true };",
-      "}",
-    ].join("\n"),
-    "line comment": [
-      `// @planks("${step}")`,
-      "export function runDoctor(): boolean {",
-      "  return true;",
-      "}",
-    ].join("\n"),
-    "function body": [
-      "export function runDoctor(): boolean {",
-      `  /* @planks("${step}") */`,
-      "  return true;",
-      "}",
-    ].join("\n"),
-  };
-  return {
-    file: `src/.planted-${kind.split(" ").join("-")}.ts`,
-    text: bodies[kind]!,
-  };
-}
-
-Then(
-  "a {string} token attached to a type alias rather than the seam beneath it should redden the check",
-  function (this: JollyWorld, _token: string) {
-    const planted = plantedMalformedPlank("type alias");
-    const violations = findPlankFormViolations(this.notes.implDirs as string[], [planted]);
-    assert.ok(
-      violations.some((violation) => violation.file === planted.file),
-      `a plank docblock on a type alias sitting above the seam was not reported:\n${planted.text}`,
-    );
-  },
-);
-
-Then(
-  "a {string} token in a line comment or inside a function body should redden the check",
-  function (this: JollyWorld, _token: string) {
-    for (const kind of ["line comment", "function body"]) {
-      const planted = plantedMalformedPlank(kind);
-      const violations = findPlankFormViolations(this.notes.implDirs as string[], [
-        planted,
-      ]);
-      assert.ok(
-        violations.some((violation) => violation.file === planted.file),
-        `a plank token in a ${kind} was not reported:\n${planted.text}`,
-      );
-    }
-  },
-);
-
-Given("the specs directory {string}", function (this: JollyWorld, dir: string) {
-  this.notes.specsDir = dir;
-});
-
-When("the spec-comment check reads every feature file", function (this: JollyWorld) {
-  this.notes.bareComments = findBareComments(this.notes.specsDir as string);
-});
-
-Then(
-  "none should carry a bare {string} comment line",
-  function (this: JollyWorld, marker: string) {
-    const comments = this.notes.bareComments as CommentLine[];
-    assert.equal(
-      comments.length,
-      0,
-      `feature files carrying a bare "${marker}" comment line:\n${comments
-        .map((comment) => `  ${comment.file}:${comment.line} ${comment.text}`)
-        .join("\n")}`,
-    );
-  },
-);
-
-Then(
-  "a feature file carrying a {string} comment line should redden the check",
-  function (this: JollyWorld, marker: string) {
-    const planted: InjectedSource = {
-      file: "features/.planted-bare-comment.feature",
-      text: [
-        "Feature: Planted",
-        "",
-        `  ${marker} the agent runs this first`,
-        "  Scenario: A planted scenario",
-        "    Given the fixture step runs",
-      ].join("\n"),
-    };
-    const comments = findBareComments(this.notes.specsDir as string, [planted]);
-    assert.ok(
-      comments.some((comment) => comment.file === planted.file),
-      `a feature file carrying a bare "${marker}" comment line was not reported:\n${planted.text}`,
-    );
-  },
-);
 
 Given(
   "the {string} step texts in the implementation directories",
@@ -540,129 +340,6 @@ Then("it should invoke no model", function (this: JollyWorld) {
   );
 });
 
-// ─── The architecture document's structural claims ──────────────────────────
-//
-// ARCHITECTURE.md is a deliberate second copy of tree facts, kept honest by
-// this check rather than by discipline. Each claim family is proven by its own
-// planted drift inside the redden step.
-
-const TECHNOLOGIES_MARKER = "**Technologies:**";
-
-function architectureViolations(
-  world: JollyWorld,
-  kind: ClaimKind,
-): ArchitectureViolation[] {
-  return (world.notes.architectureViolations as ArchitectureViolation[]).filter(
-    (violation) => violation.kind === kind,
-  );
-}
-
-function assertNoArchitectureDrift(world: JollyWorld, kind: ClaimKind): void {
-  const violations = architectureViolations(world, kind);
-  assert.equal(
-    violations.length,
-    0,
-    `architecture-document ${kind} claims drifted from the tree:\n${violations
-      .map((violation) => `  - ${violation.message}`)
-      .join("\n")}`,
-  );
-}
-
-Given(
-  "the architecture document {string}",
-  function (this: JollyWorld, name: string) {
-    const path = join(REPO_ROOT, name);
-    assert.ok(existsSync(path), `${name} is absent from the project root`);
-    this.notes.architectureText = readFileSync(path, "utf8");
-  },
-);
-
-When(
-  "the architecture-conformance check reads its structural claims",
-  function (this: JollyWorld) {
-    this.notes.architectureViolations = findArchitectureDrift(
-      this.notes.architectureText as string,
-    );
-  },
-);
-
-Then(
-  "every module it lists under {string} should exist, and every module in {string} should be listed",
-  function (this: JollyWorld, _listedDir: string, _treeDir: string) {
-    assertNoArchitectureDrift(this, "module");
-  },
-);
-
-Then(
-  "every verification technology it names should be referenced in the tree",
-  function (this: JollyWorld) {
-    assertNoArchitectureDrift(this, "technology");
-  },
-);
-
-Then(
-  "a missing or unlisted module, or a named technology with no reference, should redden the check",
-  function (this: JollyWorld) {
-    const text = this.notes.architectureText as string;
-
-    // A listed module that does not exist.
-    const modulesHeading = text.match(/^#{1,6}\s.*Library Modules.*$/m);
-    assert.ok(
-      modulesHeading,
-      "the document no longer carries a Library Modules heading to plant under",
-    );
-    const ghost = "planted-ghost-module.ts";
-    const withGhost = text.replace(
-      modulesHeading[0],
-      `${modulesHeading[0]}\n\n| \`${ghost}\` | planted |`,
-    );
-    assert.ok(
-      findArchitectureDrift(withGhost).some(
-        (violation) =>
-          violation.kind === "module" && violation.message.includes(ghost),
-      ),
-      `the planted listing of "src/lib/${ghost}" was not reported as missing`,
-    );
-
-    // A named technology with no reference.
-    const verificationIndex = text.indexOf("BDD Verification");
-    const markerIndex = text.indexOf(TECHNOLOGIES_MARKER, verificationIndex);
-    assert.ok(
-      verificationIndex !== -1 && markerIndex !== -1,
-      "the document no longer carries a BDD Verification Technologies line to plant on",
-    );
-    const insertAt = markerIndex + TECHNOLOGIES_MARKER.length;
-    const plantedTech = "planted-untraceable-tech";
-    const withTech = `${text.slice(0, insertAt)} \`${plantedTech}\`,${text.slice(insertAt)}`;
-    assert.ok(
-      findArchitectureDrift(withTech).some(
-        (violation) =>
-          violation.kind === "technology" && violation.message.includes(plantedTech),
-      ),
-      `the planted technology "${plantedTech}" was not reported as unreferenced`,
-    );
-  },
-);
-
-Then(
-  "a file count stated in the document should not be checked, since adding a file is routine and a count that reddens on routine work trains its reader to ignore it",
-  function (this: JollyWorld) {
-    // The inverse of a planted red: plant a count the tree cannot possibly
-    // match, and assert the check stays silent about it. Planting the sentence
-    // rather than mutating one the document happens to carry keeps the proof
-    // non-vacuous whether or not the shipped document still states any count.
-    const text = this.notes.architectureText as string;
-    const planted = `${text}\n\nThe project has 99999 Gherkin feature files, 99999 step-definition files, and 99999 files.\n`;
-    const before = findArchitectureDrift(text);
-    const after = findArchitectureDrift(planted);
-    assert.deepEqual(
-      after.map((violation) => violation.message).sort(),
-      before.map((violation) => violation.message).sort(),
-      "a stated file count changed the check's verdict; counts are no longer a checked claim",
-    );
-  },
-);
-
 // ─── Provisional planks: `@planks-provisional(...)` freshness ───────────────
 // A seam a `@captain` skeleton describes carries `@planks-provisional("<spec>.
 // feature:<Scenario Name>")` so the seam stays findable through promotion
@@ -764,109 +441,6 @@ Then(
 );
 
 // ─── The dependency record and the package manifest agree ──────────────────
-
-Given(
-  "the dependency entries recorded in {string} and the dependency lists in {string}",
-  function (this: JollyWorld, riggingFile: string, manifestFile: string) {
-    this.notes.riggingText = readFileSync(join(REPO_ROOT, riggingFile), "utf8");
-    this.notes.manifestText = readFileSync(join(REPO_ROOT, manifestFile), "utf8");
-  },
-);
-
-When("the dependency-record check joins them", function (this: JollyWorld) {
-  this.notes.dependencyViolations = findDependencyRecordViolations({
-    riggingText: String(this.notes.riggingText),
-    manifestText: String(this.notes.manifestText),
-  });
-});
-
-Then(
-  "every dependency recorded in {string} should be installed in {string}",
-  function (this: JollyWorld, _riggingFile: string, _manifestFile: string) {
-    const violations = (
-      this.notes.dependencyViolations as DependencyViolation[]
-    ).filter((violation) => violation.kind === "recorded-uninstalled");
-    assert.equal(
-      violations.length,
-      0,
-      `recorded-but-uninstalled dependencies:\n${violations
-        .map((violation) => `  - ${violation.message}`)
-        .join("\n")}`,
-    );
-  },
-);
-
-Then(
-  "every {string} dependency should be referenced by the tree",
-  function (this: JollyWorld, _manifestFile: string) {
-    const violations = (
-      this.notes.dependencyViolations as DependencyViolation[]
-    ).filter((violation) => violation.kind === "installed-unreferenced");
-    assert.equal(
-      violations.length,
-      0,
-      `installed-but-unreferenced dependencies:\n${violations
-        .map((violation) => `  - ${violation.message}`)
-        .join("\n")}`,
-    );
-  },
-);
-
-Then(
-  "a recorded-but-uninstalled or installed-but-unreferenced dependency should redden the check",
-  function (this: JollyWorld) {
-    const riggingText = String(this.notes.riggingText);
-    const manifestText = String(this.notes.manifestText);
-
-    // Recorded but not installed: plant a ghost entry into the record. The
-    // ghost names are assembled at run time so this file's own source never
-    // carries them as literals — a literal here would be a tree reference that
-    // defeats the installed-but-unreferenced half of the proof.
-    const recordedGhost = ["planted", "ghost", "package"].join("-");
-    const unreferencedGhost = ["planted", "unreferenced", "package"].join("-");
-    const plantedRigging = riggingText.replace(
-      "## Dependencies",
-      `## Dependencies\n\n- ${recordedGhost}: planted for the redden proof`,
-    );
-    assert.notEqual(plantedRigging, riggingText, "the record no longer carries a ## Dependencies heading to plant under");
-    const recordedRed = findDependencyRecordViolations({
-      riggingText: plantedRigging,
-      manifestText,
-    });
-    assert.ok(
-      recordedRed.some(
-        (violation) =>
-          violation.kind === "recorded-uninstalled" &&
-          violation.message.includes(recordedGhost),
-      ),
-      "a recorded-but-uninstalled dependency was not reported",
-    );
-
-    // Installed but referenced nowhere: plant a ghost into the manifest.
-    const manifest = JSON.parse(manifestText) as {
-      devDependencies?: Record<string, string>;
-    };
-    manifest.devDependencies = {
-      ...manifest.devDependencies,
-      [unreferencedGhost]: "1.0.0",
-    };
-    const plantedManifestText = JSON.stringify(manifest);
-    const installedRed = findDependencyRecordViolations({
-      riggingText,
-      manifestText: plantedManifestText,
-      corpus: referenceCorpus(plantedManifestText),
-    });
-    assert.ok(
-      installedRed.some(
-        (violation) =>
-          violation.kind === "installed-unreferenced" &&
-          violation.message.includes(unreferencedGhost),
-      ),
-      "an installed-but-unreferenced dependency was not reported",
-    );
-  },
-);
-
 // ─── Every verification surface is run by a configured tier command ────────
 
 Given(
@@ -914,6 +488,125 @@ Then(
     assert.ok(
       violations.some((violation) => violation.surface.dir === planted.dir),
       "a planted test surface no command reaches was not reported",
+    );
+  },
+);
+
+// ─── No dead verification-support artifact accumulates ──────────────────────
+//
+// Two kinds of dead verification-support artifact accumulate when a scenario is
+// removed without its support, and neither the runner's green nor a tooling
+// gate sees them: a step-definition pattern no current scenario binds, reported
+// by `step-usage` with an empty `matches` array, and an exported
+// `features/support/` symbol no other file in the tree references. Each redden
+// leg is proven by a virtual plant that never touches disk: a synthetic
+// `step-usage` entry with no matches, and an injected support export whose
+// symbol name is assembled at run time so no corpus file carries it as a token.
+
+Given(
+  "the step-definition patterns reported by {string} and the exported symbols under {string}",
+  function (this: JollyWorld, _tool: string, supportDir: string) {
+    this.notes.supportDir = supportDir;
+    this.notes.stepUsageEntries = collectStepUsageEntries();
+    this.notes.supportExports = collectSupportExports(supportDir);
+    assert.ok(
+      (this.notes.stepUsageEntries as StepUsageEntry[]).length > 0,
+      "step-usage reported no step-definition pattern",
+    );
+    assert.ok(
+      (this.notes.supportExports as SupportExport[]).length > 0,
+      `no exported symbol found under ${supportDir}`,
+    );
+  },
+);
+
+When(
+  "the dead-artifact check enumerates the patterns no scenario binds and the support exports no other file references",
+  function (this: JollyWorld) {
+    this.notes.orphanPatterns = findOrphanPatterns(
+      this.notes.stepUsageEntries as StepUsageEntry[],
+    );
+    this.notes.unreferencedExports = findUnreferencedExports(
+      this.notes.supportExports as SupportExport[],
+    );
+  },
+);
+
+Then(
+  "every step-definition pattern should be bound by at least one current scenario",
+  function (this: JollyWorld) {
+    const orphans = this.notes.orphanPatterns as OrphanPattern[];
+    assert.equal(
+      orphans.length,
+      0,
+      `step-definition patterns no current scenario binds:\n${orphans
+        .map((orphan) => `  - ${orphan.message}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "every exported {string} symbol should be referenced by another file in the tree",
+  function (this: JollyWorld, _supportDir: string) {
+    const unreferenced = this.notes.unreferencedExports as UnreferencedExport[];
+    assert.equal(
+      unreferenced.length,
+      0,
+      `exported support symbols no other file references:\n${unreferenced
+        .map((entry) => `  - ${entry.message}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "an orphaned step-definition pattern that no scenario binds should redden the check, naming the pattern and its file",
+  function (this: JollyWorld) {
+    const planted: StepUsageEntry = {
+      pattern: "a planted orphan pattern no current scenario binds",
+      uri: "features/step_definitions/.planted-orphan.steps.ts",
+      line: 1,
+      matches: [],
+    };
+    const reported = findOrphanPatterns([
+      ...(this.notes.stepUsageEntries as StepUsageEntry[]),
+      planted,
+    ]).find((orphan) => orphan.pattern === planted.pattern);
+    assert.ok(reported, "a planted orphaned step-definition pattern was not reported");
+    assert.ok(
+      reported.message.includes(planted.pattern) &&
+        reported.message.includes(planted.uri),
+      `the report must name the pattern and its file: ${JSON.stringify(reported)}`,
+    );
+  },
+);
+
+Then(
+  "an unreferenced {string} export should redden the check, naming the symbol and its file",
+  function (this: JollyWorld, supportDir: string) {
+    // The planted symbol name is assembled at run time, so this source file
+    // carries no literal a corpus reference search could match against.
+    const symbol = ["planted", "support", "export", "noref"].join("");
+    const file = `${supportDir}.planted-unreferenced-export.ts`;
+    const injected = {
+      file,
+      text: `export function ${symbol}(): boolean {\n  return true;\n}\n`,
+    };
+    const planted = collectSupportExports(supportDir, [injected]).filter(
+      (entry) => entry.file === file,
+    );
+    assert.ok(
+      planted.some((entry) => entry.symbol === symbol),
+      "the planted support export was not collected as an export",
+    );
+    const reported = findUnreferencedExports(planted).find(
+      (entry) => entry.symbol === symbol,
+    );
+    assert.ok(reported, "a planted unreferenced support export was not reported");
+    assert.ok(
+      reported.message.includes(symbol) && reported.message.includes(file),
+      `the report must name the symbol and its file: ${JSON.stringify(reported)}`,
     );
   },
 );

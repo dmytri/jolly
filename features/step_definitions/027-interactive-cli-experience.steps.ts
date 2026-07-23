@@ -133,11 +133,6 @@ function runInteractive(
 // each fed when that prompt is observed.
 
 // ─── Unsupported command: fail clearly, name the supported surface ─────────
-
-When("the agent runs `jolly frobnicate --json`", function (this: JollyWorld) {
-  this.runCli(["frobnicate", "--json"], { env: absentCredentialsEnv() });
-});
-
 // Every supported command, exactly as the scenario names them. The surface is
 // top-level commands, so `auth` is the entry and `status` is its subcommand.
 const SUPPORTED_COMMANDS = [
@@ -158,24 +153,6 @@ const SUPPORTED_COMMANDS = [
   "skills",
   "completion",
 ];
-
-Then(
-  "the error should name the supported commands help, login, logout, auth, init, start, create, storefront, recipe, stock, stripe, deploy, doctor, upgrade, skills, and completion",
-  function (this: JollyWorld) {
-    const text = (
-      this.envelope.summary +
-      " " +
-      JSON.stringify(this.envelope.errors)
-    ).toLowerCase();
-    for (const command of SUPPORTED_COMMANDS) {
-      assert.ok(
-        text.includes(command.toLowerCase()),
-        `the unknown-command error must name the supported command "${command}"; got: ${text}`,
-      );
-    }
-  },
-);
-
 // ─── Unsupported flag: fail clearly on the agent path, never ignored ────────
 
 When("the agent runs `jolly start --frobnicate --json`", function (this: JollyWorld) {
@@ -337,51 +314,8 @@ function assertSoleProvider(
   );
 }
 
-Given("Jolly's production source for the published CLI", function (this: JollyWorld) {
-  const files = listTsFiles(SRC_DIR);
-  assert.ok(files.length > 0, "the published CLI must have production source to inspect");
-  this.notes.srcImports = importedPackages(files);
-  this.notes.srcFiles = files.map((f) => relative(REPO_ROOT, f));
-});
-
 // Registered as RegExp: in a Cucumber expression `/` is the alternative
 // operator, which would split the package specifiers (`@bomb.sh/args` etc.).
-Then(
-  /^argument parsing is served by `@bomb\.sh\/args` as the only argument parser$/,
-  function (this: JollyWorld) {
-    assertSoleProvider(
-      this.notes.srcImports as Set<string>,
-      "argument parsing",
-      "@bomb.sh/args",
-      ["commander", "yargs", "yargs-parser", "minimist", "meow", "cac", "sade", "mri", "arg", "@oclif/core"],
-    );
-  },
-);
-
-Then(
-  /^every interactive prompt, confirmation, and masked secret entry is served by `@clack\/prompts` as the only terminal-prompt mechanism$/,
-  function (this: JollyWorld) {
-    assertSoleProvider(
-      this.notes.srcImports as Set<string>,
-      "interactive prompts, confirmations, and masked secret entry",
-      "@clack/prompts",
-      ["inquirer", "@inquirer/prompts", "enquirer", "prompts", "readline-sync", "prompt"],
-    );
-  },
-);
-
-Then(
-  /^shell completion is served by `@bomb\.sh\/tab` as the only completion-script generator$/,
-  function (this: JollyWorld) {
-    assertSoleProvider(
-      this.notes.srcImports as Set<string>,
-      "shell completion",
-      "@bomb.sh/tab",
-      ["tabtab", "omelette", "@bombsh/tab"],
-    );
-  },
-);
-
 // ─── Interactive `jolly start` walk-through (TTY-driven) ───────────────────
 // Driven against a real kernel PTY (support/pty.ts): the CLI genuinely sees an
 // interactive terminal, renders its Bombshell prompts, and reads the scripted
@@ -389,14 +323,6 @@ Then(
 // in the byte stream; the falsifiable observables are the run's envelope
 // (data.plan, data.resolved), the surviving single-write gate announcements, and
 // the presence/absence of clack glyphs.
-
-Given(
-  "the Cloud token can access organization {string} only",
-  function (this: JollyWorld, org: string) {
-    this.notes.mockOrgs = org;
-  },
-);
-
 Given(
   "a fresh project directory with no real service credentials",
   function (this: JollyWorld) {
@@ -444,31 +370,6 @@ Given("a Saleor store is already configured in the project", function (this: Jol
     JOLLY_READINESS_POLL_MS: "100",
   };
 });
-
-Then(
-  "the interactive output should not prompt for an environment name",
-  function (this: JollyWorld) {
-    const out = stripAnsi(this.lastRun!.stdout);
-    assert.doesNotMatch(
-      out,
-      /Environment name/,
-      `with a store already configured, the env-name prompt must be skipped; got:\n${out}`,
-    );
-  },
-);
-
-Then(
-  "the interactive output should say it is reusing the already-configured store",
-  function (this: JollyWorld) {
-    const out = stripAnsi(this.lastRun!.stdout);
-    assert.match(
-      out,
-      /reusing your already-configured store/i,
-      `the run must announce it is reusing the configured store; got:\n${out}`,
-    );
-  },
-);
-
 // The org already holds environments, so the interactive flow offers a
 // reuse-or-create store picker (feature 027). The list is injected
 // deterministically via --mock-environments (a single org keeps the org prompt
@@ -611,15 +512,6 @@ When(
     assert.ok(runInteractive(this, ["start", "--dry-run", "--yes"], () => []), "the interactive run must start");
   },
 );
-
-When(
-  "`jolly start --dry-run --json` runs in an interactive terminal",
-  { timeout: 160_000 },
-  function (this: JollyWorld) {
-    assert.ok(runInteractive(this, ["start", "--dry-run", "--json"], () => []), "the interactive run must start");
-  },
-);
-
 Then("Jolly should present interactive setup prompts", function (this: JollyWorld) {
   assert.ok(
     CLACK_GLYPH.test(this.lastRun!.stdout),
@@ -638,81 +530,12 @@ Then(
     );
   },
 );
-
-Then("Jolly should announce the Vercel sign-in gate", function (this: JollyWorld) {
-  const text = this.lastRun!.stdout.toLowerCase();
-  assert.ok(
-    /vercel/.test(text) && /(sign|login|gate)/.test(text),
-    `interactive start must announce the Vercel sign-in gate; got: ${this.lastRun!.stdout}`,
-  );
-});
-
-Then("Jolly should announce the Dashboard Stripe app gate", function (this: JollyWorld) {
-  const text = this.lastRun!.stdout.toLowerCase();
-  assert.ok(
-    /stripe/.test(text) && /(dashboard|gate)/.test(text),
-    `interactive start must announce the Dashboard Stripe app gate; got: ${this.lastRun!.stdout}`,
-  );
-});
-
 // Feature 027 Rule "Interactive start runs end-to-end in one session": the
 // preview tells the human about the human steps the run involves — the Vercel
 // sign-in is run with them inline (not handed off as a separate command), and
 // the Stripe key entry in the Saleor Dashboard is the one closing step left to
 // them. These assert the surviving human text names each, with the inline /
 // final-step framing the spec mandates.
-
-Then(
-  "the interactive output should say Jolly will run the Vercel sign-in with the human inline",
-  function (this: JollyWorld) {
-    const out = stripAnsi(this.lastRun!.stdout);
-    assert.match(
-      out,
-      /vercel[^\n]*\b(sign[ -]?in|log[ -]?in|login)\b/i,
-      `the interactive output must name the Vercel sign-in step; got:\n${out}`,
-    );
-    assert.match(
-      out,
-      /\b(inline|with you|together|in this (?:terminal|session)|same (?:terminal|session)|here)\b/i,
-      `the interactive output must say the Vercel sign-in is run with the human inline; got:\n${out}`,
-    );
-  },
-);
-
-Then(
-  "the interactive output should say Jolly will run the Vercel sign-in with the human up front, before the unattended stages",
-  function (this: JollyWorld) {
-    const out = stripAnsi(this.lastRun!.stdout);
-    assert.match(
-      out,
-      /vercel[^\n]*\b(sign[ -]?in|log[ -]?in|login)\b/i,
-      `the interactive output must name the Vercel sign-in step; got:\n${out}`,
-    );
-    assert.match(
-      out,
-      /\bup front\b|before the (?:unattended|mechanical|setup) stages?/i,
-      `the interactive output must say the Vercel sign-in runs up front, before the unattended stages; got:\n${out}`,
-    );
-  },
-);
-
-Then(
-  "the interactive output should name the Saleor Dashboard Stripe key entry as the final human step",
-  function (this: JollyWorld) {
-    const out = stripAnsi(this.lastRun!.stdout);
-    assert.match(
-      out,
-      /stripe[^\n]*\b(key|keys)\b[^\n]*dashboard|dashboard[^\n]*stripe[^\n]*\b(key|keys)\b/i,
-      `the interactive output must name the Saleor Dashboard Stripe key entry; got:\n${out}`,
-    );
-    assert.match(
-      out,
-      /\b(final|last|remaining|closing|end)\b/i,
-      `the interactive output must frame the Stripe key entry as the final human step; got:\n${out}`,
-    );
-  },
-);
-
 Then("Jolly should complete without blocking for any prompt", function (this: JollyWorld) {
   // --yes (no --json) runs the human default path: it must complete (exit 0) and
   // produce output rather than hang on a prompt. Feature 020: default mode is
@@ -734,32 +557,9 @@ Then("no interactive prompt should be shown", function (this: JollyWorld) {
     `--yes on a TTY must show no interactive prompt; got: ${this.lastRun!.stdout}`,
   );
 });
-
-Then("no prompt or spinner text should appear on stdout", function (this: JollyWorld) {
-  assert.ok(
-    !CLACK_GLYPH.test(this.lastRun!.stdout),
-    `--json must keep stdout free of prompt/spinner text; got: ${this.lastRun!.stdout}`,
-  );
-});
-
 // ─── Human-output observables (feature 027: resolved decisions in the ──────
 // terminal, not the machine envelope). In the interactive default path there
 // is no JSON envelope (feature 020), so these read the surviving human text.
-
-Then(
-  "the interactive output should list the mechanical setup stages, including the store, storefront, and deployment stages",
-  function (this: JollyWorld) {
-    const out = stripAnsi(this.lastRun!.stdout);
-    for (const stage of ["store", "storefront", "deploy"]) {
-      assert.match(
-        out,
-        new RegExp(`${stage}:`, "i"),
-        `the interactive output must list the "${stage}" setup stage; got:\n${out}`,
-      );
-    }
-  },
-);
-
 Then(
   "the interactive output should present an organization choice naming {string} and {string}",
   function (this: JollyWorld, a: string, b: string) {
@@ -788,30 +588,6 @@ Then(
     );
   },
 );
-
-Then(
-  "the interactive output should name {string} as the target organization",
-  function (this: JollyWorld, org: string) {
-    const out = stripAnsi(this.lastRun!.stdout);
-    assert.ok(
-      namesTargetOrganization(out, org),
-      `the interactive output must name "${org}" as the target organization; got:\n${out}`,
-    );
-  },
-);
-
-Then(
-  "no organization choice should be shown, because the token resolves exactly one organization",
-  function (this: JollyWorld) {
-    const out = stripAnsi(this.lastRun!.stdout);
-    assert.doesNotMatch(
-      out,
-      /choose[^\n]*organization/i,
-      `no organization choice may be shown when the token resolves exactly one; got:\n${out}`,
-    );
-  },
-);
-
 Then(
   "the interactive output should not report the store, storefront, recipe, or deployment stages as completed",
   function (this: JollyWorld) {
@@ -879,63 +655,6 @@ Then(
 const DEVICE_USER_CODE_RE = /\b[A-Z0-9]{4,}-[A-Z0-9]{4,}\b/;
 const DEVICE_VERIFICATION_URL =
   "https://auth.saleor.io/realms/saleor-cloud/device";
-
-When(
-  "the user starts interactive setup with no Cloud token configured",
-  { timeout: 30_000 },
-  function (this: JollyWorld) {
-    assert.ok(ptyAvailable(), "the PTY driver must be available");
-    // No token: the run shows the device code and its verification URL, then polls
-    // for an approval that never comes — it never exits. The read ends on the very
-    // output the scenarios assert on: the auth.saleor.io verification URL.
-    const run = runUnderPty({
-      runtime: process.env.HARNESS_CLI_RUNTIME ?? "node",
-      argv: [CLI_ENTRY, "start"],
-      cwd: this.projectDir,
-      env: interactiveChildEnv(),
-      inputs: [],
-      readUntil: [DEVICE_VERIFICATION_URL],
-      timeoutMs: 15_000,
-    });
-    this.previousRun = this.lastRun;
-    this.lastRun = {
-      args: ["start"],
-      cwd: this.projectDir,
-      exitCode: run.exitCode,
-      stdout: run.output,
-      stderr: "",
-      envelope: undefined,
-    };
-  },
-);
-
-Then(
-  "the interactive output should show the device user code and the auth.saleor.io verification URL with that code appended as its `user_code` query parameter",
-  function (this: JollyWorld) {
-    const out = stripAnsi(this.lastRun!.stdout);
-    const code = out.match(DEVICE_USER_CODE_RE);
-    assert.ok(code, `interactive start must show the device user code; got:\n${out}`);
-    // The verification URL carries the user code as its `user_code` query
-    // parameter so opening it pre-fills the code (feature 018 device-grant Rule).
-    assert.ok(
-      out.includes(`${DEVICE_VERIFICATION_URL}?user_code=${code![0]}`),
-      `interactive start must show ${DEVICE_VERIFICATION_URL}?user_code=${code?.[0]}; got:\n${out}`,
-    );
-  },
-);
-
-Then(
-  "the interactive output should not prompt the user to paste a token",
-  function (this: JollyWorld) {
-    const out = stripAnsi(this.lastRun!.stdout).toLowerCase();
-    assert.doesNotMatch(
-      out,
-      /paste[^\n]*token/,
-      `interactive start must sign in via the device grant, never a paste prompt; got:\n${out}`,
-    );
-  },
-);
-
 // ─── Message catalog binding (feature 027: human copy is a catalog asset) ──
 // The interactive notes and the proceed/decline copy are not hard-coded in
 // `src/`; they are rendered from `assets/messages/cli.json` by key. These
@@ -966,46 +685,11 @@ function normalizeCatalogText(text: string): string {
     .trim();
 }
 
-Then(
-  // The per-stage "running description on stderr" sentences are carried by their
-  // own step below (they need a separated-stream run to observe stderr), so this
-  // generic stdout binding excludes them to keep the match unambiguous.
-  /^the (?!.*running description on stderr).+ should be the `([\w.]+)` message from `assets\/messages\/cli\.json`$/,
-  function (this: JollyWorld, key: string) {
-    const expected = catalogMessage(key);
-    const out = normalizeCatalogText(this.lastRun!.stdout);
-    assert.ok(
-      out.includes(normalizeCatalogText(expected)),
-      `the interactive output must render the "${key}" catalog message verbatim ` +
-        `("${expected}"); got:\n${out}`,
-    );
-  },
-);
-
 // The CURRENTLY-RUNNING stage's plain-language description renders on stderr,
 // in the live progress region, sourced from the catalog by key (feature 027).
 // Drive `jolly start` with stdout/stderr on separate PTYs so the per-stage
 // running description on stderr is observable; the run happens once and is reused
 // across the init/auth Then steps.
-Then(
-  /^the (init|auth) stage's running description on stderr should be the `([\w.]+)` message from `assets\/messages\/cli\.json`$/,
-  { timeout: 160_000 },
-  function (this: JollyWorld, stage: string, key: string) {
-    if (this.notes.stageRunStderr === undefined) {
-      assert.ok(runStartStagesSeparated(this), "the separated-stages interactive run must start");
-      this.notes.stageRunStderr = stripAnsi(this.lastRun!.stderr);
-    }
-    const stderr = String(this.notes.stageRunStderr);
-    const expected = normalizeCatalogText(catalogMessage(key));
-    assert.ok(
-      normalizeCatalogText(stderr).includes(expected),
-      `the ${stage} stage's running description on stderr must render the "${key}" catalog ` +
-        `message ("${expected}"); got:\n${stderr}`,
-    );
-    return undefined;
-  },
-);
-
 // ─── Setup-stage live progress (feature 027) ───────────────────────────────
 //
 // The setup stages must render as a live STATUS LIST on stderr — every stage
@@ -1065,68 +749,8 @@ function runStartStagesSeparated(world: JollyWorld): boolean {
   return true;
 }
 
-Then(
-  "the setup-stage progress on stderr should list every setup stage by name, each carrying its own status",
-  { timeout: 160_000 },
-  function (this: JollyWorld) {
-    // The shared When records only the argv; perform the separated-stream run
-    // here so stderr is captured distinctly from the clean stdout.
-    assert.ok(runStartStagesSeparated(this), "the separated-stages interactive run must start");
-    const stderr = this.lastRun!.stderr;
-    assert.ok(
-      stderr.trim().length > 0,
-      `interactive start must write setup-stage progress to stderr; it was empty. stdout was:\n${this.lastRun!.stdout}`,
-    );
-    // Each setup stage carries its OWN status: a status list renders every stage
-    // on its own row, the stage name and that stage's status TOGETHER on one
-    // line (e.g. `✓ store` / `⠙ storefront installing`). Split on every line
-    // break (carriage-return redraws included) and require, for each stage, a
-    // line that names it AND carries a status marker. The one-fixed-spinner
-    // anti-pattern fails this: its only status line is "Running setup stages"
-    // (a status word, no stage name), while the plan-preview rows name a stage
-    // but carry no status — neither line satisfies the co-occurrence.
-    const lines = stripAnsi(stderr).split(/[\r\n]+/);
-    for (const stage of SETUP_STAGE_NAMES) {
-      const nameOnLine = new RegExp(`\\b${stage}\\b`, "i");
-      const row = lines.find(
-        (line) => nameOnLine.test(line) && STAGE_STATUS_MARKER.test(line),
-      );
-      assert.ok(
-        row !== undefined,
-        `the "${stage}" stage must appear as its own status row (stage name + status on one line), not folded into one fixed spinner; stderr lines:\n${lines.join("\n")}`,
-      );
-    }
-    return undefined;
-  },
-);
-
 // The CURRENTLY-RUNNING stage names what it is doing in plain language (not a
 // bare stage name) so the slow stages don't read as a mysterious wait.
-Then(
-  "the running stage's row should describe in plain language what that stage is doing",
-  function (this: JollyWorld) {
-    assert.ok(ptyAvailable() && this.lastRun?.stderr, "the PTY run must produce stderr");
-    const stderr = stripAnsi(this.lastRun.stderr);
-    assert.match(
-      stderr,
-      /creating your Saleor store|cloning the storefront|deploying the starter catalog|seeding product stock|deploying to Vercel|installing the Stripe app|signing in to Saleor Cloud|setting up skills/i,
-      `the running stage must describe its action in plain language; got:\n${stderr}`,
-    );
-    return undefined;
-  },
-);
-
-Then(
-  "it should update a stage's status in place as the run reaches that stage, so each stage's progress is visible during the run rather than only after it ends",
-  function (this: JollyWorld) {
-    assert.match(
-      this.lastRun!.stderr,
-      STAGE_IN_PLACE,
-      `each stage's status must update live in place (carriage-return / cursor control) as the run reaches it; got:\n${JSON.stringify(this.lastRun!.stderr)}`,
-    );
-  },
-);
-
 Then(
   "the progress should redraw the same region in place rather than appending one line per update",
   function (this: JollyWorld) {
@@ -1140,52 +764,6 @@ Then(
 
 // ─── Concise human close (feature 027): the interactive run ends with a prose
 // summary, not the machine check enumeration or the agent `next:` playbook.
-
-Then(
-  "the human result on stdout should state in prose that the plan was previewed and nothing was created",
-  function (this: JollyWorld) {
-    const out = stripAnsi(this.lastRun!.stdout);
-    assert.match(
-      out,
-      /previewed/i,
-      `the human close must state in prose that the plan was previewed; got:\n${out}`,
-    );
-    assert.match(
-      out,
-      /nothing was created|no files were (?:written|created)|no changes were made|created nothing/i,
-      `the human close must state in prose that nothing was created; got:\n${out}`,
-    );
-  },
-);
-
-Then(
-  "the human result on stdout should carry no per-check `[status] check-id` enumeration line",
-  function (this: JollyWorld) {
-    const out = stripAnsi(this.lastRun!.stdout);
-    const checkLine = out
-      .split(/\r?\n/)
-      .find((line) => /^\s*-\s+\S*\s*\[[a-z]+\]\s+[a-z0-9][a-z0-9-]*\b/i.test(line));
-    assert.equal(
-      checkLine,
-      undefined,
-      `the human close must carry no per-check [status] check-id line; found:\n${checkLine}`,
-    );
-  },
-);
-
-Then(
-  "the human result on stdout should carry no `next:` command line",
-  function (this: JollyWorld) {
-    const out = stripAnsi(this.lastRun!.stdout);
-    const nextLine = out.split(/\r?\n/).find((line) => /^\s*next:/i.test(line));
-    assert.equal(
-      nextLine,
-      undefined,
-      `the human close must carry no next: command line; found:\n${nextLine}`,
-    );
-  },
-);
-
 // ─── Plan preview lists the human-relevant side-effecting stages only (feature
 // 027): the internal bootstrap stages (init, auth) are not human decisions.
 
@@ -1221,25 +799,6 @@ Then(
 // ─── Clickable sign-in URL (feature 027): the verification URL is wrapped in an
 // OSC 8 terminal hyperlink so the human can click it. The OSC 8 escape survives
 // stripAnsi (which removes only CSI sequences), so the RAW output is inspected.
-
-Then(
-  "the auth.saleor.io verification URL should be wrapped in an OSC 8 terminal hyperlink escape pointing at that URL",
-  function (this: JollyWorld) {
-    const raw = this.lastRun!.stdout; // OSC 8 escapes are the observable — keep raw
-    const code = stripAnsi(raw).match(DEVICE_USER_CODE_RE);
-    assert.ok(code, `interactive start must show the device user code; got:\n${stripAnsi(raw)}`);
-    const url = `${DEVICE_VERIFICATION_URL}?user_code=${code![0]}`;
-    const escaped = url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    // OSC 8 hyperlink open: ESC ] 8 ; <params> ; <URI> ST  (ST = BEL or ESC \).
-    const osc8 = new RegExp(`\\x1b\\]8;[^;]*;${escaped}(?:\\x07|\\x1b\\\\)`);
-    assert.match(
-      raw,
-      osc8,
-      `the verification URL must be wrapped in an OSC 8 hyperlink pointing at ${url}; got:\n${JSON.stringify(raw)}`,
-    );
-  },
-);
-
 // ─── Completed interactive run: the human close names the live store and the ──
 // remaining human step (feature 027 @sandbox). A REAL interactive `jolly start`
 // driven to completion over a project whose store, storefront, and deployment
@@ -1713,39 +1272,6 @@ Then(
 // `completion` with no shell argument is a human asking how to use it: the
 // command prints its usage line naming the supported shells and exits 0,
 // rather than erroring or emitting an envelope.
-
-When("the agent runs `jolly completion`", function (this: JollyWorld) {
-  this.runCli(["completion"], { env: absentCredentialsEnv() });
-});
-
-Then(
-  "stdout should contain a usage line naming the shells bash, zsh, fish, and powershell",
-  function (this: JollyWorld) {
-    const stdout = this.lastRun!.stdout;
-    const usage = stdout
-      .split("\n")
-      .find(
-        (line) =>
-          /usage/i.test(line) &&
-          ["bash", "zsh", "fish", "powershell"].every((shell) =>
-            line.includes(shell),
-          ),
-      );
-    assert.ok(
-      usage,
-      `stdout must carry one usage line naming bash, zsh, fish, and powershell; got:\n${stdout}`,
-    );
-  },
-);
-
-Then("the exit code should be {int}", function (this: JollyWorld, code: number) {
-  assert.equal(
-    this.lastRun!.exitCode,
-    code,
-    `expected exit code ${code}; stderr:\n${this.lastRun!.stderr}`,
-  );
-});
-
 // ─── Inline device-grant sign-in that CONTINUES in-session (feature 027) ───
 // No auth configured at all (neither the staff token nor a device-grant access
 // token): interactive `jolly start` signs the human in through the Saleor
@@ -1856,75 +1382,6 @@ function sampledTermios(world: JollyWorld): {
   );
   return sample;
 }
-
-When(
-  "the run reaches the first unattended setup stage",
-  { timeout: 170_000 },
-  function (this: JollyWorld) {
-    assert.ok(ptyAvailable(), "the PTY driver must be available");
-    assert.ok(
-      catalogMessage(FIRST_UNATTENDED_STAGE_KEY).includes(
-        FIRST_UNATTENDED_STAGE_MARKER,
-      ),
-      `the marker "${FIRST_UNATTENDED_STAGE_MARKER}" is no longer part of the ` +
-        `"${FIRST_UNATTENDED_STAGE_KEY}" catalog message — update it so the ` +
-        `terminal is still sampled at the first unattended stage`,
-    );
-    const argv = (this.notes.startArgv as string[]) ?? ["start"];
-    const sequence = startPromptSequence({ argv, cwd: this.projectDir });
-    const run = runUnderPty({
-      runtime: process.env.HARNESS_CLI_RUNTIME ?? "node",
-      argv: [CLI_ENTRY, ...argv],
-      cwd: this.projectDir,
-      env: interactiveChildEnv({ JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN }),
-      inputs: acceptEveryPrompt(sequence),
-      waitFor: [...sequence, FIRST_UNATTENDED_STAGE_MARKER],
-      readUntil: [FIRST_UNATTENDED_STAGE_MARKER],
-      sampleTermiosAt: [FIRST_UNATTENDED_STAGE_MARKER],
-      perChunkTimeoutMs: 90_000,
-      timeoutMs: 150_000,
-    });
-    this.previousRun = this.lastRun;
-    this.lastRun = {
-      args: argv,
-      cwd: this.projectDir,
-      exitCode: run.exitCode,
-      stdout: run.output,
-      stderr: "",
-      envelope: findEnvelope(run.output),
-    };
-    this.notes.termiosAtFirstStage = run.termios;
-  },
-);
-
-Then(
-  "the terminal should be in cooked mode, so the driver turns Ctrl-C into a signal",
-  function (this: JollyWorld) {
-    const mode = sampledTermios(this);
-    assert.equal(
-      mode.isig,
-      true,
-      "ISIG is clear on the terminal at the first unattended stage, so the line " +
-        "discipline generates no SIGINT: a Ctrl-C from the human would reach the " +
-        "run as a stray byte, and the stages that follow the prompts would be " +
-        "uninterruptible",
-    );
-  },
-);
-
-Then(
-  "the run should carry no raw-mode terminal state left over from the prompts",
-  function (this: JollyWorld) {
-    const mode = sampledTermios(this);
-    assert.deepEqual(
-      { icanon: mode.icanon, echo: mode.echo },
-      { icanon: true, echo: true },
-      "the prompts put the terminal into raw mode (ICANON and ECHO cleared) and " +
-        "it is still there at the first unattended stage, so the prompts' " +
-        "terminal state outlived the prompts",
-    );
-  },
-);
 
 // ─── The progress region on a narrow terminal (feature 027) ────────────────
 // The terminal is genuinely narrow: the width reaches the child through the
@@ -2075,54 +1532,6 @@ Then("no stage row should appear twice on screen", function (this: JollyWorld) {
       progressScreen(this).join("\n"),
   );
 });
-
-Then(
-  "the storefront stage's row should occupy exactly one terminal line",
-  function (this: JollyWorld) {
-    const columns = narrowColumns(this);
-    const screen = progressScreen(this);
-    const index = screen.findIndex(
-      (line) =>
-        new RegExp(`\\b${NARROW_STAGE}\\b`, "i").test(line) &&
-        STAGE_STATUS_MARKER.test(line),
-    );
-    assert.ok(
-      index >= 0,
-      `the progress region must show a "${NARROW_STAGE}" stage row; screen was:\n${screen.join("\n")}`,
-    );
-    assert.ok(
-      screen[index]!.length <= columns,
-      `the "${NARROW_STAGE}" row must fit the ${columns}-column terminal; it ran ` +
-        `to ${screen[index]!.length} columns: ${JSON.stringify(screen[index])}`,
-    );
-    // A description too wide is shortened, not wrapped, so the row's own text
-    // does not continue onto the line below it.
-    const description = catalogMessage(NARROW_STAGE_KEY);
-    const tail = description.slice(Math.max(0, description.length - 12));
-    const next = screen[index + 1] ?? "";
-    assert.ok(
-      !next.includes(tail),
-      `the "${NARROW_STAGE}" description must be shortened rather than wrapped, ` +
-        `but its tail ${JSON.stringify(tail)} continues on the next line: ` +
-        `${JSON.stringify(next)}`,
-    );
-  },
-);
-
-Then("the row should still name the storefront stage", function (this: JollyWorld) {
-  const screen = progressScreen(this);
-  const row = screen.find(
-    (line) =>
-      new RegExp(`\\b${NARROW_STAGE}\\b`, "i").test(line) &&
-      STAGE_STATUS_MARKER.test(line),
-  );
-  assert.ok(
-    row,
-    `shortening must not cost the stage its name: no row on the ` +
-      `${narrowColumns(this)}-column screen names "${NARROW_STAGE}". Screen was:\n${screen.join("\n")}`,
-  );
-});
-
 // ─── Ctrl-C during the unattended stages (feature 027) ─────────────────────
 // The human interrupts a running setup stage. Both scenarios are on-screen
 // claims, so the run is driven on ONE merged PTY — the single terminal a human
@@ -2286,142 +1695,6 @@ function interruptNamedStages(world: JollyWorld): string[] {
 }
 
 Then(
-  "the interactive output should name the side-effecting stages that did not finish",
-  function (this: JollyWorld) {
-    const named = interruptNamedStages(this);
-    assert.ok(
-      named.length > 0,
-      "the interrupted close must name at least one unfinished stage: the run " +
-        `was stopped during "${INTERRUPTED_STAGE}", which never completed`,
-    );
-    const notSideEffecting = named.filter(
-      (stage) => !CLOSE_SIDE_EFFECTING_STAGES.includes(stage),
-    );
-    assert.deepEqual(
-      notSideEffecting,
-      [],
-      `the interrupted close must name only side-effecting stages; it named ` +
-        `${JSON.stringify(named)}, and ${JSON.stringify(notSideEffecting)} ` +
-        `${notSideEffecting.length === 1 ? "is" : "are"} not side-effecting`,
-    );
-    assert.ok(
-      named.includes(INTERRUPTED_STAGE),
-      `the stage the interrupt landed on ("${INTERRUPTED_STAGE}") did not ` +
-        `complete, so the close must name it; it named ${JSON.stringify(named)}`,
-    );
-  },
-);
-
-Then(
-  "it should not name a preflight stage among the unfinished stages",
-  function (this: JollyWorld) {
-    const named = interruptNamedStages(this);
-    const preflight = named.filter((stage) => PREFLIGHT_STAGES.includes(stage));
-    assert.deepEqual(
-      preflight,
-      [],
-      `a preflight stage is not unfinished setup, so the interrupted close must ` +
-        `not name one; it named ${JSON.stringify(preflight)} among ` +
-        `${JSON.stringify(named)}`,
-    );
-  },
-);
-
-Then(
-  "the stages it names should be the same set the normal close would name for that run",
-  function (this: JollyWorld) {
-    const named = interruptNamedStages(this);
-    // The normal close is not re-derived here, it is RUN: the same
-    // `interactiveCloseSummary` seam the uninterrupted run closes through is
-    // given this run's own observed stage outcomes, and its sentence is read
-    // back through the same catalog reader. A reimplementation of the filter
-    // would agree with itself and prove nothing.
-    const { lines } = interruptedScreen(this);
-    const stages = [...PREFLIGHT_STAGES, ...CLOSE_SIDE_EFFECTING_STAGES].map((stage) => {
-      const row = lines.find(
-        (line) =>
-          new RegExp(`\\b${stage}\\b`, "i").test(line) &&
-          STAGE_STATUS_MARKER.test(line),
-      );
-      return {
-        stage,
-        status: row && /[✓✔]/.test(row) ? "completed" : "pending",
-      };
-    });
-    const closed = interactiveCloseSummary(
-      {
-        summary: "",
-        checks: [],
-        nextSteps: [],
-        data: { stages },
-      } as unknown as Parameters<typeof interactiveCloseSummary>[0],
-      { stripeStep: "" },
-    );
-    const normal = closeNamedStages(closed.summary);
-    assert.ok(
-      normal,
-      "the normal close must render the same catalog sentence for a run with " +
-        `unfinished stages; it rendered: ${JSON.stringify(closed.summary)}`,
-    );
-    assert.deepEqual(
-      [...named].sort(),
-      [...normal].sort(),
-      `both closes answer one question, so the interrupted close must name the ` +
-        `same stage set the normal close names for this run: interrupted named ` +
-        `${JSON.stringify([...named].sort())}, normal named ` +
-        `${JSON.stringify([...normal].sort())}`,
-    );
-  },
-);
-
-Then(
-  "the terminal cursor should be visible again after Jolly exits",
-  function (this: JollyWorld) {
-    const raw = this.lastRun!.stdout;
-    // The live progress region hides the cursor while it redraws. Whatever it
-    // hides it must restore before exiting, or the human's shell is left with an
-    // invisible cursor. The last cursor-visibility toggle the terminal saw is what
-    // the human is left with.
-    const toggles = [...raw.matchAll(/\x1b\[\?25(l|h)/g)].map((m) => m[1]);
-    assert.ok(
-      toggles.includes("l"),
-      `the interrupted run must have hidden the cursor for its live progress region, ` +
-        `otherwise this scenario proves nothing; raw output:\n${JSON.stringify(raw.slice(-2000))}`,
-    );
-    assert.equal(
-      toggles[toggles.length - 1],
-      "h",
-      `after an interrupt Jolly must restore the terminal cursor before exiting; the last ` +
-        `cursor toggle the terminal saw was a hide. Raw tail:\n${JSON.stringify(raw.slice(-2000))}`,
-    );
-  },
-);
-
-Then(
-  "the setup-stage progress rows should stay readable, with Jolly's closing line below them rather than drawn over them",
-  function (this: JollyWorld) {
-    const { lines, stageRow } = interruptedScreen(this);
-    // Readable: the stage row survives on screen as text, not as a blanked line.
-    assert.ok(
-      lines[stageRow]!.trim().length > 0,
-      `the "${INTERRUPTED_STAGE}" stage row must stay readable on the final screen; screen was:\n${lines.join("\n")}`,
-    );
-    // Below, not over: Jolly's closing line is the last thing it writes, and it
-    // occupies a row beneath the progress rows rather than overwriting one.
-    const closingRow = lines.reduce(
-      (last, line, index) => (line.trim().length > 0 ? index : last),
-      -1,
-    );
-    assert.ok(
-      closingRow > stageRow,
-      `Jolly's closing line must be drawn BELOW the setup-stage progress rows, not over ` +
-        `them; the last written row (${closingRow}) is not below the "${INTERRUPTED_STAGE}" ` +
-        `stage row (${stageRow}). Screen was:\n${lines.join("\n")}`,
-    );
-  },
-);
-
-Then(
   "the interactive output should name the setup stage that was interrupted",
   function (this: JollyWorld) {
     const closing = afterInterrupt(this);
@@ -2557,44 +1830,6 @@ Then(
 // The plain-language descriptions in the progress region are drawn from
 // `assets/messages/cli.json` by key, never an inline literal. Each stage the
 // region reports must carry the catalog's description for that stage.
-
-Then(
-  "each stage's plain-language description should be the one the message catalog declares for that stage",
-  function (this: JollyWorld) {
-    const stderr = normalizeCatalogText(this.lastRun!.stderr);
-    assert.ok(
-      stderr.length > 0,
-      "the setup-stage progress must have rendered on stderr for its descriptions to be read",
-    );
-    const rows = renderTerminal(this.lastRun!.stderr).filter((line) =>
-      STAGE_STATUS_MARKER.test(line),
-    );
-    const missing: string[] = [];
-    const reported: string[] = [];
-    for (const stage of allStages()) {
-      const named = rows.some((row) => new RegExp(`\\b${stage}\\b`, "i").test(row));
-      if (!named) continue;
-      reported.push(stage);
-      const description = normalizeCatalogText(
-        catalogMessage(`start.stage.${stage}`),
-      );
-      if (!stderr.includes(description)) missing.push(`${stage} ("${description}")`);
-    }
-    assert.ok(
-      reported.length > 0,
-      `the progress region must report at least one stage for its descriptions to be ` +
-        `read; rows were:\n${rows.join("\n")}`,
-    );
-    assert.deepEqual(
-      missing,
-      [],
-      `every reported stage's description must be its catalog message; these stages ` +
-        `render a description the catalog does not declare: ${missing.join(", ")}. ` +
-        `Progress region was:\n${rows.join("\n")}`,
-    );
-  },
-);
-
 // ─── The interrupt is a signal, and the terminal survives it (feature 027) ─
 // The prompts take the terminal into raw mode, which clears ISIG and so disables
 // the driver's signal characters. Once the prompts are answered the stages are

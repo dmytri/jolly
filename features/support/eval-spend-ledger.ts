@@ -35,7 +35,7 @@ export const EVAL_SPEND_LEDGER_PATH = join(
  * deploy, the storefront clone and its install, and the Vercel deploy. Each is
  * served from a golden capture in this tier; a live one is the finding.
  */
-export const EVAL_EXPENSIVE_SPENDS = [
+const EVAL_EXPENSIVE_SPENDS = [
   "skills-install",
   "configurator-deploy",
   "git-clone",
@@ -43,10 +43,10 @@ export const EVAL_EXPENSIVE_SPENDS = [
   "vercel-deploy",
 ] as const;
 
-export type EvalSpendKind = (typeof EVAL_EXPENSIVE_SPENDS)[number] | "run-start" | "run-end";
+type EvalSpendKind = (typeof EVAL_EXPENSIVE_SPENDS)[number] | "run-start" | "run-end";
 
 /** How the spend was answered: replayed from a golden capture, or run for real. */
-export type SpendService = "capture" | "live";
+type SpendService = "capture" | "live";
 
 export interface EvalSpendEntry {
   /** The run id (HARNESS_RUN_ID) the spend belongs to. */
@@ -212,7 +212,7 @@ export function lastEvalRunEntries(entries: EvalSpendEntry[]): EvalSpendEntry[] 
 }
 
 /** The command line a ledger entry recorded, as the shim observed it. */
-export function evalSpendCommandLine(entry: EvalSpendEntry): string {
+function evalSpendCommandLine(entry: EvalSpendEntry): string {
   const argv = entry.argv ?? [];
   return argv.length > 0 ? argv.join(" ") : entry.spend;
 }

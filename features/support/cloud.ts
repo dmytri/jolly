@@ -3,7 +3,7 @@
 // the same runtime JOLLY_SALEOR_CLOUD_TOKEN Jolly itself reads (feature 023).
 import { fullRegressionBudgetMs } from "./wake.ts";
 
-export const CLOUD_API = "https://cloud.saleor.io/platform/api";
+const CLOUD_API = "https://cloud.saleor.io/platform/api";
 
 /**
  * Name prefix for the long-lived, cross-run shared sandbox store (features
@@ -206,18 +206,6 @@ export function leftoverTestEnvironments(
  * decides staleness.
  */
 const injectedCreatedObservations = new Map<string, string>();
-
-/** Observe the named environment as created at `createdIso` (ISO 8601).
- * Returns the removal, for scenario teardown. */
-export function observeEnvironmentCreatedAt(
-  identity: string,
-  createdIso: string,
-): () => void {
-  injectedCreatedObservations.set(identity, createdIso);
-  return () => {
-    injectedCreatedObservations.delete(identity);
-  };
-}
 
 /** True when the environment is older than the staleness threshold, or its age
  * cannot be read at all (absent or unparseable `created`). */

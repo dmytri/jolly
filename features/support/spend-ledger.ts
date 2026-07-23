@@ -63,7 +63,7 @@ const TOOLCHAIN_ELEMENT_OF: Record<string, string> = {
   "vercel-deploy": "vercel-deploy",
 };
 
-export type SpendKind =
+type SpendKind =
   | (typeof TOOLCHAIN_SPENDS)[number]
   | "environment-creation"
   | "environment-reuse"
@@ -88,7 +88,7 @@ export interface SpendEntry {
 }
 
 /** The current attribution: the running scenario the arming hook exported. */
-export function currentSpendAttribution(): string {
+function currentSpendAttribution(): string {
   const name = process.env.HARNESS_SPEND_SCENARIO;
   return name && name.trim() !== "" ? name : "(unattributed)";
 }
@@ -464,7 +464,7 @@ export const EXPENSIVE_SPEND_LICENCES: ReadonlyArray<{
  * creation. The Rule exempts such a scenario from the one-holder count, so the
  * true licensed set stays enumerable from tags alone.
  */
-export const SPEND_IS_THE_ASSERTION = "@spend-is-the-assertion";
+const SPEND_IS_THE_ASSERTION = "@spend-is-the-assertion";
 
 /**
  * Every expensive spend class mapped to the scenarios holding its licence and
@@ -506,7 +506,7 @@ export function strayExemptionScenarios(
   return stray.sort();
 }
 
-export interface LicenceExclusivityViolation {
+interface LicenceExclusivityViolation {
   spendClass: string;
   holders: string[];
   message: string;
@@ -562,7 +562,7 @@ function isDoubleClassified(
   );
 }
 
-export interface DoubleClassifiedSpend {
+interface DoubleClassifiedSpend {
   scenario: string;
   spend: string;
   /** The declared unroutable stand-in the spend was aimed at. */
@@ -693,7 +693,7 @@ export function unlicensedSpends(
  * milliseconds after the message record's last write. */
 const RUN_END_GRACE_MS = 60_000;
 
-export interface SweepLegRun {
+interface SweepLegRun {
   tier: string;
   /** The leg's selected completed run id; undefined when no run-end matches
    * the leg's window, a broken or disarmed recorder. */
@@ -710,7 +710,7 @@ export interface SweepLegRun {
   window: RunWindow;
 }
 
-export interface SweepSelection {
+interface SweepSelection {
   legs: SweepLegRun[];
   /** The union of the selected runs' entries. */
   entries: SpendEntry[];
@@ -794,7 +794,7 @@ export function ledgerEntriesWithin(
 // ─── Per-tier ledger coverage: every tier that can spend records a ledger ────
 
 /** The tier tags a configured tier is known by (RIGGING.md "## Tiers"). */
-export const TIER_TAGS = ["@logic", "@sandbox", "@eval"] as const;
+const TIER_TAGS = ["@logic", "@sandbox", "@eval"] as const;
 
 /**
  * The tags a scenario carries to be entitled to spawn an expensive command: a
@@ -802,7 +802,7 @@ export const TIER_TAGS = ["@logic", "@sandbox", "@eval"] as const;
  * @spend-is-the-assertion declaration. A tier hosting any such scenario can
  * spend, so its spawns must be recorded in a ledger.
  */
-export const SPEND_LICENCE_TAGS = [
+const SPEND_LICENCE_TAGS = [
   "@pipeline",
   "@creates-env",
   "@toolchain-element",

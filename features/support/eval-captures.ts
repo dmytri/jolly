@@ -52,7 +52,7 @@ export const VERCEL_OBS_PATH = join(
 );
 
 /** One recorded real Vercel CLI invocation, replayable by argv family. */
-export interface VercelCapture {
+interface VercelCapture {
   /** The real argv the licensed run passed to the Vercel CLI, verbatim. */
   argv: string[];
   exit: number;
@@ -117,7 +117,7 @@ function writeEvalCaptures(captures: EvalCaptures): void {
  * `["env", "add", ...]` → "env-add". Flags and free values are not part of the
  * family; the replay serves the record whose family matches.
  */
-export function vercelFamilyOf(rest: string[]): string {
+function vercelFamilyOf(rest: string[]): string {
   const words: string[] = [];
   for (const token of rest) {
     if (token.startsWith("-")) continue;
@@ -251,7 +251,7 @@ export function recordDeploymentCapture(marker: {
  * observation: the shim records argv, exit, and stdout only, and the Vercel
  * CLI prints no credential on those surfaces.
  */
-export function readVercelObservations(
+function readVercelObservations(
   run: string,
 ): Record<string, VercelCapture> {
   if (!existsSync(VERCEL_OBS_PATH)) return {};
@@ -345,7 +345,7 @@ export function recordedEndpoints(captures: EvalCaptures): RecordedEndpoint[] {
 }
 
 /** What a readiness probe observed at one endpoint. */
-export interface ProbeResult {
+interface ProbeResult {
   serving: boolean;
   /** What was observed, for the failure message: a status, or a transport error. */
   observed: string;

@@ -36,7 +36,7 @@ const SERVER = join(
   "fake-auth-host-server.cjs",
 );
 
-export interface FakeAuthHostOptions {
+interface FakeAuthHostOptions {
   /**
    * Answer the first token poll with this OAuth error (e.g. "slow_down") and
    * approve the next, so Jolly's real backoff path runs. The server records

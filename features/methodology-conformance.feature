@@ -31,6 +31,15 @@ Feature: Methodology conformance
     And a `@planks-provisional(...)` annotation naming a current `@captain` scenario should conform, one naming a promoted or absent scenario should redden the check
 
   @logic @invariant
+  Scenario: No dead verification-support artifact accumulates
+    Given the step-definition patterns reported by "step-usage" and the exported symbols under "features/support/"
+    When the dead-artifact check enumerates the patterns no scenario binds and the support exports no other file references
+    Then every step-definition pattern should be bound by at least one current scenario
+    And every exported "features/support/" symbol should be referenced by another file in the tree
+    And an orphaned step-definition pattern that no scenario binds should redden the check, naming the pattern and its file
+    And an unreferenced "features/support/" export should redden the check, naming the symbol and its file
+
+  @logic @invariant
   Scenario: Every verification surface in the tree is run by a configured tier command
     Given the tier commands configured in "RIGGING.md" and the test surfaces in the tree
     When the verification surfaces are enumerated

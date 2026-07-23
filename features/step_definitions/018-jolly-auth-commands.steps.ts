@@ -50,65 +50,11 @@ const CLI_ENTRY = join(REPO_ROOT, "src", "index.ts");
 // pasted-token flow that the Rule above forbids (feature 018).
 const BUNDLED_SKILL_PATH = join(REPO_ROOT, "assets", "skills", "jolly", "SKILL.md");
 
-Given("the bundled Jolly skill that ships beside the CLI", function (this: JollyWorld) {
-  assert.ok(existsSync(BUNDLED_SKILL_PATH), "the bundled Jolly skill SKILL.md must exist");
-  this.notes.skillText = readFileSync(BUNDLED_SKILL_PATH, "utf8");
-});
-
-When("its Saleor Cloud authentication guidance is read", function (this: JollyWorld) {
-  // The full skill text is the surface under test; nothing to do beyond loading
-  // it (done in the Given) — the assertions read it directly.
-  assert.ok(
-    typeof this.notes.skillText === "string" && this.notes.skillText.length > 0,
-    "the Jolly skill text must be loaded",
-  );
-});
-
-Then(
-  "it should name the Saleor device authorization grant as the sign-in",
-  function (this: JollyWorld) {
-    const text = String(this.notes.skillText);
-    assert.match(
-      text,
-      /device\s+authorization\s+grant/i,
-      "the Jolly skill must direct Saleor sign-in to the device authorization grant",
-    );
-  },
-);
-
-Then(
-  "it should carry no cloud.saleor.io tokens-page link and no `jolly login` token-paste flag",
-  function (this: JollyWorld) {
-    const text = String(this.notes.skillText);
-    assert.ok(
-      !text.includes("cloud.saleor.io/tokens"),
-      "the Jolly skill must not link the cloud.saleor.io tokens page",
-    );
-    assert.ok(
-      !/login\s+--token\b|--token-file\b|--token-stdin\b/.test(text),
-      "the Jolly skill must not advertise a `jolly login` token-paste flag",
-    );
-  },
-);
-
 function envData(world: JollyWorld): Record<string, unknown> {
   return world.envelope.data as Record<string, unknown>;
 }
 
 // ─── Scenario: login stores a token honestly when verification unreachable ──
-
-Then(
-  // Parametrized: the exact stored value varies per scenario (the unreachable
-  // "stored, not verified" token, plus the --token-file / --token-stdin / env
-  // headless-source tokens). Captures the literal value and asserts the line.
-  /^\.env should contain JOLLY_SALEOR_CLOUD_TOKEN=(\S+)$/,
-  function (this: JollyWorld, value: string) {
-    const text = readFileSync(join(this.lastRun!.cwd, ".env"), "utf8");
-    const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    assert.match(text, new RegExp(`^JOLLY_SALEOR_CLOUD_TOKEN=${escaped}$`, "m"));
-  },
-);
-
 // ─── Scenario: logout removes every Jolly-managed auth value from .env ──────
 // The managed set now includes the device-grant refresh token and the
 // agent-facing SALEOR_TOKEN. Logout removes JOLLY_SALEOR_CLOUD_TOKEN,
@@ -183,37 +129,6 @@ Given("the Saleor auth host issues device codes", async function (this: JollyWor
 // is answered with the named OAuth error (e.g. "slow_down") and the next poll
 // approves, so Jolly's real backoff-and-store path runs. The host records poll
 // arrival times, read back below through its /polls observation endpoint.
-Given(
-  "the Saleor auth host answers the first token poll with {string} and approves the next",
-  async function (this: JollyWorld, error: string) {
-    this.notes.fakeAuthBase = await startFakeAuthHost(this, {
-      firstPollError: error,
-    });
-  },
-);
-
-Then(
-  "the second token poll should start at least five seconds after the first",
-  async function (this: JollyWorld) {
-    const base = String(this.notes.fakeAuthBase ?? "");
-    assert.ok(base, "the fake auth host base URL must be recorded by its Given");
-    // The observed signal: the host recorded when each token poll ARRIVED, so
-    // the backoff is asserted from real arrivals, never inferred from output.
-    const response = await fetch(`${new URL(base).origin}/polls`);
-    const body = (await response.json()) as { polls?: number[] };
-    const polls = body.polls ?? [];
-    assert.ok(
-      polls.length >= 2,
-      `the CLI must poll the token endpoint at least twice (the slow_down answer, then the approval); observed ${polls.length} poll(s)`,
-    );
-    const gap = polls[1]! - polls[0]!;
-    assert.ok(
-      gap >= 5_000,
-      `the second token poll must start at least five seconds after the first (slow_down backoff); observed ${gap}ms`,
-    );
-  },
-);
-
 // The verification URL the human opens is carried in the result envelope (a
 // nextStep) — structured `url` and/or prose — so the agent renders it clickable,
 // never buried on stdout/stderr.
@@ -347,107 +262,6 @@ const AUTH_DEVICE_URL =
 const AUTH_VERIFICATION_URL = "https://auth.saleor.io/realms/saleor-cloud/device";
 // Keycloak's default device user-code format: two groups of A–Z/0–9 (e.g. WDJB-MJHT).
 const USER_CODE_RE = /\b[A-Z0-9]{4,}-[A-Z0-9]{4,}\b/;
-
-Given(
-  "an interactive terminal with no JOLLY_SALEOR_CLOUD_TOKEN set",
-  function (this: JollyWorld) {
-    // Framing for the When: an interactive (real PTY) `jolly login` with the
-    // runtime Cloud token genuinely unset, so the device grant is the only path.
-    this.notes.interactiveDeviceGrant = true;
-  },
-);
-
-When(
-  "the user runs `jolly login`",
-  { timeout: 30_000 },
-  function (this: JollyWorld) {
-    assert.ok(ptyAvailable(), "the PTY driver must be available");
-    // No env token (absentCredentialsEnv unsets the runtime credentials). The
-    // shared Given exported JOLLY_SALEOR_AUTH_URL pointing at the fake auth host,
-    // inherited here through resolvedChildEnv, so the grant approves on the first
-    // poll and the login completes on its own — no human input is typed.
-    const env = resolvedChildEnv(absentCredentialsEnv());
-    const runtime = process.env.HARNESS_CLI_RUNTIME ?? "node";
-    const run = runUnderPty({
-      runtime,
-      argv: [CLI_ENTRY, "login"],
-      cwd: this.projectDir,
-      env,
-      // No scripted input: the fake host approves, so nothing is typed.
-      inputs: [],
-      // The approved login completes and the CLI exits; the read ends there.
-      readUntil: "exit",
-      timeoutMs: 15_000,
-    });
-    this.previousRun = this.lastRun;
-    this.lastRun = {
-      args: ["login"],
-      cwd: this.projectDir,
-      exitCode: run.exitCode,
-      stdout: run.output,
-      stderr: "",
-    };
-  },
-);
-
-Then(
-  "Jolly should request a device code from `https:\\/\\/auth.saleor.io\\/realms\\/saleor-cloud\\/protocol\\/openid-connect\\/auth\\/device` with `client_id=jolly`",
-  function (this: JollyWorld) {
-    // Interactive PTY merges everything into stdout; the agent-driven case relays
-    // the code on stderr. Read both so the one shared step serves both paths.
-    const text = this.lastRun!.stdout + "\n" + this.lastRun!.stderr;
-    // The realm answers a device-code request only when the public client
-    // `jolly` is recognized; a wrong client_id yields invalid_client and no
-    // device authorization. A user code rendered in the terminal is therefore
-    // the falsifiable proof the request to the device endpoint succeeded with
-    // client_id=jolly.
-    assert.ok(
-      USER_CODE_RE.test(text),
-      `Jolly must request a device code from ${AUTH_DEVICE_URL} with client_id=jolly ` +
-        `(a returned user code proves it); got: ${text}`,
-    );
-    assert.ok(
-      !/invalid_client|unauthorized_client/i.test(text),
-      `the device-code request must use client_id=jolly (no invalid_client error); got: ${text}`,
-    );
-  },
-);
-
-Then(
-  "it should display the returned user code and the verification URL `https:\\/\\/auth.saleor.io\\/realms\\/saleor-cloud\\/device?user_code=` followed by that user code through Bombshell's interactive prompt UI",
-  function (this: JollyWorld) {
-    const text = this.lastRun!.stdout;
-    const code = text.match(USER_CODE_RE);
-    assert.ok(code, "the returned user code must be displayed");
-    // The verification URL carries the returned user code as its `user_code`
-    // query parameter so opening it pre-fills the code (feature 018 Rule).
-    assert.ok(
-      text.includes(`${AUTH_VERIFICATION_URL}?user_code=${code![0]}`),
-      `the verification URL ${AUTH_VERIFICATION_URL}?user_code=${code?.[0]} must be displayed; got: ${text}`,
-    );
-    // Bombshell (@clack/prompts) renders box-drawing/symbol glyphs the plain
-    // console never emits; their presence is the falsifiable signal the prompt
-    // UI rendered.
-    assert.ok(
-      /[│┌└◆◇●○▪]/u.test(text),
-      `the code + URL must render through Bombshell's prompt UI; got: ${text}`,
-    );
-  },
-);
-
-Then("it should not print any token value", function (this: JollyWorld) {
-  const text = this.lastRun!.stdout;
-  // No JWT and no token assignment may appear in the terminal output.
-  assert.ok(
-    !/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/.test(text),
-    "no access/refresh JWT may appear in the terminal output",
-  );
-  assert.ok(
-    !/JOLLY_SALEOR_(CLOUD|APP|REFRESH)_TOKEN=\S/.test(text),
-    "no token value may be printed to the terminal",
-  );
-});
-
 Then("stdout should carry no token value", function (this: JollyWorld) {
   const stdout = this.lastRun!.stdout;
   assert.ok(
@@ -588,70 +402,7 @@ Then(
 // JOLLY_SALEOR_CLOUD_TOKEN present but empty is a present-but-empty token. Login
 // in a non-interactive shell must reject it honestly with a stable code naming
 // the empty token, writing nothing to .env.
-
-Given(
-  "JOLLY_SALEOR_CLOUD_TOKEN is set to the empty value",
-  function (this: JollyWorld) {
-    this.notes.envToken = "";
-  },
-);
-
-When(
-  "the agent runs `jolly login --json` in a non-interactive shell",
-  function (this: JollyWorld) {
-    this.runCli(["login", "--json"], {
-      env: absentCredentialsEnv({
-        JOLLY_SALEOR_CLOUD_TOKEN: String(this.notes.envToken ?? ""),
-      }),
-    });
-  },
-);
-
-Then(
-  "the envelope status should be \"error\" with a stable `code` naming the empty token",
-  function (this: JollyWorld) {
-    assert.equal(this.envelope.status, "error");
-    assert.ok(this.envelope.errors.length > 0, "expected an error entry");
-    assert.match(this.envelope.errors[0].code as string, /^[A-Z][A-Z0-9_]*$/);
-    const reported = (
-      JSON.stringify(this.envelope.errors) +
-      " " +
-      this.envelope.summary
-    ).toLowerCase();
-    assert.ok(
-      reported.includes("empty"),
-      `error must name the empty token as the cause; got: ${reported}`,
-    );
-    assert.ok(
-      reported.includes("jolly_saleor_cloud_token"),
-      `error must name the JOLLY_SALEOR_CLOUD_TOKEN variable; got: ${reported}`,
-    );
-  },
-);
-
 // ─── Shared: no existing authentication / no token value in output ──────────
-
-Then("it should not write any value to .env", function (this: JollyWorld) {
-  const path = join(this.lastRun!.cwd, ".env");
-  if (existsSync(path)) {
-    const text = readFileSync(path, "utf8");
-    assert.ok(
-      !/JOLLY_SALEOR_(CLOUD|APP)_TOKEN=/.test(text),
-      "a failed exchange must not write a token to .env",
-    );
-  }
-});
-
-Then(
-  "the output should contain no success, verified, or authenticated language",
-  function (this: JollyWorld) {
-    const text = (this.lastRun!.stdout + " " + this.lastRun!.stderr).toLowerCase();
-    for (const claim of ["successfully logged in", "authenticated as", "token verified", "verification succeeded"]) {
-      assert.ok(!text.includes(claim), `output must not claim "${claim}"`);
-    }
-  },
-);
-
 // ─── @sandbox: verify a headless token against the Cloud API ───────────────
 // saleorCloud-gated; runs in CI with the real token. Written for CI.
 
@@ -740,41 +491,8 @@ Then(
 // reports an error naming the rejection status, writes nothing to .env, and
 // makes no success/verified/authenticated claim. A real request from real bad
 // input — no account is reached, so it stays a safe @logic check.
-
-Given(
-  "JOLLY_SALEOR_CLOUD_TOKEN is set to an invalid or expired value",
-  function (this: JollyWorld) {
-    const token = `invalid-${this.namespace}-token`;
-    this.notes.loginEnvToken = token;
-    this.trackSecret(token);
-  },
-);
-
-Then(
-  "Jolly should report an error naming the HTTP rejection status",
-  function (this: JollyWorld) {
-    const reported =
-      JSON.stringify(this.envelope.errors) + " " + this.envelope.summary;
-    assert.match(
-      reported,
-      /\b(401|403)\b/,
-      `the error must name the HTTP rejection status (401/403); got: ${reported}`,
-    );
-  },
-);
-
 // ─── @sandbox: login rejects an invalid token gracefully ───────────────────
 // Uses the network only; the invalid token is real bad input, no account touched.
-
-Then(
-  "the verification request should really be sent and really be rejected",
-  function (this: JollyWorld) {
-    assert.equal(this.envelope.status, "error");
-    const code = this.envelope.errors[0]?.code;
-    assert.equal(code, "INVALID_TOKEN");
-  },
-);
-
 // ─── Scenario: Agent logs out (generic) ────────────────────────────────────
 
 Given(
@@ -787,34 +505,6 @@ Given(
     );
   },
 );
-
-When("the agent invokes `jolly logout`", function (this: JollyWorld) {
-  this.runCli(["logout", "--json"], { env: absentCredentialsEnv() });
-});
-
-Then(
-  "Jolly should remove JOLLY_SALEOR_CLOUD_TOKEN from .env",
-  function (this: JollyWorld) {
-    const values = loadEnvValues(this.lastRun!.cwd);
-    assert.ok(!("JOLLY_SALEOR_CLOUD_TOKEN" in values), "the managed Cloud token must be removed");
-  },
-);
-
-Then(
-  "any non-JOLLY_ variable in .env should remain unchanged",
-  function (this: JollyWorld) {
-    const values = loadEnvValues(this.lastRun!.cwd);
-    assert.equal(values["THIRD_PARTY_KEY"], "keep-me", "unrelated vars must be preserved");
-  },
-);
-
-Then(
-  "it should load the updated `.env` values for the current command flow",
-  function (this: JollyWorld) {
-    assert.equal(this.envelope.status, "success");
-  },
-);
-
 // ─── Scenario: Agent checks auth status ────────────────────────────────────
 
 When("it invokes `jolly auth status`", function (this: JollyWorld) {
@@ -888,15 +578,6 @@ Then(
     assert.ok(!this.lastRun!.envelope, "--quiet must not emit the machine envelope");
   },
 );
-
-Then(
-  "the output should include a nextSteps array with at least one step",
-  function (this: JollyWorld) {
-    assert.ok(Array.isArray(this.envelope.nextSteps));
-    assert.ok(this.envelope.nextSteps.length >= 1, "expected at least one nextStep");
-  },
-);
-
 // ─── Scenario: logout removes only Jolly-managed auth values from .env ──────
 
 When("the agent runs `jolly logout`", function (this: JollyWorld) {
@@ -994,30 +675,6 @@ function resolvedChildEnv(
 // ─── Scenario: jolly login --dry-run does not write to .env ─────────────────
 // A dry-run login previews only: it shows the login riskContext + nextSteps,
 // never starts the device grant (no device code), and writes nothing to .env.
-
-When(
-  "the user runs `jolly login --dry-run --json`",
-  function (this: JollyWorld) {
-    this.runCli(["login", "--dry-run", "--json"], { env: absentCredentialsEnv() });
-  },
-);
-
-Then(
-  "it should not request a device code and should not write to .env",
-  function (this: JollyWorld) {
-    const text = (this.lastRun!.stdout + " " + this.lastRun!.stderr).toLowerCase();
-    assert.ok(
-      !text.includes("auth.saleor.io/realms/saleor-cloud/device") &&
-        !/user code|device code/.test(text),
-      "a dry-run login must not request or display a device code",
-    );
-    assert.ok(
-      !existsSync(join(this.lastRun!.cwd, ".env")),
-      "a dry-run login must not write .env",
-    );
-  },
-);
-
 // ─── @property: the .env Jolly writes is private + shell-safe ───────────────
 // 018:153/164 exercise the shared .env writer via the stored-not-verified path:
 // an env/.env staff token plus a deliberately-unreachable Cloud API

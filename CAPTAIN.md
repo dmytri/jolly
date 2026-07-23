@@ -8,48 +8,89 @@ Binding behaviour lives in `.feature` specs and referenced `assets/**`. History 
 
 # DECK STATE
 
-**HEAD = `bf2ac39`, tree CLEAN, PUSHED to origin/main. Two simplification voyages COMMITTED.**
+**HEAD = `b9725be` (notes commit, UNPUSHED, ahead of origin by 1; `bf2ac39` is the last pushed
+voyage). ORPHAN-CLEANUP VOYAGE IN FLIGHT, expanded into HARBOUR. Tree DIRTY with role-advanced
+work-in-flight (NOT committed).**
 
-The corpus went **275 -> 121 scenarios, 32 -> 25 feature files, full regression 51 -> 31.5 min,
-fully green across all four tiers.** All parallelism removed (lanes, pressure auto-tuner, worker
-counts) and all three config surfaces now agree: `RIGGING.md`, `cucumber.js`, `AGENTS.md` all say
-nothing runs in parallel. Budgets ratcheted to measurement: `budget` 3640 -> 2540, `budget-sandbox`
-1850 -> 1050, `budget-sandbox-serial` 900 -> 750; `budget-logic` 500 and `budget-eval` 240 held.
+## The voyage so far (dk ruled check-driven, then harbour, 2026-07-23 this session)
 
-## NEXT VOYAGE (dk ruled 2026-07-23): orphan cleanup, then npm publish
+1. Captain authored ONE `@logic @invariant` in `features/methodology-conformance.feature` —
+   **"No dead verification-support artifact accumulates"** — guarding orphaned step-def patterns AND
+   unreferenced `features/support/` exports, each with a planted-red leg. gplint clean. Watchbill
+   `watch1` carried that one target.
+2. QM made it executable (`features/support/dead-artifact-conformance.ts`), removed all **507
+   orphaned step defs** (4 files deleted outright: 009, 029, command-custody-hook,
+   single-creation-seam; rest statement-by-statement across 22 files) and **103 unreferenced
+   support exports** (86 un-exported, 17 deleted). Target green in isolation; typecheck clean.
 
-**507 of 1175 step definitions are orphaned** (`step-usage` zero-usage) after the corpus cut — 43%
-of the verification layer is dead. QM-scope, verification support. FOUR files are WHOLLY orphaned
-because their feature was deleted this session, delete outright:
-- `features/step_definitions/009-agent-skill-installation-targets.steps.ts` (19)
-- `features/step_definitions/019-iteration-phase.steps.ts` (13)
-- `features/step_definitions/029-composable-stage-commands.steps.ts` (24)
-- `features/step_definitions/single-creation-seam.steps.ts` (4)
-The rest need per-site judgment (shared helpers): heaviest are 002 (52), 027 (45), 014 (44), 004
-(33), 018 (27), verification-economy (27).
+## THE BLOCKER QM SURFACED — the reason this became harbour
 
-**Dead block in `features/support/pressure.ts` lines 100-215**: `readTierWorkerCeilings`,
-`tierWorkerCeiling`, `declaredTierWorkers`, `WorkerCountFinding`, `workerCountFinding`,
-`WORKER_CEILING_LINE`. Referenced only within that file. 028 is deleted, no `workers-*` value
-exists, `cucumber.js` no longer imports it. `step-usage` cannot see support-module exports, so this
-is a read-plus-reference-search finding, not a derived check — the missing check is a structural
-rule for unreferenced verification-support exports.
+Removing scenario-unbound step defs **stranded ~145 production `@planks(...)`** on untouched
+`src/`/`bin/` seams that named those orphans, reddening the required check "Every plank names a
+current step-definition pattern". The two checks aren't contradictory — the tree carries 145
+**behaviour-stale planks** left by the corpus cuts. Verified real: `src/index.ts:583` carries
+`@planks("the user runs \`jolly login\`")`; NO scenario binds "the user runs `jolly login`";
+scenarios use "the agent runs `jolly login`". A plain misannotation in that case; others may be lost
+behaviour. Article 2 + Planking agreement: behaviour-stale plank is **harbour coverage-triage**,
+"Harbour's coverage triage is the net" — re-plank / condemn / author-scenario, per-seam product
+judgment. Outside QM and Crew scope. dk ruled **harbour now, then publish** (2026-07-23).
 
-**Then npm publish 0.13.1** (dk approved PUSH only on 2026-07-23; publish was held for after the
-orphan cleanup). Local and published are both 0.13.0, so bump first. The push already landed:
-`63e269d..bf2ac39 main -> main`.
+## DOCTRINE DEFECT recorded (Captain-authority decision, this session)
 
-## Two harness FINDINGS from the full regression, both re-passed, carry as fragilities not defects
+Harbour "begins on a clean tree; uncommitted voyage work routes through Boatswain custody first."
+But QM's cleanup only reaches green TOGETHER with the plank reconciliation, so it is NOT
+green-committable as a standalone voyage. It rides into harbour as role-advanced work-in-flight (not
+dirt); Boatswain commits the coherent green result at harbour custody. **Upstream finding: a voyage
+can legitimately discover mid-flight that its completion requires harbour, so a voyage may hand
+directly to harbour with uncommitted work-in-flight.** The correct completion order is
+Shipwright-then-settle: reconcile planks so the removed orphans become truly dead.
 
-- **The spend-ledger check is order-dependent.** `@logic` runs first under cheapest-first `order`
-  and reads the PREVIOUS run's `@sandbox` ledger, so it named three now-deleted scenarios and
-  reddened; `@sandbox` then rewrote the ledger and it went green. On a fresh clone with no ledger it
-  reds for a THIRD reason. Real fragility. QM looked and found nothing to change this pass.
-- **`027:Interrupting the unattended stages reports the interrupted stage honestly` is
-  load-sensitive.** Failed ONCE under full-regression load (stalled at the env-name prompt, never
-  reached the store stage), passed 3x since (isolated + two sweeps). "Did not reproduce" is NOT
-  "fixed" — if it resurfaces it is a real load-sensitivity to engineer out (likely a guessed-delay
-  wait that observed-signal enforcement is not reaching), never a flake to re-run past.
+## HARBOUR COMPLETE (Shipwright returned; clean regression green after budget fix)
+
+Shipwright reconciled all ~145 stranded planks (367 planks, 0 stranded, 0 condemnations, typecheck +
+gplint clean) and wrote 3 `@captain` skeletons. THEN the regression went sideways: TWO detached runs
+(Shipwright's + a reconciliation fork's) collided, corrupting the shared store and filling the org's
+2-env cap with two shared stores. Captain killed both by exact PID, and — dk-authorized, foreign
+agent confirmed off this Saleor org — deleted the ORPHAN duplicate shared store (kept the
+marker's current `...mrx8nopo`), freeing a slot. One clean tracked regression then ran:
+
+- **sandbox-serial 3/3, sandbox 26/26, eval 2/2, logic 106/107.** The 4 cold-box reds warmed away.
+- The one logic red was the budget-fit check: sandbox recorded 1123.3s vs its 1050s budget under
+  neighbour-agent contention (26/26 green, same scenarios as the 896s baseline — contention, not
+  slowdown). **dk ruled: raise `budget-sandbox` 1050 -> 1200** (and `budget` 2540 -> 2690). Budget-fit
+  scenario RE-PROVEN green against 1200. Harbour now 137/137.
+
+## dk ruled 2026-07-23: DEFER skeletons, PUBLISH NOW
+
+Next: Boatswain harbour custody (commits QM cleanup + Shipwright reconciliation + methodology scenario
++ RIGGING budget + these notes + 3 skeletons + dead-artifact-conformance.ts; strikes spent watchbill),
+then **bump 0.13.1 + npm publish** (dk approved publish-now; the ACTION runs in main session).
+
+## DEFERRED to a follow-up voyage (do NOT lose these)
+
+- **3 `@captain` skeletons** Shipwright wrote, real behaviours the cuts dropped, byte-exact
+  `@planks-provisional` replanks in place: `004:Jolly start runs the stock and collection requests
+  concurrently` (check supersede-into-002 vs promote); `012:Jolly provisions a blank environment with
+  no sample data` (needs `@creates-env` licence + one-creation-per-seam if promoted);
+  `020:Human terminal output carries colour and a restrained status glyph per check` (cheap @logic,
+  matches kept terminal-UX prefs).
+- **2 Shipwright findings**, dropped behaviours unverified: `main` NPM_CONFIG_LOGLEVEL suppression;
+  `agentResumePollSeconds` JOLLY_* affordance plank.
+- **`pressure.ts` dead pair + a CHECK GAP.** `tierWorkerCeiling` / `readTierWorkerCeilings` /
+  `WORKER_CEILING_LINE` (~lines 118-146) are never called; QM UN-EXPORTED them (not deleted), so the
+  new dead-artifact check — which only sees unreferenced EXPORTS — cannot see them. Harmless dead
+  SUPPORT code. QM should delete them; and dk should rule whether the check should also catch
+  unreferenced LOCALS in support modules, or whether un-export is an accepted evasion to close.
+  `deriveWorkerCount` and `CONFIGURED_PARALLELISM` in the same file ARE live (wake-run-scope,
+  cucumber.js) — do not touch them.
+
+## Two harness FINDINGS, carry as fragilities not defects
+
+- **The spend-ledger check is order-dependent.** `@logic` first under cheapest-first `order` reads
+  the PREVIOUS run's `@sandbox` ledger; on a fresh/cold box with no ledger it reds. Real fragility.
+- **`027:Interrupting the unattended stages reports honestly` is load-sensitive.** Failed ONCE under
+  full-regression load, passed since. "Did not reproduce" is NOT "fixed" — engineer out if it
+  resurfaces, never re-run past.
 
 ## dk's 12 kept-against-audit scenarios (the muster dissents) — do NOT re-cut without a new ruling
 
