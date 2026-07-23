@@ -1,9 +1,9 @@
 {
   "deployment": {
-    "url": "https://jolly-cannon-fodder-shared-deploy-qzf8vi8sf.vercel.app",
+    "url": "https://jolly-cannon-fodder-shared-deploy-neny1s31r.vercel.app",
     "project": "jolly-cannon-fodder-shared-deploy",
-    "storeEndpoint": "https://jolly-cannon-fodder-shared-mrx8nopo-t057cz.saleor.cloud/graphql/",
-    "sourceRun": "run-mrx92gx4-6mv1"
+    "storeEndpoint": "https://jolly-cannon-fodder-shared-mrxlq8ei-f29vf1.saleor.cloud/graphql/",
+    "sourceRun": "run-mrxo4kys-nwnv"
   },
   "environmentCreation": {
     "name": "jolly-cannon-fodder-shared-mrxlq8ei-f29vf1",
@@ -13,7 +13,7 @@
   },
   "storefrontTemplate": {
     "dirname": "jolly-cannon-fodder-storefront-template",
-    "sourceRun": "run-mrx92gx4-6mv1"
+    "sourceRun": "run-mrxo4kys-nwnv"
   },
   "vercel": {
     "families": {
@@ -71,12 +71,12 @@
           "--project",
           "jolly-cannon-fodder-shared-deploy",
           "--build-env",
-          "NEXT_PUBLIC_SALEOR_API_URL=https://jolly-cannon-fodder-shared-mrx8nopo-t057cz.saleor.cloud/graphql/",
+          "NEXT_PUBLIC_SALEOR_API_URL=https://jolly-cannon-fodder-shared-mrxlq8ei-f29vf1.saleor.cloud/graphql/",
           "--build-env",
           "NEXT_PUBLIC_DEFAULT_CHANNEL=us"
         ],
         "exit": 0,
-        "stdout": "{\n  \"status\": \"ok\",\n  \"deployment\": {\n    \"id\": \"dpl_4mqrL9HVMkoWYorB5ZERxe6adQ9X\",\n    \"url\": \"https://jolly-cannon-fodder-shared-deploy-qzf8vi8sf.vercel.app\",\n    \"inspectorUrl\": \"https://vercel.com/dmytri-kleiners-projects/jolly-cannon-fodder-shared-deploy/4mqrL9HVMkoWYorB5ZERxe6adQ9X\",\n    \"readyState\": \"READY\",\n    \"target\": \"production\",\n    \"deploymentApiUrl\": \"https://api.vercel.com/v13/deployments/dpl_4mqrL9HVMkoWYorB5ZERxe6adQ9X\"\n  },\n  \"message\": \"Deployment jolly-cannon-fodder-shared-deploy-qzf8vi8sf.vercel.app ready.\",\n  \"next\": [\n    {\n      \"command\": \"vercel inspect jolly-cannon-fodder-shared-deploy-qzf8vi8sf.vercel.app\",\n      \"when\": \"Inspect deployment\"\n    },\n    {\n      \"command\": \"vercel deploy --prod\",\n      \"when\": \"Promote to production\"\n    }\n  ]\n}\n"
+        "stdout": "{\n  \"status\": \"ok\",\n  \"deployment\": {\n    \"id\": \"dpl_BAs4acsGy6mqLjMLtGC6wrVPDaxc\",\n    \"url\": \"https://jolly-cannon-fodder-shared-deploy-neny1s31r.vercel.app\",\n    \"inspectorUrl\": \"https://vercel.com/dmytri-kleiners-projects/jolly-cannon-fodder-shared-deploy/BAs4acsGy6mqLjMLtGC6wrVPDaxc\",\n    \"readyState\": \"READY\",\n    \"target\": \"production\",\n    \"deploymentApiUrl\": \"https://api.vercel.com/v13/deployments/dpl_BAs4acsGy6mqLjMLtGC6wrVPDaxc\"\n  },\n  \"message\": \"Deployment jolly-cannon-fodder-shared-deploy-neny1s31r.vercel.app ready.\",\n  \"next\": [\n    {\n      \"command\": \"vercel inspect jolly-cannon-fodder-shared-deploy-neny1s31r.vercel.app\",\n      \"when\": \"Inspect deployment\"\n    },\n    {\n      \"command\": \"vercel deploy --prod\",\n      \"when\": \"Promote to production\"\n    }\n  ]\n}\n"
       },
       "project-protection-disable": {
         "argv": [
@@ -142,6 +142,6 @@
         "stdout": ""
       }
     },
-    "sourceRun": "run-mrx92gx4-6mv1"
+    "sourceRun": "run-mrxo4kys-nwnv"
   }
 }
