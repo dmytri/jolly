@@ -8,9 +8,13 @@ Binding behaviour lives in `.feature` specs and referenced `assets/**`. History 
 
 # DECK STATE
 
-**HEAD = `b9725be` (notes commit, UNPUSHED, ahead of origin by 1; `bf2ac39` is the last pushed
-voyage). ORPHAN-CLEANUP VOYAGE IN FLIGHT, expanded into HARBOUR. Tree DIRTY with role-advanced
-work-in-flight (NOT committed).**
+**HEAD = `1fc8704` (v0.13.1 release commit). Tree CLEAN. `@dk/jolly` 0.13.1 PUBLISHED to npm
+(registry confirms 0.13.1; local bundle verified; published-bundle npx re-verify pending CDN
+propagation, rides through). Branch AHEAD of origin by 3 commits + tag `v0.13.1`, ALL UNPUSHED.
+Harbour COMPLETE, 137/137 across four tiers. Boatswain custody `58c82f6`, release `1fc8704`.**
+
+**git push to origin is the ONE remaining outbound — dk's explicit call (a distinct outbound from
+the npm publish dk authorized).**
 
 ## The voyage so far (dk ruled check-driven, then harbour, 2026-07-23 this session)
 
@@ -60,11 +64,14 @@ marker's current `...mrx8nopo`), freeing a slot. One clean tracked regression th
   slowdown). **dk ruled: raise `budget-sandbox` 1050 -> 1200** (and `budget` 2540 -> 2690). Budget-fit
   scenario RE-PROVEN green against 1200. Harbour now 137/137.
 
-## dk ruled 2026-07-23: DEFER skeletons, PUBLISH NOW
+## dk ruled 2026-07-23: DEFER skeletons, PUBLISH NOW — DONE
 
-Next: Boatswain harbour custody (commits QM cleanup + Shipwright reconciliation + methodology scenario
-+ RIGGING budget + these notes + 3 skeletons + dead-artifact-conformance.ts; strikes spent watchbill),
-then **bump 0.13.1 + npm publish** (dk approved publish-now; the ACTION runs in main session).
+Boatswain custody `58c82f6` committed the whole harbour diff and struck the watchbill. Version bumped
+`1fc8704` (tag v0.13.1). `npm publish` succeeded (`+ @dk/jolly@0.13.1`, dist built, 18 files, no
+2FA-bypass snag). Registry confirms 0.13.1; local `bin/jolly --help` runs; published-bundle npx run
+was still `jolly: not found` seconds after publish (CDN propagation, expected, rides through — RE-VERIFY
+`npx -y @dk/jolly@0.13.1 --help` once settled). Homepage untouched (live == source), no deploy owed.
+REMAINING: `git push origin main --tags` (dk's explicit outbound call).
 
 ## DEFERRED to a follow-up voyage (do NOT lose these)
 
