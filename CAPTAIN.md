@@ -8,13 +8,20 @@ Binding behaviour lives in `.feature` specs and referenced `assets/**`. History 
 
 # DECK STATE
 
-**HEAD = `1fc8704` (v0.13.1 release commit). Tree CLEAN. `@dk/jolly` 0.13.1 PUBLISHED to npm
-(registry confirms 0.13.1; local bundle verified; published-bundle npx re-verify pending CDN
-propagation, rides through). Branch AHEAD of origin by 3 commits + tag `v0.13.1`, ALL UNPUSHED.
-Harbour COMPLETE, 137/137 across four tiers. Boatswain custody `58c82f6`, release `1fc8704`.**
+**HEAD = `7a15b21`. Tree CLEAN. IN SYNC with origin/main (pushed `bf2ac39..7a15b21`, tag `v0.13.1`).
+`@dk/jolly` 0.13.1 PUBLISHED to npm and live. Harbour COMPLETE, 137/137 across four tiers. NO
+outbound pending. Batch fully shipped.**
 
-**git push to origin is the ONE remaining outbound — dk's explicit call (a distinct outbound from
-the npm publish dk authorized).**
+Custody `58c82f6` (harbour), release `1fc8704` (v0.13.1), notes `7a15b21`. Registry confirms 0.13.1;
+local `bin/jolly --help` verified. If a fresh cycle wants belt-and-braces: `npx -y @dk/jolly@0.13.1
+--help` should now run the published bundle (it was still propagating at ship time — CDN window).
+
+## NEXT VOYAGE: the harbour follow-up (deferred this batch, dk-ruled defer-and-publish 2026-07-23)
+
+See "DEFERRED to a follow-up voyage" below: promote/supersede/discard the 3 `@captain` skeletons
+(`004` concurrency, `012` blank-env, `020` colour-glyph), rule the 2 findings (`NPM_CONFIG_LOGLEVEL`,
+`agentResumePollSeconds`), and clean the `pressure.ts` dead pair — plus rule whether the dead-artifact
+check should catch unreferenced LOCALS (un-export currently evades it).
 
 ## The voyage so far (dk ruled check-driven, then harbour, 2026-07-23 this session)
 
