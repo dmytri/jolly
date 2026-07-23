@@ -8,6 +8,63 @@ Binding behaviour lives in `.feature` specs and referenced `assets/**`. History 
 
 # DECK STATE
 
+**HEAD = `bf2ac39`, tree CLEAN, PUSHED to origin/main. Two simplification voyages COMMITTED.**
+
+The corpus went **275 -> 121 scenarios, 32 -> 25 feature files, full regression 51 -> 31.5 min,
+fully green across all four tiers.** All parallelism removed (lanes, pressure auto-tuner, worker
+counts) and all three config surfaces now agree: `RIGGING.md`, `cucumber.js`, `AGENTS.md` all say
+nothing runs in parallel. Budgets ratcheted to measurement: `budget` 3640 -> 2540, `budget-sandbox`
+1850 -> 1050, `budget-sandbox-serial` 900 -> 750; `budget-logic` 500 and `budget-eval` 240 held.
+
+## NEXT VOYAGE (dk ruled 2026-07-23): orphan cleanup, then npm publish
+
+**507 of 1175 step definitions are orphaned** (`step-usage` zero-usage) after the corpus cut — 43%
+of the verification layer is dead. QM-scope, verification support. FOUR files are WHOLLY orphaned
+because their feature was deleted this session, delete outright:
+- `features/step_definitions/009-agent-skill-installation-targets.steps.ts` (19)
+- `features/step_definitions/019-iteration-phase.steps.ts` (13)
+- `features/step_definitions/029-composable-stage-commands.steps.ts` (24)
+- `features/step_definitions/single-creation-seam.steps.ts` (4)
+The rest need per-site judgment (shared helpers): heaviest are 002 (52), 027 (45), 014 (44), 004
+(33), 018 (27), verification-economy (27).
+
+**Dead block in `features/support/pressure.ts` lines 100-215**: `readTierWorkerCeilings`,
+`tierWorkerCeiling`, `declaredTierWorkers`, `WorkerCountFinding`, `workerCountFinding`,
+`WORKER_CEILING_LINE`. Referenced only within that file. 028 is deleted, no `workers-*` value
+exists, `cucumber.js` no longer imports it. `step-usage` cannot see support-module exports, so this
+is a read-plus-reference-search finding, not a derived check — the missing check is a structural
+rule for unreferenced verification-support exports.
+
+**Then npm publish 0.13.1** (dk approved PUSH only on 2026-07-23; publish was held for after the
+orphan cleanup). Local and published are both 0.13.0, so bump first. The push already landed:
+`63e269d..bf2ac39 main -> main`.
+
+## Two harness FINDINGS from the full regression, both re-passed, carry as fragilities not defects
+
+- **The spend-ledger check is order-dependent.** `@logic` runs first under cheapest-first `order`
+  and reads the PREVIOUS run's `@sandbox` ledger, so it named three now-deleted scenarios and
+  reddened; `@sandbox` then rewrote the ledger and it went green. On a fresh clone with no ledger it
+  reds for a THIRD reason. Real fragility. QM looked and found nothing to change this pass.
+- **`027:Interrupting the unattended stages reports the interrupted stage honestly` is
+  load-sensitive.** Failed ONCE under full-regression load (stalled at the env-name prompt, never
+  reached the store stage), passed 3x since (isolated + two sweeps). "Did not reproduce" is NOT
+  "fixed" — if it resurfaces it is a real load-sensitivity to engineer out (likely a guessed-delay
+  wait that observed-signal enforcement is not reaching), never a flake to re-run past.
+
+## dk's 12 kept-against-audit scenarios (the muster dissents) — do NOT re-cut without a new ruling
+
+030 x2 (foreign agents share this box, age gate stops deleting a live sibling's env),
+verification-economy eval-captures-still-serve (dead store presents as agent-timeout, cost a day),
+OOM-reds-check (today's OOMs were single-worker), reclaim-on-import (destructive on shared box),
+ambient-setup-once (the rule the 15 TS-project OOM broke), 020 doctor-non-first-party (second
+injection point, .env not --url), 020 every-request-site (the exhaustiveness check), 012
+one-creation-seam-preview-trust, 002 concurrent-storefront-prepare (last product concurrency), 025
+spend-ledger (localised the eval cost), methodology plank-names-current (found 8 stale annotations).
+
+---
+
+# SUPERSEDED — earlier deck state, kept only for the eval saga and lessons below
+
 **HEAD = `90b1285`. Harbour COMPLETE. A post-harbour voyage is IN FLIGHT, uncommitted.**
 
 Harbour done: 3 skeletons promoted (stage-surface-consistency, completion copy, riskContext prose),
