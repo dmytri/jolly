@@ -336,7 +336,7 @@ export interface EnvironmentCreationBody {
  * environments are provisioned blank").
  * @planks("^there should be exactly one, and both the `--dry-run` preview and the real request should report and send that one body$")
  * @planks("it should create an environment via POST \/platform\/api\/organizations\/\{organization}\/environments\/")
- * @planks-provisional("features/012-existing-saleor-store-connection.feature:Jolly provisions a blank environment with no sample data")
+ * @planks("the previewed environment-creation request body should send `database_population` as null, the Saleor Cloud blank template")
  */
 export function environmentCreationBody(opts: {
   name: string;
@@ -839,7 +839,7 @@ const RECIPE_REQUEST_CONCURRENCY = 8;
  * start and finish time so the caller can report the request timing. The first
  * poolful of requests start together and overlap, the observable seam the
  * concurrency scenario asserts against.
- * @planks-provisional("features/004-jolly-configurator-starter-recipe.feature:Jolly start runs the stock and collection requests concurrently")
+ * @planks("the stage result should report each stock and collection-assignment request's start and finish time")
  */
 async function runRecordedConcurrent<T>(
   items: readonly T[],

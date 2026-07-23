@@ -571,18 +571,27 @@ interface RequestInterval {
   finishedAt: number;
 }
 
+/** The `data.stock` object of the run's shared `jolly stock` envelope. The
+ * shared Given records that run on `notes.stockRun` (recipe-on-shared.ts), while
+ * `world.envelope` is the recipe run; the stock stage reports its request timing
+ * under `data.stock`, so read it from the stock run. */
+function stockStageData(world: JollyWorld): Record<string, unknown> | undefined {
+  const stockRun = world.notes.stockRun as { envelope?: { data: Record<string, unknown> } } | undefined;
+  assert.ok(stockRun?.envelope, "the shared stock run must carry an output envelope");
+  return stockRun!.envelope!.data.stock as Record<string, unknown> | undefined;
+}
+
 /** The stock stage's reported request-timing intervals for one request kind
  * (stock mutations or collection assignments), asserted present with at least
  * two entries — two requests are the minimum for concurrency to be observable. */
 function reportedRequestTiming(
-  world: JollyWorld,
+  stock: Record<string, unknown> | undefined,
   key: "stockRequests" | "collectionRequests",
   label: string,
 ): RequestInterval[] {
-  const stock = world.envelope.data.stock as Record<string, unknown> | undefined;
   assert.ok(
     stock,
-    `the stock stage must report its request timing under data.stock: ${JSON.stringify(world.envelope.data)}`,
+    `the stock stage must report its request timing under data.stock`,
   );
   const raw = stock![key];
   assert.ok(
@@ -627,6 +636,52 @@ function assertRequestOverlap(intervals: RequestInterval[], label: string): void
       `earlier one finishes (concurrent); the requests ran sequentially: ${JSON.stringify(byStart)}`,
   );
 }
+
+Then(
+  "the stage result should report each stock and collection-assignment request's start and finish time",
+  function (this: JollyWorld) {
+    const stock = stockStageData(this);
+    this.notes.stockIntervals = reportedRequestTiming(stock, "stockRequests", "stock");
+    this.notes.collectionIntervals = reportedRequestTiming(
+      stock,
+      "collectionRequests",
+      "collection-assignment",
+    );
+  },
+);
+
+Then(
+  "a later request's reported start should precede an earlier request's reported finish",
+  function (this: JollyWorld) {
+    // Concurrency is observable within each batch the seam runs through its
+    // bounded pool; the stock batch has one request per recipe variant, so it
+    // carries the overlap the scenario asserts.
+    assertRequestOverlap(this.notes.stockIntervals as RequestInterval[], "stock");
+  },
+);
+
+Then(
+  "every recipe product variant should still end stocked in the recipe warehouse",
+  { timeout: 60_000 },
+  async function (this: JollyWorld) {
+    const endpoint = String(this.notes.storeEndpoint);
+    const token = this.notes.storeToken as string | undefined;
+    const variants = await recipeVariants(endpoint, token);
+    assert.ok(
+      variants.length > 0,
+      "the recipe deploy must have created product variants to seed stock for",
+    );
+    for (const variant of variants) {
+      const stock = variant.stocks.find(
+        (s) => s.warehouse.slug === RECIPE_WAREHOUSE_SLUG,
+      );
+      assert.ok(
+        stock && stock.quantity > 0,
+        `variant "${variant.name}" (${variant.sku}) must still hold positive stock in ${RECIPE_WAREHOUSE_NAME}`,
+      );
+    }
+  },
+);
 
 // ─── Scenario: Jolly start previews the configurator deploy of the starter
 //     recipe (@logic) ───────────────────────────────────────────────────────

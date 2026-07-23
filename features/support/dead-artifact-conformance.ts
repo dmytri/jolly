@@ -15,7 +15,7 @@
 // Both are QM-owned verification support, not production code. The orphan join
 // reads the same `usage-json` the RIGGING `step-usage` command emits; the
 // export search reuses the reference corpus the dependency-record check builds.
-import { Project } from "ts-morph";
+import { Node, Project, SyntaxKind } from "ts-morph";
 import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
@@ -183,6 +183,150 @@ export function collectSupportExports(
     }
   }
   return exportsOut;
+}
+
+// ─── Unreachable non-exported features/support/ symbols ─────────────────────
+//
+// An exported symbol nothing references is dead weight; so is a non-exported
+// helper that no live entry point reaches. A non-exported symbol is file-local,
+// so its reachability is decided inside its own file: the live entry points are
+// this file's REFERENCED exports and its module-level side effects — the
+// top-level statements and the value-binding initializers that execute at
+// import. A function or class declaration, or a const bound to a function
+// expression, runs only when something references it, so it is dead when no live
+// entry point reaches it. A value binding's initializer runs at import, so it is
+// never dead weight and seeds reachability rather than being checked.
+
+/** A non-exported top-level symbol found unreachable in its file. */
+export interface UnreachableSymbol {
+  file: string;
+  symbol: string;
+  message: string;
+}
+
+/** Identifier texts named anywhere under a node (over-approximate references). */
+function referencedNames(node: Node): string[] {
+  return node.getDescendantsOfKind(SyntaxKind.Identifier).map((id) => id.getText());
+}
+
+/**
+ * The non-exported `features/support/` symbols no live entry point reaches. A
+ * checked symbol is a top-level function or class declaration, or a const bound
+ * to a function expression: code that runs only when referenced. Reachability is
+ * seeded by the file's referenced exports and its module-level side effects and
+ * propagated through the in-file reference graph. An unreferenced export does
+ * not seed, so a symbol only such dead code reaches is itself reported.
+ */
+export function findUnreachableSupportSymbols(
+  supportDir = "features/support/",
+  injected: InjectedSource[] = [],
+  corpus: CorpusFile[] = referenceCorpus(
+    readFileSync(join(REPO_ROOT, "package.json"), "utf8"),
+  ),
+): UnreachableSymbol[] {
+  const project = new Project({ useInMemoryFileSystem: true });
+  const sources: InjectedSource[] = walkModuleFiles(
+    join(REPO_ROOT, supportDir),
+  ).map((absolute) => ({
+    file: absolute.slice(REPO_ROOT.length + 1),
+    text: readFileSync(absolute, "utf8"),
+  }));
+  sources.push(...injected);
+
+  const allExports = collectSupportExports(supportDir, injected);
+  const unreferenced = new Set(
+    findUnreferencedExports(allExports, corpus).map(
+      (entry) => `${entry.file} ${entry.symbol}`,
+    ),
+  );
+  const isReferencedExport = (file: string, symbol: string): boolean =>
+    !unreferenced.has(`${file} ${symbol}`);
+
+  const out: UnreachableSymbol[] = [];
+  for (const source of sources) {
+    const virtual = extname(source.file) === ".mjs" ? `${source.file}.ts` : source.file;
+    const sf = project.createSourceFile(virtual, source.text, { overwrite: true });
+    const exportedNames = new Set(sf.getExportedDeclarations().keys());
+
+    // name → node whose body propagates references when the symbol is reachable.
+    const bodyOf = new Map<string, Node>();
+    // Checked non-exported-or-exported symbol → declaration line.
+    const checked = new Map<string, number>();
+    const seedRefNames: string[] = [];
+
+    const fnInit = (init: Node | undefined): Node | undefined =>
+      init && (Node.isArrowFunction(init) || Node.isFunctionExpression(init))
+        ? init
+        : undefined;
+
+    for (const stmt of sf.getStatements()) {
+      if (Node.isFunctionDeclaration(stmt) || Node.isClassDeclaration(stmt)) {
+        const name = stmt.getName();
+        if (!name) continue;
+        bodyOf.set(name, stmt);
+        checked.set(name, stmt.getStartLineNumber());
+      } else if (Node.isVariableStatement(stmt)) {
+        for (const decl of stmt.getDeclarations()) {
+          const name = decl.getName();
+          const init = decl.getInitializer();
+          const fn = fnInit(init);
+          if (fn) {
+            bodyOf.set(name, fn);
+            checked.set(name, decl.getStartLineNumber());
+          } else if (init) {
+            // Value binding: its initializer runs at import — a side effect.
+            seedRefNames.push(...referencedNames(init));
+          }
+        }
+      } else if (
+        Node.isImportDeclaration(stmt) ||
+        Node.isExportDeclaration(stmt) ||
+        Node.isInterfaceDeclaration(stmt) ||
+        Node.isTypeAliasDeclaration(stmt) ||
+        Node.isEnumDeclaration(stmt) ||
+        Node.isModuleDeclaration(stmt)
+      ) {
+        // No import-time local runtime references we track.
+      } else {
+        // An executable top-level statement is a module-level side effect.
+        seedRefNames.push(...referencedNames(stmt));
+      }
+    }
+
+    const reachable = new Set<string>();
+    const queue: string[] = [];
+    const enqueue = (name: string): void => {
+      if (bodyOf.has(name) && !reachable.has(name)) {
+        reachable.add(name);
+        queue.push(name);
+      }
+    };
+    // Seed: referenced exports declared in this file, and the names the file's
+    // module-level side effects reference.
+    for (const name of bodyOf.keys()) {
+      if (exportedNames.has(name) && isReferencedExport(source.file, name)) {
+        enqueue(name);
+      }
+    }
+    for (const name of seedRefNames) enqueue(name);
+    while (queue.length > 0) {
+      const name = queue.shift()!;
+      for (const ref of referencedNames(bodyOf.get(name)!)) enqueue(ref);
+    }
+
+    for (const [name, line] of checked) {
+      if (exportedNames.has(name)) continue; // exports are the other check's job
+      if (reachable.has(name)) continue;
+      out.push({
+        file: source.file,
+        symbol: name,
+        message:
+          `${source.file}:${line} non-exported symbol "${name}" is reachable from ` +
+          "no referenced export or module-level side effect — dead verification helper",
+      });
+    }
+  }
+  return out;
 }
 
 const escapeRegExp = (text: string): string =>

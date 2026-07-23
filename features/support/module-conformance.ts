@@ -33,15 +33,6 @@ export interface Violation {
   message: string;
 }
 
-const ENV_FACTORY = "features/support/env-factory.ts";
-const SANDBOX_SEAM = "features/support/sandbox.ts";
-const CHECKER_FILE = "features/support/module-conformance.ts";
-const EXCEPTION_MARKER = "env-factory-exception";
-const SINGLE_SEAM_EXCEPTION = "single-seam-exception";
-const CREATE_STORE_LITERALS = ["create", "store", "--create-environment"];
-const VERCEL_PROJECT_ADD_LITERALS = ["vercel", "project", "add"];
-const DRY_RUN = "--dry-run";
-
 const CLI_ENTRY = "src/index.ts";
 const BOMB_ARGS_MODULE = "@bomb.sh/args";
 const BOMB_ARGS_EXPORT = "parse";
@@ -108,122 +99,6 @@ function stringElements(array: Node): string[] {
     .map((element) => element.getLiteralValue());
 }
 
-function isCreateStoreArray(literals: string[]): boolean {
-  return CREATE_STORE_LITERALS.every((literal) => literals.includes(literal));
-}
-
-function markerText(array: Node): string {
-  const parts: string[] = [];
-  let node: Node | undefined = array;
-  // Walk up to the enclosing statement, collecting leading comments at each
-  // level so an `env-factory-exception:` marker recorded on the spawn statement
-  // or the call is found regardless of exact placement.
-  for (let depth = 0; node && depth < 6; depth++) {
-    for (const comment of node.getLeadingCommentRanges()) {
-      parts.push(comment.getText());
-    }
-    const parent = node.getParent();
-    if (!parent) break;
-    const kind = parent.getKind();
-    if (
-      kind === SyntaxKind.Block ||
-      kind === SyntaxKind.SourceFile ||
-      kind === SyntaxKind.ModuleBlock ||
-      kind === SyntaxKind.CaseClause ||
-      kind === SyntaxKind.DefaultClause
-    ) {
-      break;
-    }
-    node = parent;
-  }
-  return parts.join("\n");
-}
-
-/**
- * Single-creation-seam violations: real `create store --create-environment` CLI
- * spawns located outside features/support/env-factory.ts. A `--dry-run` array
- * (a preview that creates nothing) and an array whose site carries an
- * `env-factory-exception:` marker (a loopback fake) are not real creations.
- */
-function findCreationSeamViolations(): Violation[] {
-  const violations: Violation[] = [];
-  for (const source of project().getSourceFiles()) {
-    const file = repoRelative(source.getFilePath());
-    if (!file.startsWith("features/")) continue;
-    if (file === CHECKER_FILE) continue;
-    for (const array of source.getDescendantsOfKind(
-      SyntaxKind.ArrayLiteralExpression,
-    )) {
-      const literals = stringElements(array);
-      if (!isCreateStoreArray(literals)) continue;
-      if (literals.includes(DRY_RUN)) continue;
-      if (file === ENV_FACTORY) continue;
-      if (markerText(array).includes(EXCEPTION_MARKER)) continue;
-      const line = array.getStartLineNumber();
-      violations.push({
-        file,
-        line,
-        message:
-          `${file}:${line} spawns a real \`create store --create-environment\` outside the ` +
-          `single env-creation seam ${ENV_FACTORY}. Route it through createEnvironment, or, ` +
-          `if it only drives a loopback fake and creates no real resource, record an ` +
-          `${EXCEPTION_MARKER}: marker at its site.`,
-      });
-    }
-  }
-  return violations;
-}
-
-/**
- * Single Vercel-project-seam violations: real `vercel project add` CLI spawns in
- * the verification layer located outside features/support/sandbox.ts. A
- * `--dry-run` array (a preview that creates nothing) and an array whose site
- * carries a `single-seam-exception:` marker (a loopback fake) are not real
- * creations. `project add` is the discriminator, so the sibling `vercel project
- * remove` and `vercel whoami` spawns are not flagged.
- */
-function findVercelProjectSeamViolations(): Violation[] {
-  const violations: Violation[] = [];
-  for (const source of project().getSourceFiles()) {
-    const file = repoRelative(source.getFilePath());
-    if (!file.startsWith("features/")) continue;
-    if (file === CHECKER_FILE) continue;
-    for (const array of source.getDescendantsOfKind(
-      SyntaxKind.ArrayLiteralExpression,
-    )) {
-      const literals = stringElements(array);
-      if (
-        !VERCEL_PROJECT_ADD_LITERALS.every((literal) =>
-          literals.includes(literal),
-        )
-      ) {
-        continue;
-      }
-      if (literals.includes(DRY_RUN)) continue;
-      if (file === SANDBOX_SEAM) continue;
-      if (markerText(array).includes(SINGLE_SEAM_EXCEPTION)) continue;
-      const line = array.getStartLineNumber();
-      violations.push({
-        file,
-        line,
-        message:
-          `${file}:${line} spawns a real \`vercel project add\` outside the single ` +
-          `Vercel-project seam ${SANDBOX_SEAM}. Route it through the sandbox helper, or, ` +
-          `if it only drives a loopback fake and creates no real resource, record a ` +
-          `${SINGLE_SEAM_EXCEPTION}: marker at its site.`,
-      });
-    }
-  }
-  return violations;
-}
-
-interface SeamLocation {
-  file: string;
-  line: number;
-  seamKey: string;
-  seamLabel: string;
-}
-
 function enclosingFunctionName(node: Node): string {
   if (Node.isFunctionDeclaration(node) || Node.isMethodDeclaration(node)) {
     return node.getName() ?? "<anonymous>";
@@ -261,38 +136,6 @@ function enclosingSeam(array: Node): { key: string; label: string } {
 }
 
 /**
- * Production spawn-seam locations: every real CLI-spawn array in src/ whose
- * string literals include all of `literals`, each mapped to its enclosing
- * production seam. A `--dry-run` preview array and an array whose site carries a
- * `single-seam-exception:` marker create no real resource and are excluded. When
- * every located spawn shares one enclosing seam, the resource is created at a
- * single seam.
- */
-function locateProductionSpawnSeams(literals: string[]): SeamLocation[] {
-  const locations: SeamLocation[] = [];
-  for (const source of project().getSourceFiles()) {
-    const file = repoRelative(source.getFilePath());
-    if (!file.startsWith("src/")) continue;
-    for (const array of source.getDescendantsOfKind(
-      SyntaxKind.ArrayLiteralExpression,
-    )) {
-      const found = stringElements(array);
-      if (!literals.every((literal) => found.includes(literal))) continue;
-      if (found.includes(DRY_RUN)) continue;
-      if (markerText(array).includes(SINGLE_SEAM_EXCEPTION)) continue;
-      const { key, label } = enclosingSeam(array);
-      locations.push({
-        file,
-        line: array.getStartLineNumber(),
-        seamKey: key,
-        seamLabel: label,
-      });
-    }
-  }
-  return locations;
-}
-
-/**
  * Global-output-flag seam violations: the command surface declares `--json`,
  * `--quiet`, and `--yes` ONCE, at the single @bomb.sh/args parser seam in
  * src/index.ts, with no per-command divergence.
@@ -309,78 +152,6 @@ function locateProductionSpawnSeams(literals: string[]): SeamLocation[] {
  * Each missing piece would let a command diverge from the shared flag surface,
  * so each is reported as a violation.
  */
-/**
- * One creation seam the checker declares for an externally-created resource.
- * A verification-layer resource declares the file its real spawn lives in; a
- * production resource declares the spawn literals that locate it, and its seam
- * is the single enclosing function those spawns share.
- */
-interface DeclaredCreationSeam {
-  resource: string;
-  scope: "verification" | "production";
-  /** The declared file seam, for a verification-layer resource. */
-  file?: string;
-  /** The spawn literals that locate a production resource's real spawns. */
-  literals?: string[];
-}
-
-/** A real creation spawn sitting outside the single seam declared for its resource. */
-interface CreationSeamFinding {
-  resource: string;
-  /** The spawn's site, `<file>:<line>`. */
-  site: string;
-  /** The seam the spawn belongs in. */
-  seam: string;
-  message: string;
-}
-
-/**
- * Judge one production resource's located spawns against the single-seam rule:
- * every located spawn shares one enclosing seam. The seam the resource's
- * spawns already share stands as the declared one, so a spawn that drifted out
- * of it is named against the seam it belongs in. Pure over its input, so the
- * planted red judges the same code path the real assertion does.
- */
-function judgeProductionSeam(
-  resource: string,
-  locations: SeamLocation[],
-): CreationSeamFinding[] {
-  if (locations.length === 0) {
-    return [
-      {
-        resource,
-        site: "(none located)",
-        seam: "(none)",
-        message:
-          `no real ${resource} spawn is located in src/ — the creation seam is ` +
-          `missing from production source`,
-      },
-    ];
-  }
-  const seams = new Map<string, { label: string; count: number }>();
-  for (const location of locations) {
-    const current = seams.get(location.seamKey);
-    if (current) current.count += 1;
-    else seams.set(location.seamKey, { label: location.seamLabel, count: 1 });
-  }
-  if (seams.size === 1) return [];
-  // The seam holding the most spawns is the resource's home; the strays are named against it.
-  const [homeKey, home] = [...seams.entries()].sort(
-    (a, b) => b[1].count - a[1].count,
-  )[0]!;
-  return locations
-    .filter((location) => location.seamKey !== homeKey)
-    .map((location) => ({
-      resource,
-      site: `${location.file}:${location.line}`,
-      seam: home.label,
-      message:
-        `${resource}: the spawn at ${location.file}:${location.line} sits in ` +
-        `${location.seamLabel}, outside the single seam ${home.label} the ` +
-        `resource's other spawns share`,
-    }));
-}
-
 export function findGlobalOutputFlagViolations(): Violation[] {
   const violations: Violation[] = [];
   const source = project().getSourceFile(

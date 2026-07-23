@@ -45,31 +45,6 @@ const SKIP_DIRS = new Set(["node_modules", ".git", "dist"]);
 const SOURCE_EXTENSIONS = new Set([".ts", ".js", ".mts", ".cts", ".mjs", ".cjs"]);
 const STEP_KEYWORDS = ["Given", "When", "Then"];
 
-/**
- * The declaration kinds a plank may be attached to: a seam is a declaration
- * that carries behaviour. A type alias or an interface declares shape, never
- * behaviour, so a docblock on one is a plank that has drifted off its seam.
- */
-function isSeamDeclaration(node: Node): boolean {
-  return (
-    Node.isFunctionDeclaration(node) ||
-    Node.isMethodDeclaration(node) ||
-    Node.isClassDeclaration(node) ||
-    Node.isVariableStatement(node) ||
-    Node.isPropertyDeclaration(node) ||
-    Node.isPropertyAssignment(node) ||
-    Node.isGetAccessorDeclaration(node) ||
-    Node.isSetAccessorDeclaration(node) ||
-    Node.isExportAssignment(node) ||
-    Node.isFunctionExpression(node) ||
-    Node.isArrowFunction(node)
-  );
-}
-
-function declarationLabel(node: Node): string {
-  return node.getKindName();
-}
-
 function walkFiles(dir: string, keep: (name: string) => boolean): string[] {
   const out: string[] = [];
   let entries;

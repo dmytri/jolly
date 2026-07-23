@@ -44,7 +44,7 @@ Feature: Jolly Configurator starter recipe
     And the stage should be reported completed only when the configurator's deployment report records success
     And re-running the stage should reconcile to a no-op diff rather than creating duplicate entities
 
-  @captain @sandbox
+  @sandbox
   Scenario: Jolly start runs the stock and collection requests concurrently
     Given a freshly created Saleor Cloud environment with the starter recipe deployed
     When Jolly start completes the recipe stage

@@ -341,6 +341,79 @@ Then(
   },
 );
 
+// --- Scenario: Human terminal output carries colour and a status glyph ------
+// Under a real PTY (stdout is a genuine terminal) `jolly doctor` renders colour
+// and a restrained per-check glyph; the same run under --json carries neither.
+// Every SGR colour foreground code, so "distinguishing" is provable by counting
+// the distinct ones present.
+const SGR_COLOUR_GLOBAL = /\x1b\[3[0-9]m/g;
+const EMOJI_GLOBAL =
+  /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F1E6}-\u{1F1FF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE0F}]/gu;
+
+When(
+  "the agent runs `jolly doctor` in an interactive terminal",
+  function (this: JollyWorld) {
+    assert.ok(
+      runOnTerminal(this, ["doctor"]),
+      "the interactive-terminal doctor run must start (a real PTY is required)",
+    );
+  },
+);
+
+Then(
+  "stdout should carry ANSI colour codes distinguishing pass, warning, and fail results",
+  function (this: JollyWorld) {
+    const stdout = this.lastRun!.stdout;
+    assert.match(
+      stdout,
+      ANSI_COLOUR,
+      `interactive doctor stdout must carry ANSI colour; got:\n${stdout}`,
+    );
+    const distinct = new Set(stdout.match(SGR_COLOUR_GLOBAL) ?? []);
+    assert.ok(
+      distinct.size >= 2,
+      `colour must DISTINGUISH statuses: at least two distinct SGR colour codes, found ${distinct.size} in:\n${stdout}`,
+    );
+  },
+);
+
+Then(
+  "each check result should carry a restrained status glyph for its pass, warning, fail, or skipped state",
+  function (this: JollyWorld) {
+    const stdout = this.lastRun!.stdout;
+    // The check count comes from the machine envelope of the same command.
+    this.runCli(["doctor", "--json"], { env: absentCredentialsEnv() });
+    const checks = this.lastRun!.envelope!.checks;
+    assert.ok(checks.length > 0, "doctor must report at least one check to glyph");
+    const glyphs = stdout.match(EMOJI_GLOBAL) ?? [];
+    assert.ok(
+      glyphs.length >= checks.length,
+      `each of the ${checks.length} checks must carry a status glyph; found ${glyphs.length} glyph(s) in:\n${stdout}`,
+    );
+  },
+);
+
+Then(
+  "the same run under `--json` should carry neither colour nor glyph",
+  function (this: JollyWorld) {
+    assert.ok(
+      runOnTerminal(this, ["doctor", "--json"]),
+      "the interactive-terminal --json run must start (a real PTY is required)",
+    );
+    const stdout = this.lastRun!.stdout;
+    assert.doesNotMatch(
+      stdout,
+      ANSI_COLOUR,
+      `--json stdout in a terminal must carry no colour; got:\n${stdout}`,
+    );
+    assert.doesNotMatch(
+      stdout,
+      EMOJI,
+      `--json stdout in a terminal must carry no glyph; got:\n${stdout}`,
+    );
+  },
+);
+
 // --- Scenario: Machine output carries no colour or emoji -------------------
 // --- Scenario: Progress is shown in place on stderr, never on the result stream ---
 //

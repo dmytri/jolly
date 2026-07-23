@@ -340,7 +340,7 @@ const SGR = {
 } as const;
 
 /**
- * @planks-provisional("features/020-cli-output-contract.feature:Human terminal output carries colour and a restrained status glyph per check")
+ * @planks("each check result should carry a restrained status glyph for its pass, warning, fail, or skipped state")
  */
 function statusEmoji(status: EnvelopeStatus): string {
   if (status === "success") return "✅";
@@ -349,7 +349,7 @@ function statusEmoji(status: EnvelopeStatus): string {
 }
 
 /**
- * @planks-provisional("features/020-cli-output-contract.feature:Human terminal output carries colour and a restrained status glyph per check")
+ * @planks("each check result should carry a restrained status glyph for its pass, warning, fail, or skipped state")
  */
 function checkEmoji(status: CheckStatus): string {
   switch (status) {
@@ -367,7 +367,7 @@ function checkEmoji(status: CheckStatus): string {
 }
 
 /**
- * @planks-provisional("features/020-cli-output-contract.feature:Human terminal output carries colour and a restrained status glyph per check")
+ * @planks("stdout should carry ANSI colour codes distinguishing pass, warning, and fail results")
  */
 function statusColour(status: EnvelopeStatus): string {
   if (status === "success") return SGR.green;
@@ -376,7 +376,7 @@ function statusColour(status: EnvelopeStatus): string {
 }
 
 /**
- * @planks-provisional("features/020-cli-output-contract.feature:Human terminal output carries colour and a restrained status glyph per check")
+ * @planks("stdout should carry ANSI colour codes distinguishing pass, warning, and fail results")
  */
 function checkColour(status: CheckStatus): string {
   switch (status) {

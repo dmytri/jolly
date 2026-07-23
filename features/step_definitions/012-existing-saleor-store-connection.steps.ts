@@ -25,7 +25,7 @@
 // harness does not validate — so the preview/resolution path runs against the
 // loopback fixture without touching any real account. The server records every
 // request and 500s any write, proving only GETs happen and nothing is created.
-import { Given, When, Then } from "@cucumber/cucumber";
+import { Given, When, Then, Before } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import { existsSync, readFileSync } from "node:fs";
@@ -377,6 +377,54 @@ Then(
       JSON.stringify(this.envelope.checks)
     ).toLowerCase();
     assert.ok(text.includes("--organization"), "guidance must mention --organization");
+  },
+);
+
+// ─── Scenario: provisions a blank environment with no sample data ──────────
+// @logic: the --dry-run preview reports the very body the real request sends
+// (feature 012 @property "built by one seam"). The scenario's only step is the
+// shared `create store --create-environment --dry-run --json` run (defined in
+// 021), which drives runCliAsync when `notes.createStoreEnv` points the Cloud
+// API at an in-process loopback. This Before hook stands the loopback harness up
+// for that scenario so the org resolves without touching any account and any
+// write is rejected loudly. The previewed body carries database_population null
+// — the Saleor Cloud "blank" template.
+const BLANK_ENV_SCENARIO =
+  "Jolly provisions a blank environment with no sample data";
+
+Before(async function (this: JollyWorld, { pickle }) {
+  if (pickle.name !== BLANK_ENV_SCENARIO) return;
+  const harness = await startHarnessCloudApi(this, [
+    { slug: "jolly-org", name: "Jolly Org" },
+  ]);
+  this.notes.createStoreEnv = absentCredentialsEnv({
+    JOLLY_SALEOR_CLOUD_API_URL: harness.baseUrl,
+    JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN,
+  });
+});
+
+Then(
+  "the previewed environment-creation request body should send `database_population` as null, the Saleor Cloud blank template",
+  function (this: JollyWorld) {
+    assertEnvelopeSuccess(this.envelope, "the blank-environment dry-run preview");
+    const body = envData(this)["requestBody"] as Record<string, unknown> | undefined;
+    assert.ok(body, `the dry-run preview must carry the request body; data was ${JSON.stringify(envData(this))}`);
+    assert.ok(
+      "database_population" in body,
+      `the previewed body must carry database_population; got ${JSON.stringify(body)}`,
+    );
+    assert.strictEqual(
+      body["database_population"],
+      null,
+      `database_population must be null (the blank template); got ${JSON.stringify(body["database_population"])}`,
+    );
+    // A dry-run must issue no write against the Cloud API.
+    const harness = this.notes.harnessServer as { writes: Array<unknown> };
+    assert.deepEqual(
+      harness.writes,
+      [],
+      `a --dry-run must issue no write; got ${JSON.stringify(harness.writes)}`,
+    );
   },
 );
 

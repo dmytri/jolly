@@ -52,10 +52,12 @@ import {
   collectStepUsageEntries,
   collectSupportExports,
   findOrphanPatterns,
+  findUnreachableSupportSymbols,
   findUnreferencedExports,
   type OrphanPattern,
   type StepUsageEntry,
   type SupportExport,
+  type UnreachableSymbol,
   type UnreferencedExport,
 } from "../support/dead-artifact-conformance.ts";
 
@@ -504,7 +506,7 @@ Then(
 // symbol name is assembled at run time so no corpus file carries it as a token.
 
 Given(
-  "the step-definition patterns reported by {string} and the exported symbols under {string}",
+  "the step-definition patterns reported by {string} and the module-level symbols under {string}",
   function (this: JollyWorld, _tool: string, supportDir: string) {
     this.notes.supportDir = supportDir;
     this.notes.stepUsageEntries = collectStepUsageEntries();
@@ -521,13 +523,16 @@ Given(
 );
 
 When(
-  "the dead-artifact check enumerates the patterns no scenario binds and the support exports no other file references",
+  "the dead-artifact check enumerates the patterns no scenario binds and the support symbols no live entry point reaches",
   function (this: JollyWorld) {
     this.notes.orphanPatterns = findOrphanPatterns(
       this.notes.stepUsageEntries as StepUsageEntry[],
     );
     this.notes.unreferencedExports = findUnreferencedExports(
       this.notes.supportExports as SupportExport[],
+    );
+    this.notes.unreachableSymbols = findUnreachableSupportSymbols(
+      this.notes.supportDir as string,
     );
   },
 );
@@ -554,6 +559,20 @@ Then(
       unreferenced.length,
       0,
       `exported support symbols no other file references:\n${unreferenced
+        .map((entry) => `  - ${entry.message}`)
+        .join("\n")}`,
+    );
+  },
+);
+
+Then(
+  "every non-exported {string} symbol should be reachable from a referenced export or a module-level side effect in its file",
+  function (this: JollyWorld, _supportDir: string) {
+    const unreachable = this.notes.unreachableSymbols as UnreachableSymbol[];
+    assert.equal(
+      unreachable.length,
+      0,
+      `non-exported support symbols no live entry point reaches:\n${unreachable
         .map((entry) => `  - ${entry.message}`)
         .join("\n")}`,
     );
@@ -607,6 +626,40 @@ Then(
     assert.ok(
       reported.message.includes(symbol) && reported.message.includes(file),
       `the report must name the symbol and its file: ${JSON.stringify(reported)}`,
+    );
+  },
+);
+
+Then(
+  "a non-exported {string} symbol that only other unreachable symbols reference should redden the check, naming the symbol and its file",
+  function (this: JollyWorld, supportDir: string) {
+    // Two non-exported functions: alpha references beta, and nothing reachable
+    // references alpha. So beta is referenced only by an unreachable symbol —
+    // exactly the leg. The injected file has no export and no side effect, so
+    // neither is reachable; the plant never touches disk.
+    const file = `${supportDir}.planted-unreachable-symbol.ts`;
+    const injected = {
+      file,
+      text: [
+        "function plantedDeadAlpha(): number {",
+        "  return plantedDeadBeta();",
+        "}",
+        "function plantedDeadBeta(): number {",
+        "  return 1;",
+        "}",
+      ].join("\n"),
+    };
+    const reported = findUnreachableSupportSymbols(supportDir, [injected]);
+    const beta = reported.find(
+      (entry) => entry.file === file && entry.symbol === "plantedDeadBeta",
+    );
+    assert.ok(
+      beta,
+      "a non-exported symbol referenced only by an unreachable symbol was not reported",
+    );
+    assert.ok(
+      beta.message.includes("plantedDeadBeta") && beta.message.includes(file),
+      `the report must name the symbol and its file: ${JSON.stringify(beta)}`,
     );
   },
 );

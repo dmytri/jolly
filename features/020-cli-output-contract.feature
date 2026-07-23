@@ -44,7 +44,7 @@ Feature: Jolly CLI output contract
     Then stdout should contain no ANSI colour codes
     And `jolly doctor --json` stdout should contain no ANSI colour codes
 
-  @captain @logic
+  @logic
   Scenario: Human terminal output carries colour and a restrained status glyph per check
     When the agent runs `jolly doctor` in an interactive terminal
     Then stdout should carry ANSI colour codes distinguishing pass, warning, and fail results

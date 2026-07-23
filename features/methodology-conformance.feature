@@ -32,12 +32,14 @@ Feature: Methodology conformance
 
   @logic @invariant
   Scenario: No dead verification-support artifact accumulates
-    Given the step-definition patterns reported by "step-usage" and the exported symbols under "features/support/"
-    When the dead-artifact check enumerates the patterns no scenario binds and the support exports no other file references
+    Given the step-definition patterns reported by "step-usage" and the module-level symbols under "features/support/"
+    When the dead-artifact check enumerates the patterns no scenario binds and the support symbols no live entry point reaches
     Then every step-definition pattern should be bound by at least one current scenario
     And every exported "features/support/" symbol should be referenced by another file in the tree
+    And every non-exported "features/support/" symbol should be reachable from a referenced export or a module-level side effect in its file
     And an orphaned step-definition pattern that no scenario binds should redden the check, naming the pattern and its file
     And an unreferenced "features/support/" export should redden the check, naming the symbol and its file
+    And a non-exported "features/support/" symbol that only other unreachable symbols reference should redden the check, naming the symbol and its file
 
   @logic @invariant
   Scenario: Every verification surface in the tree is run by a configured tier command

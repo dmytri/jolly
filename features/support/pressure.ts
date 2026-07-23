@@ -114,37 +114,6 @@ export const CONFIGURED_PARALLELISM: Record<string, number> = {
   all: 1,
 };
 
-/** A `## Tiers` worker-ceiling line: `- workers-sandbox: 1`. */
-const WORKER_CEILING_LINE = /^- workers-([a-z-]+): (\d+)/;
-
-/**
- * The worker ceilings `RIGGING.md` declares under `## Tiers`, keyed by tier.
- * A ceiling is an operator capacity limit, declared in the rigging where it is
- * legible, rather than pinned as a prior in the runner configuration where it
- * reads as an ordinary starting value.
- */
-function readTierWorkerCeilings(riggingFile = "RIGGING.md"): Record<string, number> {
-  const text = readFileSync(join(REPO_ROOT, riggingFile), "utf8");
-  const ceilings: Record<string, number> = {};
-  let inTiers = false;
-  for (const line of text.split("\n")) {
-    if (line.startsWith("## ")) {
-      inTiers = line.trim() === "## Tiers";
-      continue;
-    }
-    if (!inTiers) continue;
-    const value = WORKER_CEILING_LINE.exec(line.trim());
-    if (!value) continue;
-    ceilings[value[1]!] = Number(value[2]);
-  }
-  return ceilings;
-}
-
-/** The worker ceiling the rigging declares for a tier, when it declares one. */
-function tierWorkerCeiling(tier: string, riggingFile = "RIGGING.md"): number | undefined {
-  return readTierWorkerCeilings(riggingFile)[tier];
-}
-
 /**
  * The worker count a tier's next run starts from: yesterday's weather. A record
  * carrying a pressure signal backs off below its green worker count (never

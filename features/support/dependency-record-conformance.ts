@@ -171,39 +171,3 @@ export function referenceCorpus(manifestText: string): CorpusFile[] {
     entry.file === "package.json" ? { file: entry.file, text: stripped } : entry,
   );
 }
-
-/** The tsconfig `compilerOptions.types` list, or undefined when unset. */
-function tsconfigTypes(): string[] | undefined {
-  try {
-    const parsed = JSON.parse(
-      readFileSync(join(REPO_ROOT, "tsconfig.json"), "utf8"),
-    ) as { compilerOptions?: { types?: string[] } };
-    return parsed.compilerOptions?.types;
-  } catch {
-    return undefined;
-  }
-}
-
-const escapeRegExp = (text: string): string =>
-  text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-/**
- * Whether the tree references the package. A reference is the package name as
- * a delimited token in any corpus file; a `@types/X` package is referenced
- * when tsconfig's `types` consumes X (or `types` is unset, which consumes all).
- */
-function isReferenced(
-  name: string,
-  corpus: CorpusFile[],
-  types: string[] | undefined,
-): boolean {
-  const typed = /^@types\/(.+)$/.exec(name);
-  if (typed) {
-    return types === undefined || types.includes(typed[1]!);
-  }
-  const token = new RegExp(
-    `(^|[^A-Za-z0-9_@/.-])${escapeRegExp(name)}([^A-Za-z0-9_-]|$)`,
-    "m",
-  );
-  return corpus.some((entry) => token.test(entry.text));
-}

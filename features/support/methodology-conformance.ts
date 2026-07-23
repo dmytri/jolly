@@ -77,7 +77,3 @@ export interface InjectedSource {
 const REFERENCE = /\.feature:.+/;
 /** A tier tag such as @logic, @sandbox, @eval. */
 const TIER_TAG = /^@[a-z][a-z0-9-]*$/;
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
