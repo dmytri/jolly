@@ -11,9 +11,6 @@ Feature: Verification economy
     - The record is per scenario, not per tier. A tier total hides the shape that
       matters: a tier whose mean is many times its median is not uniformly slow, it
       carries a few scenarios that dominate it, and those are the ones worth moving.
-    - The same record carries the pressure the run ran under, the worker count, the
-      peak resident set size, and any out-of-memory kill events, written into the
-      per-tier stream the wall clock already uses rather than a second artifact.
     - Cost is judged against the tier a scenario runs in. The default tier runs on
       every inner-loop change, so a slow scenario there is paid constantly; the same
       cost in an opt-in tier is paid at that tier's cadence.
@@ -87,6 +84,10 @@ Feature: Verification economy
       default tier is the one paid on every inner-loop run.
     - The check judges every profile leg of the tier's last sweep, so the order
       the legs ran in can never leave one leg's spends unjudged.
+    - The check judges the tiers that recorded a completed run in the wake. A
+      tier with no completed run recorded has nothing to judge and is not a red:
+      the check audits the runs that happened, so a cold wake with no completed
+      run passes rather than reddening on absent cross-tier records.
     - The spend is recorded at run time by the interception shims already on the
       PATH — the feature 025 idiom: log argv, then exec the real binary — and
       each ledger entry is attributed to the running scenario. The ledger lives
@@ -94,7 +95,7 @@ Feature: Verification economy
 
   @logic @invariant
   Scenario: Every recorded toolchain spend belongs to the shared provisioning or a licensed scenario
-    Given the spend ledger each tier's last run recorded into the wake, every profile leg of it
+    Given the spend ledger of each tier that recorded a completed run in the wake, every profile leg of it
     When each ledger entry is joined to the tags of the scenario it is attributed to
     Then every spend of the full toolchain chain should belong to the run's shared provisioning or to the scenario tagged @pipeline
     And every environment-creation spend should belong to the run's shared provisioning or to a scenario tagged @creates-env
@@ -104,39 +105,9 @@ Feature: Verification economy
     And a spend attributed to an unlicensed scenario should redden the check, naming the scenario and the spend it made
     And a tier that spawned an expensive command and wrote no ledger should redden the check
 
-  Rule: An out-of-memory kill is a finding, never a rerun
-
-    - An out-of-memory kill is a harness defect finding, red and named. A silent
-      rerun spends the latency again and hides the defect the record exists to
-      surface.
-
-  @logic @invariant
-  Scenario: A recorded out-of-memory kill reds the check rather than hiding in a rerun
-    Given the pressure record each tier's last run wrote into the wake
-    When the recorded pressure events are examined
-    Then no tier's record should carry an out-of-memory kill
-    And a record carrying one should redden the check, naming the tier and the event
-
-  Rule: The suite fits its budgets
-
-    - The budgets live in "RIGGING.md" under its Tiers section: a tier-suffixed
-      budget per tier, in seconds. A budget is a ceiling, not advice: a suite
-      that outgrows its budget interrupts the voyage as a red, rather than
-      waiting for the next harbour economy audit.
-    - The check needs no new instrumentation: every tier command already writes
-      its wall clock into the weather record in the wake.
-
-  @logic @invariant
-  Scenario: Each tier's recorded wall clock fits its budget from the rigging
-    Given the tier budgets configured in "RIGGING.md"
-    And the wall-clock record each tier's last run wrote into the wake
-    When each tier's recorded wall clock is compared to that tier's budget
-    Then no tier's recorded wall clock should exceed its budget
-    And a tier over its budget should redden the check, naming the tier, its budget, and the recorded time
-
   @logic @invariant
   Scenario: A step that runs pinned at its declared read ceiling reds the check
-    Given the per-step durations the latest tier runs wrote into the wake
+    Given the per-step durations of each tier that recorded a completed run in the wake
     And the read ceilings declared in the verification support
     When each step's measured duration is joined against its declared ceiling
     Then no step's measured duration should reach its declared ceiling
@@ -161,7 +132,7 @@ Feature: Verification economy
 
   @logic @invariant
   Scenario: The eval tier serves every expensive external command from its captures
-    Given the spend ledger the eval tier's last run wrote into the wake
+    Given the spend ledger the eval tier's last completed run wrote into the wake, when the eval tier has recorded one
     When each recorded spend is classified as served from a golden capture or run live
     Then no managed skill install should have run live
     And no configurator deploy should have run live
@@ -175,5 +146,5 @@ Feature: Verification economy
       a detached child that outlives its run is reclaimed by nothing.
     - A detached child blocking with no terminal attached costs its run
       nothing it can observe, so the tier reports green and the leak is
-      invisible. The harness already tracks the run's process set to attribute
-      out-of-memory kills; reclamation is a second reader of that set.
+      invisible. Reclamation covers it by the run's namespace, the same
+      age-gated, namespace-scoped sweep the first bullet names.

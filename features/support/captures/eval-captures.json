@@ -6,10 +6,10 @@
     "sourceRun": "run-mrxo4kys-nwnv"
   },
   "environmentCreation": {
-    "name": "jolly-cannon-fodder-shared-mrxlq8ei-f29vf1",
-    "domain": "jolly-cannon-fodder-shared-mrxlq8ei-f29vf1.saleor.cloud",
-    "dashboardUrl": "https://jolly-cannon-fodder-shared-mrxlq8ei-f29vf1.saleor.cloud/dashboard/",
-    "sourceRun": "run-mrxlq5cp-fo9o"
+    "name": "jolly-cannon-fodder-shared-mrz158c6-u74m53",
+    "domain": "jolly-cannon-fodder-shared-mrz158c6-u74m53.saleor.cloud",
+    "dashboardUrl": "https://jolly-cannon-fodder-shared-mrz158c6-u74m53.saleor.cloud/dashboard/",
+    "sourceRun": "run-mrz1552x-xeg9"
   },
   "storefrontTemplate": {
     "dirname": "jolly-cannon-fodder-storefront-template",

@@ -30,10 +30,9 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And the `recipe` and `stock` stages should not report "blocked" for a missing Saleor endpoint
 
   @sandbox @exceptional-double
-  Scenario: jolly start blocks the store stage when a freshly-provisioned store never becomes reachable
+  Scenario: jolly start blocks the store stage when the store never becomes reachable
     Given the readiness budget is configured to 8 seconds via `JOLLY_READINESS_BUDGET_MS`
-    And `jolly start` auto-provisions a new Saleor Cloud store
-    And the new store's Saleor GraphQL endpoint stays unreachable past the readiness budget
+    And `jolly start`'s store stage resolves a store whose Saleor GraphQL endpoint is a namespaced unreachable stand-in that never serves
     When the store stage runs
     Then the `store` stage status should be "blocked", not "completed"
     And the remediation should tell the human the store may still be starting up and to re-run `jolly start`

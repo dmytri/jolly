@@ -3307,7 +3307,7 @@ interface StartStage {
  * environment) — with a sensible default otherwise. This same affordance is the
  * single hook the test harness uses to make provisioned stores `jolly-cannon-fodder`
  * cannon fodder; Jolly bakes no test knowledge into production.
- * @planks("`jolly start` auto-provisions a new Saleor Cloud store")
+ * @planks("the envelope `data` should include the store's `*.saleor.cloud` GraphQL API URL and its Saleor Dashboard URL ending in `.saleor.cloud\/dashboard\/`")
  */
 function configuredStoreName(override?: {
   name?: string;
@@ -5470,6 +5470,8 @@ const DEFAULT_STAGE_RUNNERS: Record<string, StageRunner> = {
  * @planks("the run should report only outcomes it actually achieved, stopping honestly at any remaining human gate without fabricating success")
  * @planks("the composition of the store, recipe, and storefront stages is observed")
  * @planks(`the `store` stage should report "completed" only once the endpoint answers a live GraphQL probe`)
+ * @planks(`the `store` stage status should be "blocked", not "completed"`)
+ * @planks("the remediation should tell the human the store may still be starting up and to re-run `jolly start`")
  * @planks("the storefront preparation should be launched before the store stage completes")
  * @planks("the deploy stage should be launched only after both the storefront preparation and the recipe stage complete")
  * @planks("each side-effecting stage in the plan should carry a feature {int} riskContext")
@@ -5647,6 +5649,18 @@ export async function runStartCore(
         // remaining human Dashboard step — same shape a fresh provision emits.
         storeData = storeDataFromEndpoint(storeEndpoint);
       } else {
+        // The resolved endpoint never answered within the readiness budget: it
+        // may still be inside its cold-start window. Block honestly and carry
+        // the same store-provisioned remediation a fresh provision emits when
+        // its endpoint times out (runStoreStage) — telling the human the store
+        // may still be starting up and to re-run `jolly start`, never a
+        // fabricated completion.
+        checks.push({
+          id: "store-provisioned",
+          status: "fail",
+          description: cliMessage("doctor.check.saleorEndpoint.unknown"),
+          remediation: cliMessage("start.store.check.storeProvisioned.fail.remediation"),
+        });
         status = "blocked";
       }
       stageRiskContext = {

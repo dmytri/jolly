@@ -45,18 +45,6 @@ export interface PressureRecord {
   oomKills: OomKillEvent[];
 }
 
-/** A tier's pressure record, named for judging (the OOM-kill check). */
-export interface TierPressure {
-  tier: string;
-  pressure: PressureRecord;
-}
-
-export interface OomFinding {
-  tier: string;
-  event: OomKillEvent;
-  message: string;
-}
-
 /** Peak RSS at or above this fraction of the ceiling is a pressure signal: the
  * run rode the edge of memory, so the next run backs off before the crash is
  * rediscovered at full price. */
@@ -151,61 +139,6 @@ export function deriveWorkerCount(
 function effectiveParallelism(configuredWorkers: number, ceilingWorkers?: number): number {
   if (ceilingWorkers === undefined) return configuredWorkers;
   return Math.max(1, Math.min(configuredWorkers, ceilingWorkers));
-}
-
-/** A derived worker count held below the configured parallelism by a record
- * that carries no pressure signal: the recovery gap, named. */
-interface WorkerRestoreFinding {
-  recordedWorkers: number;
-  derivedWorkers: number;
-  configuredWorkers: number;
-  message: string;
-}
-
-/**
- * Judge a derivation against the restore rule. A clean record must move the
- * count toward the configured parallelism; a derivation that leaves it at or
- * below the recorded count while the configured parallelism is higher is the
- * recovery gap, and is returned as a finding.
- */
-export function workerRestoreFinding(
-  record: PressureRecord,
-  derivedWorkers: number,
-  configuredWorkers: number,
-  ceilingWorkers?: number,
-): WorkerRestoreFinding | undefined {
-  const bound = effectiveParallelism(configuredWorkers, ceilingWorkers);
-  if (pressureSignal(record)) return undefined;
-  if (record.workers >= bound) return undefined;
-  if (derivedWorkers > record.workers) return undefined;
-  return {
-    recordedWorkers: record.workers,
-    derivedWorkers,
-    configuredWorkers: bound,
-    message:
-      `a record carrying no pressure signal recorded ${record.workers} worker(s) and ` +
-      `derived ${derivedWorkers}, holding below the configured parallelism of ` +
-      `${bound} instead of restoring toward it`,
-  };
-}
-
-/** Judge tier pressure records: every recorded out-of-memory kill is a finding,
- * red and named, never a silent rerun. */
-export function oomKillFindings(records: TierPressure[]): OomFinding[] {
-  const findings: OomFinding[] = [];
-  for (const { tier, pressure } of records) {
-    for (const event of pressure.oomKills) {
-      findings.push({
-        tier,
-        event,
-        message:
-          `the ${tier} tier's last run recorded an out-of-memory kill` +
-          `${event.pid !== undefined ? ` of pid ${event.pid}` : ""}` +
-          `${event.comm !== undefined ? ` (${event.comm})` : ""}: ${event.raw}`,
-      });
-    }
-  }
-  return findings;
 }
 
 // ─── Recording (armed from the run config, main process only) ───────────────

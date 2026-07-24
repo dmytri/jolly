@@ -1419,9 +1419,9 @@ Then(
 // ═══════════════════════════════════════════════════════════════════════════
 
 interface ColdStoreNotes {
-  mode: "double" | "resolved-cold";
+  mode: "double" | "resolved-cold" | "resolved-unreachable";
   harness?: ColdStoreHarness;
-  /** resolved-cold: the resolved store's live endpoint. */
+  /** resolved-cold / resolved-unreachable: the resolved store's endpoint. */
   endpoint?: string;
   /** resolved-cold: the cold-window shim's observation ledger (ndjson). */
   ledgerPath?: string;
@@ -1453,12 +1453,6 @@ async function reclaimLeftoverEnvironments(runNamespace: string): Promise<void> 
     await deleteEnvironment(cloudToken, env.org, env.key);
   }
 }
-
-Given("`jolly start` auto-provisions a new Saleor Cloud store", function (this: JollyWorld) {
-  // Shared precondition: no store endpoint is configured, so the store stage
-  // takes its provisioning path. The differentiating `And` that follows selects
-  // the cold-store double (the loopback Cloud API drives the real create path).
-});
 
 Given(
   "`jolly start`'s store stage resolves a store whose Saleor GraphQL endpoint is briefly not yet serving",
@@ -1509,13 +1503,29 @@ Given(
 );
 
 Given(
-  "the new store's Saleor GraphQL endpoint stays unreachable past the readiness budget",
-  async function (this: JollyWorld) {
-    // @exceptional-double: a real store cold-starts then serves; it cannot be
-    // held unreachable on demand. Point provisioning at a loopback Cloud API that
-    // creates an environment whose *.saleor.cloud endpoint never answers.
-    const harness = await startColdStoreCloudApi(this);
-    this.notes.coldStore = { mode: "double", harness } satisfies ColdStoreNotes;
+  "`jolly start`'s store stage resolves a store whose Saleor GraphQL endpoint is a namespaced unreachable stand-in that never serves",
+  function (this: JollyWorld) {
+    // @exceptional-double (feature 026 Rule "Live-by-design conformance"): a
+    // real store cold-starts then serves; it cannot be held unreachable on
+    // demand. So the resolved endpoint is a NAMESPACED first-party stand-in
+    // that never serves: a `jolly-cannon-fodder`-prefixed *.saleor.cloud label
+    // that names no provisioned environment, so its GraphQL readiness probe
+    // never answers. saleor.cloud is first-party (feature 020 host allowlist),
+    // so the endpoint passes host validation and the store stage really probes
+    // it. It creates nothing — no environment, no cloud resource — so there is
+    // nothing to tear down. The project arrives already CONFIGURED with this
+    // endpoint (the "resolves" state: it sits in the project's .env), so the
+    // store stage resolves it rather than provisioning a new one.
+    const label = `jolly-cannon-fodder-${this.runId}-unreachable`;
+    const endpoint = `https://${label}.saleor.cloud/graphql/`;
+    writeFileSync(
+      join(this.projectDir, ".env"),
+      `NEXT_PUBLIC_SALEOR_API_URL=${endpoint}\n`,
+    );
+    this.notes.coldStore = {
+      mode: "resolved-unreachable",
+      endpoint,
+    } satisfies ColdStoreNotes;
   },
 );
 
@@ -1583,6 +1593,25 @@ When("the store stage runs", { timeout: 900_000 }, async function (this: JollyWo
         JOLLY_VERCEL_PROJECT: workerNamespace(),
         ...vercelXdg,
       },
+      timeoutMs: 840_000,
+    });
+    return;
+  }
+  if (cold?.mode === "resolved-unreachable") {
+    // The resolved store is the namespaced stand-in the Given wrote into .env:
+    // a first-party *.saleor.cloud endpoint that never serves. It is a real
+    // (non-serving) network host, not an in-process loopback, so runCli
+    // (spawnSync) drives the store stage's readiness gate for real; the gate
+    // probes the endpoint until the declared budget elapses, then blocks.
+    this.runCli(["start", "--yes", "--json"], {
+      env: absentCredentialsEnv({
+        JOLLY_SALEOR_CLOUD_TOKEN: process.env["JOLLY_SALEOR_CLOUD_TOKEN"],
+        JOLLY_STORE_NAME: this.namespace,
+        JOLLY_VERCEL_PROJECT: workerNamespace(),
+        JOLLY_READINESS_BUDGET_MS: String(this.notes.readinessBudgetMs ?? 8000),
+        JOLLY_READINESS_POLL_MS: "100",
+        ...vercelXdg,
+      }),
       timeoutMs: 840_000,
     });
     return;

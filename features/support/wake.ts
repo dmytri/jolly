@@ -19,8 +19,10 @@
 // command is exercised without re-running a real tier from inside one.
 import { spawnSync } from "node:child_process";
 import {
+  appendFileSync,
   mkdirSync,
   existsSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -139,36 +141,6 @@ export function readTierCommands(riggingFile: string): TierCommand[] {
   return commands;
 }
 
-/**
- * The wake directory the `coverage-*` commands write into. Those runs carry c8
- * instrumentation overhead and harbour contention, so per `RIGGING.md`
- * `## Tiers` `weather` they never stand as the operational record. Their
- * basename equals the operational record's, and `tierNameFromRecordPath` reads
- * the basename, so an instrumented record is otherwise judged under the
- * operational tier's own name and its inflated clock reads as that tier's.
- */
-const INSTRUMENTED_DIRECTORY = "instrumented";
-
-/** Whether a wake record path is an instrumented run's record. */
-function isInstrumentedRecord(recordPath: string): boolean {
-  return recordPath.split("/").includes(INSTRUMENTED_DIRECTORY);
-}
-
-/**
- * The distinct operational wake records the tier commands write, instrumented
- * runs excluded. This is the record set a check reads when it judges a tier's
- * real cost, such as the budget-fit check.
- */
-export function operationalRecordPaths(commands: TierCommand[]): string[] {
-  const paths = new Set<string>();
-  for (const command of commands) {
-    if (!command.recordPath) continue;
-    if (isInstrumentedRecord(command.recordPath)) continue;
-    paths.add(command.recordPath);
-  }
-  return [...paths];
-}
-
 /** The same command with its record-writing flag dropped: the planted red. */
 export function withoutRecordWrite(command: TierCommand): TierCommand {
   return {
@@ -274,7 +246,7 @@ export function fixtureTier(
 
 // ─── Tier budgets (the verification-economy budget scenario) ────────────────
 
-export interface TierBudgets {
+interface TierBudgets {
   /** The plain full-regression ceiling, in seconds. */
   plainSeconds?: number;
   /** Per-tier ceilings, keyed by the kebab-case tier name, in seconds. */
@@ -285,7 +257,7 @@ export interface TierBudgets {
 const BUDGET_LINE = /^- budget(-[a-z-]+)?: (\d+)/;
 
 /** The tier budgets as `RIGGING.md` configures them, read from `## Tiers`. */
-export function readTierBudgets(riggingFile: string): TierBudgets {
+function readTierBudgets(riggingFile: string): TierBudgets {
   const text = readFileSync(join(REPO_ROOT, riggingFile), "utf8");
   const budgets: TierBudgets = { perTierSeconds: {} };
   let inTiers = false;
@@ -356,7 +328,7 @@ export function tierNameFromRecordPath(recordPath: string): string {
     .toLowerCase();
 }
 
-export interface TierClock {
+interface TierClock {
   /** The kebab-case tier name, matching the `budget-<tier>` key. */
   tier: string;
   recordPath: string;
@@ -460,137 +432,6 @@ export function sweepLegWindows(
     }
   }
   return [...legs.values()];
-}
-
-interface BudgetViolation {
-  tier: string;
-  budgetSeconds: number;
-  recordedSeconds: number;
-  message: string;
-}
-
-/**
- * A lane of the judged window that has recorded no completion, so it carries no
- * wall clock to compare against a budget. Omitting it would read exactly like
- * fitting the budget, so it is carried as its own verdict instead.
- */
-interface IncompleteLane {
-  tier: string;
-  recordPath: string;
-  message: string;
-}
-
-/** A lane the wake carries: a completed run's clock, or one still incomplete. */
-type TierLane = TierClock | { tier: string; recordPath: string; incomplete: true };
-
-const isIncomplete = (
-  lane: TierLane,
-): lane is { tier: string; recordPath: string; incomplete: true } =>
-  (lane as { incomplete?: true }).incomplete === true;
-
-export interface BudgetJudgment {
-  /** Tiers whose recorded wall clock exceeds their budget. */
-  perTier: BudgetViolation[];
-  /** Lanes that recorded no completion, so no budget verdict exists for them. */
-  incomplete: IncompleteLane[];
-  /** Tiers whose completed wall clock fits their budget, named. */
-  fitting: string[];
-  /**
-   * The laned window, in seconds: the lanes' shared launch to the last lane's
-   * exit. Undefined when no record carries a completed run window.
-   */
-  windowSeconds?: number;
-  /** The laned window's breach of the plain budget, when one exists. */
-  window?: BudgetViolation;
-}
-
-/** Compare each tier's recorded wall clock, and their sum, to the budgets. */
-export function checkTierBudgets(
-  budgets: TierBudgets,
-  clocks: TierLane[],
-): BudgetJudgment {
-  const perTier: BudgetViolation[] = [];
-  const incomplete: IncompleteLane[] = [];
-  const fitting: string[] = [];
-  for (const lane of clocks) {
-    if (isIncomplete(lane)) {
-      // A lane still running has written no completion, so it has no clock to
-      // judge. Reporting it as fitting would make omission indistinguishable
-      // from passing, which is the whole failure this verdict exists to name.
-      incomplete.push({
-        tier: lane.tier,
-        recordPath: lane.recordPath,
-        message:
-          `the ${lane.tier} lane recorded no completion in ${lane.recordPath}, ` +
-          `so its wall clock cannot be judged against its budget`,
-      });
-      continue;
-    }
-    const clock = lane;
-    const budgetSeconds = budgets.perTierSeconds[clock.tier];
-    if (budgetSeconds === undefined) continue;
-    if (clock.seconds > budgetSeconds) {
-      perTier.push({
-        tier: clock.tier,
-        budgetSeconds,
-        recordedSeconds: clock.seconds,
-        message:
-          `the ${clock.tier} tier recorded ${clock.seconds.toFixed(1)}s against ` +
-          `its ${budgetSeconds}s budget`,
-      });
-    } else {
-      fitting.push(clock.tier);
-    }
-  }
-  // The lanes run concurrently, so the regression's real cost is the window
-  // they share, not their clocks added up. Summing charges an overlapped run
-  // for time no human waited.
-  //
-  // Only the lanes of ONE window count. Lanes are launched together, so every
-  // lane of a window overlaps every other in time. A record left by an EARLIER
-  // run does not overlap the current lanes, and joining it stretches the window
-  // from that run's launch to this run's exit: a measurement of no run that ever
-  // happened. Anchor on the latest-ending record and keep only the records whose
-  // run overlaps it. A record still mid-write carries no end and is already
-  // excluded upstream, so a lane in flight never shortens the window either.
-  const windows: RecordRunWindow[] = [];
-  for (const clock of clocks) {
-    const window = recordRunWindow(clock.recordPath);
-    if (window) windows.push(window);
-  }
-  const anchor = windows.reduce<RecordRunWindow | undefined>(
-    (latest, window) => (!latest || window.endMs > latest.endMs ? window : latest),
-    undefined,
-  );
-  let earliestStartMs: number | undefined;
-  let latestEndMs: number | undefined;
-  if (anchor) {
-    for (const window of windows) {
-      if (window.startMs >= anchor.endMs || window.endMs <= anchor.startMs) continue;
-      if (earliestStartMs === undefined || window.startMs < earliestStartMs) {
-        earliestStartMs = window.startMs;
-      }
-      if (latestEndMs === undefined || window.endMs > latestEndMs) {
-        latestEndMs = window.endMs;
-      }
-    }
-  }
-  const judgment: BudgetJudgment = { perTier, incomplete, fitting };
-  if (earliestStartMs === undefined || latestEndMs === undefined) return judgment;
-  const windowSeconds = (latestEndMs - earliestStartMs) / 1000;
-  judgment.windowSeconds = windowSeconds;
-  if (budgets.plainSeconds !== undefined && windowSeconds > budgets.plainSeconds) {
-    judgment.window = {
-      tier: "(laned window)",
-      budgetSeconds: budgets.plainSeconds,
-      recordedSeconds: windowSeconds,
-      message:
-        `the laned window, from the lanes' shared launch to the last lane's exit, ` +
-        `reaches ${windowSeconds.toFixed(1)}s against the plain ` +
-        `${budgets.plainSeconds}s regression budget`,
-    };
-  }
-  return judgment;
 }
 
 export interface TierRun {

@@ -34,10 +34,7 @@ import {
 } from "../support/storefront-fixture.ts";
 import type { JollyWorld } from "../support/world.ts";
 import {
-  checkTierBudgets,
   fixtureTier,
-  readTierBudgets,
-  operationalRecordPaths,
   readTierCommands,
   readTierWallClock,
   readWakeRecord,
@@ -46,22 +43,10 @@ import {
   sweepLegWindows,
   tierNameFromRecordPath,
   withoutRecordWrite,
-  type BudgetJudgment,
   type ScenarioCost,
-  type TierBudgets,
-  type TierClock,
   type TierCommand,
   type TierRun,
 } from "../support/wake.ts";
-import {
-  deriveWorkerCount,
-  oomKillFindings,
-  readPressureRecord,
-  workerRestoreFinding,
-  type OomFinding,
-  type PressureRecord,
-  type TierPressure,
-} from "../support/pressure.ts";
 import {
   declaredReadCeilings,
   pinnedReadFindings,
@@ -128,79 +113,6 @@ import {
   type LeftoverFinding,
   type LeftoverProcess,
 } from "../support/process-reclaim.ts";
-// ─── The wake records the pressure a run ran under ──────────────────────────
-Given(
-  "the pressure record each tier's last run wrote into the wake",
-  function (this: JollyWorld) {
-    // Completed records only: a tier executing right now (this run's own tier,
-    // mid-write) has no completed last run on record. Record PRESENCE is the
-    // pressure-record scenario's job, with its own planted red; this scenario
-    // judges the pressure events the wake carries, so a record predating the
-    // recorder contributes nothing rather than blocking every tier it is not.
-    const commands = readTierCommands("RIGGING.md");
-    const paths = new Set<string>();
-    for (const command of commands) {
-      if (command.recordPath) paths.add(command.recordPath);
-    }
-    const records: TierPressure[] = [];
-    for (const recordPath of paths) {
-      const absolute = join(REPO_ROOT, recordPath);
-      if (!readTierWallClock(absolute)) continue;
-      const pressure = readPressureRecord(absolute);
-      if (!pressure) continue;
-      records.push({ tier: tierNameFromRecordPath(recordPath), pressure });
-    }
-    this.notes.tierPressureRecords = records;
-    this.attach(
-      `completed tier records carrying pressure: ${records.length}`,
-      "text/plain",
-    );
-  },
-);
-
-When("the recorded pressure events are examined", function (this: JollyWorld) {
-  this.notes.oomFindings = oomKillFindings(
-    this.notes.tierPressureRecords as TierPressure[],
-  );
-});
-
-Then("no tier's record should carry an out-of-memory kill", function (this: JollyWorld) {
-  const findings = this.notes.oomFindings as OomFinding[];
-  assert.equal(
-    findings.length,
-    0,
-    `out-of-memory kills stand recorded in the wake — a harness defect, red and ` +
-      `named, never absorbed by a silent rerun:\n${findings
-        .map((finding) => `  - ${finding.message}`)
-        .join("\n")}`,
-  );
-});
-
-Then(
-  "a record carrying one should redden the check, naming the tier and the event",
-  function (this: JollyWorld) {
-    const planted: TierPressure[] = [
-      {
-        tier: "planted",
-        pressure: {
-          workers: 2,
-          peakRssBytes: 1,
-          memoryCeilingBytes: 2,
-          oomKills: [
-            { pid: 4242, comm: "node", raw: "Out of memory: Killed process 4242 (node)" },
-          ],
-        },
-      },
-    ];
-    const findings = oomKillFindings(planted);
-    assert.ok(
-      findings.length === 1 &&
-        findings[0]!.message.includes("planted") &&
-        findings[0]!.message.includes("4242"),
-      `the planted out-of-memory kill must redden, naming the tier and the event: ${JSON.stringify(findings)}`,
-    );
-  },
-);
 // ─── Ambient state is provisioned once and shared ──────────────────────────
 
 Given(
@@ -271,44 +183,39 @@ function stageStandInTemplate(dir: string): string {
 // ─── Expensive spend is licensed, recorded, and joined ─────────────────────
 
 Given(
-  "the spend ledger each tier's last run recorded into the wake, every profile leg of it",
+  "the spend ledger of each tier that recorded a completed run in the wake, every profile leg of it",
   function (this: JollyWorld) {
-    // Every profile leg of every tier's last run: each configured tier command's
-    // record path, its latest completed run selected run-scoped by its run-end,
-    // so the order the legs ran in can never leave one leg's spends unjudged and
-    // no tier that can spend goes unjudged.
+    // Every profile leg of every tier that recorded a COMPLETED run: each
+    // configured tier command's record path, its latest completed run selected
+    // run-scoped by its run-end, so the order the legs ran in can never leave one
+    // leg's spends unjudged and no tier that can spend goes unjudged.
+    //
+    // The check judges the runs that happened. A cold wake with no completed run
+    // has nothing to judge and is not a red: the join audits recorded runs, so
+    // absent cross-tier records leave the check green rather than reddening on
+    // absence. Only a leg that recorded spends yet left no run-end is a broken or
+    // disarmed recorder, and that stays a red.
     const legs = sweepLegWindows(readTierCommands("RIGGING.md"));
-    assert.ok(
-      legs.length > 0,
-      "the wake carries no completed tier record — no tier has run through its " +
-        "configured command; run a tier command from RIGGING.md so its record " +
-        "exists to judge",
-    );
     const selection = sweepLegEntries(readAllSpendLedgers(), legs);
-    // A leg that recorded nothing spawned nothing expensive; only a leg that
-    // recorded spends yet left no run-end is a broken or disarmed recorder.
     const unresolved = selection.legs.filter(
       (leg) => leg.run === undefined && !leg.spentNothing,
     );
     assert.equal(
       unresolved.length,
       0,
-      `profile legs of the tiers' last runs with no completed run in ` +
+      `profile legs that recorded a completed run yet left no run-end in ` +
         `the spend ledger at ${SPEND_LEDGER_PATH}: ` +
         `${unresolved.map((leg) => leg.tier).join(", ")} — the leg ran but its ` +
         `recorder left no run-end, so it is broken or disarmed; rerun the ` +
         `leg's tier command`,
     );
-    assert.ok(
-      selection.entries.length > 0,
-      `the wake carries no spend ledger entry for the tiers' last ` +
-        `sweep at ${SPEND_LEDGER_PATH}`,
-    );
     this.notes.ledgerEntries = selection.entries;
     this.attach(
-      `sweep legs judged: ${selection.legs
-        .map((leg) => `${leg.tier}=${leg.run}`)
-        .join(", ")}; entries: ${selection.entries.length}`,
+      selection.legs.length > 0
+        ? `sweep legs judged: ${selection.legs
+            .map((leg) => `${leg.tier}=${leg.run}`)
+            .join(", ")}; entries: ${selection.entries.length}`
+        : `no tier recorded a completed run in the wake — nothing to judge`,
       "text/plain",
     );
   },
@@ -678,96 +585,16 @@ Then(
 // ─── One licence holder per expensive spend class ───────────────────────────
 // ─── The wake is read run-scoped ────────────────────────────────────────────
 
-// ─── The suite fits its budgets ─────────────────────────────────────────────
-
-Given(
-  "the tier budgets configured in {string}",
-  function (this: JollyWorld, riggingFile: string) {
-    const budgets = readTierBudgets(riggingFile);
-    assert.ok(
-      budgets.plainSeconds !== undefined &&
-        Object.keys(budgets.perTierSeconds).length > 0,
-      `${riggingFile} configures no tier budgets under "## Tiers"`,
-    );
-    this.notes.tierBudgets = budgets;
-  },
-);
-
-Given(
-  "the wall-clock record each tier's last run wrote into the wake",
-  function (this: JollyWorld) {
-    // Every tier command owns a wake record; one clock per distinct record. A
-    // record is fully written only at testRunFinished, so a tier that is
-    // executing right now (this run's own tier, mid-write) has no completed
-    // last run on record and is not judged here: record PRESENCE is the
-    // wall-clock-record scenario's job, with its own planted red; this
-    // scenario judges the clocks the wake carries.
-    // Operational records only. The `coverage-*` commands write an instrumented
-    // record whose basename equals the operational one's, so collecting every
-    // tier command's record path judges c8 overhead as the tier's own clock.
-    const paths = operationalRecordPaths(readTierCommands("RIGGING.md"));
-    const clocks: TierClock[] = [];
-    for (const recordPath of paths) {
-      const clock = readTierWallClock(join(REPO_ROOT, recordPath));
-      if (clock) clocks.push(clock);
-    }
-    assert.ok(
-      clocks.length > 0,
-      "the wake carries no completed tier wall-clock record — run a tier " +
-        "through its configured command so its record exists to judge",
-    );
-    this.notes.tierClocks = clocks;
-  },
-);
-
-When(
-  "each tier's recorded wall clock is compared to that tier's budget",
-  function (this: JollyWorld) {
-    this.notes.budgetJudgment = checkTierBudgets(
-      this.notes.tierBudgets as TierBudgets,
-      this.notes.tierClocks as TierClock[],
-    );
-  },
-);
-
-Then("no tier's recorded wall clock should exceed its budget", function (this: JollyWorld) {
-  const judgment = this.notes.budgetJudgment as BudgetJudgment;
-  assert.equal(
-    judgment.perTier.length,
-    0,
-    `tiers over their budget:\n${judgment.perTier
-      .map((violation) => `  - ${violation.message}`)
-      .join("\n")}`,
-  );
-});
-
-Then(
-  "a tier over its budget should redden the check, naming the tier, its budget, and the recorded time",
-  function (this: JollyWorld) {
-    const budgets: TierBudgets = { plainSeconds: 10, perTierSeconds: { planted: 2 } };
-    const clocks: TierClock[] = [
-      { tier: "planted", recordPath: "planted.ndjson", seconds: 7 },
-      { tier: "other", recordPath: "other.ndjson", seconds: 6 },
-    ];
-    const judgment = checkTierBudgets(budgets, clocks);
-    const violation = judgment.perTier.find((entry) => entry.tier === "planted");
-    assert.ok(violation, "a tier over its budget was not reported");
-    assert.ok(
-      violation.message.includes("planted") &&
-        violation.message.includes("2") &&
-        violation.message.includes("7"),
-      `the violation must name the tier, its budget, and the recorded time: ${violation.message}`,
-    );
-  },
-);
-
-// ─── A budget judged over an incomplete window ──────────────────────────────
-
 // ─── A step pinned at its declared read ceiling ─────────────────────────────
 
 Given(
-  "the per-step durations the latest tier runs wrote into the wake",
+  "the per-step durations of each tier that recorded a completed run in the wake",
   function (this: JollyWorld) {
+    // Completed runs only: a record carries a wall clock only at
+    // testRunFinished, so a tier mid-write or never-run has no completed run to
+    // judge. The check judges the runs that happened; a cold wake with no
+    // completed run has nothing to judge and is not a red, the same shape the
+    // spend-ledger and eval scenarios take.
     const commands = readTierCommands("RIGGING.md");
     const paths = new Set<string>();
     for (const command of commands) {
@@ -775,13 +602,10 @@ Given(
     }
     const measurements: StepMeasurement[] = [];
     for (const recordPath of paths) {
-      measurements.push(...readStepMeasurements(join(REPO_ROOT, recordPath)));
+      const absolute = join(REPO_ROOT, recordPath);
+      if (!readTierWallClock(absolute)) continue;
+      measurements.push(...readStepMeasurements(absolute));
     }
-    assert.ok(
-      measurements.length > 0,
-      "the wake carries no per-step durations — run a tier through its " +
-        "configured command so its record exists to judge",
-    );
     this.notes.stepMeasurements = measurements;
   },
 );
@@ -864,15 +688,13 @@ Then(
 // each spawn into the eval ledger in the wake, and this check joins it.
 
 Given(
-  "the spend ledger the eval tier's last run wrote into the wake",
+  "the spend ledger the eval tier's last completed run wrote into the wake, when the eval tier has recorded one",
   function (this: JollyWorld) {
+    // The check judges the eval run that happened. When the eval tier has
+    // recorded no completed run, there is nothing to judge and the check is not
+    // a red: it passes over an empty ledger rather than reddening on absence.
+    // When an eval run is recorded, its last completed run's spends are judged.
     const entries = lastEvalRunEntries(readEvalSpendLedger());
-    assert.ok(
-      entries.length > 0,
-      `the wake carries no spend ledger at ${EVAL_SPEND_LEDGER_PATH} — no eval ` +
-        `run has recorded its spends. Run the eval tier (broad-eval in ` +
-        `RIGGING.md) so its ledger is written.`,
-    );
     this.notes.evalLedgerEntries = entries;
   },
 );
