@@ -8,57 +8,39 @@ Binding behaviour lives in `.feature` specs and referenced `assets/**`. History 
 
 # DECK STATE
 
-**HEAD = `3aa5239`. Tree CLEAN. IN SYNC with origin/main (pushed).
-`@dk/jolly` **0.13.1** is the published version. `3aa5239` carries a real production fix
-(`runStartCore` remediation) that is pushed to main but **UNPUBLISHED** — dk ruled push-only, batch the
-0.13.2 publish with future product work. Homepage untouched. NO outbound pending.**
+**HEAD = `4d1c382`. Tree CLEAN. LOCAL-ONLY (unpushed; push = outbound, needs dk approval).
+`@dk/jolly` **0.13.1** published; **0.13.2 UNPUBLISHED** (runStartCore fix + this workflow). NO outbound done.**
 
-Commits this batch, all pushed: `dec62ee` (harbour follow-up), `ed947e7` (harbour: budget refit +
-capture refresh), `3aa5239` (economy simplification). Notes at `2d1ed2e` were the prior state.
+## Last work: publish-via-GitHub refit (harbour, closed 2026-10-04)
 
-## Last work: the economy-simplification voyage (this session, closed 07-24)
+dk rulings: tag-push `v*` trigger, NO gate (tag is the gate), npm trusted publishing (no NPM_TOKEN).
+- `.github/workflows/publish.yml`: tag `v*` -> npm ci + `npm publish --provenance` (build via prepublishOnly;
+  no registry-url — setup-node's `_authToken` line breaks the OIDC exchange without NODE_AUTH_TOKEN).
+- RIGGING `## Outbound` npm ship line: `npm version patch` + push main + push `v<version>` tag.
+- **OPERATOR PREREQUISITE: npmjs.com trusted-publisher binding for `@dk/jolly`** (repo `dmytri/jolly`,
+  workflow `publish.yml`). Until done, the first workflow publish 403s.
+- budget-* RIGGING values REMOVED; **plain `budget` KEPT — live reader** (reclamation age gate,
+  `fullRegressionBudgetMs` -> cloud.ts/provision.ts/features 026/030). Earlier "vestigial" framing wrong.
+- Custody `4d1c382`; evidence chain rerun fresh (planks 379, step-usage 0 orphans, typecheck, gplint green).
+- Dispatch deviation: no `shipshape:shipwright`/`shipshape:boatswain` agent types in this runtime's registry
+  (task spawn rejected: "Unknown agent"); dispatched generic `task` subagents ordered to load the role skill.
 
-Began as an "economy-check rework" and, after dk's cruft review, became a net simplification:
-**verification-economy went from 7 checks to 5, −391 lines** (110 added, 501 removed). Custody `3aa5239`,
-`@logic` sweep 107/107 green (399.8s < 500 budget).
+# OUTSTANDING for the next cycle
 
-- **REMOVED (dk cruft rulings):**
-  - **The OOM-reds check + all its machinery.** dk ruled 07-24: *"an OOM is a VM failure, don't try to
-    handle it, let it fail."* If the box OOMs, the run dies on its own; no scenario scans dmesg/pressure
-    records for OOM kills anymore. **This SUPERSEDES the old "keep the OOM-reds check" kept-against-audit
-    note — do not re-add the check.** The sandbox `@pipeline` genuinely DOES OOM this 7.9GB box under
-    contention (our own vercel/pnpm build, dmesg-confirmed pid 3471926 at 20GB vm); dk ruled we do NOT
-    memory-fix it — let it fail and retry when less contended (the 07-24 re-record succeeded clean on a
-    quiet box, 13m24s, 3/3).
-  - **The wall-clock/tier-budget check ENTIRELY**, including the rolling-baseline history mechanism this
-    same session had briefly built (a `coverage/weather/history/` append + median + tolerance). dk ruled
-    it overreach: a wall-clock ceiling on a real-cloud tier fights intrinsic variance, and Shipwright's
-    harbour duration audit already reviews slowdowns with judgment. **The RIGGING `budget`/`budget-*`
-    values are now VESTIGIAL — no check reads them.** Harbour cleanup candidate for Shipwright.
-- **KEPT (5 checks), all now COMPLETION-GATED for a cold wake** (judge only tiers that recorded a
-  completed run; an empty/cold wake passes, never false-reds): ambient-setup-once, spend-ledger (the
-  load-bearing licence check), read-ceiling, eval-endpoints (the eval-saga guard), eval-captures.
-- **pressure.ts:** OOM/pressure-event parts removed; `deriveWorkerCount`/`CONFIGURED_PARALLELISM`
-  worker-count derivation KEPT (live, used by cucumber.js + wake-run-scope.ts). Do not touch.
-- **002 store-readiness stand-in:** the "store never reachable" negative path now resolves a
-  namespaced-unreachable `*.saleor.cloud` stand-in (`@exceptional-double`) instead of provisioning a full
-  real store (~57s saved; the shared-store BeforeAll setup dominates the tier, so the saving is modest).
-- **Real production fix (ships in 0.13.2 when published):** `runStartCore`'s resolved-endpoint block
-  path now emits the honest "store may still be starting up, re-run `jolly start`" remediation instead of
-  missing it. Surfaced by the stand-in rewrite. Crew fixed it, two verbatim `@planks`.
-
-## OUTSTANDING for the next cycle
-
-- **0.13.2 is unpublished** (dk push-only). A future publish ships the `runStartCore` remediation fix.
-- **Vestigial RIGGING `budget`/`budget-*` values** — no check reads them after the wall-clock removal.
-  Shipwright removes at next harbour.
-- **Harbour report-only findings, deferred to next harbour coverage triage:**
-  - The `mode: "double"` loopback-provisioning branch in `002-…steps.ts` may be behaviour-stale (the only
-    path reaching the `configuredStoreName` seam; no current Given sets that mode). Pattern-join can't see
-    it.
-  - Economy cost outliers NOT acted on (report-only): the sandbox Vercel device-auth cluster (~343s,
-    ~27% of the tier), logic `006 package-name` 16.2s (8× peers), the dead-artifact check's 7.3s
-    full-suite `step-usage` dry-run (harbour-cadence candidate).
+- **0.13.2 ships via the workflow**: AFTER dk does the npmjs.com binding: `npm version patch` (-> 0.13.2),
+  push main, push tag `v0.13.2`. Verify per RIGGING (`npm view @dk/jolly version`, `npx @dk/jolly --help`).
+- **PRE-EXISTING RED standing** (unrelated to refit): eval golden captures dead
+  (verification-economy "Every endpoint the eval captures record still serves" reds; store day-boundary death).
+  Remedy = ONE sandbox @pipeline re-record (~13min, broad-sandbox-serial) at the next full harbour pivot.
+  Likely reds @eval until re-recorded. FIRST agenda item next harbour.
+- **Harbour full regression DEFERRED** to next full harbour pivot (dk ruled 35min unacceptable 2026-10-04).
+- `mode:"double"` branch in 002-…steps.ts ruled DEAD support (no writer sets the mode; cold.harness! nothing
+  creates; startColdStoreCloudApi imported-never-called) — QM custody cleanup at next QM dispatch.
+- `npm outdated`: 7 behind, report-only (pi-coding-agent 0.81.1->1.0.2 is a MAJOR; proof = next tier run).
+- Economy outliers all report-only with reasons (device-auth = real platform latency; 006 pack+install
+  amortization is a QM harness edit, not taken; dead-artifact 7.3s freshness is the point).
+- **ENOSPC recurring**: root fs hits 100% under npm cache + neighbour agents; reclaim npm cache/~/.npm/_npx
+  when it bites. /tmp/jolly-cannon-fodder-pkg-cache 560M is age-gated, leave.
 
 ## Fragilities — carry, do not "fix" blindly
 
