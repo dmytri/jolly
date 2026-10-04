@@ -1,0 +1,26 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      # No registry-url: with it, setup-node writes an `_authToken` line that
+      # expands empty without NODE_AUTH_TOKEN and npm skips the OIDC exchange
+      # (npmjs docs issue npm/documentation#1960). The default registry is
+      # registry.npmjs.org; id-token: write provides the OIDC credentials.
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - run: npm ci
+      # Build rides the package's prepublishOnly script (esbuild -> dist/index.js).
+      - run: npm publish --provenance
