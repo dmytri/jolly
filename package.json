@@ -39,18 +39,18 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@cucumber/cucumber": "^13.2.0",
-    "@earendil-works/pi-coding-agent": "^0.81.1",
-    "@types/node": "^26.1.1",
+    "@cucumber/cucumber": "^13.3.0",
+    "@earendil-works/pi-coding-agent": "^1.0.4",
+    "@types/node": "^26.6.4",
     "c8": "^12.0.0",
-    "esbuild": "^0.28.1",
+    "esbuild": "^0.28.2",
     "ts-morph": "^28.0.0",
     "typescript": "^7.0.2"
   },
   "dependencies": {
     "@bomb.sh/args": "^0.3.1",
-    "@bomb.sh/tab": "^0.0.21",
-    "@clack/prompts": "^1.7.0",
-    "yaml": "^2.9.0"
+    "@bomb.sh/tab": "^0.0.22",
+    "@clack/prompts": "^1.8.1",
+    "yaml": "^2.9.1"
   }
 }

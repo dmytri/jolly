@@ -8,9 +8,9 @@ Binding behaviour lives in `.feature` specs and referenced `assets/**`. History 
 
 # DECK STATE
 
-**HEAD = `a05e159`. Tree CLEAN. PUSHED. Vercel relinked under the correct account (dmytri,
-team_LW0…, project `prj_6Mt…` homepage — confirmed via domains ls: this scope OWNS jolly.cool).
-`@dk/jolly` 0.13.1 published; **0.13.2 queue: dk npmjs.com binding -> npm version patch -> tag -> Actions publish -> verify.** Vercel-fitting-out trap: dk-8529 (hobby, test11-d14f) is the WRONG account, has hostname collision, 0 domains; dmytri is correct. homepage ship now works from this box; homepage content itself owes nothing (verified live==source).**
+**HEAD will move; see commits. Tree CLEAN. PUSHED. RELEASED: `@dk/jolly` 0.13.2 SHIPPED via GitHub Actions (run 37378666297, `+ @dk/jolly@0.13.2`, provenance log-index 3095769529, registry time.modified 2026-10-05T21:54:04Z; `npx @dk/jolly@0.13.2 --help` verified from registry on a clean tmp install). First publish attempt 403ed (E422: package.json `repository.url` empty vs provenance repo) — fixed by adding `repository` block; re-tag `v0.13.2` at `dfae118`. Trusted-publisher binding works; ship line in RIGGING `## Outbound` proven end-to-end.**
+Vercel relinked under correct account (dmytri/team_LW0…) — homepage ships work from this box; content owes nothing. Vercel-fitting-out trap: dk-8529 is the WRONG account (hobby, 0 domains); dmytri is correct.
+2026-10-05 harbour: deps upgraded 7→latest per policy (pi-coding-agent 0.81.1→1.0.4 MAJOR, proof = this harbour's tier runs; RIGGING provenance updated). Full-tier regression + eval re-record in flight.
 
 ## Last work: publish-via-GitHub refit (harbour, closed 2026-10-04)
 
