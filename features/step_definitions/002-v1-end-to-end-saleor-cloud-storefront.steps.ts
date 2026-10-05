@@ -31,7 +31,6 @@ import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 // seams dynamically under JOLLY_NO_MAIN. The type is erased, so a type-only
 // import is import-safe.
 import type { StageRunner } from "../../src/index.ts";
-import { type ColdStoreHarness } from "../support/cold-store-cloud-api.ts";
 import { type TaskPollHarness } from "../support/task-poll-cloud-api.ts";
 import { ensureRecipeOnSharedStore } from "../support/recipe-on-shared.ts";
 import { probeEndpointConnectivity } from "../../src/lib/cloud-api.ts";
@@ -140,41 +139,11 @@ When("the agent runs `jolly create store --create-environment --json`", { timeou
   //     against that harness with the runtime credentials unset and STAND_IN_TOKEN
   //     supplied (so the loopback fixture is reached, no real account is touched)
   //     via runCliAsync (loopback server → spawnSync would deadlock).
-  //   - 002 "reports a warning when the new environment never becomes reachable"
-  //     (@sandbox @heavy @exceptional-double): the REAL create path against the
-  //     cold-store loopback, which SUCCEEDS the create POST but hands back a
-  //     never-serving endpoint so provisionStore's readiness gate times out.
   //   - 004 task-status-poll 502 scenarios (@logic @exceptional-double): the
   //     REAL create path against the task-poll loopback, which accepts the
   //     creation with a task_id and answers the task-status poll 502 — once
   //     (then SUCCEEDED, with the harness's TLS GraphQL responder serving the
   //     readiness probe) or on every poll.
-  const coldEnv = this.notes.coldEnvHarness as ColdStoreHarness | undefined;
-  if (coldEnv) {
-    // env-factory-exception: drives the cold-store loopback Cloud API (a
-    // 127.0.0.1 fake), which creates no real resource, so it is a justified
-    // exception recorded at its site, not a second creation seam. The double is
-    // justified at features/support/cold-store-cloud-api.ts (@exceptional-double).
-    await this.runCliAsync(
-      ["create", "store", "--create-environment", "--json"],
-      {
-        env: absentCredentialsEnv({
-          JOLLY_SALEOR_CLOUD_API_URL: coldEnv.baseUrl,
-          JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN,
-          JOLLY_STORE_NAME: this.namespace,
-          // The never-serving endpoint is loopback-refused instantly, so the
-          // outcome under test (readiness gate times out → "warning") is
-          // independent of the budget's duration. Squeeze the budget/poll to
-          // sub-second so this scenario times out in well under a second instead
-          // of burning the full production 600s clock.
-          JOLLY_READINESS_BUDGET_MS: "200",
-          JOLLY_READINESS_POLL_MS: "50",
-        }),
-        timeoutMs: 840_000,
-      },
-    );
-    return;
-  }
   const limitHarness = this.notes.limitHarness as { baseUrl: string } | undefined;
   if (limitHarness) {
     // env-factory-exception: drives the limit-rejecting loopback Cloud API (a

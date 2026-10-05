@@ -65,8 +65,12 @@ const EMOJI =
 function runOnTerminal(world: JollyWorld, argv: string[]): boolean {
   if (!ptyAvailable()) return false;
   const env: Record<string, string> = {};
+  // NO_COLOR is the product's own opt-out contract (Rule: colour when
+  // interactive, NO_COLOR unset), but an AMBIENT NO_COLOR here is machinery
+  // noise from the harness's own shell, not scenario input — this runner
+  // exists to observe a colour-rendering interactive terminal, so strip it.
   for (const [k, v] of Object.entries({ ...process.env, ...absentCredentialsEnv() })) {
-    if (v !== undefined) env[k] = v;
+    if (v !== undefined && k !== "NO_COLOR") env[k] = v;
   }
   if (!env.TERM) env.TERM = "xterm-256color";
   const run = runUnderPty({
