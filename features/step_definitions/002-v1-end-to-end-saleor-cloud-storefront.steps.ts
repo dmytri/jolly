@@ -31,7 +31,7 @@ import { absentCredentialsEnv, STAND_IN_TOKEN } from "../support/creds-env.ts";
 // seams dynamically under JOLLY_NO_MAIN. The type is erased, so a type-only
 // import is import-safe.
 import type { StageRunner } from "../../src/index.ts";
-import { startColdStoreCloudApi, type ColdStoreHarness } from "../support/cold-store-cloud-api.ts";
+import { type ColdStoreHarness } from "../support/cold-store-cloud-api.ts";
 import { type TaskPollHarness } from "../support/task-poll-cloud-api.ts";
 import { ensureRecipeOnSharedStore } from "../support/recipe-on-shared.ts";
 import { probeEndpointConnectivity } from "../../src/lib/cloud-api.ts";
@@ -1419,8 +1419,7 @@ Then(
 // ═══════════════════════════════════════════════════════════════════════════
 
 interface ColdStoreNotes {
-  mode: "double" | "resolved-cold" | "resolved-unreachable";
-  harness?: ColdStoreHarness;
+  mode: "resolved-cold" | "resolved-unreachable";
   /** resolved-cold / resolved-unreachable: the resolved store's endpoint. */
   endpoint?: string;
   /** resolved-cold: the cold-window shim's observation ledger (ndjson). */
@@ -1542,31 +1541,6 @@ When("the store stage runs", { timeout: 900_000 }, async function (this: JollyWo
   mkdirSync(join(storefront, "node_modules"), { recursive: true });
   writeFileSync(join(storefront, "package.json"), JSON.stringify({ name: "paper", version: "0.0.0" }));
   const vercelXdg = isolatedVercelXdg(this);
-  if (cold?.mode === "double") {
-    // runCliAsync (not runCli): the cold-store Cloud API is an in-process server
-    // the CLI must reach during provisioning; spawnSync would block this worker's
-    // event loop and deadlock it (same reason feature 012's loopback scenario
-    // uses runCliAsync). Loopback provisioning creates no real Cloud resource, so
-    // no Cloud teardown; the harness registers its own server shutdown.
-    await this.runCliAsync(["start", "--yes", "--json"], {
-      env: absentCredentialsEnv({
-        JOLLY_SALEOR_CLOUD_API_URL: cold.harness!.baseUrl,
-        JOLLY_SALEOR_CLOUD_TOKEN: STAND_IN_TOKEN,
-        JOLLY_STORE_NAME: this.namespace,
-        JOLLY_VERCEL_PROJECT: workerNamespace(),
-        // The budget the scenario declares. The never-serving endpoint is
-        // loopback-refused instantly, so the outcome under test (readiness gate
-        // times out, store stage "blocked") is independent of the budget's
-        // duration; the scenario picks a budget short enough to prove the
-        // blocked path without burning the production 600s clock.
-        JOLLY_READINESS_BUDGET_MS: String(this.notes.readinessBudgetMs ?? 200),
-        JOLLY_READINESS_POLL_MS: "50",
-        ...vercelXdg,
-      }),
-      timeoutMs: 840_000,
-    });
-    return;
-  }
   if (cold?.mode === "resolved-cold") {
     // The resolved store is LIVE (the shared store): the CLI runs with the
     // ambient real credentials exactly as a configured project would, and the
