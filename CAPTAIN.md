@@ -8,8 +8,8 @@ Binding behaviour lives in `.feature` specs and referenced `assets/**`. History 
 
 # DECK STATE
 
-**HEAD = `4d1c382`. Tree CLEAN. LOCAL-ONLY (unpushed; push = outbound, needs dk approval).
-`@dk/jolly` **0.13.1** published; **0.13.2 UNPUBLISHED** (runStartCore fix + this workflow). NO outbound done.**
+**HEAD = `a86d1b4`. Tree CLEAN. PUSHED (origin/main == a86d1b4, verified via ls-remote 2026-10-04).
+`@dk/jolly` **0.13.1** published; **0.13.2 UNPUBLISHED**. NO outbound pending except the release itself.**
 
 ## Last work: publish-via-GitHub refit (harbour, closed 2026-10-04)
 
