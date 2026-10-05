@@ -8,8 +8,9 @@ Binding behaviour lives in `.feature` specs and referenced `assets/**`. History 
 
 # DECK STATE
 
-**HEAD = `a86d1b4`. Tree CLEAN. PUSHED (origin/main == a86d1b4, verified via ls-remote 2026-10-04).
-`@dk/jolly` **0.13.1** published; **0.13.2 UNPUBLISHED**. NO outbound pending except the release itself.**
+**HEAD = `a05e159`. Tree CLEAN. PUSHED. Vercel relinked under the correct account (dmytri,
+team_LW0…, project `prj_6Mt…` homepage — confirmed via domains ls: this scope OWNS jolly.cool).
+`@dk/jolly` 0.13.1 published; **0.13.2 queue: dk npmjs.com binding -> npm version patch -> tag -> Actions publish -> verify.** Vercel-fitting-out trap: dk-8529 (hobby, test11-d14f) is the WRONG account, has hostname collision, 0 domains; dmytri is correct. homepage ship now works from this box; homepage content itself owes nothing (verified live==source).**
 
 ## Last work: publish-via-GitHub refit (harbour, closed 2026-10-04)
 
@@ -41,6 +42,7 @@ dk rulings: tag-push `v*` trigger, NO gate (tag is the gate), npm trusted publis
   amortization is a QM harness edit, not taken; dead-artifact 7.3s freshness is the point).
 - **ENOSPC recurring**: root fs hits 100% under npm cache + neighbour agents; reclaim npm cache/~/.npm/_npx
   when it bites. /tmp/jolly-cannon-fodder-pkg-cache 560M is age-gated, leave.
+- Vercel device-auth: 3×10-minute code windows lapsed unapproved pre-dk login [dk: wrong account first, wrong-account session cleaned with .vercel/.env.local]. npm/manual-push outbound fine since.
 
 ## Fragilities — carry, do not "fix" blindly
 
