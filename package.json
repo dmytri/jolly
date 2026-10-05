@@ -2,6 +2,10 @@
   "name": "@dk/jolly",
   "version": "0.13.2",
   "description": "Jolly sets up a Saleor Cloud storefront with Vercel and Stripe from your terminal or coding agent.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dmytri/jolly"
+  },
   "type": "module",
   "bin": {
     "jolly": "bin/jolly"
