@@ -83,8 +83,41 @@ export interface SpendEntry {
   spend: SpendKind;
   /** The resource class of a shared-provisioning entry. */
   class?: string;
-  /** The intercepted argv, for observability. */
+  /** The intercepted argv, for observability — REDACTED: a secret-bearing
+   * flag's value never enters the ledger (see redactArgv). */
   argv?: string[];
+}
+
+/**
+ * Flag names whose following value (or `--flag=value` inline form) is a
+ * credential. A spend record exists to CLASSIFY the spend (which package,
+ * which subcommand), never to preserve secret values, so every write surface
+ * replaces the value with `<redacted>`.
+ */
+const SECRET_ARGV_FLAGS = ["--token", "--auth", "--api-key", "--password", "--secret"];
+
+/**
+ * An argv safe to record: both the space-separated (`--token <value>`) and
+ * inline (`--token=<value>`) credential forms are replaced with
+ * `<redacted>`. The flag NAME stays (classification needs presence, not
+ * value); only the value goes.
+ */
+export function redactArgv(argv: readonly string[]): string[] {
+  return argv.map((arg, index) => {
+    const eq = arg.indexOf("=");
+    const head = eq === -1 ? arg : arg.slice(0, eq);
+    if (SECRET_ARGV_FLAGS.includes(head)) {
+      return eq === -1 && SECRET_ARGV_FLAGS.includes(argv[index + 1] ?? "")
+        ? arg // next arg is itself a flag name, so this bare flag has no value
+        : eq === -1
+          ? arg // the value sits in the NEXT argv slot; redacted there
+          : `${head}=<redacted>`;
+    }
+    if (index > 0 && SECRET_ARGV_FLAGS.includes(argv[index - 1] ?? "")) {
+      return "<redacted>";
+    }
+    return arg;
+  });
 }
 
 /** The current attribution: the running scenario the arming hook exported. */
@@ -120,7 +153,7 @@ export function recordSpend(entry: {
     scenario: entry.scenario ?? currentSpendAttribution(),
     spend: entry.spend,
     ...(entry.class !== undefined ? { class: entry.class } : {}),
-    ...(entry.argv !== undefined ? { argv: entry.argv } : {}),
+    ...(entry.argv !== undefined ? { argv: redactArgv(entry.argv) } : {}),
   };
   mkdirSync(join(REPO_ROOT, "coverage", "weather"), { recursive: true });
   appendFileSync(SPEND_LEDGER_PATH, JSON.stringify(record) + "\n");
@@ -181,13 +214,23 @@ const GIT_SHIM = `#!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { delimiter, dirname } from "node:path";
+const SECRET_ARGV_FLAGS = ["--token", "--auth", "--api-key", "--password", "--secret"];
+const redactArgv = (argv) => argv.map((arg, index) => {
+  const eq = arg.indexOf("=");
+  const head = eq === -1 ? arg : arg.slice(0, eq);
+  if (SECRET_ARGV_FLAGS.includes(head)) {
+    return eq === -1 ? arg : head + "=<redacted>";
+  }
+  if (index > 0 && SECRET_ARGV_FLAGS.includes(argv[index - 1] ?? "")) return "<redacted>";
+  return arg;
+});
 const argv = process.argv.slice(2);
 const ownDir = dirname(process.argv[1]);
 const path = (process.env.PATH || "").split(delimiter).filter((d) => d !== ownDir).join(delimiter);
 const ledger = process.env.HARNESS_SPEND_LEDGER;
 if (ledger && process.env.HARNESS_SPEND_TIER === "sandbox" && argv[0] === "clone") {
   const rec = { run: process.env.HARNESS_RUN_ID || "", tier: "sandbox", at: Date.now(),
-    scenario: process.env.HARNESS_SPEND_SCENARIO || "(unattributed)", spend: "git-clone", argv };
+    scenario: process.env.HARNESS_SPEND_SCENARIO || "(unattributed)", spend: "git-clone", argv: redactArgv(argv) };
   try { appendFileSync(ledger, JSON.stringify(rec) + "\\n"); } catch {}
 }
 const r = spawnSync("git", argv, { stdio: "inherit", env: { ...process.env, PATH: path } });
@@ -197,9 +240,17 @@ process.exit(r.status == null ? 1 : r.status);
 const NPX_SHIM = `#!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
-import { delimiter, dirname } from "node:path";
+const SECRET_ARGV_FLAGS = ["--token", "--auth", "--api-key", "--password", "--secret"];
+const redactArgv = (argv) => argv.map((arg, index) => {
+  const eq = arg.indexOf("=");
+  const head = eq === -1 ? arg : arg.slice(0, eq);
+  if (SECRET_ARGV_FLAGS.includes(head)) {
+    return eq === -1 ? arg : head + "=<redacted>";
+  }
+  if (index > 0 && SECRET_ARGV_FLAGS.includes(argv[index - 1] ?? "")) return "<redacted>";
+  return arg;
+});
 const argv = process.argv.slice(2);
-const ownDir = dirname(process.argv[1]);
 const path = (process.env.PATH || "").split(delimiter).filter((d) => d !== ownDir).join(delimiter);
 let i = 0;
 while (i < argv.length && argv[i].startsWith("-")) i++;
@@ -212,7 +263,7 @@ else if ((pkg === "vercel" || pkg.startsWith("vercel@")) && rest.includes("deplo
 const ledger = process.env.HARNESS_SPEND_LEDGER;
 if (ledger && process.env.HARNESS_SPEND_TIER === "sandbox" && spend) {
   const rec = { run: process.env.HARNESS_RUN_ID || "", tier: "sandbox", at: Date.now(),
-    scenario: process.env.HARNESS_SPEND_SCENARIO || "(unattributed)", spend, argv };
+    scenario: process.env.HARNESS_SPEND_SCENARIO || "(unattributed)", spend, argv: redactArgv(argv) };
   try { appendFileSync(ledger, JSON.stringify(rec) + "\\n"); } catch {}
 }
 // Golden-capture observation (feature 025): record the real Vercel CLI's
@@ -230,7 +281,7 @@ if (obs && observable) {
     env: { ...process.env, PATH: path },
     maxBuffer: 64 * 1024 * 1024,
   });
-  const rec = { run: process.env.HARNESS_RUN_ID || "", argv,
+  const rec = { run: process.env.HARNESS_RUN_ID || "", argv: redactArgv(argv),
     exit: r.status == null ? 1 : r.status, stdout: r.stdout || "" };
   try { appendFileSync(obs, JSON.stringify(rec) + "\\n"); } catch {}
   if (r.stdout) process.stdout.write(r.stdout);
@@ -247,7 +298,7 @@ let runStartRecorded = false;
 // The marker carries the shim-source version, so a shim directory persisted in
 // the wake from an older source is regenerated rather than trusted: a stale
 // broken shim on the PATH fails every spawn it intercepts.
-const SHIM_SOURCE_VERSION = "3-vercel-obs";
+const SHIM_SOURCE_VERSION = "4-argv-redaction";
 
 function ensureSpendShims(): void {
   if (shimsReady) return;

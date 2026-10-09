@@ -5549,6 +5549,16 @@ export async function runStartCore(
   let storefrontPromise: Promise<StageOutcome> | undefined;
   let storefrontStartedAt: number | undefined;
   let storefrontFinishedAt: number | undefined;
+  // Whether the store stage ended BLOCKED (fresh provision or resolved
+  // endpoint) — every store-DEPENDENT stage must then stay "pending",
+  // unexecuted: the recipe/stock/stripe stages query the store's GraphQL, and
+  // the deploy stage ships a storefront pointed at it, so with the store
+  // unable to answer, their real toolchain spends cannot succeed this pass
+  // and the run honestly pauses them — the remediation already tells the
+  // human to re-run `jolly start`. The storefront stage is exempt:
+  // credential-independent preparation (clone + install) that completed on
+  // its own merits concurrently with the store stage.
+  let storeBlocked = false;
 
   // A store endpoint already configured (a prior `jolly create store` or earlier
   // run) means the store stage is already satisfied: no store would be created
@@ -5662,6 +5672,7 @@ export async function runStartCore(
           remediation: cliMessage("start.store.check.storeProvisioned.fail.remediation"),
         });
         status = "blocked";
+        storeBlocked = true;
       }
       stageRiskContext = {
         action: cliMessage("riskContext.action.skipStore"),
@@ -5679,7 +5690,7 @@ export async function runStartCore(
       // approval (emitting the riskContext, never self-approving). With --yes
       // it is pre-approved and would proceed (and fail at the network layer
       // under the unroutable logic-safe base — which is fine, just not a gate).
-      if (args.yes) {
+      if (args.yes && !storeBlocked) {
         // With --yes (pre-approved) and the gate unset, the high-risk stages
         // genuinely execute through their seam runner, each reported honestly
         // (`completed` only when the real work succeeded, never fabricated): the
@@ -5707,6 +5718,9 @@ export async function runStartCore(
           }
           const outcome = await runnerPromise;
           status = outcome.status;
+          if (planStage.stage === "store" && outcome.status === "blocked") {
+            storeBlocked = true;
+          }
           if (planStage.stage === "store") {
             storeData = outcome.data;
           } else if (planStage.stage === "deploy") {
@@ -5719,6 +5733,12 @@ export async function runStartCore(
         } else {
           status = "pending";
         }
+      } else if (storeBlocked) {
+        // A blocked store pauses every store-dependent stage: it is not
+        // awaiting approval (nothing to approve into — the store cannot
+        // answer), so it stays "pending", unexecuted, and never sets the
+        // approval gate.
+        status = "pending";
       } else {
         status = "awaiting-approval";
         gate = {
@@ -5759,7 +5779,7 @@ export async function runStartCore(
       if (storefrontStartedAt !== undefined) {
         stageStartedAt = storefrontStartedAt;
       }
-    } else if (planStage.stage === "stock" && !gate) {
+    } else if (planStage.stage === "stock" && !gate && !storeBlocked) {
       // The stock stage is the FIRST genuinely-executing `jolly start` stage
       // (decision 2026-06-14, MVP sequencing): @saleor/configurator cannot make
       // products buyable, so Jolly seeds real stock itself via Saleor GraphQL.
@@ -5770,7 +5790,7 @@ export async function runStartCore(
       // (with an explaining check) when there are no variants/warehouse yet or
       // the store is unreachable — never a fabricated completion.
       status = (await stageRunners["stock"](checks, args)).status;
-    } else if (planStage.stage === "stripe" && !gate) {
+    } else if (planStage.stage === "stripe" && !gate && !storeBlocked) {
       // The Stripe app-install stage is the SECOND genuinely-executing `jolly
       // start` stage (decision 2026-06-14, MVP sequencing): Jolly's own Saleor
       // GraphQL appInstall, authenticated with the Cloud staff token. It only

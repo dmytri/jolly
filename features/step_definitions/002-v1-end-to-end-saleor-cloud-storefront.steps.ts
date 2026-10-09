@@ -1655,6 +1655,33 @@ Then(
   },
 );
 
+Then(
+  "the `recipe`, `stock`, `deploy`, and `stripe` stages should stay \"pending\", unexecuted",
+  function (this: JollyWorld) {
+    // The store stage is the precondition every downstream stage reads (the
+    // recipe/stock/stripe stages query the store's GraphQL; deploy ships a
+    // storefront pointed at it). A blocked store therefore pauses them rather
+    // than spending real toolchain calls against a store that cannot answer —
+    // the run's own remediation says re-run `jolly start`, so nothing
+   // downstream can succeed this pass. The storefront stage stays out of this
+   // assertion: it is credential-independent preparation (clone + install),
+   // launched concurrently with the store stage, so it completes on its own
+   // merits whatever the store did.
+    for (const stageName of ["recipe", "stock", "deploy", "stripe"]) {
+      const stage = startStage(this, stageName);
+      assert.ok(
+        stage,
+        `the orchestrated stages must include the ${stageName} stage`,
+      );
+      assert.equal(
+        stage!.status,
+        "pending",
+        `the ${stageName} stage must stay pending behind a blocked store; got "${stage!.status}"`,
+      );
+    }
+  },
+);
+
 // ─── Scenario: Jolly start prepares the storefront concurrently with the Saleor
 //     Cloud stages (@sandbox @heavy) ─────────────────────────────────────────
 //

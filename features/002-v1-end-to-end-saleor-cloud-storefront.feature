@@ -35,6 +35,7 @@ Feature: V1 end-to-end Saleor Cloud storefront setup
     And `jolly start`'s store stage resolves a store whose Saleor GraphQL endpoint is a namespaced unreachable stand-in that never serves
     When the store stage runs
     Then the `store` stage status should be "blocked", not "completed"
+    And the `recipe`, `stock`, `deploy`, and `stripe` stages should stay "pending", unexecuted
     And the remediation should tell the human the store may still be starting up and to re-run `jolly start`
 
   @sandbox
