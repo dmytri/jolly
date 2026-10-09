@@ -102,7 +102,7 @@ const SECRET_ARGV_FLAGS = ["--token", "--auth", "--api-key", "--password", "--se
  * `<redacted>`. The flag NAME stays (classification needs presence, not
  * value); only the value goes.
  */
-export function redactArgv(argv: readonly string[]): string[] {
+function redactArgv(argv: readonly string[]): string[] {
   return argv.map((arg, index) => {
     const eq = arg.indexOf("=");
     const head = eq === -1 ? arg : arg.slice(0, eq);
@@ -240,6 +240,7 @@ process.exit(r.status == null ? 1 : r.status);
 const NPX_SHIM = `#!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
+import { delimiter, dirname } from "node:path";
 const SECRET_ARGV_FLAGS = ["--token", "--auth", "--api-key", "--password", "--secret"];
 const redactArgv = (argv) => argv.map((arg, index) => {
   const eq = arg.indexOf("=");
@@ -251,6 +252,7 @@ const redactArgv = (argv) => argv.map((arg, index) => {
   return arg;
 });
 const argv = process.argv.slice(2);
+const ownDir = dirname(process.argv[1]);
 const path = (process.env.PATH || "").split(delimiter).filter((d) => d !== ownDir).join(delimiter);
 let i = 0;
 while (i < argv.length && argv[i].startsWith("-")) i++;
@@ -712,7 +714,7 @@ export function unlicensedSpends(
               `toolchain CHAIN (${[...(elements.get(entry.scenario) ?? [])].join(", ")}); ` +
               `the element licence never extends to the chain`
             : `"${entry.scenario}" made the toolchain-chain spend ${entry.spend}` +
-              `${entry.argv ? ` (${entry.argv.join(" ")})` : ""} without a @pipeline ` +
+              `${entry.argv ? ` (${redactArgv(entry.argv).join(" ")})` : ""} without a @pipeline ` +
               `licence and outside the run's shared provisioning`,
         });
       }
